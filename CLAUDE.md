@@ -178,13 +178,20 @@ generated files when the lift inputs did not change.
   ::1, *.local, 10/8, 172.16/12, 192.168/16) there is no cache: reads go
   straight to HTTP. `?MC3_DISC_CACHE=1` / `=0` forces it. A predownload
   worker fetches the whole disc on the page's click only, 3 connections,
-  and stops when a game starts (BroadcastChannel 'mc3-disc'); a read with no
-  answer for 15 s is tried again and logged. In game, the disc thread
-  fills the streamed sound banks (audio/XStreams/*.xwb, 486 MiB; music
-  mx.xwb 364 MiB: a track change fetched on demand stalled the game) into
-  the cache in the background (2026-11-09, untested): 15 s after boot, one
-  block at a time, only after 300 ms without a game read on the network;
-  '[WEB] prefetch: ...' lines. Emscripten's own WASMFS fetch
+  and stops when a game starts (BroadcastChannel 'mc3-disc'); a read that
+  gets no data for 15 s (the game's own reads: 4 s; no progress, so a slow
+  link that keeps sending is never cut) is tried again and logged. In game,
+  the disc thread fills the cache in the background (2026-11-09,
+  untested): assets_x.dat_2 (free-roam car builds read it synchronously
+  under the guest lock: 0.2-1.5 s frozen cold), the streamed sound banks
+  (audio/XStreams/*.xwb, 486 MiB, mx.xwb first: a track change fetched on
+  demand stalled the game), flash/ smallest first (643 MiB: pause, garage,
+  rewards, menus, the showroom's per-car vs/ps/ms/ds_vp screens), the rest
+  of assets_x* (~2.2 GiB in all; budget 2560 MiB and the browser's
+  estimate); 15 s after boot, one block at a time, only after 300 ms
+  without a game read on the network; '[WEB] prefetch: ...' lines. A game
+  read that continues its file into a new block starts the next 2 blocks
+  (readahead, '[WEB] readahead: ...' once per file). Emscripten's own WASMFS fetch
   backend left stale data across chunks, hence our backend.
 - **Input:** SDL keyboard/Gamepad on the GL thread; a key tap is held at
   least 120 ms (a down+up in one rAF pump was lost by the menus).
