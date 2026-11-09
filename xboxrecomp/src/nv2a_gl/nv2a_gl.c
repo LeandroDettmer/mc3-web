@@ -3607,6 +3607,13 @@ static void gl_make_window(void *unused)
             return;
         }
         s_ctx = (SDL_GLContext)(intptr_t)c;
+        /* A lost context draws nothing again: say so in the log, which the
+         * page turns into a message over the picture (web/index.html). */
+        EM_ASM({
+            var cv = GL.currentContext && GL.currentContext.GLctx.canvas;
+            if (cv && cv.addEventListener)
+                cv.addEventListener('webglcontextlost', function () { err('[GL] WebGL context lost'); });
+        });
     }
 #else
     s_win = SDL_CreateWindow("NV2A", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
