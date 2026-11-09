@@ -18,6 +18,7 @@
  * keeps everything as it is.
  */
 #include <emscripten/em_asm.h>
+#include <emscripten/em_macros.h>
 #include <emscripten/wasmfs.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -92,6 +93,21 @@ static int mount_disc(const char *url)
     return n;
 }
 
+/* Set from the OPFS backend's thread when its root could not be opened
+ * (web/wasmfs_fetch.js, _wasmfs_opfs_init_root_directory). */
+static volatile int opfs_failed;
+EMSCRIPTEN_KEEPALIVE void mc3_web_opfs_failed(void) { opfs_failed = 1; }
+
+/* /opfs on the OPFS backend; -1 if its root cannot be opened. The root is
+ * opened on a probe mount first, so a refusal leaves /opfs free for memory. */
+static int mount_opfs(void)
+{
+    backend_t be = wasmfs_create_opfs_backend();
+    if (wasmfs_create_directory("/.opfs-probe", 0777, be) != 0 || opfs_failed)
+        return -1;
+    return wasmfs_create_directory(WEB_OPFS_DIR, 0777, be);
+}
+
 void mc3_web_fs_init(void)
 {
     const char *url = getenv("MC3_DISC_URL");
@@ -122,7 +138,7 @@ void mc3_web_fs_init(void)
      * navigator.storage, nor has Node.js. */
     if (!EM_ASM_INT({ return !!(typeof navigator == 'object' && navigator.storage
                                 && navigator.storage.getDirectory); })
-        || wasmfs_create_directory(WEB_OPFS_DIR, 0777, wasmfs_create_opfs_backend()) != 0) {
+        || mount_opfs() != 0) {
         fprintf(stderr, "[WEB] OPFS unavailable: saves last until the page closes\n");
         wasmfs_create_directory(WEB_OPFS_DIR, 0777, wasmfs_create_memory_backend());
     }

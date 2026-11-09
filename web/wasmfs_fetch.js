@@ -50,6 +50,26 @@
  * Any other URL (the file list, src/web_fs.c) is fetched whole, uncached.
  */
 addToLibrary({
+  // Emscripten's OPFS backend (src/lib/libwasmfs_opfs.js) opens its root with navigator.storage.getDirectory()
+  // and no catch: a refusal (WebKit's UnknownError under memory pressure, private browsing) was an unhandled
+  // rejection that killed its worker ('worker sent an error!') and left the mount waiting. Replaced: three tries,
+  // then '[WEB] opfs: getDirectory ...' and src/web_fs.c told (mc3_web_opfs_failed): saves go to memory, the game
+  // goes on. Every other OPFS call there already turns a failure into an errno.
+  _wasmfs_opfs_init_root_directory__deps: ['$wasmfsOPFSDirectoryHandles', '$wasmfsOPFSProxyFinish', 'mc3_web_opfs_failed'],
+  _wasmfs_opfs_init_root_directory__async: false,   // proxied to its own worker (PTHREADS), as the original
+  _wasmfs_opfs_init_root_directory: async (ctx) => {
+    for (let i = 1; wasmfsOPFSDirectoryHandles.allocated.length == 1; i++) {   // handle 0 is reserved: 1 is the root
+      try { wasmfsOPFSDirectoryHandles.allocated.push(await navigator.storage.getDirectory()); }
+      catch (e) {
+        if (i < 3) { await new Promise(r => setTimeout(r, 250 * i)); continue; }
+        err(`[WEB] opfs: getDirectory (saves root): ${e?.name || 'Error'}: ${e?.message || e}`);
+        _mc3_web_opfs_failed();
+        break;
+      }
+    }
+    wasmfsOPFSProxyFinish(ctx);
+  },
+
   _wasmfs_create_fetch_backend_js__deps: [
     '$wasmFS$backends',
     '_wasmfs_fetch_get_file_url',
@@ -62,7 +82,10 @@ addToLibrary({
     const env = k => withStackSave(() => { const p = _getenv(stringToUTF8OnStack(k)); return p ? UTF8ToString(p) : ''; });
     const E = { MC3_DISC_MEM_MB: env('MC3_DISC_MEM_MB'), MC3_PREFETCH: env('MC3_PREFETCH') };
     const MEM_BYTES = (Number(E.MC3_DISC_MEM_MB) || 48) << 20;   // the memory LRU (16 in the page's low-memory profile)
-    const OPEN_FILES = 128;         // cache files kept open (two sync handles each)
+    // Cache files kept open (two sync handles each): 16 on WebKit (iOS browsers, Safari) and in the low-memory
+    // profile, whose handle limits and memory are tighter; 128 elsewhere.
+    const ua = navigator.userAgent, webkit = /AppleWebKit/.test(ua) && !/Chrome\/|Chromium|Android/.test(ua);
+    const OPEN_FILES = webkit || MEM_BYTES < (48 << 20) ? 16 : 128;
     const mem = new Map();          // "<key>#<block>" -> Uint8Array, least recently used first
     let memBytes = 0;
     const inflight = new Map();     // the same, while being read
@@ -70,7 +93,7 @@ addToLibrary({
     const manifests = {};           // disc url -> Promise<Map path -> {p, s, m}> | null
     const signers = {};             // disc url -> its direct reads (C.signer), when it has a manifest
     const open = new Map();         // cache key -> Promise<cache file | null>, least recently used first
-    let cacheDir = null, cacheOn = null, warned = false;
+    let cacheDir = null, cacheOn = null, cacheOff = false, failures = 0;
     const BANKS = ['mx', 'RaceStarters', 'Engine_Revs', 'dx', 'City_Walla'].map(n => `audio/xstreams/${n.toLowerCase()}.xwb`);
     const PREFETCH_DELAY_MS = 15000, IDLE_MS = 300, PREFETCH_BUDGET_MB = 2560;
     const READAHEAD = 2, GAME_STALL_MS = 4000, PREFETCH_RUN = 16, SMALL = 2 * BLOCK;
@@ -118,13 +141,25 @@ addToLibrary({
       if (!d) return null;
       let p = open.get(fi.key);
       if (p) { open.delete(fi.key); open.set(fi.key, p); return p; }
-      p = C.open(d, fi.key, fi.size).catch(e => { err(`[WEB] disc cache: ${fi.key}: ${e}`); return null; });
+      p = C.open(d, fi.key, fi.size).catch(e => { opfsFail(e); return null; });
       open.set(fi.key, p);
       if (open.size > OPEN_FILES) {
         const [k, q] = open.entries().next().value;
         open.delete(k); q.then(C.close);
       }
       return p;
+    }
+    // An OPFS failure (a cache file's open, a block's write): logged with its call, '[WEB] opfs: <op> <file>:
+    // <error>' (the first few). WebKit's UnknownError (handle limits, memory pressure), a full disk, or 8 failures
+    // turn the cache off for the session: every open file is closed and reads go to the server only.
+    function opfsFail(e) {
+      if (cacheOff) return;
+      if (failures++ < 3) err(`[WEB] ${e?.message || e}`);   // C.open/C.put messages start 'opfs: <op> <file>'
+      if (e?.name !== 'UnknownError' && e?.name !== 'QuotaExceededError' && failures < 8) return;
+      cacheOff = true; cacheDir = Promise.resolve(null);
+      for (const q of open.values()) q.then(C.close);
+      open.clear();
+      err(`[WEB] disc cache off for this session (${e?.name || e}): the disc is read from the server`);
     }
 
     function remember(k, b) {
@@ -149,7 +184,7 @@ addToLibrary({
       finally { netReads--; lastNet = performance.now(); }
       if ((cf = await cacheFile(fi))) {
         try { C.put(cf, bi, b); }
-        catch (e) { if (!warned) { warned = true; err(`[WEB] disc cache: a block was not kept (${e})`); } }
+        catch (e) { opfsFail(e); }
       }
       return b;
     }
@@ -194,7 +229,7 @@ addToLibrary({
             const w = waits[j - bi];
             run.next = j + 1;
             if (game) remember(w.k, b);
-            puts.push(cacheFile(fi).then(c => { if (c && !c.have[j]) C.put(c, j, b); }).catch(e => { kept ??= e; }));
+            puts.push(cacheFile(fi).then(c => { if (c && !c.have[j]) C.put(c, j, b); }).catch(e => { kept ??= e; opfsFail(e); }));
             drop(w); w.res(b);
           },
         });
@@ -205,10 +240,7 @@ addToLibrary({
         for (const w of waits.slice(run.next - bi)) { drop(w); w.rej(new Error('dropped')); }
       }
       await Promise.all(puts);
-      if (kept) {
-        if (!game) throw kept;
-        if (!warned) { warned = true; err(`[WEB] disc cache: a block was not kept (${kept})`); }
-      }
+      if (kept && !game) throw kept;            // logged by opfsFail; the game's blocks came all the same
       return run.next - bi;
     }
     // The blocks lo..hi of fi nobody holds or fetches, one game request (fetchRun) per run of them at least `min`

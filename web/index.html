@@ -1105,6 +1105,10 @@
     [/\[WGPU\] device lost/, 'Graphics device lost', 'The game cannot draw any more. Reload the page; if it happens again, add ?RECOMP_GPU=webgl to the address.'],
     [/\[GL\] WebGL context lost/, 'Graphics context lost', 'The game cannot draw any more. Reload the page; close other tabs and apps (often memory).'],
     [/\[GL\] WebGL2 context on #canvas failed|\[GL\] (window|context):/, 'No graphics', 'This browser gave the game no WebGL 2 context.'],
+    // WebKit's DOMException UnknownError ("unknown transient reason (e.g. out of memory)") killing a game thread:
+    // an iPhone under memory pressure (2026-11-09: closing the other apps let the game run). Before 'Out of memory':
+    // its text matches that too. Our own '[WEB] opfs: ...' lines name it without being fatal.
+    [/worker sent an error!.*UnknownError/, 'Low on memory', 'The device is low on memory: close other apps and reload.'],
     [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
   ];
   function out(text) {

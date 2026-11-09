@@ -356,7 +356,7 @@ addToLibrary({
         m.getCompilationInfo().then((ci) => {
           for (var e of ci.messages) if (e.type === 'error')
             W.once('fxc' + name + e.message, 'WGSL $WGPU_FIXED.' + name + ':' + e.lineNum + ': ' + e.message);
-        });
+        }, () => {});                  // a refusal unhandled in this pthread would end the game ('worker sent an error!')
       }
       W.fmods.set(name, m);
       return m;

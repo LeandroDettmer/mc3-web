@@ -85,23 +85,35 @@ var MC3DiscCache = (() => {
     try { return await fh.createSyncAccessHandle({ mode: 'readwrite-unsafe' }); }
     catch (e) { if (e.name !== 'TypeError') throw e; return fh.createSyncAccessHandle(); }
   }
-  /** a cache file's handles and map {h, haveH, have}; the map made empty if it does not fit the file */
+  /** an OPFS failure named by its call, for the log: message 'opfs: <op> <file>: <error>', the error's own name kept */
+  const opfsErr = (op, f, e) => Object.assign(new Error(`opfs: ${op} ${f}: ${e?.name || 'Error'}: ${e?.message || e}`), { name: e?.name || 'Error', cause: e });
+  /** a cache file's handles and map {k, h, haveH, have}; the map made empty if it does not fit the file */
   async function open(d, k, size) {
-    const h = await syncHandle(await d.getFileHandle(k, { create: true }));
-    let haveH;
-    try { haveH = await syncHandle(await d.getFileHandle(k + '.have', { create: true })); }
-    catch (e) { h.close(); throw e; }
-    const have = new Uint8Array(blockCount(size));
-    if (haveH.getSize() === have.length) haveH.read(have, { at: 0 });
-    else { haveH.truncate(0); haveH.write(have, { at: 0 }); }
-    return { h, haveH, have };
+    let op = 'getFileHandle', f = k, h = null, haveH = null;
+    try {
+      const fh = await d.getFileHandle(k, { create: true });
+      op = 'createSyncAccessHandle'; h = await syncHandle(fh);
+      op = 'getFileHandle'; f = k + '.have';
+      const hh = await d.getFileHandle(f, { create: true });
+      op = 'createSyncAccessHandle'; haveH = await syncHandle(hh);
+      const have = new Uint8Array(blockCount(size));
+      op = 'read';
+      if (haveH.getSize() === have.length) haveH.read(have, { at: 0 });
+      else { op = 'write'; haveH.truncate(0); haveH.write(have, { at: 0 }); }
+      return { k, h, haveH, have };
+    } catch (e) {
+      try { h?.close(); haveH?.close(); } catch { /* closed */ }
+      throw opfsErr(op, f, e);
+    }
   }
   function close(cf) { if (cf) try { cf.h.close(); cf.haveH.close(); } catch { /* closed */ } }
   /** block bi is in the cache file now (throws if not: no room, say) */
   function put(cf, bi, b) {
-    const n = cf.h.write(b, { at: bi * BLOCK });
-    if (n !== b.length) throw new Error(`${n} of ${b.length} bytes written`);
-    cf.have[bi] = 1; cf.haveH.write(cf.have.subarray(bi, bi + 1), { at: bi });
+    let n;
+    try { n = cf.h.write(b, { at: bi * BLOCK }); } catch (e) { throw opfsErr('write', `${cf.k} block ${bi}`, e); }
+    if (n !== b.length) throw new Error(`opfs: write ${cf.k} block ${bi}: ${n} of ${b.length} bytes written`);
+    cf.have[bi] = 1;
+    try { cf.haveH.write(cf.have.subarray(bi, bi + 1), { at: bi }); } catch (e) { throw opfsErr('write', `${cf.k}.have`, e); }
   }
 
   // Direct reads (signer): a deploy's disc server (the Worker) may hand out presigned URLs straight into its bucket
