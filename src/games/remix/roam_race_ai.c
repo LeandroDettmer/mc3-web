@@ -42,11 +42,13 @@
  * MC3_ROAM_RACE=0: off; =2: Request(6) alone at the start (no Request(8),
  * if the career's pair misbehaves in the Arcade cruise). Log lines '[RACE]'. */
 
+#include <ctype.h>
 #include "input/xinput_xbox.h"
 
 #define RRA_NEXT_VA   0x0053F2E4u       /* the race setup to load next */
 #define RRA_SM_VA     0x00557ED0u       /* the state machine (request: vtable +4, sub_00020E40) */
-#define RRA_RADIUS    30.0f             /* m: a start point this near gets the prompt */
+#define RRA_TEXT      192               /* prompt box bytes (web/pre.js reads the same) */
+#define RRA_RADIUS   30.0f             /* m: a start point this near gets the prompt */
 #define RRA_SLOW      8.0f              /* m/s: slower than this to start */
 #define RRA_HOLD      1.5               /* s: the car held on its spot after the way back */
 #define RRA_WATCH     6.0               /* s: then watched for a fall through unstreamed ground */
@@ -56,18 +58,73 @@ void sub_00268E50(void);                        /* race setup copy, cdecl (dst, 
 void sub_0026B8E0(void);                        /* SetEvent, thiscall (city, event; -1 = the city's cruise), ret 8 */
 void sub_00020E40(void);                        /* state request (override in recomp_manual.c), thiscall (n), ret 4 */
 
-static int s_rra_race;                          /* our AI race is loading or running */
+/* The prompt: three lines joined by '\n' (title, details, action); in the action '[Q]' is a keycap
+ * (web/pre.js). */
+static void rra_text(char *out, size_t n, const roam_race *r, int slow)
+{
+    static const char *const kinds[RR_KINDS] = { "Sprint", "Circuit", "Unordered", "Autocross", "Track", "Frenzy" };
+    static const char *const skip[] = { "autox", "autocross", "sprint", "circuit", "cp", "ordered", "unordered",
+                                        "track", "frenzy", "race", "atlanta", "detroit", "tokyo", "sandiego", NULL };
+    static const char *const diff[] = { "easy", "medium", "hard", NULL };
+    const char *base = r->name, *p, *e;
+    char title[96] = "", det[64] = "", *t = title;
+    const char *level = NULL;
+    int first = 1, ntok = 0, k;
+    for (p = r->name; *p; p++)                  /* last part of 'autox\easy\sd_autox_easy_downtown' */
+        if (*p == '\\' || *p == '/')
+            base = p + 1;
+    for (p = base; *p; p = *e ? e + 1 : e) {    /* words between '_' */
+        size_t len;
+        e = strchr(p, '_');
+        e = e ? e : p + strlen(p);
+        len = (size_t)(e - p);
+        ntok++;
+        if (!len)
+            continue;
+        if (first && ntok == 1 && len <= 3 && strchr(base, '_') && strchr(strchr(base, '_') + 1, '_'))
+            continue;                           /* city prefix: sd, atl, det */
+        for (k = 0; diff[k]; k++)
+            if (strlen(diff[k]) == len && !strncasecmp(p, diff[k], len))
+                level = diff[k];
+        for (k = 0; skip[k] && !(strlen(skip[k]) == len && !strncasecmp(p, skip[k], len)); k++)
+            ;
+        if (skip[k])
+            continue;
+        for (k = 0; diff[k] && !(strlen(diff[k]) == len && !strncasecmp(p, diff[k], len)); k++)
+            ;
+        if (diff[k])
+            continue;
+        if (!first && t < title + sizeof title - 1)
+            *t++ = ' ';
+        for (k = 0; k < (int)len && t < title + sizeof title - 1; k++)
+            *t++ = (char)(k ? tolower((unsigned char)p[k]) : toupper((unsigned char)p[k]));
+        *t = 0;
+        first = 0;
+    }
+    if (!title[0])
+        snprintf(title, sizeof title, "%s", base);
+    if (level)
+        snprintf(det, sizeof det, "%c%s", toupper((unsigned char)level[0]), level + 1);
+    if (r->laps > 1)
+        snprintf(det + strlen(det), sizeof det - strlen(det), "%s%u laps", det[0] ? " \xC2\xB7 " : "", r->laps);
+    snprintf(det + strlen(det), sizeof det - strlen(det), "%s%u opponent%s", det[0] ? " \xC2\xB7 " : "", r->opponents,
+             r->opponents == 1 ? "" : "s");
+    snprintf(out, n, "%s \xC2\xB7 %s\n%s\n%s", r->kind < RR_KINDS ? kinds[r->kind] : "Race", title, det,
+             slow ? "Slow down to race" : "Press White [Q] to race");
+}
+
+static int s_rra_race;                         /* our AI race is loading or running */
 static int s_rra_back;                          /* the cruise load back: put the car back */
 static float s_rra_m[12];                       /* our car's matrix at the start */
 static uint32_t s_rra_time, s_rra_weather;      /* the cruise's (+4, +8) */
 static double s_rra_t0;                         /* the first cruise frame after the race (roam_now), 0 not yet */
 static int s_rra_tries;
-static char s_rra_name[32];
+static char s_rra_name[96];
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 /* Read by the page (web/pre.js): seq +1 per update, then the text (empty: none). */
-static struct { volatile int32_t seq; char text[96]; } s_rra_prompt;
+static struct { volatile int32_t seq; char text[RRA_TEXT]; } s_rra_prompt;
 EMSCRIPTEN_KEEPALIVE uintptr_t roam_prompt_box(void) { return (uintptr_t)&s_rra_prompt; }
 #endif
 
@@ -155,6 +212,12 @@ static void rra_state_request(uint32_t esp)
     }
     if (!s_rra_race || (n != 0x14u && n != 0x16u) || !online_ram(next))
         return;
+    if (!online_ram(cur) || MEM32(cur + 0x18u) == 0) {  /* a cruise is running: ours is not (stale flag) */
+        fprintf(stderr, "[RACE] request 0x%X in a cruise: to the menus as the game does (AI race flag cleared)\n",
+                (unsigned)n);
+        s_rra_race = 0;
+        return;
+    }
     a[0] = online_ram(cur) ? MEM32(cur) : MEM32(next);   /* the race's city */
     a[1] = 0xFFFFFFFFu;                         /* -1: the city's cruise event (sub_0026D9E0) */
     roam_call(sub_0026B8E0, next, (esp - 0x100u) & ~0xFu, 2, a);
@@ -171,6 +234,25 @@ static void rra_state_request(uint32_t esp)
             s_rra_name, (unsigned)n, (unsigned)MEM32(next), (unsigned)MEM32(next + 0x18u));
 }
 
+/* SetLabel (sub_00348D70, thiscall (item, column, text), esp at its return
+ * address), before the game's: in our AI race the pause and race-over
+ * menus' (builder sub_0016ADD0) "GE_EXIT_TO_MC3FE" item reads "Back to Free
+ * Roam". Its action 0x1C runs sub_001621E0(0): Request(0x16), which
+ * rra_state_request turns into the cruise. SetLabel copies the text, so it
+ * sits below the call's frame. */
+static void rra_label(uint32_t esp)
+{
+    static const char txt[] = "Back to Free Roam";
+    uint32_t cur = MEM32(ROAM_SETUP_VA), n, b, t, buf = (esp - 0x400u) & ~0xFu, i;
+    if (!s_online || !s_rra_race || !online_ram(cur) || MEM32(cur + 0x18u) == 0 || !str_table(&n, &b) ||
+        !(t = str_text(n, b, "GE_EXIT_TO_MC3FE")) || MEM32(esp + 0xCu) != t)
+        return;
+    for (i = 0; txt[i]; i++)
+        MEM16(buf + 2u * i) = (uint8_t)txt[i];
+    MEM16(buf + 2u * i) = 0;
+    MEM32(esp + 0xCu) = buf;
+}
+
 /* Each player's update (sub_002C1520), before roam_player: slot 0 only. */
 static void rra_player(uint32_t p)
 {
@@ -181,7 +263,7 @@ static void rra_player(uint32_t p)
     const roam_race *r;
     float x, y, z, v[3] = { 0 }, speed, d;
     int white;
-    char text[96];
+    char text[RRA_TEXT];
     if (!s_online || !rra_mode() || !online_ram(p) || MEM32(p + 0x5Cu) != 0 || !online_ram(setup) ||
         !online_ram(veh = MEM32(p + 0x14u)) || !online_ram(mtx = MEM32(veh + 0x1Cu)))
         return;
@@ -212,12 +294,6 @@ static void rra_player(uint32_t p)
     }
     white = xbox_InputGetState(0, &st) == 0 && st.Gamepad.bAnalogButtons[XBOX_BUTTON_WHITE] > XBOX_ANALOG_BUTTON_THRESHOLD;
     r = NULL;
-    if (!online_ram(cur) || MEM32(cur + 0x18u) == 0) {  /* a cruise is running: ours is not (stale flag) */
-        fprintf(stderr, "[RACE] request 0x%X in a cruise: to the menus as the game does (AI race flag cleared)\n",
-                (unsigned)n);
-        s_rra_race = 0;
-        return;
-    }
     if (!s_rra_race && MEM32(setup + 0x18u) == 0 && !MEM8(setup + 0x108u) && MEM32(0x0050F14Cu) == 0 &&
         remix_driving())
         r = roam_races_nearest(MEM32(setup), x, z, RRA_RADIUS, &d);
@@ -234,34 +310,8 @@ static void rra_player(uint32_t p)
         near_said = r;
         fprintf(stderr, "[RACE] near %s (%s, %u opponents), %.0f m\n", r->name, roam_races_kind_name(r->kind),
                 r->opponents, d);
-/* SetLabel (sub_00348D70, thiscall (item, column, text), esp at its return
- * address), before the game's: in our AI race the pause and race-over
- * menus' (builder sub_0016ADD0) "GE_EXIT_TO_MC3FE" item reads "Back to Free
- * Roam". Its action 0x1C runs sub_001621E0(0): Request(0x16), which
- * rra_state_request turns into the cruise. SetLabel copies the text, so it
- * sits below the call's frame. */
-static void rra_label(uint32_t esp)
-{
-    static const char txt[] = "Back to Free Roam";
-    uint32_t cur = MEM32(ROAM_SETUP_VA), n, b, t, buf = (esp - 0x400u) & ~0xFu, i;
-    if (!s_online || !s_rra_race || !online_ram(cur) || MEM32(cur + 0x18u) == 0 || !str_table(&n, &b) ||
-        !(t = str_text(n, b, "GE_EXIT_TO_MC3FE")) || MEM32(esp + 0xCu) != t)
-        return;
-    for (i = 0; txt[i]; i++)
-        MEM16(buf + 2u * i) = (uint8_t)txt[i];
-    MEM16(buf + 2u * i) = 0;
-    MEM32(esp + 0xCu) = buf;
-}
-
     }
-    if (speed > RRA_SLOW)
-        snprintf(text, sizeof text, "Race: %s - slow down to start", r->name);
-    else if (r->laps > 1)
-        snprintf(text, sizeof text, "Race: %s (%s, %u laps, %u opponents) - press White (Q) to start", r->name,
-                 roam_races_kind_name(r->kind), r->laps, r->opponents);
-    else
-        snprintf(text, sizeof text, "Race: %s (%s, %u opponents) - press White (Q) to start", r->name,
-                 roam_races_kind_name(r->kind), r->opponents);
+    rra_text(text, sizeof text, r, speed > RRA_SLOW);
     rra_prompt(text);
     if (white && !white_was && speed <= RRA_SLOW)
         rra_start(r, mtx, top);

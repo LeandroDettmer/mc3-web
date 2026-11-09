@@ -33,7 +33,7 @@ enum {                                  /* what the map shows; from RaceType + N
 };
 
 typedef struct roam_race {
-    char name[32];                      /* event name: what Arcade's setup puts at settings +0x68 */
+    char name[96];                     /* event name: what Arcade's setup puts at settings +0x68 */
     uint16_t index;                     /* its index in the city's list (what sub_0026B010 returns) */
     uint8_t city;                       /* index into the city table [0x557EE4] */
     uint8_t kind;                       /* RR_* */

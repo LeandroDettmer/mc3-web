@@ -129,11 +129,11 @@ Module['mc3TouchPad'] = function (words) {
 })();
 
 // Race prompt: near a race start point in free roam, src/games/remix/roam_race_ai.c publishes one line
-// (roam_prompt_box: seq, then 96 bytes of text, empty = none), e.g. "Race: <name> (...) - press White (Q) to
-// start"; shown at the bottom middle of the canvas while fresh (the game updates it every frame). Main thread only.
+// (roam_prompt_box: seq, then 192 bytes of UTF-8, empty = none): up to three lines joined by '\n' (title, details,
+// action; '[Q]' in the action is drawn as a keycap); shown at the bottom middle of the canvas while fresh (the game updates it every frame). Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
-  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null;
+  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, shown = null;
   if (!canvas) return;
   function frame(now) {
     requestAnimationFrame(frame);
@@ -142,15 +142,39 @@ Module['mc3TouchPad'] = function (words) {
       I32 = new Int32Array(HEAPU8.buffer);
       el = document.createElement('div');
       el.style.cssText = 'position:absolute;left:50%;bottom:14%;transform:translateX(-50%);pointer-events:none;' +
-        'z-index:1;padding:.35em .9em;border-radius:6px;background:rgba(0,0,0,.6);color:#fff;white-space:nowrap;' +
+        'z-index:1;box-sizing:border-box;max-width:calc(100% - 32px);padding:.5em 1em;border-radius:8px;' +
+        'background:rgba(0,0,0,.72);border:1px solid rgba(255,255,255,.25);box-shadow:0 2px 10px rgba(0,0,0,.6);' +
+        'color:#fff;text-align:center;text-shadow:0 1px 2px #000;overflow-wrap:anywhere;' +
         'font:700 clamp(12px,2.2vh,22px) "Arial Narrow","Roboto Condensed",Arial,sans-serif;display:none';
       canvas.parentNode.append(el);
     }
     var b = _roam_prompt_box(), s = I32[b >>> 2], text = '';
     if (s !== seq) { seq = s; seenAt = now; }
-    if (now - seenAt < 400)   // stale: paused, loading or gone
-      for (var c = 0; c < 95 && HEAPU8[b + 4 + c]; c++) text += String.fromCharCode(HEAPU8[b + 4 + c]);
-    if (el.textContent !== text) el.textContent = text;
+    if (now - seenAt < 400) {   // stale: paused, loading or gone
+      var e = b + 4, end = e + 192;   // RRA_TEXT bytes, NUL ended, UTF-8
+      while (e < end && HEAPU8[e]) e++;
+      text = new TextDecoder().decode(HEAPU8.slice(b + 4, e));
+    }
+    if (text !== shown) {
+      shown = text;
+      el.textContent = '';
+      text.split('\n').forEach(function (line, i) {
+        var d = document.createElement('div');
+        if (i === 0) d.style.cssText = 'font-size:1.2em;letter-spacing:.03em';
+        else if (i === 1) d.style.cssText = 'opacity:.85;font-size:.9em';
+        else d.style.cssText = 'margin-top:.3em;color:#ffd24a';
+        line.split(/(\[[^\]]+\])/).forEach(function (part) {   // [Q] = a keycap
+          if (/^\[.+\]$/.test(part)) {
+            var k = document.createElement('span');
+            k.textContent = part.slice(1, -1);
+            k.style.cssText = 'display:inline-block;min-width:1.4em;padding:0 .35em;margin:0 .1em;border-radius:4px;' +
+              'border:1px solid #fff;border-bottom-width:3px;background:#333;color:#fff;text-shadow:none';
+            d.append(k);
+          } else d.append(part);
+        });
+        if (text) el.append(d);
+      });
+    }
     el.style.display = text ? '' : 'none';
   }
   requestAnimationFrame(frame);
