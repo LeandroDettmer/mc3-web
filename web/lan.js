@@ -100,6 +100,8 @@ window.mc3Lan = function (name, lanUrl) {
     return true;
   };
   link.rename = function (n) { name = n; if (up()) hello(); };
+  // Subscribes to the players push again (the switch answers at once); the page calls it when it wants the list and has none.
+  link.askPlayers = function () { if (up()) ws.send(JSON.stringify({ t: 'players', sub: 1 })); };
   link.askRoam = function () { if (up()) ws.send(JSON.stringify({ t: 'roam' })); };
   link.onMsg = function (f) { msgFns.push(f); };   // every control message (rooms, signal: web/rtc.js)
   link.sendMsg = function (m) { if (m && m.t == 'rooms') sub = m.sub ? 1 : 0; if (up()) ws.send(JSON.stringify(m)); };

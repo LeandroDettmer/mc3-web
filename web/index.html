@@ -1488,7 +1488,12 @@
     const s = liveStats();
     playersFrom = from;
     if (s) playersList(s);
-    else { $('players-list').replaceChildren(); $('players-sum').textContent = lan?.state === 'online' ? 'This server does not list its players.' : 'Not connected to the server.'; }
+    else {
+      $('players-list').replaceChildren();
+      // online but no list yet: ask again; the push re-renders this open dialog (lanShow -> renderOnline)
+      if (lan?.state === 'online') { console.warn('[WEB] players: no list on the link, asking again'); lan.askPlayers?.(); }
+      $('players-sum').textContent = lan?.state === 'online' ? 'Loading players…' : 'Not connected to the server.';
+    }
     $('players-dlg').showModal();
     $('players-close').focus();
   }
