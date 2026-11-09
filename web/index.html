@@ -29,45 +29,66 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="MC3 web">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0d0d0d">
+<meta name="theme-color" content="#7a0c10">
+<link rel="icon" href="icons/mc3.svg" type="image/svg+xml">
+<link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<!-- Archivo Expanded Black for headings and buttons. Google Fonts answers with CORS (ACAO *) and
+     CORP cross-origin, so it loads under COEP require-corp; offline it falls back to Arial Black. -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,800..900&display=swap" crossorigin>
 <script src="lan.js"></script>
 <script src="rtc.js"></script>
 <script src="touch.js"></script>
 <title>mcdub3 web</title>
 <style>
+  /* the game's own menus: blood-red title bars with a grid of lighter squares, silver frames,
+     white wide caps, the selected item gold */
   :root {
-    --bg: #0d0d0d; --frame: #171717; --panel: #242424; --field: #121212;
-    --line: #3a3a3a; --edge: #8a8a8a; --text: #fff; --muted: #c4c4c4;
-    --accent: #ffbf3c; --accent-fill: #3d3424; --accent-glow: rgba(255, 191, 60, .4);
+    --bg: #07070a; --frame: #121216; --panel: #1e1e23; --field: #0b0b0e;
+    --line: #3a3a42; --edge: #8c9098; --silver: #c8ccd2; --text: #fff; --muted: #c4c6cc;
+    --red: #9c1418; --red-lo: #7a0c10; --red-grid: #5e080b;
+    --gold: #f0b440; --gold-fill: rgba(240, 180, 64, .14); --gold-glow: rgba(240, 180, 64, .35);
     --ok: #9be08a; --bad: #ff8a80;
+    --r: 4px;
     --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --display: "Archivo", "Arial Black", Impact, "Helvetica Neue", Arial, sans-serif;
     --mono: ui-monospace, Menlo, Consolas, monospace;
+    --outline: 0 1px 0 #000, 1px 0 0 #000, 0 -1px 0 #000, -1px 0 0 #000, 1px 2px 3px rgba(0, 0, 0, .6);
+    --grid: repeating-linear-gradient(90deg, var(--red-grid) 0 3px, transparent 3px 26px),
+            repeating-linear-gradient(0deg, var(--red-grid) 0 3px, transparent 3px 26px), var(--red);
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
   body {
     min-height: 100vh; color: var(--text); font: 400 16px/24px var(--font);
-    background: radial-gradient(1200px 480px at 50% -160px, #2a2a2a, transparent 70%) no-repeat, var(--bg);
+    background: radial-gradient(1200px 480px at 50% -160px, #24242c, transparent 70%) no-repeat, var(--bg);
   }
   h1, h2, h3, p, ul, fieldset { margin: 0; }
   button, input, select, textarea { font: inherit; color: inherit; }
   [hidden] { display: none !important; }
-  a { color: var(--accent); text-underline-offset: 3px; }
+  a { color: var(--gold); text-underline-offset: 3px; }
   code { font: 14px/20px var(--mono); }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
   #pw-modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, .75); padding: 16px; }
-  #pw-modal form { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px;
+  #pw-modal form { background: var(--panel); border: 2px solid var(--silver); border-radius: var(--r); padding: 24px;
                    width: min(520px, 100%); display: grid; gap: 16px; }
   #pw-modal h2 { margin: 0; font-size: 28px; }
   #pw-modal #pw-input { font-size: 28px; padding: 14px 16px; background: var(--field); color: var(--text);
-                        border: 2px solid var(--edge); border-radius: 8px; width: 100%; box-sizing: border-box; }
+                        border: 2px solid var(--edge); border-radius: var(--r); width: 100%; box-sizing: border-box; }
   #pw-modal .pw-show { font-size: 20px; display: flex; gap: 10px; align-items: center; }
   #pw-modal .pw-show input { width: 24px; height: 24px; }
   #pw-modal .pw-row { display: flex; gap: 12px; }
   #pw-modal .pw-row .btn { flex: 1; font-size: 24px; padding: 16px; min-height: 60px; }
-  #pw-modal :focus { outline: 4px solid var(--accent); outline-offset: 3px; }
-  h1, h2, h3, .status, .btn, .play, kbd, .tab, legend, .set-label { font-weight: 700; font-style: italic; }
+  #pw-modal :focus { outline: 4px solid var(--gold); outline-offset: 3px; }
+  .set-label, kbd { font-weight: 700; }
+  /* the game's menu face: heavy, wide; titles in caps, menu items in small caps, a dark outline */
+  h1, h2, h3, .status, .btn, .play, .tab, legend, .opt, summary, #settings-dlg .dlg-head strong {
+    font-family: var(--display); font-stretch: 125%; font-weight: 800; letter-spacing: .02em; text-shadow: var(--outline);
+  }
+  h1, h2, h3, .status, .play, #settings-dlg .dlg-head strong { text-transform: uppercase; font-weight: 900; }
+  .btn, .tab, legend, .opt, summary { font-variant-caps: small-caps; }
 
   .app {
     max-width: 1200px; margin: 0 auto; padding: 24px 16px;
@@ -78,11 +99,15 @@
     .top { grid-column: 1 / -1; }
   }
   .side, .content { display: grid; gap: 24px; min-width: 0; }
-  .panel { background: var(--panel); border-radius: 12px; padding: 24px; min-width: 0; }
-  .top { background: var(--frame); display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; }
+  .panel { background: var(--panel); border: 1px solid #44464e; border-radius: var(--r); padding: 24px; min-width: 0; }
+  /* the title bar: red, its grid of squares fading in from the right, a silver frame and a grey block on the left */
+  .top { background: linear-gradient(90deg, var(--red-lo) 35%, rgba(122, 12, 16, .5) 70%, transparent), var(--grid);
+         border: 2px solid var(--silver); border-left: 16px solid #8e9096; border-radius: 0;
+         display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; }
+  .top .hint { color: #e6e7ea; text-shadow: var(--outline); }
   h1 { font-size: 32px; line-height: 40px; }
-  h1 span { color: var(--accent); }
-  h3 { font-size: 16px; color: var(--accent); margin: 24px 0 8px; }
+  h1 span { color: var(--gold); }
+  h3 { font-size: 15px; color: var(--silver); letter-spacing: .06em; margin: 24px 0 8px; }
   h3:first-child { margin-top: 0; }
   #settings-body h3:first-child { margin-top: 16px; }
   .hint { color: var(--muted); font-size: 14px; line-height: 20px; }
@@ -90,31 +115,31 @@
   .msg.bad, .bad-text { color: var(--bad); }
 
   /* the hero */
-  .status { font-size: 32px; line-height: 40px; color: var(--accent); }
+  .status { font-size: 32px; line-height: 40px; color: var(--text); }
   .status.bad { color: var(--bad); }
   .status-sub { color: var(--muted); margin: 4px 0 20px; overflow-wrap: anywhere; }
   .pick { border: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .pick[hidden] { display: none; }
   .pick legend { padding: 0; margin-bottom: 8px; font-size: 14px; color: var(--muted); }
   .opt { flex: 1 1 140px; display: flex; gap: 8px; align-items: center; padding: 8px 12px; border: 2px solid var(--line);
-         border-radius: 8px; background: var(--field); cursor: pointer; font-weight: 700; font-style: italic; }
-  .opt:has(input:checked) { border-color: var(--accent); background: var(--accent-fill); color: var(--accent); }
+         border-radius: var(--r); background: var(--field); cursor: pointer; }
+  .opt:has(input:checked) { border-color: var(--gold); background: var(--gold-fill); color: var(--gold); }
   .opt:has(input:disabled) { opacity: .5; cursor: not-allowed; }
-  .opt input { accent-color: var(--accent); margin: 0; }
+  .opt input { accent-color: var(--gold); margin: 0; }
   .field { display: grid; gap: 4px; margin-bottom: 16px; font-size: 14px; color: var(--muted); }
   select, input[type=text], textarea {
-    background: var(--field); border: 2px solid var(--edge); border-radius: 8px; padding: 6px 10px; min-height: 40px; max-width: 100%;
+    background: var(--field); border: 2px solid var(--edge); border-radius: var(--r); padding: 6px 10px; min-height: 40px; max-width: 100%;
   }
   textarea { width: 100%; font: 14px/20px var(--mono); resize: vertical; }
   .play {
     width: 100%; height: 56px; display: flex; gap: 12px; align-items: center; justify-content: center; font-size: 24px;
-    border: 2px solid var(--accent); border-radius: 8px; background: var(--accent-fill); color: var(--accent);
-    box-shadow: 0 0 12px var(--accent-glow); cursor: pointer;
+    border: 2px solid var(--silver); border-radius: var(--r); background: var(--grid); color: var(--text); cursor: pointer;
   }
+  .play:hover:not(:disabled), .play:focus-visible { border-color: var(--gold); box-shadow: 0 0 14px var(--gold-glow); }
   .play:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
-  kbd { display: inline-block; min-width: 28px; padding: 0 6px; border: 2px solid var(--edge); border-radius: 6px;
+  kbd { display: inline-block; min-width: 28px; padding: 0 6px; border: 2px solid var(--edge); border-radius: var(--r);
         background: var(--field); color: var(--text); font-size: 14px; line-height: 22px; text-align: center; }
-  .play kbd { border-color: var(--accent); color: var(--accent); background: transparent; }
+  .play kbd { border-color: var(--silver); color: var(--text); background: rgba(0, 0, 0, .35); text-transform: none; text-shadow: none; }
   .checks { list-style: none; padding: 0; margin-top: 20px; display: grid; gap: 4px; font-size: 14px; line-height: 20px; }
   .checks li { display: flex; gap: 8px; }
   .checks .mark { flex: none; width: 16px; font-weight: 700; }
@@ -125,17 +150,17 @@
   /* tabs */
   .tabs { display: flex; flex-wrap: wrap; gap: 4px 20px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
   .tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 4px 0 8px; color: var(--muted); cursor: pointer; font-size: 18px; }
-  .tab[aria-selected=true] { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab[aria-selected=true] { color: var(--gold); border-bottom-color: var(--gold); }
   .tabs.small .tab { font-size: 16px; }
 
   .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 16px;
-         border: 2px solid var(--edge); border-radius: 8px; background: #080808; cursor: pointer; text-decoration: none; color: var(--text); }
-  .btn:hover:not(:disabled) { border-color: var(--accent); }
+         border: 2px solid var(--edge); border-radius: var(--r); background: var(--field); cursor: pointer; text-decoration: none; color: var(--text); }
+  .btn:hover:not(:disabled) { border-color: var(--gold); }
   .btn:disabled { opacity: .5; cursor: not-allowed; }
   .btn.danger { border-color: var(--bad); color: var(--bad); }
   .file-btn { position: relative; }
   .file-btn input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
-  .file-btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .file-btn:focus-within { outline: 2px solid var(--gold); outline-offset: 2px; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
   .head h3 { margin: 0; }
@@ -147,9 +172,9 @@
   .set-label { display: block; }
   .set .hint code { color: var(--muted); }
   .set select { flex: 0 0 auto; min-width: 160px; }
-  .preview { margin-top: 16px; padding: 12px; background: var(--field); border-radius: 8px; overflow-wrap: anywhere; }
+  .preview { margin-top: 16px; padding: 12px; background: var(--field); border-radius: var(--r); overflow-wrap: anywhere; }
   details { margin-top: 16px; }
-  summary { cursor: pointer; color: var(--accent); }
+  summary { cursor: pointer; color: var(--gold); }
 
   /* controls */
   .keys { list-style: none; padding: 0; }
@@ -160,9 +185,9 @@
   /* saves */
   .profiles { list-style: none; padding: 0; display: grid; gap: 8px; }
   .profiles li { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
-                 padding: 12px; background: var(--field); border-radius: 8px; }
+                 padding: 12px; background: var(--field); border-radius: var(--r); }
   .profiles b { font-style: italic; }
-  .empty { padding: 12px; background: var(--field); border-radius: 8px; color: var(--muted); font-size: 14px; }
+  .empty { padding: 12px; background: var(--field); border-radius: var(--r); color: var(--muted); font-size: 14px; }
 
   .prose p + p { margin-top: 12px; }
   .prose { color: var(--muted); }
@@ -177,9 +202,11 @@
   .stage-bar .btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
   .pad-sel { max-width: 220px; min-height: 32px; font-size: 14px; }
   #settings-dlg { width: min(520px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 16px; margin: auto;
-                  background: var(--frame); color: inherit; border: 1px solid var(--line); border-radius: 8px; touch-action: pan-y; }
+                  background: var(--frame); color: inherit; border: 2px solid var(--silver); border-radius: var(--r); touch-action: pan-y; }
   #settings-dlg::backdrop { background: rgba(0, 0, 0, .6); }
-  #settings-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  #settings-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -16px -16px 12px;
+                            padding: 8px 16px; background: linear-gradient(90deg, var(--red-lo) 40%, transparent), var(--grid);
+                            border-bottom: 2px solid var(--silver); }
   #settings-dlg .dlg-head strong { font-size: 18px; }
   #settings-dlg .dlg-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
   #settings-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
@@ -196,13 +223,13 @@
   }
   /* the start page on a phone */
   @media (max-width: 480px) {
-    .app { padding: 12px max(12px, env(safe-area-inset-left)) 24px; gap: 16px; }
+    .app { padding: 12px max(16px, env(safe-area-inset-left)) 24px; gap: 16px; }
     .panel { padding: 16px; }
     h1, .status { font-size: 24px; line-height: 32px; }
     .tab { font-size: 16px; }
     .set select { min-width: 0; width: 100%; }
   }
-  .checks .warn .mark { color: var(--accent); }
+  .checks .warn .mark { color: var(--gold); }
   .stage.stretch canvas { object-fit: fill; }
   #fps { position: absolute; left: 8px; top: 8px; margin: 0; padding: 2px 8px; font: 14px/1.4 ui-monospace, Consolas, monospace;
          color: #fff; background: rgba(0, 0, 0, .55); border-radius: 4px; pointer-events: none; }
@@ -212,13 +239,13 @@
     .stage:fullscreen .stage-bar { display: block; }
   }
   #log { position: absolute; right: 16px; bottom: 16px; width: min(720px, calc(100% - 32px)); max-height: 45vh; overflow: auto; margin: 0;
-         padding: 12px; background: rgba(13, 13, 13, .92); border: 1px solid var(--line); border-radius: 8px;
+         padding: 12px; background: rgba(7, 7, 10, .92); border: 1px solid var(--line); border-radius: var(--r);
          font: 12px/16px var(--mono); white-space: pre-wrap; word-break: break-all; }
   #keys-panel, #races-panel { position: absolute; left: 16px; top: 64px; width: min(420px, calc(100% - 32px)); max-height: calc(100% - 96px); overflow: auto;
-                padding: 4px 16px 12px; background: rgba(13, 13, 13, .92); border: 1px solid var(--line); border-radius: 8px; }
+                padding: 4px 16px 12px; background: rgba(7, 7, 10, .92); border: 1px solid var(--line); border-radius: var(--r); }
   /* races */
   #races-box { margin-top: 24px; }
-  #races-box input[type=password] { background: var(--field); border: 2px solid var(--edge); border-radius: 8px; padding: 6px 10px; min-height: 40px; max-width: 100%; }
+  #races-box input[type=password] { background: var(--field); border: 2px solid var(--edge); border-radius: var(--r); padding: 6px 10px; min-height: 40px; max-width: 100%; }
   .races li .meta { color: var(--muted); font-size: 14px; }
 </style>
 </head>

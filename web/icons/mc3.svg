@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- MC3 page icon, hand-made after the game's menus: a red title-bar tile with its grid of
+       squares, a silver frame, the letters in heavy white caps with a dark outline, a gold bar.
+       The letters are paths (no font needed). PNGs: icon-192/512, apple-touch-icon (180). -->
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <rect width="32" height="32" fill="#5e080b"/>
+      <rect x="3" y="3" width="29" height="29" fill="#9c1418"/>
+    </pattern>
+    <radialGradient id="shade" cx="50%" cy="48%" r="60%">
+      <stop offset="0" stop-color="#7a0c10" stop-opacity=".9"/>
+      <stop offset=".75" stop-color="#7a0c10" stop-opacity=".35"/>
+      <stop offset="1" stop-color="#7a0c10" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" fill="url(#grid)"/>
+  <rect width="512" height="512" fill="url(#shade)"/>
+  <rect x="12" y="12" width="488" height="488" fill="none" stroke="#c8ccd2" stroke-width="24"/>
+  <g transform="translate(256 256) scale(.88) translate(-256 -273)">
+  <g transform="translate(-8 0)" fill="#fff" stroke="#1a0204" stroke-width="12" stroke-linejoin="round" paint-order="stroke">
+    <path d="M46 342V154h46l22 56 22-56h46v188h-42V238l-18 46h-16l-18-46v104z"/>
+    <path d="M227 154h104v42h-82l-8 8v88l8 8h82v42H227l-30-30V184z"/>
+    <path d="M346 154h106l30 30v46l-17 18 17 18v46l-30 30H346v-42h94v-30h-52v-42h52v-30h-94z"/>
+  </g>
+  <rect x="38" y="372" width="436" height="26" fill="#f0b440" stroke="#1a0204" stroke-width="6" paint-order="stroke"/>
+  </g>
+</svg>

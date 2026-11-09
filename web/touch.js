@@ -46,7 +46,7 @@
   .tc-b { display: flex; align-items: center; justify-content: center; box-sizing: border-box; color: #fff;
           font: 700 italic calc(var(--u) * .28)/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
           background: rgba(20, 20, 20, .7); border: 2px solid rgba(255, 255, 255, .8); border-radius: 12px; }
-  .tc-b.on { background: rgba(255, 191, 60, .85); color: #000; border-color: #ffbf3c; }
+  .tc-b.on { background: rgba(240, 180, 64, .85); color: #000; border-color: #f0b440; }   /* the game's gold (index.html --gold) */
   .tc-gas { right: var(--r); bottom: var(--b); width: calc(var(--u) * 1.3); height: calc(var(--u) * 1.9); }
   .tc-brake { right: calc(var(--r) + var(--u) * 1.3 + 8px); bottom: var(--b); width: calc(var(--u) * 1.3); height: calc(var(--u) * 1.4); }
   .tc-fa, .tc-fb, .tc-fx, .tc-fy { width: var(--s); height: var(--s); border-radius: 50%; font-size: calc(var(--u) * .36); }
