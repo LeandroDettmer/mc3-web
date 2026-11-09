@@ -51,7 +51,7 @@ assert.strictEqual(ws.url, 'wss://mc3.example/lan');
 ws.open();
 ws.msg({ t: 'welcome', vip: A, vipStr: '10.77.1.2', mac: 'x' });
 assert.strictEqual(link.state, 'online');
-assert.deepStrictEqual(ws.json().map(m => m.t), ['hello', 'rooms']);
+assert.deepStrictEqual(ws.json().map(m => m.t), ['hello', 'rooms', 'players', 'beat']);   // players: the live list sub; beat: the auto-answered keepalive
 link.join('r1', 'pw');
 ws.msg({ t: 'room', room: { id: 'r1', hostVip: HOST }, members: [{ vip: HOST }, { vip: A }] });
 link.rename('Annie');
@@ -93,7 +93,8 @@ assert.strictEqual(link.vip, B);
 const sent = ws.json();
 assert.deepStrictEqual(sent[0], { t: 'hello', name: 'Annie', lan: 1 });
 assert.deepStrictEqual(sent[1], { t: 'rooms', sub: 1 });
-assert.deepStrictEqual(sent[2], { t: 'join', room: 'r1', pass: 'pw' });
+assert.deepStrictEqual(sent[2], { t: 'players', sub: 1 });
+assert.deepStrictEqual(sent[3], { t: 'join', room: 'r1', pass: 'pw' });
 ws.msg({ t: 'room', room: { id: 'r1', hostVip: HOST }, members: [{ vip: HOST }, { vip: B }] });
 assert.strictEqual(link.room.id, 'r1');
 // the game's frames flow on the new socket, both ways, through the same onframe
@@ -111,7 +112,7 @@ assert.ok(now - t1 <= 1300, 'backoff reset: ' + (now - t1));
 ws = socks[socks.length - 1];
 ws.open();
 ws.msg({ t: 'welcome', vip: B, vipStr: '10.77.2.3', mac: 'y' });
-assert.strictEqual(ws.json()[2].t, 'join');
+assert.strictEqual(ws.json()[3].t, 'join');
 ws.msg({ t: 'error', op: 'join', code: 'gone' });
 assert.strictEqual(link.error, null, 'no error shown for an automatic rejoin');
 ws.drop();
