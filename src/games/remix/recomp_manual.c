@@ -3320,7 +3320,57 @@ void sub_00180160(void)
  * and it can run before the per-frame hook has seen the table: rewrite the
  * table first, so the copy already reads "Online". */
 extern void sub_0018C770_gen(void);
-void sub_0018C770(void) { online_strings(); sub_0018C770_gen(); }  /* mcMenuModeSelect build */
+void sub_00348AF0(void);
+/* "Online" first: the builder adds Career, Tokyo, Arcade, Online as slots
+ * 0-3 of the FE's shared list (AddItem sub_00348BE0 appends; its first
+ * argument is an item id kept in the record, not a position). Per slot the
+ * list holds a functor at list+0xEC+16*slot (+4 = callback, slots < 20), a
+ * record at [list+0x248]+16*(rows*col+slot) {id lo, id hi, label block,
+ * arg} (rows [list+0x230], col [list+0x258], count [list+0x238+4*col]) and
+ * a label block of [list+0x234] {text, flag} pairs that +8 points to. Slot
+ * 3 moves to 0 (contents moved, +8 kept), then SetSelection(0, -1)
+ * (sub_00348AF0, thiscall (slot, col), ret 8) again, as the builder ended,
+ * so the cursor starts on Online and the selected id is Online's. */
+static void main_menu_online_first(void)
+{
+    uint32_t r[8] = { g_eax, g_ecx, g_edx, g_ebx, g_esp, g_ebp, g_esi, g_edi };
+    uint32_t fe = MEM32(0x0050F148u), lst, col, base, nl, i, k, w;
+    uint32_t fn[4], rec[3], lab[2 * 8];
+    if (!online_ram(fe) || !online_ram(fe = MEM32(fe + 0xCu)) || !online_ram(lst = MEM32(fe + 0xFCu)))
+        return;
+    col = MEM32(lst + 0x258u);
+    nl = MEM32(lst + 0x234u);
+    if (col > 7u || nl > 8u || (int32_t)MEM32(lst + 0x238u + 4u * col) < 4
+        || MEM32(lst + 0xECu + 3u * 16u + 4u) != 0x0018C5A0u)   /* not the menu we know: leave it */
+        return;
+    base = MEM32(lst + 0x230u) * col;
+#define MM_REC(s) (MEM32(lst + 0x248u) + 16u * (base + (s)))
+    for (w = 0; w < 4; w++) fn[w] = MEM32(lst + 0xECu + 3u * 16u + 4u * w);
+    rec[0] = MEM32(MM_REC(3)); rec[1] = MEM32(MM_REC(3) + 4u); rec[2] = MEM32(MM_REC(3) + 0xCu);
+    for (k = 0; k < 2 * nl; k++) lab[k] = MEM32(MEM32(MM_REC(3) + 8u) + 4u * k);
+    for (i = 3; i > 0; i--) {                    /* slots 0-2 one down */
+        for (w = 0; w < 4; w++)
+            MEM32(lst + 0xECu + i * 16u + 4u * w) = MEM32(lst + 0xECu + (i - 1u) * 16u + 4u * w);
+        MEM32(MM_REC(i)) = MEM32(MM_REC(i - 1u));
+        MEM32(MM_REC(i) + 4u) = MEM32(MM_REC(i - 1u) + 4u);
+        MEM32(MM_REC(i) + 0xCu) = MEM32(MM_REC(i - 1u) + 0xCu);
+        for (k = 0; k < 2 * nl; k++)
+            MEM32(MEM32(MM_REC(i) + 8u) + 4u * k) = MEM32(MEM32(MM_REC(i - 1u) + 8u) + 4u * k);
+    }
+    for (w = 0; w < 4; w++) MEM32(lst + 0xECu + 4u * w) = fn[w];
+    MEM32(MM_REC(0)) = rec[0]; MEM32(MM_REC(0) + 4u) = rec[1]; MEM32(MM_REC(0) + 0xCu) = rec[2];
+    for (k = 0; k < 2 * nl; k++) MEM32(MEM32(MM_REC(0) + 8u) + 4u * k) = lab[k];
+#undef MM_REC
+    g_esp = (r[4] - 0x200u) & ~0xFu;
+    g_esp -= 4; MEM32(g_esp) = 0xFFFFFFFFu;      /* col: the current one */
+    g_esp -= 4; MEM32(g_esp) = 0;                /* slot 0 */
+    g_esp -= 4; MEM32(g_esp) = 0;                /* return address */
+    g_ecx = lst;
+    sub_00348AF0();
+    g_eax = r[0]; g_ecx = r[1]; g_edx = r[2]; g_ebx = r[3];
+    g_esp = r[4]; g_ebp = r[5]; g_esi = r[6]; g_edi = r[7];
+}
+void sub_0018C770(void) { online_strings(); sub_0018C770_gen(); main_menu_online_first(); }  /* mcMenuModeSelect build */
 
 extern void sub_00021A60_gen(void);
 static void roam_garage(void);                  /* free roam: status garage (roam_game.c) */
