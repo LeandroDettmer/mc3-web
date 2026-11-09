@@ -191,6 +191,24 @@
 
   .prose p + p { margin-top: 12px; }
   .prose { color: var(--muted); }
+  .prose b { color: var(--text); }
+
+  /* who is online (showOnline): a live dot and the total, then one value box per mode (after nfsu2-web's
+     "Playing now" boxes), the cities with someone in them gold, the empty ones dimmed */
+  .online-now { margin: 0 0 20px; padding: 12px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r); }
+  .on-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; line-height: 20px; }
+  .on-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(155, 224, 138, .6); animation: on-pulse 2s infinite; }
+  @keyframes on-pulse { 70% { box-shadow: 0 0 0 8px rgba(155, 224, 138, 0); } 100% { box-shadow: 0 0 0 0 rgba(155, 224, 138, 0); } }
+  @media (prefers-reduced-motion: reduce) { .on-dot { animation: none; } }
+  .on-head b, .on-mode b { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; color: var(--gold);
+                           text-shadow: var(--outline); font-variant-numeric: tabular-nums; }
+  .on-head b { font-size: 28px; line-height: 32px; }
+  .on-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+  .on-mode { padding: 8px; border-radius: var(--r); background: var(--panel); color: var(--muted); font-size: 13px; line-height: 18px; min-width: 0; overflow-wrap: anywhere; }
+  .on-mode b { display: block; font-size: 20px; line-height: 26px; }
+  .on-cities { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 8px; font-size: 13px; line-height: 18px; color: var(--silver); }
+  .on-cities span.none { opacity: .45; }
+  .on-cities b { color: var(--gold); font-variant-numeric: tabular-nums; }
 
   /* playing: the canvas takes the window */
   body.playing { overflow: hidden; background: #000; }
@@ -260,7 +278,7 @@
     <section class="panel hero" aria-label="Play">
       <p class="status" id="status" role="status">Checking…</p>
       <p class="status-sub" id="status-sub">Looking for the discs and the build.</p>
-      <p class="hint online-now" id="online-now" role="status" hidden></p>
+      <div class="online-now" id="online-now" role="status" hidden></div>
       <p class="row" id="signin" hidden style="margin-bottom:16px"><a class="btn" id="signin-link" href="#">Sign in</a> <span class="hint">The disc server wants you signed in; it sends you back here.</span></p>
       <fieldset class="pick" id="game-pick">
         <legend>Game</legend>
@@ -360,18 +378,17 @@
       </div>
 
       <div class="pane" role="tabpanel" data-pane="online" hidden>
-        <h3>System Link</h3>
+        <h3>Play together</h3>
         <div class="prose">
-          <p>The game's own System Link, carried by the server: everyone who plays on the same server meets as if on one LAN, and finds the others' games in the System Link menu.</p>
-          <p>With System Link on, this page joins the server's virtual LAN (<code>web/server</code>, its <code>/lan</code> switch) and the game plays on it (the Remix; native builds use the local network, RECOMP_NET_* switches).</p>
+          <p>Everyone who plays on this site shares one online world. Nothing to set up: it is always on.</p>
+          <p>In the game, pick <b>Online</b> in the main menu, then:</p>
+          <p><b>Free Roam</b>: drive the city with everyone who picked the same city. Every car and part is unlocked.</p>
+          <p><b>Online Races</b>: <b>Host Game</b> to start a race, or <b>Join Game</b> to race in someone else's.</p>
+          <p>Set <b>Your name</b> below: it is what the other players see.</p>
         </div>
-        <div class="set">
-          <div><label class="set-label" for="netplay">System Link</label><p class="hint">The Remix's System Link menu. <code>MC3_NETPLAY</code></p></div>
-          <select id="netplay"><option value="">On (default)</option><option value="0">Off</option></select>
-        </div>
+        <div class="online-now" id="online-now-tab" role="status" hidden></div>
         <p class="hint" id="lan-status" role="status"></p>
         <p class="hint" id="roam-status" role="status"></p>
-        <p class="hint online-now" id="online-now-tab" role="status" hidden></p>
         <p class="hint" id="race-links" role="status"></p>
         <div class="set">
           <div><label class="set-label" for="name">Your name</label><p class="hint">What other players will see. Shown in the game's sign-in texts and on the server link.</p></div>
@@ -388,7 +405,7 @@
         <div id="races-box" hidden>   <!-- hidden 2026-11-09: the game's own Join Game list is better; rooms stay on the server -->
           <h3>Races</h3>
           <p class="hint">Make a race or join one here, before or while the game runs. Then in the game: Online, Online Races, and Host or Join Game: only the players of your race show there. Not in a race: you meet everyone else not in one, as before.</p>
-          <p class="hint" id="races-off">Turn System Link on to see the races on this server.</p>
+          <p class="hint" id="races-off">Joining the server…</p>
           <div id="races-on" hidden>
             <div id="race-mine" hidden>
               <p><b id="race-mine-name"></b> <span class="hint" id="race-mine-who"></span></p>
@@ -572,8 +589,7 @@
     // Absolute: WASMFS resolves relative URLs against the origin, not this page.
     const nick = $('name').value.trim();
     if (nick && !env.MC3_PLAYER_NAME) env.MC3_PLAYER_NAME = nick;   // the game's sign-in texts
-    // System Link (and free roam) on unless the player turned it off
-    if (env.MC3_NETPLAY === '0') delete env.MC3_NETPLAY; else env.MC3_NETPLAY = '1';
+    env.MC3_NETPLAY = '1';   // System Link (Online Races) and Free Roam: always on, idle when playing alone
     // Page defaults (the rows' "(default)"): 60 fps driving, 3x resolution; on a phone 30 fps and 1x (its GPU
     // fills fewer pixels than its screen has, nfsu2-web device.ts), unless the player picked otherwise
     const phone = window.MC3Touch?.isPhone() ?? false;
@@ -1156,27 +1172,25 @@
     if (!confirm('Reset every setting to the game\'s default?')) return;
     for (const k of Object.keys(settings)) delete settings[k];
     store.set('settings', settings); $('raw').value = ''; store.set('raw', '');
-    $('netplay').value = '';
     $('skipintro').checked = false;
     renderSettings(); preview(); lanUp();
   };
   if (settings.MC3_AUTOSTART) setSetting('MC3_AUTOSTART', '');   // the Start in Cruise option is gone: a stored one would keep pressing menus
   $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
   $('skipintro').onchange = () => { setSetting('MC3_SKIP_MOVIES', $('skipintro').checked ? 'hard' : ''); renderSettings(); };
-  $('netplay').value = settings.MC3_NETPLAY === '0' ? '0' : '';   // an old stored '1' is the default now
-  $('netplay').onchange = () => { setSetting('MC3_NETPLAY', $('netplay').value); lanUp(); };
+  if ('MC3_NETPLAY' in settings) setSetting('MC3_NETPLAY', '');   // the System Link On/Off choice is gone: online is always on
   // A nick from the first visit on, so nobody plays as an empty name
   if (!store.get('name', '')) store.set('name', 'Racer' + String(Math.floor(1000 + Math.random() * 9000)));
   $('name').value = store.get('name', '');
   $('name').oninput = () => { store.set('name', $('name').value.trim()); lan?.rename($('name').value.trim()); };
-  // System Link: the link to the server's switch (web/lan.js) is up while MC3_NETPLAY=1, from here into the game
+  // System Link: the link to the server's switch (web/lan.js) is always up, from here into the game
   let lan = null;
   function lanShow(l) {
     if (l !== lan) return;   // a link closed for a newer one
     const names = l.peers.map(p => p.name + (p.vip === l.vip ? ' (you)' : '')).join(', ');
-    $('lan-status').textContent = l.state === 'online' ? `On the server's LAN as ${l.vipStr}: ${l.peers.length} player${l.peers.length === 1 ? '' : 's'}${names ? ' (' + names + ')' : ''}.`
-      : l.state === 'connecting' ? 'Joining the server\'s LAN…'
-      : 'No LAN on this server (start it with web/server, not tools/web_serve.py), or the link was lost.';
+    $('lan-status').textContent = l.state === 'online' ? `Connected: ${l.peers.length} player${l.peers.length === 1 ? '' : 's'} on the server${names ? ' (' + names + ')' : ''}.`
+      : l.state === 'connecting' ? 'Connecting to the server…'
+      : 'Online play is not available on this server right now.';
     const roam = l.state === 'online' ? l.roam || [] : [];
     $('roam-status').textContent = roam.length ? `In free roam: ${roam.length} (${roam.map(p => p.name).join(', ')}).` : '';
     racesShow(l);
@@ -1185,7 +1199,6 @@
   const RACE_ERR = { gone: 'That race is gone.', full: 'That race is full.', password: 'Wrong password.',
                      limit: 'Too many races on this server, or from your address. Try again later.' };
   let pendingRace = new URLSearchParams(location.search).get('race'), shownErr = null, shownLeft = null;
-  if (pendingRace && settings.MC3_NETPLAY === '0') { setSetting('MC3_NETPLAY', ''); $('netplay').value = ''; }   // an invite means System Link
   function raceMsg(t, bad) { $('race-msg').textContent = t; $('race-msg').classList.toggle('bad', !!bad); }
   function raceJoin(r) {
     let pass = '';
@@ -1196,7 +1209,7 @@
   function racesShow(l) {
     const on = l?.state === 'online';
     $('races-off').hidden = on; $('races-on').hidden = !on;
-    $('races-off').textContent = l ? 'Joining the server…' : 'Turn System Link on to see the races on this server.';
+    $('races-off').textContent = l ? 'Joining the server…' : 'Races are not available on this server.';
     if (!on) return;
     const mine = l.room;
     $('race-mine').hidden = !mine;
@@ -1259,7 +1272,7 @@
     $('race-links').textContent = others.length ? `Race room: ${others.map(m => m.name + ' (' + r.mode(m.vip) + ')').join(', ')}.` : '';
   }
   function lanUp() {
-    if (buildEnv(null).MC3_NETPLAY !== '1' || typeof mc3Lan !== 'function') {
+    if (typeof mc3Lan !== 'function') {
       lan?.close(); lan = null; $('lan-status').textContent = '';
       racesShow(null);
       return null;
@@ -1381,10 +1394,27 @@
       return u.href;
     } catch { return null; }
   }
-  function onlineText(s) {
-    const rooms = s.freeRoam.rooms, ids = [...new Set([...CITIES.keys(), ...Object.keys(rooms).map(Number)])].sort((a, b) => a - b);
-    const city = id => `${CITIES[id] || 'City ' + id} ${rooms[id] || 0}`;
-    return `Online now: ${s.online} player${s.online === 1 ? '' : 's'} · Free roam: ${ids.map(city).join(' · ')}`;
+  // the widget: live dot + total, then Free Roam (players, per city), Races (open rooms: the server counts rooms,
+  // not their players) and Elsewhere (online - free roam: menus, career, and whoever is in a race)
+  function onlineWidget(el, s) {
+    const n = v => Math.max(0, Math.floor(Number(v)) || 0), rooms = s.freeRoam.rooms;
+    const el$ = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+    const online = n(s.online), roam = Math.min(online, n(s.freeRoam.total)), races = n(s.races?.rooms);
+    const head = el$('p', 'on-head'), dot = el$('span', 'on-dot'); dot.setAttribute('aria-hidden', 'true');
+    head.append(dot, el$('b', '', online), el$('span', '', online === 1 ? 'player online' : 'players online'));
+    const box = (k, label) => { const d = el$('div', 'on-mode'); d.append(el$('b', '', k), el$('span', '', label)); return d; };
+    const modes = el$('div', 'on-modes');
+    modes.append(box(roam, 'Free Roam'), box(races, races === 1 ? 'race open' : 'races open'), box(online - roam, 'Elsewhere'));
+    modes.lastChild.title = 'Menus, career and online races';
+    const cities = el$('p', 'on-cities');
+    const ids = [...new Set([...CITIES.keys(), ...Object.keys(rooms).map(Number).filter(i => Number.isInteger(i) && i >= 0)])].sort((a, b) => a - b);
+    for (const id of ids) {
+      const k = n(rooms[id]);
+      if (!k && id >= CITIES.length) continue;   // an unknown room only when someone is in it
+      const c = el$('span', k ? '' : 'none', (CITIES[id] || 'City ' + id) + ' ');
+      c.append(el$('b', '', k)); cities.append(c);
+    }
+    el.replaceChildren(head, modes, cities);
   }
   async function showOnline() {
     const els = [$('online-now'), $('online-now-tab')], url = statsUrl();
@@ -1393,7 +1423,7 @@
       const r = await fetch(url, { cache: 'no-store' });
       const s = await r.json();
       if (!r.ok || !Number.isFinite(s.online) || !s.freeRoam?.rooms) throw 0;
-      for (const e of els) { e.textContent = onlineText(s); e.hidden = false; }
+      for (const e of els) { onlineWidget(e, s); e.hidden = false; }
     } catch { for (const e of els) e.hidden = true; }
   }
   setInterval(() => { if (!playing && !document.hidden) showOnline(); }, 15000);
