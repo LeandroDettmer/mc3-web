@@ -39,6 +39,7 @@
 #include <time.h>
 
 void xbox_sdl_keyboard_handle(const SDL_Event *e);   /* input/sdl_keyboard.c */
+int xbox_gil_sample(uint32_t *tid, uint32_t *esp, int *is_main);   /* kernel/kernel_bridge.c */
 
 WgCtl    wg_ctl;
 uint32_t wg_frame;
@@ -500,7 +501,48 @@ static const Nv2aBackend s_backend = {
 static uint32_t s_draws;                /* this frame's draws */
 static uint64_t s_busy_ns;              /* this frame's list building */
 static uint64_t s_turn_end;
+static uint64_t s_frame_ns;             /* the last frame's end, for the watchdog */
 static int s_stats = -1;
+
+/* No frame for 5 s (then 10, 20, ...): one line saying where it stopped,
+ * and one when frames come back (2026-11-09: a black screen after the Free
+ * Roam load left no clue). Flips queued 0 with the guest lock held = the
+ * guest is stuck (a DPC spinning, as the OHCI hang); frames in flight at
+ * the limit = the GPU never answered; the device state names a lost one. */
+static void wq_watchdog(int st)
+{
+    static const char *dev[] = { "none", "pending", "ready", "failed", "lost" };
+    static uint64_t stalled_at, next_s = 5;
+    uint64_t now = wq_now_ns(), gap;
+    uint32_t tid, esp;
+    int is_main;
+
+    if (!s_frame_ns)                        /* before the first frame: boot, not a hang */
+        return;
+    if (stalled_at && s_frame_ns != stalled_at) {
+        fprintf(stderr, "[WGPU] watchdog: frames again after %.1f s (frame %u)\n",
+                (double)(s_frame_ns - stalled_at) / 1e9, wg_frame);
+        stalled_at = 0;
+        next_s = 5;
+    }
+    gap = (now - s_frame_ns) / 1000000000ull;
+    if (gap < next_s)
+        return;
+    stalled_at = s_frame_ns;
+    next_s *= 2;
+    char lock[64] = "free";
+    if (xbox_gil_sample(&tid, &esp, &is_main))
+        snprintf(lock, sizeof lock, "held by thread %u (%s), guest esp 0x%08X", tid,
+                 is_main ? "main" : "worker", esp);
+    fprintf(stderr, "[WGPU] watchdog: no frame for %u s (frame %u; ring %u bytes, %d flip(s) queued, "
+            "executor %s; GPU %d of %u frames in flight; device %s; guest lock %s)\n",
+            (unsigned)gap, wg_frame, (unsigned)(__atomic_load_n(&s_q_head, __ATOMIC_SEQ_CST) - s_q_tail),
+            __atomic_load_n(&s_q_flips, __ATOMIC_SEQ_CST),
+            __atomic_load_n(&s_q_producer_waits, __ATOMIC_SEQ_CST) ? "waiting for ring space" : "running",
+            __atomic_load_n(&wg_ctl.frames_submitted, __ATOMIC_SEQ_CST)
+                - __atomic_load_n(&wg_ctl.frames_done, __ATOMIC_SEQ_CST),
+            wg_ctl.max_in_flight, st >= 0 && st <= 4 ? dev[st] : "?", lock);
+}
 
 /* RECOMP_WGPU_STATS=1: one line a second. */
 static void wq_stats(void)
@@ -591,6 +633,7 @@ static void wq_end_frame(void)
     wsurf_frame_end(w > 0 ? (uint32_t)w : 0, h > 0 ? (uint32_t)h : 0);
     wq_submit(0, (uint32_t)(s_busy_ns / 1000));
     wg_frame++;
+    s_frame_ns = wq_now_ns();
     wpipe_frame_end();                  /* pipeline list: prewarm step, save */
     if (s_stats)
         wq_stats();
@@ -714,6 +757,7 @@ static void wq_turn(void)
         }
         wq_run(0);
     }                                       /* NONE/PENDING: the device is on its way */
+    wq_watchdog(st);
     s_turn_end = wq_now_ns();
 }
 
