@@ -728,6 +728,27 @@
     };
     return URL.createObjectURL(new Blob([await r.text()], { type: 'text/javascript' }));
   }
+  // WebGPU pipeline seed: a list of the pipelines the owner met, shipped beside the module as <app>-pipes-seed.bin,
+  // copied to OPFS cache/wgpu-pipes-seed.bin before the game starts; the game merges it into this browser's own
+  // list and prewarms it (xboxrecomp/src/nv2a_wgpu/wgpu_pipe.c). None there (or no OPFS): nothing changes.
+  const PIPE_SEED = 'wgpu-pipes-seed.bin';
+  async function pipeSeed(app) {
+    try {
+      const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('cache', { create: true });
+      const r = await fetch(moduleFile(app + '-pipes-seed.bin'), { cache: 'no-cache', credentials: 'include', signal: AbortSignal.timeout(8000) });
+      if (!r.ok) { await d.removeEntry(PIPE_SEED).catch(() => {}); return; }
+      const w = await (await d.getFileHandle(PIPE_SEED, { create: true })).createWritable();
+      await w.write(await r.arrayBuffer()); await w.close();
+    } catch (e) { console.warn('[WEB] pipeline seed not copied:', e); }
+  }
+  // Owner: after playing, run mc3ExportPipes() in this page's console (not while a game runs): it saves this
+  // browser's pipeline list (OPFS cache/wgpu-pipes.bin) as <app>-pipes-seed.bin, to upload beside the module.
+  window.mc3ExportPipes = async (app = 'mcdub3remix') => {
+    const f = await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle('cache')).getFileHandle('wgpu-pipes.bin')).getFile();
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(f), download: app + '-pipes-seed.bin' });
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    return `${a.download}: ${f.size} bytes`;
+  };
 
   // --- discs and builds
   let discs = [];                 // {name, game, edition, path}
@@ -1147,6 +1168,7 @@
     };
     // the game's disc reads take the cache choice from OPFS (web/disc_cache.js use()): written before it starts
     const start = async () => {
+      await pipeSeed(app);
       const s = document.createElement('script');
       try { s.src = cfg?.moduleUrl ? await moduleBlob(app) : app + '.js'; }
       catch (e) { runStatus(`Cannot load ${app}.js from ${cfg.moduleUrl}: ${e.message || e}`, true); return; }
