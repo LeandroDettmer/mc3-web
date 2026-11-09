@@ -37,13 +37,23 @@ SUFFIX=""; ARGS=()
 [ "${NODE:-0}" = "1" ] && { SUFFIX="-node"; ARGS=(-DMC3_WEB_NODE=ON); }
 BUILD="${BUILD_DIR:-$MC3_WORK/build-web$SUFFIX}"
 
+# The build stamp in the boot banner (src/main.c): commit (+dirty: uncommitted
+# changes went in) and UTC build time, so a log names the module that ran.
+# MC3_BUILD_ID set by the caller (CI) wins. main.c recompiles each build.
+if [ -z "${MC3_BUILD_ID:-}" ]; then
+    _git=(git -C "$MC3_REPO" -c safe.directory='*')
+    MC3_BUILD_ID="$("${_git[@]}" rev-parse --short HEAD 2>/dev/null || echo nogit)"
+    "${_git[@]}" diff --quiet HEAD 2>/dev/null || MC3_BUILD_ID+="+dirty"
+    MC3_BUILD_ID+=" built $(date -u +%Y-%m-%dT%H:%MZ)"
+fi
+
 # -O3 + wasm SIMD, no debug info: the lifted C is ~3 M lines. MC3_GEN_OPT
 # is passed too, so an older build folder's cached -O2 is replaced. No
 # -ffast-math: lifted float code must stay exact.
 emcmake cmake -S "$MC3_REPO" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_C_FLAGS_RELEASE="-O3 -msimd128 -DNDEBUG" -DMC3_GEN_OPT="-O3;-msimd128" \
     -DXBOXRECOMP_DIR="$XBOXRECOMP_DIR" -DMC3_GEN_DIR="$MC3_GEN_DIR" \
-    -DMC3_NATIVE_BINK=OFF -DMC3_VULKAN=OFF ${ARGS[@]+"${ARGS[@]}"} >/dev/null
+    -DMC3_NATIVE_BINK=OFF -DMC3_VULKAN=OFF "-DMC3_BUILD_ID=$MC3_BUILD_ID" ${ARGS[@]+"${ARGS[@]}"} >/dev/null
 ninja -C "$BUILD" -j"${JOBS:-$(mc3_default_jobs)}"
 
 if [ "${NODE:-0}" = "1" ]; then

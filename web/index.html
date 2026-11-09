@@ -989,10 +989,23 @@
   // frame, and only while it is shown (a DOM append and a layout read per
   // line cost the page's main thread in log bursts).
   const log = $('log'), MAX_LINES = 4000;
-  let logText = [], logDirty = false;
+  let logText = [], logDirty = false, gpuLost = false;
   function out(text) {
     logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
+    if (!gpuLost && String(text).includes('[WGPU] device lost')) gpuLostShow(text);
+  }
+  // WebGPU's device lost (web/wgpu.js logs '[WGPU] device lost: <reason> <message>'): nothing is drawn
+  // from then on, so say it over the picture instead of leaving a silent black screen.
+  function gpuLostShow(text) {
+    gpuLost = true;
+    runStatus('Graphics device lost: reload the page (Log has the reason).', true);
+    const m = document.createElement('div');
+    m.setAttribute('role', 'alert');
+    m.textContent = 'The graphics device was lost, so the game cannot draw any more. Reload the page; '
+      + 'if it happens again, add ?RECOMP_GPU=webgl to the address. Send log helps. (' + String(text).trim() + ')';
+    m.style.cssText = 'position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);max-width:min(560px,90vw);padding:12px 16px;border-radius:8px;background:#000d;color:#fff;font:14px sans-serif;z-index:99';
+    $('stage').append(m);
   }
   function logFlush() {
     logDirty = false;
