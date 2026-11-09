@@ -34,6 +34,7 @@ extern "C" {
 #define ROAM_NAME_MAX    24
 #define ROAM_CFG_MAX     2048       /* the car-look record at most (MC3 CarCfg: 264) */
 #define ROAM_EXT_MAX     29         /* a state's game-defined extension at most, bytes */
+#define ROAM_MSG_MAX     96         /* a game message (roam_send_msg) at most, bytes */
 
 /* car state bits (rc_state.bits); the game may define its own in the rest */
 #define RC_BIT_BRAKE     0x01
@@ -117,6 +118,14 @@ int  roam_peer_cfg(uint32_t id, void *out, int cap);
 /* the players the hub knows beyond our links (none drawn as a car by roam_peers),
  * nearest first, at most max; 0 when the hub's last FAR list is older than 6 s */
 int  roam_far(roam_far_peer *out, int max);
+/* A game-defined message (1 .. ROAM_MSG_MAX bytes, opaque to the core) to one
+ * linked peer, straight (not through the hub), unreliable like a SNAP: resend
+ * what matters.  0 sent, -1 not running, no such linked peer or a bad length.
+ * A peer with an older core drops it. */
+int  roam_send_msg(uint32_t to, const void *data, int len);
+/* the oldest game message received (at most 8 wait; the oldest goes): its
+ * length (copied up to cap), *from its sender's id; 0 none */
+int  roam_recv_msg(uint32_t *from, void *out, int cap);
 
 #ifdef __cplusplus
 }

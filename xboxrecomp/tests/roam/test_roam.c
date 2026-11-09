@@ -85,12 +85,24 @@ static void t_wire(void){
     m.u.far.e[0].p[1] = 30000.f; n = rc_encode(&m, b, sizeof b);
     CHECK(rc_decode(b, n, &d) == RC_E_RANGE, "far range");
 
+    /* GAME (player -> player): len + bytes; 0 and too long refused both ways */
+    memset(&m, 0, sizeof m);
+    m.h.type = RC_MSG_GAME; m.h.sender = 5; m.u.game.len = 3; memcpy(m.u.game.data, "R1x", 3);
+    n = rc_encode(&m, b, sizeof b);
+    CHECK(n == RC_HDR + 1 + 3 + RC_CRC, "game length %d", n);
+    CHECK(rc_decode(b, n, &d) == RC_OK && d.u.game.len == 3 && !memcmp(d.u.game.data, "R1x", 3), "game round trip");
+    m.u.game.len = 0; CHECK(rc_encode(&m, b, sizeof b) < 0, "empty game refused");
+    m.u.game.len = RC_GAME_MAX + 1; CHECK(rc_encode(&m, b, sizeof b) < 0, "long game refused");
+    m.u.game.len = 3; n = rc_encode(&m, b, sizeof b); b[RC_HDR] = 200;
+    { uint32_t c = rc_crc32(b, (uint32_t)n - 4); memcpy(b + n - 4, &c, 4); }
+    CHECK(rc_decode(b, n, &d) == RC_E_FIELD, "game length beyond the datagram refused");
+
     /* fuzz: random bytes with a valid header and CRC never crash, never pass trailing garbage */
     uint32_t r = 1;
     for (int it = 0; it < 20000; it++){
         int len = RC_HDR + RC_CRC + (int)(r % 200);
         for (int i = 0; i < len; i++){ r ^= r << 13; r ^= r >> 17; r ^= r << 5; b[i] = (uint8_t)r; }
-        memcpy(b, "MC3R", 4); b[4] = 1; b[5] = (uint8_t)(1 + r % 9); b[6] = (uint8_t)len; b[7] = (uint8_t)(len >> 8);
+        memcpy(b, "MC3R", 4); b[4] = 1; b[5] = (uint8_t)(1 + r % 10); b[6] = (uint8_t)len; b[7] = (uint8_t)(len >> 8);
         uint32_t c = rc_crc32(b, (uint32_t)len - 4); memcpy(b + len - 4, &c, 4);
         (void)rc_decode(b, len, &d);
     }
@@ -227,6 +239,19 @@ static void t_loopback(int with_hub){
         int want = room ? 0 : 1;
         CHECK(rc_established(&g_s[0]) == want && rc_established(&g_s[1]) == want, "%s: room %d: %d links (%d, %d)", how,
               room, want, rc_established(&g_s[0]), rc_established(&g_s[1]));
+    }
+    /* GAME messages go to the established peer only, arrive in order, and the inbox keeps the newest 8 */
+    {
+        uint8_t msg[4] = { 'R', 1, 0, 0 }, got[RC_GAME_MAX]; uint32_t from = 0; int ok = 1;
+        CHECK(rc_send_game(&g_s[0], 0xDEADu, msg, 4) == -1, "%s: game to an unknown peer refused", how);
+        for (int k = 0; k < 10; k++){ msg[2] = (uint8_t)k; ok &= rc_send_game(&g_s[0], g_s[1].conf.self_id, msg, 4) == 0; }
+        CHECK(ok, "%s: game sent", how);
+        for (int f = 0; f < 5; f++){ g_now += 10000; deliver(); }
+        CHECK(g_s[1].ninbox == RC_INBOX && g_s[1].rx_game_drop == 2, "%s: inbox %d, dropped %u", how, g_s[1].ninbox, g_s[1].rx_game_drop);
+        int n = rc_recv_game(&g_s[1], &from, got, sizeof got);
+        CHECK(n == 4 && from == g_s[0].conf.self_id && got[2] == 2, "%s: oldest kept first (n %d, #%d)", how, n, got[2]);
+        while (rc_recv_game(&g_s[1], &from, got, sizeof got)) ;
+        CHECK(g_s[1].ninbox == 0, "%s: inbox drained", how);
     }
     /* Ann quits: Bob drops her */
     rc_shutdown(&g_s[0], 2);

@@ -28,6 +28,11 @@
  *           p f32 x3, q i16 x4 (as in a SNAP), name (len u8 + bytes) }: the
  *           players beyond our links, nearest first; a core without it drops
  *           it as RC_E_TYPE
+ *   GAME    (player -> player, MC3 only, core 17) len u8 (1 .. RC_GAME_MAX),
+ *           then that many bytes: opaque to the core, the game layer's
+ *           (roam_send_msg / roam_recv_msg); taken from established peers
+ *           only, at most RC_INBOX waiting (the oldest goes); a core without
+ *           it drops it as RC_E_TYPE
  *
  * Portable C99: no OS headers, no libm, no threads, no allocation.  Floats
  * use + - * / and sqrt only.  Every function that takes a session must be
@@ -41,7 +46,7 @@
 #include "roam_api.h"
 
 #define RC_PROTO_VER     1
-#define RC_CORE_VER      16
+#define RC_CORE_VER      17
 #define RC_MAGIC0        0x4D       /* "MC3R" */
 #define RC_MAGIC1        0x43
 #define RC_MAGIC2        0x33
@@ -64,9 +69,11 @@
 #define RC_CFG_MAX       ROAM_CFG_MAX
 #define RC_CFG_FRAG      1000       /* bytes per CFG fragment */
 #define RC_CFG_MAXFRAG   3
+#define RC_GAME_MAX      ROAM_MSG_MAX
+#define RC_INBOX         8          /* GAME messages waiting for the game at most */
 
 enum { RC_MSG_HELLO = 1, RC_MSG_PEERS = 2, RC_MSG_SNAP = 3, RC_MSG_CFG = 4, RC_MSG_CFG_REQ = 5,
-       RC_MSG_PING = 6, RC_MSG_PONG = 7, RC_MSG_BYE = 8, RC_MSG_FAR = 9 };
+       RC_MSG_PING = 6, RC_MSG_PONG = 7, RC_MSG_BYE = 8, RC_MSG_FAR = 9, RC_MSG_GAME = 10 };
 enum { RC_PLAT_WEB = 4 };
 /* header flags: SNAP every n-th (far peers), HELLO to everyone, state extensions, crews (here: the links byte) */
 #define RC_HF_EVERY      0x000F
@@ -119,6 +126,7 @@ typedef struct {
         struct { uint32_t t0, t1, t2; } ping;
         struct { uint8_t reason; } bye;
         struct { uint8_t n; roam_far_peer e[ROAM_FAR_MAX]; } far;   /* dist unused on the wire */
+        struct { uint8_t len; uint8_t data[RC_GAME_MAX]; } game;
     } u;
 } rc_msg;
 /* one datagram into out (RC_MAX_DGRAM at least): its length, or -1 */
@@ -229,6 +237,8 @@ typedef struct {
     int64_t   hub_since, hub_heard_us, hub_hello_tx, hub_snap_tx;  int hub_was;
     uint32_t  hub_lists, rx_unlisted;
     roam_far_peer far[ROAM_FAR_MAX];  int nfar;  int64_t far_us;   /* the hub's last FAR list, when */
+    struct { uint32_t from; uint8_t len; uint8_t d[RC_GAME_MAX]; } inbox[RC_INBOX];   /* GAME messages, oldest first */
+    int       ninbox;  uint32_t rx_game_drop;
 } rc_session;
 
 void rc_session_init(rc_session *s, const rc_config *cfg, const rc_io *io);
@@ -245,6 +255,10 @@ void rc_bump_epoch(rc_session *s);
 void rc_bump_clock(rc_session *s);
 void rc_shutdown(rc_session *s, uint8_t reason);
 int  rc_established(const rc_session *s);
+/* a GAME message to the established peer `id`: 0 sent, -1 no such peer or a bad length */
+int  rc_send_game(rc_session *s, uint32_t id, const uint8_t *data, int len);
+/* the oldest GAME message waiting: its length (copied up to cap), *from its sender; 0 none */
+int  rc_recv_game(rc_session *s, uint32_t *from, uint8_t *out, int cap);
 const char *rc_status_name(int st);
 
 #endif

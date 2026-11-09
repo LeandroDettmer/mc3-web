@@ -245,6 +245,10 @@ int rc_encode(const rc_msg *m, uint8_t *out, int cap){
             rc_put8(&w, nl); rc_putb(&w, e->name, nl);
         }
         break;
+    case RC_MSG_GAME:
+        if (m->u.game.len < 1 || m->u.game.len > RC_GAME_MAX) return -1;
+        rc_put8(&w, m->u.game.len); rc_putb(&w, m->u.game.data, m->u.game.len);
+        break;
     default: return -1;
     }
     if (w.err || w.n + RC_CRC > w.cap) return -1;
@@ -347,6 +351,12 @@ int rc_decode(const uint8_t *buf, int len, rc_msg *m){
             if (r.err) return RC_E_SHORT;
             if (!printable(e->name, nl)) return RC_E_FIELD;
         }
+        break;
+    case RC_MSG_GAME:
+        m->u.game.len = (uint8_t)rc_get8(&r);
+        if (r.err) return RC_E_SHORT;
+        if (m->u.game.len < 1 || m->u.game.len > RC_GAME_MAX) return RC_E_FIELD;
+        rc_getb(&r, m->u.game.data, m->u.game.len);
         break;
     default: return RC_E_TYPE;
     }
@@ -828,7 +838,33 @@ void rc_receive(rc_session *s, uint32_t ip, uint16_t port, const uint8_t *buf, i
         s->bye[k].id = m.h.sender; s->bye[k].at = now;
         drop_peer(s, i, m.u.bye.reason == 1 ? "switched off" : "quit");
         break; }
+    case RC_MSG_GAME:
+        if (p->state != RC_PS_EST) return;
+        if (s->ninbox == RC_INBOX){ memmove(&s->inbox[0], &s->inbox[1], sizeof s->inbox[0] * (RC_INBOX - 1)); s->ninbox--; s->rx_game_drop++; }
+        s->inbox[s->ninbox].from = m.h.sender; s->inbox[s->ninbox].len = m.u.game.len;
+        memcpy(s->inbox[s->ninbox].d, m.u.game.data, m.u.game.len); s->ninbox++;
+        break;
     }
+}
+int rc_send_game(rc_session *s, uint32_t id, const uint8_t *data, int len){
+    if (!id || !data || len < 1 || len > RC_GAME_MAX) return -1;
+    for (int i = 0; i < RC_TABLE; i++){
+        rc_peer *p = &s->peer[i];
+        if (p->state != RC_PS_EST || p->id != id) continue;
+        rc_msg m; hdr(s, &m, RC_MSG_GAME);
+        m.u.game.len = (uint8_t)len; memcpy(m.u.game.data, data, (size_t)len);
+        tx(s, p, &m);
+        return 0;
+    }
+    return -1;
+}
+int rc_recv_game(rc_session *s, uint32_t *from, uint8_t *out, int cap){
+    if (!s->ninbox) return 0;
+    int n = s->inbox[0].len < cap ? s->inbox[0].len : cap;
+    if (n > 0) memcpy(out, s->inbox[0].d, (size_t)n);
+    if (from) *from = s->inbox[0].from;
+    memmove(&s->inbox[0], &s->inbox[1], sizeof s->inbox[0] * (RC_INBOX - 1)); s->ninbox--;
+    return n > 0 ? n : 0;
 }
 void rc_tick(rc_session *s, int64_t now){
     if (s->closed) return;

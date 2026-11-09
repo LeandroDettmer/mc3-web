@@ -163,3 +163,13 @@ int roam_peer_cfg(uint32_t id, void *out, int cap){
     roam_plat_unlock();
     return r;
 }
+int roam_send_msg(uint32_t to, const void *data, int len){
+    if (!g_on || !data) return -1;
+    roam_plat_lock(); int r = rc_send_game(&g_s, to, (const uint8_t *)data, len); roam_plat_unlock();
+    return r;
+}
+int roam_recv_msg(uint32_t *from, void *out, int cap){
+    if (!g_on || !out || cap <= 0) return 0;
+    roam_plat_lock(); int r = rc_recv_game(&g_s, from, (uint8_t *)out, cap); roam_plat_unlock();
+    return r;
+}
