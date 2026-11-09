@@ -8,6 +8,9 @@
 //                                    // a lost link goes 'offline', then 'connecting' again by itself until close() (see connect())
 //   link.send(frame) / link.onframe  // binary frames (net.js); link.rename(name); link.close()
 //   link.askRoam()                   // the server's free-roam players (its hub) into l.roam [{name, status}], then l.on's
+//   l.players                        // who is online, pushed by the switch when it changes (web/lan-worker/src/switch.js
+//                                    // {"t":"players"}: online, freeRoam, races, modes, list [{name, mode, city?, race?}], more);
+//                                    // null while offline or from a switch without it (web/server): the page polls /lan/stats then
 // Races (rooms, docs/races-protocol.md): the list is asked for on connecting and kept current.
 //   l.rooms [{id, name, host, hostVip, city, mode, n, max, locked}], l.roomsSeen (the list has come),
 //   l.room (the race we are in, or null), l.members [{vip, vipStr, name, host}], l.left {room, why} (last left),
@@ -19,7 +22,7 @@
 window.mc3Lan = function (name, lanUrl) {
   var url = lanUrl || (location.protocol == 'https:' ? 'wss://' : 'ws://') + location.host + '/lan';
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
-               rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null };
+               players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null };
   var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, sub = 1, rejoin = null, pass = '', auto = false;
   function changed() { fns.forEach(function (f) { try { f(link); } catch (e) { console.error(e); } }); }
   function up() { return ws && ws.readyState == 1; }
@@ -39,6 +42,7 @@ window.mc3Lan = function (name, lanUrl) {
       heard = Date.now();
       hello();
       if (sub) ws.send(JSON.stringify({ t: 'rooms', sub: 1 }));
+      ws.send(JSON.stringify({ t: 'players', sub: 1 }));
       if (rejoin) { auto = true; ws.send(JSON.stringify({ t: 'join', room: rejoin.id, pass: rejoin.pass })); }
       // keeps an idle page joined (the server's IDLE, proxies); a ping, so a dead link shows as no pong
       beat = setInterval(function () {
@@ -56,6 +60,7 @@ window.mc3Lan = function (name, lanUrl) {
       else if (m.t == 'pong') pongs = true;
       else if (m.t == 'peers') { link.peers = m.peers || []; changed(); }
       else if (m.t == 'roam') { link.roam = m.players || []; changed(); }
+      else if (m.t == 'players') { link.players = m; changed(); }
       else if (m.t == 'rooms') { link.rooms = m.rooms || []; link.roomsSeen = true; changed(); }
       else if (m.t == 'room') {
         link.room = m.room; link.members = m.members || []; auto = false;
@@ -74,7 +79,7 @@ window.mc3Lan = function (name, lanUrl) {
     if (me !== ws) return;
     ws = null;
     clearInterval(beat);
-    link.state = 'offline'; link.room = null; link.members = []; link.peers = [];
+    link.state = 'offline'; link.room = null; link.members = []; link.peers = []; link.players = null;
     changed();   // 'offline' first: web/rtc.js drops its channels, net.js tells the game the link is down
     if (!want) return;
     var d = Math.min(15000, 1000 << Math.min(tries++, 4)) * (0.75 + Math.random() * 0.5);

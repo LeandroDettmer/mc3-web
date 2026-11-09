@@ -19,6 +19,13 @@
 // The hub and the rate buckets live in memory: lost when the object hibernates, which needs 10 s without a message,
 // so never during free roam; the hub refills from the next HELLOs.
 //
+// Who is online (the start page's "Playing now" box and its View players list): {"t":"players","sub":1} subscribes;
+// the subscriber gets the list at once, then again whenever it changed (joins, leaves, renames, mode or city), at most
+// every WHO_MS: {"t":"players", online, freeRoam, races (as GET /lan/stats), modes: {roam, race, menu},
+// list: [{name, mode: 'roam'|'race'|'menu', city?: free-roam room id, race?: room name}] (at most PLAYERS_MAX, free
+// roam by city first, then races, then the menus, by name), more: the players beyond the list}. Nicks are cleaned
+// and cut to NICK characters on hello.
+//
 // vars: ALLOW_ORIGINS "https://a.example,https://b.example" (scheme://host, comma-separated, any case); empty = any.
 
 import { Lobby, clean } from '../../races-worker/src/index.js';
@@ -27,6 +34,7 @@ import { Hub, HUB, ROAM_PORT } from './roam.js';
 
 export const BROADCAST = 0xFFFFFFFF, HDR = 16, MAX_DATA = 1472, MAX_FRAME = HDR + MAX_DATA;
 export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, burstBytes: 2 << 20 };   // crates/lan Limits
+export const NICK = 15, PLAYERS_MAX = 200, WHO_MS = 1000;   // the page's name field is 15 long
 const SAVE_MS = 30e3;   // a frame-only client's `last` reaches its attachment this often (idle expiry after a wake)
 
 export const isVip = v => (v & MASK) >>> 0 === NET && (v & 255) >= 2 && (v & 255) < 252;
@@ -42,11 +50,46 @@ export class Switch extends Lobby {
     this.buckets = new Map(); // vip -> {frames, bytes, at}
     this.hub = new Hub(env?.ROAM_K ? { default_k: Number(env.ROAM_K) } : {}); // links for a HELLO asking none
     this.ticked = 0;
+    this.whoAt = 0; this.whoLast = ''; this.whoTimer = 0;
   }
 
   /** GET /lan/stats: counts only (no names, no vips): connected sockets, free roam by room id, race rooms. */
   stats() {
     return { online: this.clients.size, freeRoam: this.hub.stats(), races: { rooms: this.rooms().length } };
+  }
+
+  /** {"t":"players"} (see the head of this file): the stats, every client's mode, the first PLAYERS_MAX names. */
+  players() {
+    const roam = new Map(), races = new Map(), modes = { roam: 0, race: 0, menu: 0 }, rank = { roam: 0, race: 1, menu: 2 };
+    for (const p of this.hub.players.values()) if (!roam.has(p.vip)) roam.set(p.vip, p.room >>> 0);
+    for (const h of this.rooms()) races.set(h.a.host.id, h.a.host.name);
+    const all = [...this.clients.values()].map(({ a }) => {
+      const e = { name: String(a.name).slice(0, NICK), mode: 'menu' };
+      if (roam.has(a.vip)) { e.mode = 'roam'; e.city = roam.get(a.vip); }
+      else if (a.room) { e.mode = 'race'; e.race = races.get(a.room) ?? ''; }
+      modes[e.mode]++;
+      return e;
+    });
+    all.sort((x, y) => rank[x.mode] - rank[y.mode] || (x.city ?? 0) - (y.city ?? 0) || (x.name < y.name ? -1 : x.name > y.name ? 1 : 0));
+    const list = all.slice(0, PLAYERS_MAX);
+    return { t: 'players', ...this.stats(), modes, list, more: all.length - list.length };
+  }
+
+  /** The list to its subscribers when it changed; at most every WHO_MS, a timer sends what came in between. */
+  // shortcut: rebuilt whole (O(n log n)) at most once a second while anything happens; fine to a few thousand clients.
+  who(now = Date.now()) {
+    const wait = this.whoAt + WHO_MS - now;
+    if (wait > 0 && wait <= WHO_MS) {   // beyond: the clock went back (tests' times), send now
+      if (!this.whoTimer) this.whoTimer = setTimeout(() => { this.whoTimer = 0; this.who(); }, wait);
+      return;
+    }
+    this.whoAt = now;
+    const subs = [...this.clients.values()].filter(q => q.a.who);
+    if (!subs.length) { this.whoLast = ''; return; }
+    const msg = JSON.stringify(this.players());
+    if (msg === this.whoLast) return;
+    this.whoLast = msg;
+    for (const q of subs) this.raw(q, msg);
   }
 
   async fetch(req) {
@@ -75,6 +118,7 @@ export class Switch extends Lobby {
     this.wsc.set(ws, c);
     this.send(vip, { t: 'welcome', vip, vipStr: vipStr(vip), mask: MASK >>> 0, mac: macStr(vip) });
     this.arm();
+    this.who(now);
     return true;
   }
 
@@ -85,20 +129,23 @@ export class Switch extends Lobby {
       else if (!this.control(c, data, now)) await super.webSocketMessage(ws, data);
     }
     if (this.hub.count && now - this.ticked >= this.hub.opts.tick_ms) this.tick(now);
+    this.who(now);
   }
 
-  /** The switch's own control messages (hello with lan, lan, roam); false: the Lobby's (rooms, ping, ...). */
+  /** The switch's own control messages (hello with lan, lan, roam, players); false: the Lobby's (rooms, ping, ...). */
   control(c, text, now) {
-    if (text.length > LIMITS.msg || !/"(hello|lan|roam)"/.test(text)) return false;
+    if (text.length > LIMITS.msg || !/"(hello|lan|roam|players)"/.test(text)) return false;
     let m;
     try { m = JSON.parse(text); } catch { return false; }
     if (m?.t === 'hello') {
-      c.a.name = clean(m.name, LIMITS.name, 'Player'); c.a.hi = true; c.a.lan = on(m.lan);
+      c.a.name = clean(m.name, NICK, 'Player'); c.a.hi = true; c.a.lan = on(m.lan);
     } else if (m?.t === 'lan') c.a.lan = on(m.on);
+    else if (m?.t === 'players') c.a.who = on(m.sub);
     else if (m?.t !== 'roam') return false;
     c.a.last = now;
     this.save(c);
     if (m.t === 'roam') this.raw(c, this.hub.listJson());
+    if (m.t === 'players' && c.a.who) this.raw(c, JSON.stringify(this.players()));
     if (m.t === 'hello') {
       this.peersChanged();
       if (c.a.room) { this.roomChanged(c.a.room); this.listChanged(); }
@@ -165,6 +212,7 @@ export class Switch extends Lobby {
     if (typeof now !== 'number') now = Date.now();   // the runtime passes alarmInfo; tests a time
     if (this.hub.count) this.tick(now);
     await super.alarm(now);
+    this.who(now);
   }
 
   drop(c) {
@@ -175,6 +223,7 @@ export class Switch extends Lobby {
     this.buckets.delete(c.a.vip);
     this.hub.leave(c.a.vip);
     if (c.a.hi) this.peersChanged();
+    this.who();
   }
 
   /** The whole peer list to everyone who said hello (crates/lan send_list). */

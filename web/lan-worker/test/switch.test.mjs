@@ -230,3 +230,50 @@ test('stats: counts only, per room, CORS by the allowlist', async () => {
   assert.equal((await get('https://evil.example')).status, 403);
   assert.equal((await get(null)).status, 200);   // same-origin: the browser sends no Origin
 });
+
+test('players: pushed to subscribers on change, at most every WHO_MS; modes, cities, nick cap, list cap', async () => {
+  const { sw, named, peer } = setup();
+  const a = await named('Ann'), b = await named('Bob\u0007 with a very long name');
+  let now = Date.now() + 10_000;
+  await a.say({ t: 'players', sub: 1 }, now);
+  let got = last(a.ws.texts(), 'players');
+  assert.equal(got.online, 2);
+  assert.deepEqual(got.list, [{ name: 'Ann', mode: 'menu' }, { name: 'Bob with a very', mode: 'menu' }]);
+  assert.equal(got.more, 0);
+  assert.equal(last(b.ws.texts(), 'players'), undefined, 'not subscribed: nothing');
+  // b drives free roam in room 2 and renames: one batched update after WHO_MS, none before
+  await b.frame(udp(b.vip, HUB, [...hello(2, 'Bob', 0, 2)], ROAM_PORT, ROAM_PORT), now + 100);
+  await b.say({ t: 'hello', name: 'Bo', lan: 1 }, now + 200);
+  assert.equal(last(a.ws.texts(), 'players'), undefined, 'throttled');
+  await b.say({ t: 'ping', id: 1 }, now += 1000);
+  got = last(a.ws.texts(), 'players');
+  assert.deepEqual(got.list, [{ name: 'Bo', mode: 'roam', city: 2 }, { name: 'Ann', mode: 'menu' }]);
+  assert.deepEqual(got.modes, { roam: 1, race: 0, menu: 1 });
+  assert.deepEqual(got.freeRoam, { total: 1, rooms: { 2: 1 } });
+  // nothing changed: nothing sent
+  await b.say({ t: 'ping', id: 2 }, now += 1000);
+  assert.equal(last(a.ws.texts(), 'players'), undefined);
+  // a race room
+  await b.say({ t: 'create', name: 'Night' }, now += 1000);
+  const c = await named('Cy');
+  await c.say({ t: 'join', room: sw.rooms()[0].a.host.id }, now += 1000);
+  got = last(a.ws.texts(), 'players');
+  assert.deepEqual(got.list.find(e => e.name === 'Cy'), { name: 'Cy', mode: 'race', race: 'Night' });
+  // a leave
+  sw.drop(sw.clients.get(c.vip));
+  await a.say({ t: 'ping', id: 3 }, now += 1000);
+  assert.equal(last(a.ws.texts(), 'players').online, 2);
+  // the cap: 250 online, 200 listed
+  for (let i = 0; i < 248; i++) peer();
+  await a.say({ t: 'ping', id: 4 }, now += 1000);
+  got = last(a.ws.texts(), 'players');
+  assert.equal(got.online, 250);
+  assert.equal(got.list.length, 200);
+  assert.equal(got.more, 50);
+  // unsubscribe
+  await a.say({ t: 'players', sub: 0 }, now += 1000);
+  peer();
+  await a.say({ t: 'ping', id: 5 }, now += 1000);
+  assert.equal(last(a.ws.texts(), 'players'), undefined);
+  clearTimeout(sw.whoTimer);
+});
