@@ -344,7 +344,11 @@ sites in the race flow 0x1C38CF/0x1C3ABA and the menus 0x1622C7/0x16236F/0x168CC
 While our race runs, the request override turns that request into Request(6) with
 `[0x53F2E4]` = SetEvent(city, -1) (the city's cruise, as `sub_0026D9E0` picks), the
 cruise's time and weather put back. So "Quit" on the race-over or pause menu is the
-way back. F3.4 holds the car on its spot for 1.5 s and puts it back if it falls
+way back. The pause menu's item is "Go to Menus" (key `GE_EXIT_TO_MC3FE`, action 0x1C
+-> `sub_001621E0(0)` -> Request(0x16) outside the career); in our race its label
+reads "Back to Free Roam" (SetLabel `sub_00348D70` override, `rra_label`). The
+rewrite only fires while the running setup is a race (`[0x53F2E0]+0x18 != 0`): in
+the cruise, "Go to Menus" goes to the menus. F3.4 holds the car on its spot for 1.5 s and puts it back if it falls
 10 m (ground not streamed in yet). The prompt is a page overlay (roam_prompt_box).
 
 **Feature 4 (online race):**

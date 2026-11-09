@@ -212,6 +212,12 @@ static void rra_player(uint32_t p)
     }
     white = xbox_InputGetState(0, &st) == 0 && st.Gamepad.bAnalogButtons[XBOX_BUTTON_WHITE] > XBOX_ANALOG_BUTTON_THRESHOLD;
     r = NULL;
+    if (!online_ram(cur) || MEM32(cur + 0x18u) == 0) {  /* a cruise is running: ours is not (stale flag) */
+        fprintf(stderr, "[RACE] request 0x%X in a cruise: to the menus as the game does (AI race flag cleared)\n",
+                (unsigned)n);
+        s_rra_race = 0;
+        return;
+    }
     if (!s_rra_race && MEM32(setup + 0x18u) == 0 && !MEM8(setup + 0x108u) && MEM32(0x0050F14Cu) == 0 &&
         remix_driving())
         r = roam_races_nearest(MEM32(setup), x, z, RRA_RADIUS, &d);
@@ -228,6 +234,25 @@ static void rra_player(uint32_t p)
         near_said = r;
         fprintf(stderr, "[RACE] near %s (%s, %u opponents), %.0f m\n", r->name, roam_races_kind_name(r->kind),
                 r->opponents, d);
+/* SetLabel (sub_00348D70, thiscall (item, column, text), esp at its return
+ * address), before the game's: in our AI race the pause and race-over
+ * menus' (builder sub_0016ADD0) "GE_EXIT_TO_MC3FE" item reads "Back to Free
+ * Roam". Its action 0x1C runs sub_001621E0(0): Request(0x16), which
+ * rra_state_request turns into the cruise. SetLabel copies the text, so it
+ * sits below the call's frame. */
+static void rra_label(uint32_t esp)
+{
+    static const char txt[] = "Back to Free Roam";
+    uint32_t cur = MEM32(ROAM_SETUP_VA), n, b, t, buf = (esp - 0x400u) & ~0xFu, i;
+    if (!s_online || !s_rra_race || !online_ram(cur) || MEM32(cur + 0x18u) == 0 || !str_table(&n, &b) ||
+        !(t = str_text(n, b, "GE_EXIT_TO_MC3FE")) || MEM32(esp + 0xCu) != t)
+        return;
+    for (i = 0; txt[i]; i++)
+        MEM16(buf + 2u * i) = (uint8_t)txt[i];
+    MEM16(buf + 2u * i) = 0;
+    MEM32(esp + 0xCu) = buf;
+}
+
     }
     if (speed > RRA_SLOW)
         snprintf(text, sizeof text, "Race: %s - slow down to start", r->name);

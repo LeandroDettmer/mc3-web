@@ -3947,6 +3947,7 @@ void sub_00348D70(void)
             s_fr_build = 0;
         }
     }
+    rra_label(g_esp);                            /* AI race: "Go to Menus" reads "Back to Free Roam" (roam_race_ai.c) */
     sub_00348D70_gen();
 }
 
