@@ -25,14 +25,20 @@
  * showroom's per-car screens and the loading screens), the rest of
  * assets_x*; at most PREFETCH_BUDGET_MB still to fetch and what the browser
  * says it has room for. It starts PREFETCH_DELAY_MS after the first disc
- * file, fetches one block at a time and only when the game has had no read
- * of its own on the network for IDLE_MS; blocks already kept (earlier visits
- * too) are skipped. Only when the cache is on. Log lines '[WEB] prefetch: ...'.
+ * file, fetches up to PREFETCH_RUN missing blocks in one request (a small
+ * file whole) and only when the game has had no read of its own on the
+ * network for IDLE_MS; blocks already kept (earlier visits too) are skipped.
+ * Such a request is dropped the moment the game reads the network itself, or
+ * wants one of its blocks more than a block past the one coming (that read
+ * then fetches its block alone); the blocks already in are kept. Only when
+ * the cache is on. Log lines '[WEB] prefetch: ...'.
  *
  * Readahead: a game read that goes on where its file's last read ended, into
  * a new block, also starts the next READAHEAD blocks not held yet (memory or
- * OPFS) in the background; the game's later read of one joins its fetch
- * (inflight) or finds it in memory. '[WEB] readahead: <file> ...' once a file.
+ * OPFS) in the background, one request; the game's later read of one joins
+ * its fetch (inflight) or finds it in memory. '[WEB] readahead: <file> ...'
+ * once a file. A game read of several blocks fetches each run of missing ones
+ * in one request; a read of a file of at most SMALL bytes fetches all of it.
  *
  * The game's own network reads give up a try after GAME_STALL_MS without
  * data (and try again); the background ones keep the disc cache's FETCH_MS.
@@ -59,8 +65,9 @@ addToLibrary({
     let cacheDir = null, cacheOn = null, warned = false;
     const BANKS = ['mx', 'RaceStarters', 'Engine_Revs', 'dx', 'City_Walla'].map(n => `audio/xstreams/${n.toLowerCase()}.xwb`);
     const PREFETCH_DELAY_MS = 15000, IDLE_MS = 300, PREFETCH_BUDGET_MB = 2560;
-    const READAHEAD = 2, GAME_STALL_MS = 4000;
+    const READAHEAD = 2, GAME_STALL_MS = 4000, PREFETCH_RUN = 16, SMALL = 2 * BLOCK;
     let netReads = 0, lastNet = 0, prefetching = false;   // the game's own reads on the network, when the last ended
+    const bgRuns = new Set();       // the background fill's requests in progress (fetchRun)
     const announce = new BroadcastChannel('mc3-disc');   // the predownload (web/disc_cache.js) stops for a game
     announce.postMessage({ t: 'game' });
     self.mc3DiscIO = { mem, inflight, files, open };   // for a debugger attached to this thread
@@ -128,7 +135,7 @@ addToLibrary({
         } catch { /* closed meanwhile: from the server */ }
       }
       let b;
-      netReads++;
+      netReads++; stopBackground();
       try { b = await C.fetchBlock(fi.url, bi, fi.size, m => err(`[WEB] disc read stalled: ${fi.url} block ${bi}: ${m}`), GAME_STALL_MS); }
       finally { netReads--; lastNet = performance.now(); }
       if ((cf = await cacheFile(fi))) {
@@ -142,21 +149,80 @@ addToLibrary({
       const b = mem.get(k);
       if (b) { mem.delete(k); mem.set(k, b); return b; }
       let p = inflight.get(k);
+      if (p && p.run) {                           // a block of a run (fetchRun): if the run drops it, this read fetches it
+        if (!p.run.game && bi > p.run.next + 1) p.run.ac.abort();   // far down a background run: not worth the wait
+        return p.catch(() => block(fi, bi));
+      }
       if (!p) {
         p = load(fi, bi).then(b => { remember(k, b); return b; }).finally(() => inflight.delete(k));
         inflight.set(k, p);
       }
       return p;
     }
+
+    function stopBackground() { for (const run of bgRuns) run.ac.abort(); }
+    // Blocks bi .. bi+n-1 of fi in one request (C.fetchBlocks). Each is in `inflight` until it has come, so a read
+    // of it waits for that, and goes into OPFS as it comes (into memory too for the game's runs, game true). A
+    // background run (game false) is dropped by stopBackground and by block (see the header). Resolves to the
+    // number of blocks that came; rejects with the fetch's error, or a background block OPFS did not keep.
+    async function fetchRun(fi, bi, n, game) {
+      const run = { ac: new AbortController(), next: bi, game }, waits = [], puts = [];
+      for (let j = bi; j < bi + n; j++) {         // before any await: a read right after this call joins
+        const w = { k: fi.key + '#' + j };
+        w.p = new Promise((res, rej) => { w.res = res; w.rej = rej; });
+        w.p.catch(() => {});                      // nobody may wait for it
+        w.p.run = run;
+        inflight.set(w.k, w.p); waits.push(w);
+      }
+      const drop = w => { if (inflight.get(w.k) === w.p) inflight.delete(w.k); };
+      let kept = null;
+      if (game) { netReads++; stopBackground(); } else bgRuns.add(run);
+      try {
+        await C.fetchBlocks(fi.url, bi, n, fi.size, {
+          signal: run.ac.signal, stallMs: game ? GAME_STALL_MS : undefined,
+          warn: m => err(`[WEB] ${game ? 'disc read' : 'prefetch'} stalled: ${fi.url} blocks ${bi}-${bi + n - 1}: ${m}`),
+          onBlock: (j, b) => {
+            const w = waits[j - bi];
+            run.next = j + 1;
+            if (game) remember(w.k, b);
+            puts.push(cacheFile(fi).then(c => { if (c && !c.have[j]) C.put(c, j, b); }).catch(e => { kept ??= e; }));
+            drop(w); w.res(b);
+          },
+        });
+      } catch (e) {
+        if (!run.ac.signal.aborted) throw e;      // dropped: the blocks that came are kept
+      } finally {
+        if (game) { netReads--; lastNet = performance.now(); } else bgRuns.delete(run);
+        for (const w of waits.slice(run.next - bi)) { drop(w); w.rej(new Error('dropped')); }
+      }
+      await Promise.all(puts);
+      if (kept) {
+        if (!game) throw kept;
+        if (!warned) { warned = true; err(`[WEB] disc cache: a block was not kept (${kept})`); }
+      }
+      return run.next - bi;
+    }
+    // The blocks lo..hi of fi nobody holds or fetches, one game request (fetchRun) per run of them at least `min`
+    // long. Returns the first block asked for, or -1.
+    async function fetchRuns(fi, lo, hi, min) {
+      const cf = await cacheFile(fi), free = j => {
+        const k = fi.key + '#' + j;
+        return !mem.has(k) && !inflight.has(k) && !(cf && cf.have[j]);
+      };
+      let first = -1;
+      for (let j = lo; j <= hi;) {
+        if (!free(j)) { j++; continue; }
+        let n = 1;
+        while (j + n <= hi && free(j + n)) n++;
+        if (n >= min) { if (first < 0) first = j; fetchRun(fi, j, n, true).catch(() => {}); }   // a failed block is fetched again by its read
+        j += n;
+      }
+      return first;
+    }
     // Blocks bi+1 .. bi+READAHEAD of fi into memory in the background, those not held yet (see the header).
     async function readahead(fi, bi) {
-      const cf = await cacheFile(fi);
-      for (let j = bi + 1; j <= bi + READAHEAD && j * BLOCK < fi.size; j++) {
-        const k = fi.key + '#' + j;
-        if (mem.has(k) || inflight.has(k) || (cf && cf.have[j])) continue;
-        if (!fi.ra) { fi.ra = true; err(`[WEB] readahead: ${fi.url} from block ${j}`); }
-        block(fi, j).catch(() => {});             // a failed one is fetched again by the game's own read
-      }
+      const j = await fetchRuns(fi, bi + 1, Math.min(bi + READAHEAD, Math.ceil(fi.size / BLOCK) - 1), 1);
+      if (j >= 0 && !fi.ra) { fi.ra = true; err(`[WEB] readahead: ${fi.url} from block ${j}`); }
     }
 
     // What to fill, in order (see the header): manifest files.
@@ -212,26 +278,18 @@ addToLibrary({
         while (netReads > 0 || performance.now() - lastNet < IDLE_MS) await new Promise(r => setTimeout(r, IDLE_MS));
       };
       for (const fi of jobs) {
-        for (let bi = 0; bi * BLOCK < fi.size; bi++) {
-          const k = fi.key + '#' + bi;
+        for (let bi = 0; bi * BLOCK < fi.size;) {
           let cf = await cacheFile(fi);
           if (!cf) return;
-          if (cf.have[bi]) continue;
+          if (cf.have[bi] || inflight.has(fi.key + '#' + bi)) { bi++; continue; }
           await idle();
           if (!(cf = await cacheFile(fi))) return;
-          if (cf.have[bi] || inflight.has(k)) continue;   // the game read it meanwhile, or is reading it
-          let kept = null;
-          // in inflight, so a game read of this block waits for this fetch instead of fetching it again
-          const p = C.fetchBlock(fi.url, bi, fi.size, w => err(`[WEB] prefetch stalled: ${fi.p} block ${bi}: ${w}`))
-            .then(async b => {
-              const c = await cacheFile(fi);
-              try { if (c && !c.have[bi]) C.put(c, bi, b); } catch (e) { kept = e; }   // the game's read still gets the block
-              return b;
-            });
-          inflight.set(k, p);
-          try { await p; } finally { if (inflight.get(k) === p) inflight.delete(k); }
-          if (kept) throw kept;
-          done += C.blockLen(fi.size, bi);
+          let n = 0;                              // from bi, the blocks still missing that the game is not reading
+          while (n < PREFETCH_RUN && (bi + n) * BLOCK < fi.size && !cf.have[bi + n] && !inflight.has(fi.key + '#' + (bi + n))) n++;
+          if (!n) continue;
+          const got = await fetchRun(fi, bi, n, false);   // fewer when dropped for the game: the rest after idle()
+          for (let j = bi; j < bi + got; j++) done += C.blockLen(fi.size, j);
+          bi += got;
           const pct = Math.floor(done * 10 / left);
           if (pct > shown && done < left) { shown = pct; err(`[WEB] prefetch: ${pct * 10}% (${mib(done)} of ${mib(left)} MiB), ${fi.p}`); }
         }
@@ -250,6 +308,13 @@ addToLibrary({
         length = Math.min(length, fi.size - offset);
         if (fi.data) { HEAPU8.set(fi.data.subarray(offset, offset + length), buffer); return length; }
         const first = (offset / BLOCK) | 0, last = ((offset + length - 1) / BLOCK) | 0, want = [];
+        // several blocks, or a small file: the missing ones in one request per run (see the header)
+        const small = fi.size <= SMALL, lo = small ? 0 : first, hi = small ? Math.ceil(fi.size / BLOCK) - 1 : last;
+        if (hi > lo) {
+          let j = lo;
+          while (j <= hi && mem.has(fi.key + '#' + j)) j++;
+          if (j <= hi) await fetchRuns(fi, lo, hi, 2);
+        }
         for (let bi = first; bi <= last; bi++) want.push(block(fi, bi));
         const prev = fi.last;                     // the last block of this file's previous read
         fi.last = last;

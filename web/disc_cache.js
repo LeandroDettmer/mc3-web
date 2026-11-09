@@ -8,7 +8,7 @@
 // it a ".have" map of one byte per block. A block's data is written before
 // its byte in the map. A host on this machine or the LAN reads the disc
 // straight over HTTP, no cache (enabled); MC3_DISC_CACHE=1 / =0 forces it.
-// The predownload runs only on the owner's click, uses 3 connections and
+// The predownload runs only on the owner's click, uses 3 connections (runs of up to 16 missing blocks a request) and
 // stops when a game announces itself on the 'mc3-disc' channel. Every disc
 // request carries credentials: a deploy's disc server on another origin
 // (config.json, web/index.html) may sit behind a sign-in cookie.
@@ -31,7 +31,7 @@ var MC3DiscCache = (() => {
   /** a manifest file {p, s, m} of the disc named `disc` -> its cache file's name (path and size, not mtime) */
   const key = (disc, f) => `${disc}/${f.p}`.replace(/[^A-Za-z0-9._-]/g, '_') + `.${f.s}`;
   const fileUrl = (disc, p) => disc.replace(/\/+$/, '') + '/' + p.split('/').map(encodeURIComponent).join('/');
-  const LANES = 3, FETCH_MS = 15000, TRIES = 6;   // predownload connections; a read that gets no data for FETCH_MS is tried again (fetchBlock)
+  const LANES = 3, RUN = 16, FETCH_MS = 15000, TRIES = 6;   // predownload connections, blocks per request; a read that gets no data for FETCH_MS is tried again (fetchBlocks)
   const SCHEME = '2', SCHEME_FILE = 'scheme', MODE_FILE = 'mode';
   // localhost, *.local, loopback, LAN: the disc is already on this machine
   const LOCAL = /^(localhost|.*\.local|127(\.\d{1,3}){3}|\[?::1\]?|10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2})$/i;
@@ -104,41 +104,63 @@ var MC3DiscCache = (() => {
     cf.have[bi] = 1; cf.haveH.write(cf.have.subarray(bi, bi + 1), { at: bi });
   }
 
-  /** block bi of a file of `size` bytes at `url`, over HTTP. A try that gets no data for `stallMs` (no answer, or the body stops coming) is abandoned and tried again, so a stalled connection never blocks a read for long, while a slow one that keeps sending is never cut; warn(msg) logs each retry */
-  async function fetchBlock(url, bi, size, warn = () => {}, stallMs = FETCH_MS) {
-    const start = bi * BLOCK, len = blockLen(size, bi);
+  /** blocks bi .. bi+n-1 of a file of `size` bytes at `url`, in one Range request; onBlock(j, bytes) as each block has
+   * come (BLOCK bytes, the file's last shorter), all of them in an array at the end. A try that gets no data for
+   * `stallMs` (no answer, or the body stops coming) is abandoned and tried again from the first block not yet in, so
+   * a stalled connection never blocks a read for long, while a slow one that keeps sending is never cut; warn(msg)
+   * logs each retry. `signal` (optional) abandons the whole fetch (AbortError); the blocks already in went to onBlock. */
+  async function fetchBlocks(url, bi, n, size, { warn = () => {}, stallMs = FETCH_MS, signal, onBlock = () => {} } = {}) {
+    const out = [], end = Math.min(size, (bi + n) * BLOCK);
+    let failed = null;                            // onBlock threw (no room, say): not tried again
     for (let attempt = 1; ; attempt++) {
-      const ac = new AbortController();
+      const at = (bi + out.length) * BLOCK, had = out.length;
+      const ac = new AbortController(), stop = () => ac.abort();
+      signal?.addEventListener('abort', stop);
       let timer;
       const arm = () => { clearTimeout(timer); timer = setTimeout(() => ac.abort(), stallMs); };
       arm();
       try {
-        const r = await fetch(url, { headers: { Range: `bytes=${start}-${start + len - 1}` }, credentials: 'include', signal: ac.signal });
+        if (signal?.aborted) throw new DOMException('stopped', 'AbortError');
+        const r = await fetch(url, { headers: { Range: `bytes=${at}-${end - 1}` }, credentials: 'include', signal: ac.signal });
         if (r.status !== 206 && r.status !== 200) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
         arm();
-        let b;
-        if (r.body) {                             // read as it comes: each piece restarts the stall timer
-          const rd = r.body.getReader(), parts = [];
-          let n = 0;
-          for (;;) {
+        const rd = r.body.getReader();
+        let pos = r.status === 200 ? 0 : at, cur = null, fill = 0;   // a server without ranges: the whole file
+        try {
+          while (pos < end) {                     // read as it comes: each piece restarts the stall timer
             const { done, value } = await rd.read();
             if (done) break;
-            parts.push(value); n += value.length; arm();
+            arm();
+            let v = value;
+            if (pos < at) { const s = Math.min(v.length, at - pos); v = v.subarray(s); pos += s; }
+            while (v.length && pos < end) {
+              const j = bi + out.length, len = blockLen(size, j);
+              cur ??= new Uint8Array(len);
+              const take = Math.min(v.length, len - fill);
+              cur.set(v.subarray(0, take), fill); fill += take; pos += take; v = v.subarray(take);
+              if (fill === len) {
+                out.push(cur);
+                try { onBlock(j, cur); } catch (e) { failed = e; throw e; }
+                cur = null; fill = 0;
+              }
+            }
           }
-          b = new Uint8Array(n); n = 0;
-          for (const p of parts) { b.set(p, n); n += p.length; }
-        } else b = new Uint8Array(await r.arrayBuffer());
-        if (r.status === 200) b = b.slice(start, start + len);       // a server without ranges: the whole file
-        if (b.length !== len) throw new Error(`${b.length} of ${len} bytes`);
-        return b;
+        } finally { rd.cancel().catch(() => {}); }
+        if (out.length < n) throw new Error(`${pos - at} of ${end - at} bytes`);
+        return out;
       } catch (e) {
+        if (failed) throw failed;
+        if (signal?.aborted) throw new DOMException('stopped', 'AbortError');
         const why = ac.signal.aborted ? `no data for ${stallMs / 1000} s` : String(e.message || e);
+        if (out.length > had) attempt = 1;        // it moved on: a fresh count of tries
         if (attempt >= TRIES || (e.status && e.status < 500)) throw new Error(why);
         warn(`${why}: try ${attempt} of ${TRIES} again`);
         await new Promise(res => setTimeout(res, 250 * 2 ** attempt));
-      } finally { clearTimeout(timer); }
+      } finally { clearTimeout(timer); signal?.removeEventListener('abort', stop); }
     }
   }
+  /** block bi alone (fetchBlocks) */
+  const fetchBlock = (url, bi, size, warn, stallMs) => fetchBlocks(url, bi, 1, size, { warn, stallMs }).then(b => b[0]);
 
   /** What of the disc the cache holds: { total, have } bytes, files [{f, k, have: map | null}]. Async reads only. */
   async function scan(disc) {
@@ -165,7 +187,9 @@ var MC3DiscCache = (() => {
   }
 
   // ---- the predownload worker
-  async function predownload(disc, post, stopped) {
+  // A job is a run of at most RUN blocks a file misses, one request (fetchBlocks); `signal` stops it at once (the
+  // blocks already in are kept).
+  async function predownload(disc, post, signal) {
     const s = await scan(disc), d = await dir(true);
     let have = s.have, shown = 0;
     const progress = now => { const t = Date.now(); if (now || t - shown >= 250) { shown = t; post({ t: 'progress', have, total: s.total }); } };
@@ -173,41 +197,61 @@ var MC3DiscCache = (() => {
     const jobs = [];
     for (const x of s.files) {
       x.left = 0;
-      for (let bi = 0; bi < blockCount(x.f.s); bi++) if (!x.have || !x.have[bi]) { jobs.push([x, bi]); x.left++; }
+      for (let bi = 0; bi < blockCount(x.f.s); bi++) {
+        if (x.have && x.have[bi]) continue;
+        const job = jobs[jobs.length - 1];
+        if (job && job[0] === x && job[1] + job[2] === bi && job[2] < RUN) job[2]++;
+        else { jobs.push([x, bi, 1]); x.left++; }
+      }
     }
+    const ac = new AbortController(), halt = () => ac.abort();   // stopped, or one lane failed: every lane stops
+    signal.addEventListener('abort', halt);
     let next = 0;
     const lane = async () => {
-      while (!stopped() && next < jobs.length) {
-        const [x, bi] = jobs[next++];
+      while (!ac.signal.aborted && next < jobs.length) {
+        const [x, bi, n] = jobs[next++];
         try {
           const cf = await (x.cf ??= open(d, x.k, x.f.s));
-          if (!cf.have[bi]) {                     // the game may have read it meanwhile
-            put(cf, bi, await fetchBlock(fileUrl(disc, x.f.p), bi, x.f.s, m => console.warn('[WEB] predownload: ' + m)));
-            have += blockLen(x.f.s, bi); progress();
+          for (let j = bi; j < bi + n && !ac.signal.aborted;) {   // the game may have read some meanwhile: what is still missing
+            if (cf.have[j]) { j++; continue; }
+            let m = 1;
+            while (j + m < bi + n && !cf.have[j + m]) m++;
+            await fetchBlocks(fileUrl(disc, x.f.p), j, m, x.f.s, {
+              signal: ac.signal, warn: w => console.warn('[WEB] predownload: ' + w),
+              onBlock: (k, b) => { if (!cf.have[k]) { put(cf, k, b); have += blockLen(x.f.s, k); progress(); } },
+            });
+            j += m;
           }
-        } finally { if (--x.left === 0 && x.cf) close(await x.cf.catch(() => null)); }
+        } catch (e) { halt(); throw e; }
+        finally { if (--x.left === 0 && x.cf) close(await x.cf.catch(() => null)); }
       }
     };
-    try { await Promise.all(Array.from({ length: LANES }, lane)); }
-    finally { for (const x of s.files) if (x.left > 0 && x.cf) close(await x.cf.catch(() => null)); }
+    let r;
+    try { r = await Promise.allSettled(Array.from({ length: LANES }, lane)); }
+    finally {
+      signal.removeEventListener('abort', halt);
+      for (const x of s.files) if (x.left > 0 && x.cf) close(await x.cf.catch(() => null));
+    }
+    const bad = r.find(x => x.status === 'rejected' && x.reason?.name !== 'AbortError');
+    if (bad) throw bad.reason;
     progress(true);
     return { have, total: s.total };
   }
   if (typeof WorkerGlobalScope !== 'undefined' && self.name === 'mc3-predownload') {
     let stop = false, busy = false;
-    const halt = () => { stop = true; if (!busy) postMessage({ t: 'stopped' }); };
+    const ac = new AbortController();
+    const halt = () => { stop = true; ac.abort(); if (!busy) postMessage({ t: 'stopped' }); };
     // a game reading the disc (any tab) announces itself: the download stops, the game gets the connections
     new BroadcastChannel('mc3-disc').onmessage = e => { if (e.data && e.data.t === 'game') halt(); };
     self.onmessage = e => {
       if (e.data.t === 'stop') { halt(); return; }
       if (busy) return;
       busy = true;
-      predownload(e.data.disc, m => postMessage(m), () => stop).then(
+      predownload(e.data.disc, m => postMessage(m), ac.signal).then(
         r => postMessage(stop ? { t: 'stopped' } : { t: 'done', ...r }),
         err => postMessage(stop ? { t: 'stopped' } : { t: 'error', msg: err.name === 'QuotaExceededError' ? 'the browser has no more room for it' : String(err.message || err) }),
       ).finally(() => { busy = false; });
     };
   }
-
-  return { BLOCK, blockLen, discName, key, fileUrl, manifest, dir, open, close, put, fetchBlock, scan, clear, enabled, setForce, use };
+  return { BLOCK, blockLen, discName, key, fileUrl, manifest, dir, open, close, put, fetchBlock, fetchBlocks, scan, clear, enabled, setForce, use };
 })();
