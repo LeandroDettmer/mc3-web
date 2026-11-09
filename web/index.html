@@ -1114,7 +1114,8 @@
   function out(text) {
     logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
-    if (!failBox) for (const [re, title, help] of FATAL) if (re.test(text)) { failShow(title, help + ' (' + String(text).trim() + ')'); break; }
+    // '[WEB] memory:' lines are the memory ladder's own (a refused size is retried smaller, web/pre.js): not fatal
+    if (!failBox && !/^\[WEB\] memory:/.test(text)) for (const [re, title, help] of FATAL) if (re.test(text)) { failShow(title, help + ' (' + String(text).trim() + ')'); break; }
   }
   // A failure over the picture (2026-11-09: a TV showed a silent black screen and has no console): what
   // happened, why, and the log's last 20 lines. The first failure only; a click closes it.
