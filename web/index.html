@@ -1131,6 +1131,17 @@
     pre.style.cssText = 'margin:0;max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font:11px/1.35 monospace;opacity:.85';
     m.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);box-sizing:border-box;width:min(760px,calc(100vw - 32px));padding:12px 16px;border-radius:8px;background:#000e;color:#fff;font:14px sans-serif;z-index:99;border:1px solid #f66';
     m.append(h, p, pre);
+    // No devtools on a TV or phone: the whole log goes to the deploy's log store (config.json logUrl), its code shown here
+    if (cfg?.logUrl) {
+      const c = document.createElement('p');
+      c.style.cssText = 'margin:8px 0 0;font-weight:bold';
+      c.textContent = 'Sending the log…';
+      m.append(c);
+      fetch(cfg.logUrl, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'text/plain' }, body: logDump().slice(-2e6) })
+        .then(r => r.ok ? r.json() : Promise.reject(r.status))
+        .then(j => { c.textContent = 'Log code: ' + j.code + ' (send it to the developer)'; })
+        .catch(e => { c.textContent = 'The log could not be sent (' + e + ').'; });
+    }
     m.onclick = () => m.remove();
     ($('stage').hidden ? document.body : $('stage')).append(m);
   }
