@@ -65,6 +65,8 @@ int  xbox_sdl_keyboard_down(int scancode);
 #include <emscripten.h>                 /* WebGL2: GL thread loop, canvas (gl_es.c) */
 #include <emscripten/threading.h>
 #include <emscripten/html5.h>           /* the WebGL2 context (gl_make_window) */
+#include <emscripten/heap.h>            /* emscripten_get_heap_size (q_gl_frame) */
+#include <unistd.h>                     /* sbrk */
 #include "gl_es.h"                      /* nv2a_gl_es_callstats */
 #include "../nv2a_wgpu/nv2a_wgpu.h"     /* RECOMP_GPU=webgpu: the calls below forward */
 #endif
@@ -3556,6 +3558,9 @@ static int ct_start(const char *path, unsigned skip)
  * ready). s_win / s_ctx stay NULL on failure. A context made for another
  * thread is let go of here, so that thread can take it. */
 static int s_win_for_other;                  /* made for a thread other than main */
+#if defined(__EMSCRIPTEN__)
+static int s_gl_proxied;                     /* the context lives on the page thread (gl_make_window) */
+#endif
 
 static void gl_make_window(void *unused)
 {
@@ -3594,23 +3599,91 @@ static void gl_make_window(void *unused)
     }
     {
         EmscriptenWebGLContextAttributes a;
-        EMSCRIPTEN_WEBGL_CONTEXT_HANDLE c;
+        EMSCRIPTEN_WEBGL_CONTEXT_HANDLE c = 0;
+        int owned, i;
         emscripten_webgl_init_context_attributes(&a);
         a.majorVersion = 2;
         a.minorVersion = 0;
         a.alpha = 0;
         a.antialias = 0;
         a.depth = 0;           /* the title draws into framebuffers of its own */
-        c = emscripten_webgl_create_context("#canvas", &a);
+        a.stencil = 0;
+        a.failIfMajorPerformanceCaveat = 0;
+        /* The canvas this worker was handed (q_start), with a listener that
+         * keeps the browser's reason when it refuses a context. None: the
+         * page kept the canvas (RECOMP_GL_PROXY=1, web/pre.js) because this
+         * browser has no WebGL 2 in workers (a TCL Google TV, 2026-11-09). */
+        owned = EM_ASM_INT({
+            var n = 0;
+            for (var k in GL.offscreenCanvases) {
+                var o = GL.offscreenCanvases[k];   /* (no top-level commas in an EM_ASM body) */
+                var cv = o && (o.offscreenCanvas || o.canvas);
+                if (!cv) continue;
+                n++;
+                if (cv.addEventListener)
+                    cv.addEventListener('webglcontextcreationerror', function (e) { self.mc3GlWhy = e.statusMessage || 'no reason given'; });
+            }
+            return n;
+        });
+        if (!owned) {
+            /* Every GL call goes to the page thread (-sOFFSCREEN_FRAMEBUFFER:
+             * void calls queued, getters a round trip); the frame is drawn
+             * into a framebuffer of Emscripten's and shown at the flip. */
+            a.proxyContextToMainThread = EMSCRIPTEN_WEBGL_CONTEXT_PROXY_ALWAYS;
+            a.renderViaOffscreenBackBuffer = 1;
+            s_gl_proxied = 1;
+        } else
+            a.proxyContextToMainThread = EMSCRIPTEN_WEBGL_CONTEXT_PROXY_DISALLOW;
+        /* Second try: the plainest context (no premultiplied alpha, the
+         * low-power GPU), for a browser that refuses the first. */
+        for (i = 0; i < 2 && c <= 0; i++) {
+            char at[200];
+            if (i) {
+                a.premultipliedAlpha = 0;
+                a.preserveDrawingBuffer = s_gl_proxied;
+                a.powerPreference = EM_WEBGL_POWER_PREFERENCE_LOW_POWER;
+            }
+            c = emscripten_webgl_create_context("#canvas", &a);
+            if (c > 0)
+                break;
+            snprintf(at, sizeof at, "webgl2 alpha=%d depth=%d stencil=%d antialias=%d premultipliedAlpha=%d "
+                     "preserveDrawingBuffer=%d powerPreference=%d failIfMajorPerformanceCaveat=%d proxy=%d",
+                     a.alpha, a.depth, a.stencil, a.antialias, a.premultipliedAlpha, a.preserveDrawingBuffer,
+                     (int)a.powerPreference, a.failIfMajorPerformanceCaveat, (int)a.proxyContextToMainThread);
+            /* Why, for a TV without devtools: the browser, what this worker
+             * can make on a canvas of its own, the browser's reason. */
+            EM_ASM({
+                function probe(kind) {
+                    try {
+                        if (typeof OffscreenCanvas != 'function') return 'no OffscreenCanvas';
+                        var cv = new OffscreenCanvas(1, 1);
+                        var why = '';
+                        cv.addEventListener('webglcontextcreationerror', function (e) { why = e.statusMessage || ''; });
+                        var g = cv.getContext(kind);
+                        if (!g) return 'refused' + (why ? ' (' + why + ')' : '');
+                        var r = g.getExtension('WEBGL_debug_renderer_info');
+                        return 'ok (' + g.getParameter(r ? r.UNMASKED_RENDERER_WEBGL : g.RENDERER) + ')';
+                    } catch (e) { return 'threw ' + e; }
+                }
+                err('  [GL] try ' + $0 + ' refused: ' + (self.mc3GlWhy || 'no reason given') + '; attributes ' + UTF8ToString($1)
+                    + '; this worker: webgl2 ' + probe('webgl2') + ', webgl ' + probe('webgl') + '; canvases held ' + $2
+                    + '; ' + navigator.userAgent);
+                self.mc3GlWhy = '';
+            }, i + 1, at, owned);
+        }
         if (c <= 0 || emscripten_webgl_make_context_current(c) != EMSCRIPTEN_RESULT_SUCCESS) {
-            fprintf(stderr, "  [GL] WebGL2 context on #canvas failed (%d)\n", (int)c);
+            fprintf(stderr, "  [GL] WebGL2 context on #canvas failed (%d)%s\n", (int)c,
+                    owned ? "" : " (through the page thread too)");
             return;
         }
+        if (s_gl_proxied)
+            fprintf(stderr, "  [GL] WebGL2 context on the page thread (no WebGL 2 in workers here): "
+                    "every GL call goes through it, slower\n");
         s_ctx = (SDL_GLContext)(intptr_t)c;
         /* A lost context draws nothing again: say so in the log, which the
          * page turns into a message over the picture (web/index.html). */
         EM_ASM({
-            var cv = GL.currentContext && GL.currentContext.GLctx.canvas;
+            var cv = GL.currentContext && GL.currentContext.GLctx && GL.currentContext.GLctx.canvas;   /* none when proxied */
             if (cv && cv.addEventListener)
                 cv.addEventListener('webglcontextlost', function () { err('[GL] WebGL context lost'); });
         });
@@ -7192,6 +7265,11 @@ swap:
     /* (Emscripten: the canvas shows the frame when the GL thread hands
      * the worker back to requestAnimationFrame, q_gl_run.) */
     SDL_GL_SwapWindow(s_win);
+#else
+    /* A context on the page thread draws into Emscripten's framebuffer:
+     * copied to the canvas here (a round trip: also paces the queue). */
+    if (s_gl_proxied)
+        emscripten_webgl_commit_frame();
 #endif
     gq_frame_end();
     s_mg_fb_draw = s_mg_fb_read = 0xFFFFFFFFu;   /* whatever the swap did */
@@ -7258,7 +7336,10 @@ typedef struct {
     uint32_t flags, argb, zs, pad;
 } QClear;
 
-#define Q_BYTES   (48u << 20)
+/* 48 MB; RECOMP_GL_QUEUE_MB (16-48, q_start) for a small device (the page's
+ * low-memory profile: a TV's 32-bit browser gives the whole game ~400 MB). */
+static uint32_t s_q_bytes = 48u << 20;
+#define Q_BYTES   s_q_bytes
 #define Q_ALIGN(x) (((x) + 15u) & ~(size_t)15u)
 #define REG_WORDS (0x2000 / 4)
 #define PROG_ROWS 136
@@ -7649,6 +7730,17 @@ static uint64_t s_q_turn_end;
 static void q_gl_frame(void)
 {
     uint64_t t = q_now_ns();
+    {
+        /* The memory the game has taken (sbrk: everything below it is in
+         * use), each 16 MB more: what a small device must give it. */
+        static uintptr_t noted;
+        uintptr_t brk = (uintptr_t)sbrk(0);
+        if (brk >= noted + (16u << 20)) {
+            noted = brk;
+            fprintf(stderr, "[WEB] memory in use: %u MB of %u MB\n", (unsigned)(brk >> 20),
+                    (unsigned)(emscripten_get_heap_size() >> 20));
+        }
+    }
     if (s_q_turn_end)                           /* between turns: idle too */
         __atomic_add_fetch(&s_q_gl_idle_ns, t - s_q_turn_end, __ATOMIC_RELAXED);
     q_gl_run(1);
@@ -7970,6 +8062,9 @@ static int q_start(void)
 {
     pthread_t t;
     pthread_attr_t at;
+    const char *mb = getenv("RECOMP_GL_QUEUE_MB");
+    if (mb && atoi(mb) >= 16 && atoi(mb) <= 48)   /* a quarter must hold MG_STAGE_MAX */
+        s_q_bytes = (uint32_t)atoi(mb) << 20;
     s_q = (uint8_t *)malloc(Q_BYTES + 256);
     if (!s_q)
         return 0;
