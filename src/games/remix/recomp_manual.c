@@ -1515,15 +1515,40 @@ static uint32_t host_ms(void)
     return (uint32_t)(ts.tv_sec * 1000u + ts.tv_nsec / 1000000u);
 }
 
+static int guest_ptr_ok(uint32_t p)
+{
+    return (p >= 0x10000u && p < 0x08000000u) || (p >= 0x80000000u && p < MC3_CONTIG_END);
+}
+
+/* An FE menu is up over the race: the FE screen manager M =
+ * [[[0x50F148]+0xC]+0xC] (built as "RacePauseMenu", sub_00156C90) keeps the
+ * screen asked for at +0xE0 (Go sub_00163830, sub_001610D0) and the one
+ * shown at +0xD8. 1 is none (ctor sub_001625D0; the pause menu's resume,
+ * sub_00161230, sets both back to 1); 0x25 is the race HUD's own overlay,
+ * opened and closed by the race view (sub_002C5C80 -> sub_00154AB0 /
+ * sub_00154AE0), no menu. Anything else is a screen: 2 / 0x3A pause
+ * (sub_00154640), 5 MenuRaceOver (sub_00154980), 0x12 host left, ... A
+ * System Link race does not pause, so under the race-over menu the race
+ * camera keeps running and (likely the host's case; sub_00154980 opens it
+ * one way in state 3, another otherwise) the state is not 3: only this tells
+ * the menu. Not M+0x44 (sub_001546E0's byte): set while driving too
+ * (2026-11-09). */
+static int fe_menu_up(void)
+{
+    uint32_t fe = MEM32(0x0050F148u), s, m, shown, asked;
+    if (!guest_ptr_ok(fe) || !guest_ptr_ok(s = MEM32(fe + 0xCu)) || !guest_ptr_ok(m = MEM32(s + 0xCu)))
+        return 0;
+    shown = MEM32(m + 0xD8u);
+    asked = MEM32(m + 0xE0u);
+    return (shown != 1u && shown != 0x25u) || (asked != 1u && asked != 0x25u);
+}
+
 static int remix_driving(void)
 {
     static int last = -1;
     uint32_t sm = MEM32(0x00557ED0u);
     int on = s_race_cam_ms && host_ms() - s_race_cam_ms < 250u
-             && sm && MEM32(sm + 4) != 3 && MEM8(sm + 9) == 0;
-    /* Not used: [[[[0x50F148]+0xC]+0xC]+0x44] (sub_001546E0's byte) is set
-     * while driving too, so the arrows lost gas/brake (2026-11-09). In-race
-     * menus (race over) navigate with the d-pad keys I/K for now. */
+             && sm && MEM32(sm + 4) != 3 && MEM8(sm + 9) == 0 && !fe_menu_up();
     if (on != last) {
         const char *e = getenv("MC3_KEYS_TRACE");
         if (e && e[0] == '1')
@@ -3649,6 +3674,32 @@ static void online_strings(void)
  * 0x450A00): in the Online session every frame (roam_map.c). */
 extern void sub_000BF060_gen(void);
 void sub_000BF060(void) { rmap_pois(); sub_000BF060_gen(); }
+
+/* Free Roam's garage map (roam_map.c): built after the HUD's init
+ * (thiscall (player), ret 4), its icons pushed after each clear of the map
+ * server (thiscall, ret), deleted before the HUD's destructor (thiscall, ret). */
+extern void sub_000B6A90_gen(void);
+void sub_000B6A90(void)
+{
+    uint32_t hud = g_ecx, top = g_esp, player = MEM32(g_esp + 4u);
+    sub_000B6A90_gen();
+    rmap_hud_init(hud, player, top);
+}
+
+extern void sub_000D0140_gen(void);
+void sub_000D0140(void)
+{
+    uint32_t server = g_ecx, top = g_esp;
+    sub_000D0140_gen();
+    rmap_server_cleared(server, top);
+}
+
+extern void sub_000B7720_gen(void);
+void sub_000B7720(void)
+{
+    rmap_hud_gone(g_ecx, g_esp);
+    sub_000B7720_gen();
+}
 
 /* The map's player blips (minimap sub_000C3660, full map sub_000C3E70;
  * thiscall, ret 4): then the hub's far players (roam_map.c). */

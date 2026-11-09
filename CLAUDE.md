@@ -256,7 +256,13 @@ generated files when the lift inputs did not change.
   map's built-in garage (type 6, icon_garage) and mover (type 5) points of
   interest go into the map server's per-frame icon list only through
   sub_000BF060, which in some modes adds them one frame (dirty byte
-  [map+0x468]); the Online session sets that byte every call. Players beyond
+  [map+0x468]); the Online session sets that byte every call. That map
+  (vtable 0x4509D0) exists only in the career's HUD page, built in game mode
+  2 ([0x53F2D4]) only: Free Roam (Arcade cruise) had none, so no garage icon
+  (2026-11-09). Now a hidden one is built after the HUD's init
+  (sub_000B6A90 override) and pushes after every map-server clear
+  (sub_000D0140 override); deleted with the HUD (sub_000B7720). Log
+  '[ONLINE] map: garage map ...'. Players beyond
   the K nearest: the hubs send a FAR list (msg 9, every 2 s, at most 20:
   id, status, place, orientation, name; old cores drop it as an unknown
   type), roam_far() gives it, and an sub_000BF850 override draws each as a

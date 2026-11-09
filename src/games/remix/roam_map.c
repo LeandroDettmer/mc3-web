@@ -87,6 +87,70 @@ static void rmap_pois(void)
     }
 }
 
+/* Free Roam has no map that holds them.  The garage map (vtable 0x4509D0,
+ * "hudMapGlobalCareer") lives only in the career's HUD page (sub_000B0F60, the
+ * HUD at +0x20), which the HUD factory sub_000B7220 builds only in game mode 2
+ * ([0x53F2D4]); the Arcade cruise behind Free Roam gets the plain minimap
+ * (0x450850) and full map (0x450900), so sub_000BF060 never ran there.  We
+ * build a hidden one of our own after the HUD's init (sub_000B6A90), as the
+ * page does (sub_000B1810: operator new sub_001B3B90 (0x46C), ctor
+ * sub_000BEDD0, init vtable +0xA4 = sub_000BF1D0 (player, HUD, 9, owner 0),
+ * then vtable +0x38 (0)), and run sub_000BF060 on it right after every clear
+ * of the HUD's map server (sub_000D0140 on [HUD+0x14]: the HUD's update
+ * sub_000B6C20 and sub_000B6FA0), so the garages and movers sit in layer 1
+ * whenever the minimap or the full map draws it.  Deleted with the HUD
+ * (sub_000B7720). */
+#define RMAP_POI_SIZE    0x46Cu
+#define RMAP_POI_SLOT    9u                     /* the career page's widget id */
+
+void sub_001B3B90(void);                        /* operator new, cdecl (size) */
+void sub_000BEDD0(void);                        /* garage map ctor, thiscall () */
+void sub_000BF1D0(void);                        /* garage map init, thiscall (player, HUD, id, owner), ret 0x10 */
+void sub_000BF060(void);                        /* garage map: push the points of interest (override below) */
+
+static uint32_t s_rmap_hud, s_rmap_poi;
+
+/* After the HUD's init (sub_000B6A90, this = HUD, arg = player index). */
+static void rmap_hud_init(uint32_t hud, uint32_t player, uint32_t top)
+{
+    uint32_t a[4], p;
+    s_rmap_hud = s_rmap_poi = 0;
+    if (!rmap_on() || !online_ram(hud) || MEM32(hud + 0x20u) || !online_ram(MEM32(hud + 0x14u)))
+        return;                                 /* off, or a career page that has its own */
+    a[0] = RMAP_POI_SIZE;
+    p = roam_call(sub_001B3B90, 0, top, 1, a);
+    if (!online_ram(p))
+        return;
+    p = roam_call(sub_000BEDD0, p, top, 0, NULL);
+    if (!online_ram(p))
+        return;
+    a[0] = player; a[1] = hud; a[2] = RMAP_POI_SLOT; a[3] = 0;
+    roam_call(sub_000BF1D0, p, top, 4, a);
+    a[0] = 0;
+    roam_call(recomp_lookup(MEM32(MEM32(p) + 0x38u)), p, top, 1, a);
+    s_rmap_hud = hud;
+    s_rmap_poi = p;
+    fprintf(stderr, "[ONLINE] map: garage map 0x%08X for HUD 0x%08X (server 0x%08X, city %u)\n",
+            p, hud, MEM32(hud + 0x14u), MEM32(p + 0x90u));
+}
+
+/* After sub_000D0140 cleared a map server's layers. */
+static void rmap_server_cleared(uint32_t server, uint32_t top)
+{
+    if (s_rmap_poi && rmap_on() && server == MEM32(s_rmap_hud + 0x14u))
+        roam_call(sub_000BF060, s_rmap_poi, top, 0, NULL);
+}
+
+/* Before the HUD's destructor (sub_000B7720, this = HUD). */
+static void rmap_hud_gone(uint32_t hud, uint32_t top)
+{
+    uint32_t p = s_rmap_poi;
+    if (!p || hud != s_rmap_hud)
+        return;
+    s_rmap_hud = s_rmap_poi = 0;
+    roam_vdelete(p, top);
+}
+
 /* A remote player's status that gets a blip. */
 static int rmap_shown(uint8_t st)
 {
