@@ -210,16 +210,21 @@ generated files when the lift inputs did not change.
   every device.
 - **Wasm memory and TVs (2026-11-09, untested on a TV):** the fixed 2 GB
   (INITIAL_MEMORY, no growth) never started on a TV browser (black
-  screen). Now linked 256 MB min, growth to 2 GB (GROWABLE_ARRAYBUFFERS=1:
-  growable SAB views where the browser has them, else Emscripten's
-  check-and-refresh); web/pre.js makes the Memory itself (Module.wasmMemory,
-  hence the INCOMING_MODULE_JS_API list in CMakeLists.txt): 2 GB up front
-  on a PC (never grows, as before), else 1 GB / 512 MB / 256 MB and grows;
+  screen). Now linked 256 MB min, growth to 2 GB (Emscripten's
+  check-and-refresh views; not GROWABLE_ARRAYBUFFERS: its growable SAB is
+  refused by WebKit's WebGPU/WebGL calls, an iPhone went black after the
+  legal screen, 2026-11-09); web/pre.js makes the Memory itself
+  (Module.wasmMemory, hence the INCOMING_MODULE_JS_API list in
+  CMakeLists.txt): 2 GB up front on a PC (never grows, as before), else
+  1 GB / 512 MB / 256 MB and grows, then smaller maximums; WebKit (iPhone,
+  iPad, Safari) sets aside the whole maximum (256 MB with a 2 GB maximum
+  was refused on an iPhone): fixed 1024 / 768 / 512 MB, maximum = initial;
   '[WEB] memory: ...' at start. Estimated need ~350-450 MB (guest RAM 64
   at wasm 0, contiguous 64/128, NV2A 16, MCPX 8, ~25-30 thread stacks x 4
   MB, WebGPU arena 32, renderer caches). Pool PTHREAD_POOL_SIZE =
   Module.mc3Pool || 40. Low-memory profile (index.html lowMem: a TV user
-  agent or deviceMemory <= 2; MC3_LOWMEM=1/0 forces): memory from 512 MB,
+  agent, a phone or tablet (iOS/iPadOS, Android phones, MC3Touch.isPhone)
+  or deviceMemory <= 2; MC3_LOWMEM=1/0 forces): memory from 512 MB,
   24 pool workers, RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
   MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=0, no 60 fps, light
   filtering. Failures show a box over the picture with the reason and the

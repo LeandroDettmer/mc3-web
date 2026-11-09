@@ -236,11 +236,12 @@ if(EMSCRIPTEN)
         # Memory itself: 2 GB up front where the browser gives it (a PC: never
         # grows, as the old fixed 2 GB), else smaller and growing (TVs, 32-bit
         # browsers: a fixed 2 GB never started there). The game needs ~350-450
-        # MB. GROWABLE_ARRAYBUFFERS=1: growable SharedArrayBuffer views where
-        # the browser has them (no per-access check in JS), else Emscripten's
-        # classic check-and-refresh of the views (old Chromium on TVs).
+        # MB. No GROWABLE_ARRAYBUFFERS: its toResizableBuffer() makes the
+        # memory's buffer a growable SharedArrayBuffer, which WebKit refuses in
+        # WebGPU/WebGL calls (no [AllowResizable]; iPhone black after the legal
+        # screen, 2026-11-09). Views are Emscripten's check-and-refresh.
         -sWASMFS -sINITIAL_MEMORY=256MB -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=2GB
-        -sGROWABLE_ARRAYBUFFERS=1 -Wno-pthreads-mem-growth
+        -Wno-pthreads-mem-growth
         # pre.js hands its Memory over as Module.wasmMemory: the default list + it.
         "-sINCOMING_MODULE_JS_API=[ENVIRONMENT,arguments,canvas,dynamicLibraries,elementPointerLock,instantiateWasm,locateFile,monitorRunDependencies,noExitRuntime,noInitialRun,onAbort,onExit,onRuntimeInitialized,postRun,preInit,preRun,print,printErr,setStatus,statusMessage,stderr,stdin,stdout,thisProgram,wasm,websocket,wasmMemory]"
         # Workers made before main: 40 (desktop), or the page's Module.mc3Pool

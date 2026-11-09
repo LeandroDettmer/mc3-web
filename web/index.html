@@ -595,13 +595,16 @@
     return { env, bad };
   }
 
-  // Low-memory profile (2026-11-09: the game stayed black on a TV): a TV's browser (its user agent), or a device
-  // that says 2 GB or less. ?MC3_LOWMEM=1 / =0 (or Advanced) forces it. It starts the module smaller (play():
-  // Module.mc3MemMB, mc3Pool) and sets lighter defaults (buildEnv).
+  // Low-memory profile (2026-11-09: the game stayed black on a TV and on an iPhone): a TV's browser (its user
+  // agent), a phone or tablet (iPhone, iPad also with a desktop user agent, Android phones, MC3Touch.isPhone), or a
+  // device that says 2 GB or less. ?MC3_LOWMEM=1 / =0 (or Advanced) forces it. It starts the module smaller (play():
+  // Module.mc3MemMB, mc3Pool; WebKit gets a fixed size in web/pre.js) and sets lighter defaults (buildEnv).
   const TV_UA = /Tizen|Web0S|webOS|NetCast|SMART-TV|SmartTV|HbbTV|BRAVIA|AFT[A-Z]|Android TV|GoogleTV|CrKey|VIDAA|Viera|AQUOS|PhilipsTV|Roku/i;
+  const mobile = () => /iPhone|iPad|iPod|Android.+Mobile/.test(navigator.userAgent)
+    || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1) || !!window.MC3Touch?.isPhone();
   function lowMem(env) {
     if (env.MC3_LOWMEM === '1' || env.MC3_LOWMEM === '0') return env.MC3_LOWMEM === '1';
-    return TV_UA.test(navigator.userAgent) || (navigator.deviceMemory > 0 && navigator.deviceMemory <= 2);
+    return TV_UA.test(navigator.userAgent) || mobile() || (navigator.deviceMemory > 0 && navigator.deviceMemory <= 2);
   }
   // What the game gets: rows, then Advanced, then the URL query; the disc last.
   function buildEnv(disc) {
@@ -871,7 +874,7 @@
         ? ['warn', 'Graphics', 'WebGL 2 only: slower (about half the frame rate). ' + (ios ? 'WebGPU comes with iOS 26 / iPadOS 26.' : android ? 'Chrome for Android has WebGPU on most phones from Android 12.' : 'Chrome and Edge have WebGPU.')]
         : [false, 'Graphics', 'no WebGPU and no WebGL 2 in this browser'],
       lowMem(Object.fromEntries(new URLSearchParams(location.search)))
-        ? ['warn', 'Memory', 'low-memory mode (' + (TV_UA.test(ua) ? 'a TV browser' : mem ? `${mem} GB device` : 'forced') + '): the game starts at 512 MB and grows as it needs (about 400 MB), 1x resolution. ?MC3_LOWMEM=0 turns it off.']
+        ? ['warn', 'Memory', 'low-memory mode (' + (TV_UA.test(ua) ? 'a TV browser' : mobile() ? 'a phone or tablet' : mem ? `${mem} GB device` : 'forced') + '): ' + (ios ? 'a fixed 1 GB to 512 MB' : 'from 512 MB, growing as it needs') + ' (the game needs about 400 MB), 1x resolution, no background disc download. ?MC3_LOWMEM=0 turns it off.']
         : android && bits === '32' ? ['warn', 'Memory', 'this Chrome is 32-bit: it gives a page 1 GB at most. The game starts smaller and grows; it needs about 400 MB.']
         : mem && mem < 4 ? ['warn', 'Memory', `this device says ${mem} GB: the game needs about 400 MB; close other tabs and apps.`]
         : ios ? ['warn', 'Memory', 'iPhone and iPad: Safari may stop the game for memory. Close other tabs and apps first.']
@@ -1214,7 +1217,7 @@
     // Low-memory profile: the wasm memory starts at 512 MB and grows (web/pre.js; else 2 GB up front, smaller
     // only if refused), and 24 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; ~20 threads
     // run at once, more get a worker on demand).
-    if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 24; out('[WEB] low-memory profile (TV or small device; MC3_LOWMEM=0 turns it off)'); }
+    if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 24; out('[WEB] low-memory profile (TV, phone, tablet or small device; MC3_LOWMEM=0 turns it off)'); }
     // No picture 90 s after Play: say so with the log's last lines (a TV has no console to look at).
     setTimeout(() => { if (!(window.Module?.mc3Frames?.() > 0)) failShow('No picture after 90 s', 'the game has not drawn a frame yet'); }, 90000);
     // the game's disc reads take the cache choice from OPFS (web/disc_cache.js use()): written before it starts
