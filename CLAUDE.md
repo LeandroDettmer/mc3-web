@@ -174,7 +174,13 @@ generated files when the lift inputs did not change.
   Play click. SDL audio is not used on the web (it crashed from a worker).
 - **Disc:** RAM LRU (48 MB) -> OPFS block cache (sparse file + .have map,
   1 MiB blocks; keys by path + size, not mtime; scheme 2, older folders
-  emptied once) -> HTTP Range. On a local or LAN address (localhost, 127.x,
+  emptied once) -> HTTP Range. Direct reads (2026-11-09, untested in a
+  browser): a deploy's disc Worker hit the free plan's 100k requests/day
+  proxying every block, so the page and game ask POST <disc>.sign once
+  (100 paths a call) for presigned R2 URLs (12 h) and read ranges from the
+  bucket, no cookie (disc_cache.js signer; re-signed on a stale 403; a
+  fresh 403, no answer or no .sign -> the server's URL, '[WEB] disc: direct
+  reads ...'). On a local or LAN address (localhost, 127.x,
   ::1, *.local, 10/8, 172.16/12, 192.168/16) there is no cache: reads go
   straight to HTTP. `?MC3_DISC_CACHE=1` / `=0` forces it. A predownload
   worker fetches the whole disc on the page's click only, 3 connections,

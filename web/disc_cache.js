@@ -104,24 +104,72 @@ var MC3DiscCache = (() => {
     cf.have[bi] = 1; cf.haveH.write(cf.have.subarray(bi, bi + 1), { at: bi });
   }
 
+  // Direct reads (signer): a deploy's disc server (the Worker) may hand out presigned URLs straight into its bucket
+  // (POST <disc>.sign, body: file paths one a line -> {exp, urls: {path: url}}), so a Range read goes to the bucket,
+  // not through the server, which then sees a few requests a session instead of one a block. SIGN_BATCH paths a call.
+  const SIGN_BATCH = 100, SIGN_EARLY = 10 * 60e3, SIGN_FRESH = 60e3;
+  /** A disc's direct reads for the files `paths`: url(p) -> the getter fetchBlocks takes, async (prev) -> {u, direct}.
+   * Everything is signed on the first read, in parallel batches; again near the end of the signatures or when the
+   * bucket refuses one that is not fresh (403). Without signing (a local server, a server with no .sign, a failed
+   * call) or once the bucket refused a fresh signature or gave no answer at all (CORS, say), the server's own URL. */
+  function signer(disc, paths, warn = m => console.warn('[WEB] ' + m)) {
+    const base = disc.replace(/\/+$/, '');
+    let urls = new Map(), exp = 0, at = 0, job = null, off = LOCAL.test(new URL(base, location.href).hostname);
+    const stop = why => { if (!off) { off = true; warn(`disc: direct reads off (${why}); reads go through the disc server`); } };
+    const sign = () => job ??= (async () => {
+      const chunks = [];
+      for (let i = 0; i < paths.length; i += SIGN_BATCH) chunks.push(paths.slice(i, i + SIGN_BATCH));
+      try {
+        const rs = await Promise.all(chunks.map(async c => {
+          const r = await fetch(base + '.sign', { method: 'POST', body: c.join('\n'), headers: { 'Content-Type': 'text/plain' }, credentials: 'include' });
+          if (!r.ok) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
+          return r.json();
+        }));
+        urls = new Map(rs.flatMap(r => Object.entries(r.urls)));
+        exp = Math.min(...rs.map(r => r.exp)); at = Date.now();
+        warn(`disc: direct reads, ${urls.size} files signed until ${new Date(exp).toTimeString().slice(0, 5)}`);
+      } catch (e) {
+        if (e.status === 404 || e.status === 405 || e.status === 501) off = true;   // no signing on this server: quietly
+        else stop(`signing failed: ${e.message || e}`);
+      } finally { job = null; }
+    })();
+    return {
+      url: p => async prev => {
+        const own = fileUrl(disc, p);
+        if (prev?.direct && !prev.stalled && !(prev.status >= 500)) {   // the bucket refused it, or no answer at all
+          if (prev.status === 403 && Date.now() - at > SIGN_FRESH) await sign();
+          else if (prev.status === 403 || !prev.status) stop(prev.status ? 'the bucket refused a fresh signature' : 'the bucket did not answer');
+          else return { u: own, direct: false };    // 404, say: the server's answer decides
+        }
+        if (!off && Date.now() > exp - SIGN_EARLY) await sign();
+        const u = !off && urls.get(p);
+        return u ? { u, direct: true } : { u: own, direct: false };
+      },
+    };
+  }
+
   /** blocks bi .. bi+n-1 of a file of `size` bytes at `url`, in one Range request; onBlock(j, bytes) as each block has
    * come (BLOCK bytes, the file's last shorter), all of them in an array at the end. A try that gets no data for
    * `stallMs` (no answer, or the body stops coming) is abandoned and tried again from the first block not yet in, so
    * a stalled connection never blocks a read for long, while a slow one that keeps sending is never cut; warn(msg)
-   * logs each retry. `signal` (optional) abandons the whole fetch (AbortError); the blocks already in went to onBlock. */
+   * logs each retry. `signal` (optional) abandons the whole fetch (AbortError); the blocks already in went to onBlock.
+   * `url` is a URL, or a signer's getter (a URL a try: a refused direct one is tried again at once, as it says). */
   async function fetchBlocks(url, bi, n, size, { warn = () => {}, stallMs = FETCH_MS, signal, onBlock = () => {} } = {}) {
     const out = [], end = Math.min(size, (bi + n) * BLOCK);
     let failed = null;                            // onBlock threw (no room, say): not tried again
+    let prev;                                     // the last try's failure, for the getter
     for (let attempt = 1; ; attempt++) {
       const at = (bi + out.length) * BLOCK, had = out.length;
       const ac = new AbortController(), stop = () => ac.abort();
       signal?.addEventListener('abort', stop);
-      let timer;
+      let timer, src = { u: url, direct: false };
       const arm = () => { clearTimeout(timer); timer = setTimeout(() => ac.abort(), stallMs); };
-      arm();
       try {
         if (signal?.aborted) throw new DOMException('stopped', 'AbortError');
-        const r = await fetch(url, { headers: { Range: `bytes=${at}-${end - 1}` }, credentials: 'include', signal: ac.signal });
+        if (typeof url === 'function') src = await url(prev);
+        arm();
+        // direct: the bucket wants no cookie (its CORS allows none)
+        const r = await fetch(src.u, { headers: { Range: `bytes=${at}-${end - 1}` }, credentials: src.direct ? 'omit' : 'include', signal: ac.signal });
         if (r.status !== 206 && r.status !== 200) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
         arm();
         const rd = r.body.getReader();
@@ -152,10 +200,11 @@ var MC3DiscCache = (() => {
         if (failed) throw failed;
         if (signal?.aborted) throw new DOMException('stopped', 'AbortError');
         const why = ac.signal.aborted ? `no data for ${stallMs / 1000} s` : String(e.message || e);
+        prev = { status: e.status, direct: src.direct, stalled: ac.signal.aborted };
         if (out.length > had) attempt = 1;        // it moved on: a fresh count of tries
-        if (attempt >= TRIES || (e.status && e.status < 500)) throw new Error(why);
-        warn(`${why}: try ${attempt} of ${TRIES} again`);
-        await new Promise(res => setTimeout(res, 250 * 2 ** attempt));
+        if (attempt >= TRIES || (e.status && e.status < 500 && !src.direct)) throw new Error(why);
+        warn(`${why}${src.direct ? ' (direct)' : ''}: try ${attempt} of ${TRIES} again`);
+        if (!src.direct || prev.stalled || e.status >= 500) await new Promise(res => setTimeout(res, 250 * 2 ** attempt));
       } finally { clearTimeout(timer); signal?.removeEventListener('abort', stop); }
     }
   }
@@ -190,7 +239,7 @@ var MC3DiscCache = (() => {
   // A job is a run of at most RUN blocks a file misses, one request (fetchBlocks); `signal` stops it at once (the
   // blocks already in are kept).
   async function predownload(disc, post, signal) {
-    const s = await scan(disc), d = await dir(true);
+    const s = await scan(disc), d = await dir(true), sig = signer(disc, s.files.map(x => x.f.p));
     let have = s.have, shown = 0;
     const progress = now => { const t = Date.now(); if (now || t - shown >= 250) { shown = t; post({ t: 'progress', have, total: s.total }); } };
     progress(true);
@@ -216,7 +265,7 @@ var MC3DiscCache = (() => {
             if (cf.have[j]) { j++; continue; }
             let m = 1;
             while (j + m < bi + n && !cf.have[j + m]) m++;
-            await fetchBlocks(fileUrl(disc, x.f.p), j, m, x.f.s, {
+            await fetchBlocks(sig.url(x.f.p), j, m, x.f.s, {
               signal: ac.signal, warn: w => console.warn('[WEB] predownload: ' + w),
               onBlock: (k, b) => { if (!cf.have[k]) { put(cf, k, b); have += blockLen(x.f.s, k); progress(); } },
             });
@@ -253,5 +302,5 @@ var MC3DiscCache = (() => {
       ).finally(() => { busy = false; });
     };
   }
-  return { BLOCK, blockLen, discName, key, fileUrl, manifest, dir, open, close, put, fetchBlock, fetchBlocks, scan, clear, enabled, setForce, use };
+  return { BLOCK, blockLen, discName, key, fileUrl, manifest, dir, open, close, put, signer, fetchBlock, fetchBlocks, scan, clear, enabled, setForce, use };
 })();

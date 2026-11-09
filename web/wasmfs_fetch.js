@@ -12,7 +12,9 @@
  *           across visits (the start page fills all of it ahead: "Download
  *           the whole game now"). Not on a local address, nor with
  *           MC3_DISC_CACHE=0 (web/disc_cache.js use());
- *   HTTP    a Range request, then written to OPFS.
+ *   HTTP    a Range request, then written to OPFS. To the bucket itself when
+ *           the disc server signs URLs for it (web/disc_cache.js signer),
+ *           else to the server.
  * So memory stays bounded however much of a 4.5 GB disc a session reads
  * (the stock backend kept every chunk it ever fetched).
  *
@@ -66,6 +68,7 @@ addToLibrary({
     const inflight = new Map();     // the same, while being read
     const files = {};               // WASMFS file -> Promise<{url, size, key} | {url, size, data}>
     const manifests = {};           // disc url -> Promise<Map path -> {p, s, m}> | null
+    const signers = {};             // disc url -> its direct reads (C.signer), when it has a manifest
     const open = new Map();         // cache key -> Promise<cache file | null>, least recently used first
     let cacheDir = null, cacheOn = null, warned = false;
     const BANKS = ['mx', 'RaceStarters', 'Engine_Revs', 'dx', 'City_Walla'].map(n => `audio/xstreams/${n.toLowerCase()}.xwb`);
@@ -88,13 +91,14 @@ addToLibrary({
       const disc = url.slice(0, i), rel = url.slice(i + 2);
       const m = await (manifests[disc] ??= C.manifest(disc).then(fs => new Map(fs.map(f => [f.p, f])), () => null));
       if (m && !prefetching && E.MC3_PREFETCH !== '0') { prefetching = true; prefetch(disc, m).catch(e => err(`[WEB] prefetch stopped: ${e}`)); }
+      const sig = m && (signers[disc] ??= C.signer(disc, [...m.keys()], s => err('[WEB] ' + s)));
       let f = m && m.get(rel);
       if (!f) {
         const r = await fetch(url, { method: 'HEAD', credentials: 'include' });
         if (!r.ok) throw r.status;
         f = { p: rel, s: +r.headers.get('Content-Length') };
       }
-      return { url, size: f.s, key: C.key(C.discName(disc), f) };
+      return { url, src: sig && m.has(rel) ? sig.url(rel) : url, size: f.s, key: C.key(C.discName(disc), f) };
     }
     function info(file) {
       return files[file] ??= describe(UTF8ToString(__wasmfs_fetch_get_file_url(file)))
@@ -141,7 +145,7 @@ addToLibrary({
       }
       let b;
       netReads++; stopBackground();
-      try { b = await C.fetchBlock(fi.url, bi, fi.size, m => err(`[WEB] disc read stalled: ${fi.url} block ${bi}: ${m}`), GAME_STALL_MS); }
+      try { b = await C.fetchBlock(fi.src, bi, fi.size, m => err(`[WEB] disc read stalled: ${fi.url} block ${bi}: ${m}`), GAME_STALL_MS); }
       finally { netReads--; lastNet = performance.now(); }
       if ((cf = await cacheFile(fi))) {
         try { C.put(cf, bi, b); }
@@ -183,7 +187,7 @@ addToLibrary({
       let kept = null;
       if (game) { netReads++; stopBackground(); } else bgRuns.add(run);
       try {
-        await C.fetchBlocks(fi.url, bi, n, fi.size, {
+        await C.fetchBlocks(fi.src, bi, n, fi.size, {
           signal: run.ac.signal, stallMs: game ? GAME_STALL_MS : undefined,
           warn: m => err(`[WEB] ${game ? 'disc read' : 'prefetch'} stalled: ${fi.url} blocks ${bi}-${bi + n - 1}: ${m}`),
           onBlock: (j, b) => {
@@ -267,7 +271,7 @@ addToLibrary({
       const jobs = [];
       let left = 0, total = 0, skipped = 0, done = 0, shown = 0;
       for (const f of prefetchJobs(m)) {
-        const fi = { p: f.p, url: C.fileUrl(disc, f.p), size: f.s, key: C.key(name, f) };
+        const fi = { p: f.p, url: C.fileUrl(disc, f.p), src: signers[disc].url(f.p), size: f.s, key: C.key(name, f) };
         const n = await missing(d, fi);
         total += f.s;
         if (!n) continue;
