@@ -10,29 +10,38 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
 
 // The wasm memory, made here on the page thread (workers get it from the runtime). CMakeLists.txt links 256 MB
 // at least, growth to 2 GB. A PC gets 2 GB up front and never grows (as the old fixed 2 GB); a browser that
-// cannot set that aside (a TV, 32-bit Chrome) gets the first of 1 GB, 512 MB, 256 MB that it gives and grows
-// from there, then smaller maximums. The page's low-memory profile (Module.mc3MemMB) starts lower.
-// WebKit (iPhone, iPad, Safari) sets aside a shared memory's whole maximum: 256 MB with a 2 GB maximum was refused
-// there (2026-11-09), so it gets a fixed size (maximum = initial, no growth): 1 GB, 768 MB or 512 MB, the first
-// it gives (the game needs ~350-450 MB; untouched pages cost the device nothing).
+// cannot set that aside (32-bit Chrome) gets the first of 1 GB, 512 MB, 256 MB that it gives and grows from
+// there, then smaller maximums.
+// Low-memory profile (web/index.html sets Module.mc3MemMB; TVs, phones, tablets) prefers a big enough INITIAL size
+// over a big maximum: a small device cannot reserve 2 GB to grow into, and the game needs ~350-450 MB at once. So
+// fixed sizes first (maximum = initial, no growth): 1024, 768, 640, 512, 448; then growing combos (initial +
+// headroom), then 256-based ones as a last resort.
+// WebKit (iPhone, iPad, Safari) sets aside a shared memory's whole maximum (256 MB with a 2 GB maximum was
+// refused on an iPhone) and ran fine with a fixed 2 GB and 40 pool workers before 981d032: that baseline first,
+// fixed sizes only (maximum = initial), pool kept at 40 even in the light profile.
+// Every refused size is logged; when nothing is given a page error says so (index.html failShow shows it).
 if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMemory']) (function () {
-  var start = Module['mc3MemMB'] || 2048, last = null, i, ua = navigator.userAgent;
+  var low = !!Module['mc3MemMB'], refused = [], i, ua = navigator.userAgent, log = Module['print'] || console.log;
   var webkit = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
     || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua));
-  var tries = webkit ? [[1024, 1024], [768, 768], [512, 512]]
-    : [[2048, 2048], [1024, 2048], [512, 2048], [256, 2048], [512, 1024], [256, 1024], [512, 512], [256, 512]]
-      .filter(function (t) { return t[0] <= start; });
+  if (webkit) delete Module['mc3Pool'];
+  var tries = webkit ? [[2048, 2048], [1536, 1536], [1024, 1024], [768, 768], [512, 512]]
+    : low ? [[1024, 1024], [768, 768], [640, 640], [512, 512], [448, 448],
+        [512, 768], [448, 768], [512, 1024], [448, 1024], [256, 512], [256, 1024]]
+    : [[2048, 2048], [1024, 2048], [512, 2048], [256, 2048], [512, 1024], [256, 1024], [512, 512], [256, 512]];
   for (i = 0; i < tries.length; i++) {
     try {
       Module['wasmMemory'] = new WebAssembly.Memory({ initial: tries[i][0] * 16, maximum: tries[i][1] * 16, shared: true });
-      (Module['print'] || console.log)('[WEB] memory: ' + tries[i][0] + ' MB to start, ' + tries[i][1] + ' MB at most'
-        + (webkit ? ' (WebKit: fixed)' : '') + (i ? ' (larger sizes refused: ' + last + ')' : ''));
+      log('[WEB] memory: ' + tries[i][0] + ' MB to start, ' + tries[i][1] + ' MB at most'
+        + (webkit ? ' (WebKit: fixed, pool 40)' : low ? ' (low profile)' : '') + (refused.length ? ' (refused: ' + refused.join('; ') + ')' : ''));
       return;
-    } catch (e) { last = e && e.message || String(e); }
+    } catch (e) {
+      refused.push(tries[i][0] + '/' + tries[i][1] + ' ' + (e && e.message || String(e)));
+      log('[WEB] memory: ' + tries[i][0] + ' MB to start, ' + tries[i][1] + ' MB at most refused: ' + (e && e.message || e));
+    }
   }
-  var t = tries[tries.length - 1];
-  throw new Error('This browser cannot set aside memory for the game (' + t[0] + ' MB, shared, ' + t[1] + ' MB at most): ' + last
-    + '. Close other tabs and apps, or restart the browser.');
+  throw new Error('This TV/browser cannot give the game enough memory (needs about 450 MB; refused: ' + refused.join('; ')
+    + '). Close other tabs and apps, or restart the browser.');
 })();
 
 // FPS overlay (web/index.html): presented-frame counter of the active renderer, read from shared wasm memory.
