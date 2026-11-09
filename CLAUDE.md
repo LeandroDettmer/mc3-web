@@ -312,6 +312,16 @@ generated files when the lift inputs did not change.
   -1), time and weather kept); the first cruise frame puts the car back
   and holds it 1.5 s, re-placed if it falls. '[RACE]' lines;
   MC3_ROAM_RACE=0 off, =2 Request(6) alone.
+  Street challenge (feature 2, 2026-11-09, untested in game;
+  src/games/remix/roam_challenge.c, docs/roam-races.md F2): within 30 m of a
+  player, both under 12 m/s, White challenges; the other accepts with White
+  in 10 s; 3 s countdown with both cars held; the course is the nearest
+  sprint/circuit's own checkpoints, read from its .rac at challenge time
+  (tune/race/<city>/<event>.rac through the game's file system and text
+  tokenizer), ~2 km, at most 6; only the two see it (page marker
+  roam_cp_box, map icons, prompt box). Messages: roam core GAME record
+  (type 10, core 17, peer to peer, the hubs untouched). '[CHALLENGE]'
+  lines; MC3_ROAM_CHALLENGE=0 off.
   Many cars (2026-11-09, untested in game; src/games/remix/roam_cars.c,
   docs/roam-many-cars.md): peers beyond the 7 slots get standalone cars
   (the player builder, no player; pose + inputs written after the physics

@@ -179,3 +179,53 @@ Module['mc3TouchPad'] = function (words) {
   }
   requestAnimationFrame(frame);
 })();
+
+// Street challenge marker: while racing a player in free roam, src/games/remix/roam_challenge.c publishes the next
+// checkpoint (roam_cp_box: seq, on, u, v (0..1 of the picture), angle (radians, 0 = right, clockwise), edge (1: off
+// the picture, an arrow at its edge), distance m, checkpoint, count, finish). A pin over it, or an edge arrow
+// pointing the way, with "2/5 · 340 m". Shown only to the two racers (the box is theirs). Main thread only.
+(function () {
+  if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
+  var canvas = Module['canvas'], el = null, pin = null, label = null, seq = -1, seenAt = 0, I32 = null, F32 = null;
+  if (!canvas) return;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_cp_box != 'function' || !canvas.parentNode) return;
+    if (!I32) {
+      I32 = new Int32Array(HEAPU8.buffer);
+      F32 = new Float32Array(HEAPU8.buffer);
+      el = document.createElement('div');
+      el.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;z-index:1;display:none;text-align:center;' +
+        'color:#ffd24a;font:700 clamp(11px,2vh,20px) "Arial Narrow","Roboto Condensed",Arial,sans-serif;' +
+        'text-shadow:0 0 3px #000,0 1px 2px #000;white-space:nowrap';
+      pin = document.createElement('div');
+      pin.style.cssText = 'font-size:1.8em;line-height:1';
+      label = document.createElement('div');
+      el.append(label, pin);
+      canvas.parentNode.append(el);
+    }
+    var b = _roam_cp_box() >>> 2, s = I32[b];
+    if (s !== seq) { seq = s; seenAt = now; }
+    if (!I32[b + 1] || now - seenAt > 400) { el.style.display = 'none'; return; }
+    var u = F32[b + 2], v = F32[b + 3], ang = F32[b + 4], edge = I32[b + 5], dist = F32[b + 6], idx = I32[b + 7],
+        n = I32[b + 8], fin = I32[b + 9];
+    // the picture inside the canvas, as the name tags place it (object-fit contain unless Stretch)
+    var r = canvas.getBoundingClientRect(), L = canvas.parentNode.getBoundingClientRect(), x = r.left - L.left,
+        y = r.top - L.top, w = r.width, h = r.height, aspect = 16 / 9;
+    if (typeof _roam_tags_box == 'function') {   // the picture's shape the name tags got (Hor+, 4:3)
+      var a = F32[(_roam_tags_box() >>> 2) + 2];
+      if (a > 0.5 && a < 5) aspect = a;
+    }
+    if (!canvas.parentNode.classList.contains('stretch')) {
+      if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
+    }
+    var txt = (fin ? 'FINISH' : idx + '/' + n) + ' · ' + Math.round(dist) + ' m';
+    if (label.textContent !== txt) label.textContent = txt;
+    pin.textContent = edge ? '➤' : '▼';
+    pin.style.transform = edge ? 'rotate(' + ang.toFixed(3) + 'rad)' : '';
+    el.style.transform = 'translate(' + (x + u * w).toFixed(1) + 'px,' + (y + v * h).toFixed(1) + 'px) translate(-50%,' +
+      (edge ? '-50%' : '-100%') + ')';
+    el.style.display = '';
+  }
+  requestAnimationFrame(frame);
+})();

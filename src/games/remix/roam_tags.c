@@ -141,6 +141,7 @@ static void roam_icons_end(uint32_t vp, uint32_t top)
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 extern float nv2a_wgpu_wide(void);              /* xboxrecomp nv2a_wgpu: Hor+ widening, 1 when off */
+static void rch_view(const float vw[16], const float pr[16], float k);  /* roam_challenge.c */
 
 typedef struct { float u, v, alpha; char name[TAGS_NAME]; } roam_tag;
 _Static_assert(ROAM_NAME_MAX < TAGS_NAME, "a name and its NUL fit");
@@ -258,6 +259,7 @@ static void roam_tags_view(uint32_t vp, uint32_t ret)
     if (!(fov > 1.0f && fov < 170.0f))
         fov = 60.0f;
     th = tanf(fov * 0.01745f * 0.5f);
+    rch_view(vw, pr, k);                        /* a street challenge's next checkpoint (roam_challenge.c) */
     nc = tags_cars(veh, name, TAGS_MAX);
     for (j = 0; j < nc; j++)
         tags_add(&n, vw, pr, k, th, veh[j], name[j]);

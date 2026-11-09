@@ -1683,7 +1683,14 @@ void sub_002BDEC0(void) { cam_call(33, 0x002BDEC0u, sub_002BDEC0_gen); roam_cars
 extern void sub_002C1520_gen(void);
 static void roam_player(uint32_t p);            /* free roam (O3), roam_game.c */
 static void rra_player(uint32_t p);             /* free roam: AI race prompt, start, pose back (roam_race_ai.c) */
-void sub_002C1520(void) { rra_player(g_ecx); roam_player(g_ecx); cam_call(34, 0x002C1520u, sub_002C1520_gen); }
+static int rch_player(uint32_t p);              /* free roam: street challenge; 1 owns prompt + White (roam_challenge.c) */
+void sub_002C1520(void)
+{
+    if (!rch_player(g_ecx))
+        rra_player(g_ecx);
+    roam_player(g_ecx);
+    cam_call(34, 0x002C1520u, sub_002C1520_gen);
+}
 extern void sub_002C5B30_gen(void);
 void sub_002C5B30(void) { cam_call(35, 0x002C5B30u, sub_002C5B30_gen); }
 
@@ -3676,6 +3683,7 @@ static void online_strings(void)
 #include "roam_race_ai.c"                       /* free roam: an AI race from a start point, then back (feature 3) */
 #include "roam_map.c"                           /* Online cruise: garage icons, race start points, players' blips */
 #include "roam_tags.c"                          /* free roam: players' names over their cars (page overlay) */
+#include "roam_challenge.c"                     /* free roam: 1v1 street challenge in the cruise (feature 2) */
 
 /* The HUD map's points of interest into the map server's list (vtable
  * 0x450A00): in the Online session every frame (roam_map.c). */
@@ -3716,7 +3724,8 @@ void sub_000BF850(void)
 {
     uint32_t map = g_ecx, top = g_esp;
     sub_000BF850_gen();
-    rmap_races(map, top);
+    if (!rch_map(map, top))                     /* a street challenge's course replaces the race start icons */
+        rmap_races(map, top);
     rmap_far(map, top);
 }
 

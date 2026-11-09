@@ -376,3 +376,23 @@ the cruise, "Go to Menus" goes to the menus. F3.4 holds the car on its spot for 
 - F2.2 Game: proximity and facing test, prompt, finish point from roam_races, finish
   detection, result text (page overlay).
 - F2.3 Compile check; the owner tests in two browsers.
+
+Built 2026-11-09 (untested in game; src/games/remix/roam_challenge.c). Differences
+from the plan: White is read from the pad layer (`xbox_InputGetState`, as the AI race
+does), not from `[c+0x28]`. The messages are one new core record, GAME (type 10, an
+opaque payload of at most 96 bytes, peer to peer, `roam_send_msg` / `roam_recv_msg`,
+core 17); the hubs never see them, so the Worker and mc3-server are unchanged. Each
+side repeats its current message every 0.3 s (ASK with the course, ACCEPT, GO with
+the milliseconds left, PROG with checkpoints and finish time; NO three times). The
+course is the game's own: the checkpoints of the city's nearest sprint or circuit
+(start within 1.5 km), read at challenge time from `tune/race/<city>/<event>.rac`
+the way the race loader does (`sub_001CDB60`: file system `[0x5348B0]` vt+0x20
+open(dir, name, "rac", 0, 1), tokenizer vtable 0x46D868, ctor `sub_0020EE80`; the
+section loop of `sub_001D4F20` with `sub_0020F3C0`, "numcheckpoints" then
+"checkpoint" x y z + 4 floats + optional Arrow/Type/RespawnAllowed as `sub_001CDC80`
+reads them), joined where it passes nearest to the players and cut at ~2 km or 6
+checkpoints; a chain of start beacons only when no file reads. Both cars are held
+on their spot for the 3 s countdown. The next checkpoint is a page marker (pin, or
+an edge arrow when off the picture; `roam_cp_box`, web/pre.js), the course is on
+both maps in place of the start icons (diamond yellow = next, trophy = finish).
+Not done: the game's checkpoint flare object in the world.
