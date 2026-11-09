@@ -93,7 +93,7 @@ DoQuitToCruise (`sub_0016A340`): it sets `[0x53F2E4]+0x18 = 0` (and +0x48 = 0), 
    race, mode, players, game version and car. **There is no opponents row and no
    difficulty row.** Opponents come from the event (+0x0F OpponentCount). The AI's
    difficulty comes from the race's own tune data (`DifficultyModifier`
-   `sub_0026F0F7`, rubber-banding `sub_001E3460`) and the career's relative
+   read at 0x0026F0F7, rubber-banding keys read at 0x001E3466) and the career's relative
    difficulty (`sub_0027D590`). Arcade takes the defaults.
 2. Go (`sub_0013B110`): with a stale name, the event is looked up by name
    (`sub_0026B010`). Then SetEvent `sub_0026B8E0` (thiscall (city, eventIdx), ret 8)
