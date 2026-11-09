@@ -31,6 +31,12 @@
  * read from its two instructions.  Fill: the near players' colour
  * ([0x507508]+0x40) at 55 %, alpha too, and 80 % of the size.
  *
+ * Linked players.  The game's loop draws only players whose car it counts
+ * drawn; standalone cars (roam_cars.c) are no players at all, and with the
+ * hub's K (32) every player of a small room is linked, so its FAR list is
+ * empty: no icon showed.  Every peer of roam_net's list is drawn the same
+ * way, full colour and size (a slot the game draws too gets ours on top).
+ *
  * MC3_ROAM_MAP=0 turns both off. */
 
 #define RMAP_G_VA        0x00507508u     /* the HUD's tuning: colours (float4) and scales */
@@ -81,54 +87,77 @@ static void rmap_pois(void)
     }
 }
 
-/* After sub_000BF850 (map, the game's player blips); top: the caller's esp at the call (scratch goes below it). */
+/* A remote player's status that gets a blip. */
+static int rmap_shown(uint8_t st)
+{
+    return st == RC_ST_ROAM || st == RC_ST_EVENT || st == RC_ST_SHOP || st == RC_ST_PAUSED;
+}
+
+/* After sub_000BF850 (map, the game's player blips); top: the caller's esp at the call (scratch goes below it).
+ * Every linked peer (roam_net's list: slots, standalone cars, peers still without a car) gets the near
+ * players' blip, every FAR one the dimmed one. The game's own loop skips most of them (standalone cars are
+ * not players; a slot's car only when the game counts it drawn); a slot it does draw gets ours on the same
+ * spot, same colour. */
 static void rmap_far(uint32_t map, uint32_t top)
 {
     static int said;
+    static struct { float p[3], q[4]; int far; } dot[ROAM_K_MAX + ROAM_FAR_MAX];
     roam_far_peer far[ROAM_FAR_MAX];
     uint32_t g = MEM32(RMAP_G_VA), vt, xf, buf, col, args[5], pl, mat, saved, idx;
-    float rot[9], s;
-    int n, i, k, drawn = 0;
+    float rot[9], s, si;
+    int n = 0, nf, nnear = 0, i, k;
     if (!rmap_on() || !roam_running() || !online_ram(map) || !online_ram(g) || !online_ram(vt = MEM32(map)))
         return;
-    if ((n = roam_far(far, ROAM_FAR_MAX)) <= 0)
+    if (s_roam_seen && roam_now() - s_roam_seen_t < 0.5)
+        for (i = 0; i < s_roam_nseen; i++)
+            if (rmap_shown(s_roam_seen[i].status)) {
+                memcpy(dot[n].p, s_roam_seen[i].p, sizeof dot[n].p);
+                memcpy(dot[n].q, s_roam_seen[i].q, sizeof dot[n].q);
+                dot[n++].far = 0;
+            }
+    nnear = n;
+    nf = roam_far(far, ROAM_FAR_MAX);
+    for (i = 0; i < nf; i++)
+        if (rmap_shown(far[i].status)) {
+            memcpy(dot[n].p, far[i].p, sizeof dot[n].p);
+            memcpy(dot[n].q, far[i].q, sizeof dot[n].q);
+            dot[n++].far = 1;
+        }
+    if (!n)
         return;
     xf = MEM32(vt + 0x94u);
-    buf = (top - 0x200u) & ~0xFu;               /* Matrix34 at buf, fill colour at buf + 0x40 */
+    buf = (top - 0x200u) & ~0xFu;               /* Matrix34 at buf, far fill colour at buf + 0x40 */
     col = buf + 0x40u;
     idx = MEM32(map + 0xCu);
     args[0] = idx == 0xFFFFFFFFu ? 0u : idx;
     pl = roam_call(sub_002BF570, 0, buf, 1, args);
     if (!online_ram(pl) || !online_ram(mat = roam_call(sub_002C84D0, pl, buf, 0, NULL)))
         return;
-    s = rmap_scale(map) * RMAP_FAR_SIZE;
+    s = rmap_scale(map);
     for (k = 0; k < 4; k++)
         MEMF(col + 4u * k) = MEMF(g + 0x40u + 4u * k) * RMAP_FAR_DIM;
     saved = MEM32(RMAP_RSTATE_VA);
     args[0] = 0;
     roam_call(sub_0003A6A0, 0, buf, 1, args);
     for (i = 0; i < n; i++) {
-        if (far[i].status != RC_ST_ROAM && far[i].status != RC_ST_EVENT && far[i].status != RC_ST_SHOP &&
-            far[i].status != RC_ST_PAUSED)
-            continue;
-        roam_quat_mat(far[i].q, rot);
+        si = dot[i].far ? s * RMAP_FAR_SIZE : s;
+        roam_quat_mat(dot[i].q, rot);
         for (k = 0; k < 9; k++)
             MEMF(buf + 4u * k) = rot[k];
         for (k = 0; k < 3; k++)
-            MEMF(buf + 0x24u + 4u * k) = far[i].p[k];
+            MEMF(buf + 0x24u + 4u * k) = dot[i].p[k];
         args[0] = buf + 0x24u; args[1] = mat + 0x24u; args[2] = buf + 0x24u;   /* in, about, out */
         roam_call(recomp_lookup(xf), map, buf, 3, args);
-        args[0] = g + 0x90u; args[1] = buf; args[2] = rmap_f2u(MEMF(g + 0x1Cu) * s); args[3] = 0;
+        args[0] = g + 0x90u; args[1] = buf; args[2] = rmap_f2u(MEMF(g + 0x1Cu) * si); args[3] = 0;
         roam_call(sub_000BB310, map, buf, 4, args);
-        args[0] = col; args[2] = rmap_f2u(s);
+        args[0] = dot[i].far ? col : g + 0x40u; args[2] = rmap_f2u(si);
         roam_call(sub_000BB310, map, buf, 4, args);
-        drawn++;
     }
     args[0] = saved;
     roam_call(sub_0003A6A0, 0, buf, 1, args);
     roam_call(sub_00030780, 0, buf, 0, NULL);
-    if (drawn && !said) {
+    if (!said) {
         said = 1;
-        fprintf(stderr, "[roam] map: %d far player(s) drawn as blips\n", drawn);
+        fprintf(stderr, "[roam] map: %d linked + %d far player(s) drawn as blips\n", nnear, n - nnear);
     }
 }

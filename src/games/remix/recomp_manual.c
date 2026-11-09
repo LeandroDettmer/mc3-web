@@ -1680,11 +1680,13 @@ void sub_00138640(void) { cam_call(40, 0x00138640u, sub_00138640_gen); }
 extern void sub_0020ED50_gen(void);
 void sub_0020ED50(void) { cam_call(41, 0x0020ED50u, sub_0020ED50_gen); }
 extern void sub_002D4AE0_gen(void);
+static void roam_tags_view(uint32_t vp, uint32_t ret); /* free roam: name tags from this view (roam_tags.c) */
 void sub_002D4AE0(void)
 {
     static uint32_t vp[8];
     static time_t last[8];
     const char *e = getenv("MC3_CAM_TRACE");
+    uint32_t tag_vp = g_ecx, tag_ret = MEM32(g_esp);
     int i;
     for (i = 0; i < 7 && vp[i] && vp[i] != g_ecx; i++)
         ;                                  /* one line per viewport (main view, mirror, map) */
@@ -1727,11 +1729,13 @@ void sub_002D4AE0(void)
             cam_call(42, 0x002D4AE0u, sub_002D4AE0_gen);
             for (i = 0; i < 4; i++)
                 MEM32(vp + 0x140 + 4 * i) = wide[i];
+            roam_tags_view(tag_vp, tag_ret);
             return;
         }
     }
 #endif
     cam_call(42, 0x002D4AE0u, sub_002D4AE0_gen);
+    roam_tags_view(tag_vp, tag_ret);
 }
 
 /* The rest of the race's frame update (the dispatcher at 0x0001EEDE calls
@@ -3376,6 +3380,40 @@ extern void sub_00021A60_gen(void);
 static void roam_garage(void);                  /* free roam: status garage (roam_game.c) */
 void sub_00021A60(void) { online_money(); roam_garage(); sub_00021A60_gen(); }    /* state 5: the garage opens */
 
+/* Free Roam vs the game's own System Link session (built at boot, port 1000
+ * open for good): when it sees a peer join, the host (OnPeerJoined
+ * sub_000244C0) sends RACE_CONFIG state 5 (SendRaceConfig sub_001AE040, msg
+ * 0x43) and every member's OnState (sub_00025E30) restarts the cruise
+ * ('host_selected_restart'). In Free Roam (the Online session, not a System
+ * Link game: [0x50F14C] == 0) both ends drop state 5; Online Races untouched. */
+static int fr_net_drop(uint32_t state)
+{
+    if (state != 5 || !s_online || MEM32(0x0050F14Cu) != 0)
+        return 0;
+    fprintf(stderr, "[NET] free roam: ignored System Link restart (state 5)\n");
+    return 1;
+}
+/* SendRaceConfig, thiscall (state, x), ret 8. */
+extern void sub_001AE040_gen(void);
+void sub_001AE040(void)
+{
+    if (fr_net_drop(MEM32(g_esp + 4u))) {
+        g_esp += 12u;
+        return;
+    }
+    sub_001AE040_gen();
+}
+/* Session OnState, thiscall (state), ret 4. */
+extern void sub_00025E30_gen(void);
+void sub_00025E30(void)
+{
+    if (fr_net_drop(MEM32(g_esp + 4u))) {
+        g_esp += 8u;
+        return;
+    }
+    sub_00025E30_gen();
+}
+
 /* The profile writer, thiscall (name, object, mode), ret 12, al = done. */
 extern void sub_00022040_gen(void);
 void sub_00022040(void)
@@ -3571,6 +3609,7 @@ static void online_strings(void)
 #include "roam_game.c"
 #include "roam_cars.c"                          /* MC3_ROAM_CARS: room for standalone remote cars */
 #include "roam_map.c"                           /* Online cruise: garage icons, far players' blips */
+#include "roam_tags.c"                          /* free roam: players' names over their cars (page overlay) */
 
 /* The HUD map's points of interest into the map server's list (vtable
  * 0x450A00): in the Online session every frame (roam_map.c). */

@@ -70,3 +70,54 @@ Module['mc3TouchPad'] = function (words) {
   }
   Module['mc3SetPad'] = function (n) { want = n | 0; if (!timer) put(); };
 })();
+
+// Name tags: other players' names over their cars in free roam. src/games/remix/roam_tags.c publishes, each frame
+// of the main camera, where each driven remote car is on the picture (roam_tags_box: seq, n, picture width / height,
+// then n x 40 bytes: u, v (0..1), depth m, name); drawn here over the canvas at the page's frame rate. Settings
+// 'Name tags' (MC3_NAMETAGS=0 off), live through Module.mc3SetNameTags. Main thread only.
+(function () {
+  if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
+  var canvas = Module['canvas'], on = (Module['mc3Env'] || {}).MC3_NAMETAGS !== '0';
+  var layer = null, pool = [], shown = 0, seq = -1, seenAt = 0, I32 = null, F32 = null, U8 = null;
+  if (!canvas) return;
+  Module['mc3SetNameTags'] = function (v) { on = !!v; };
+  function hideFrom(n) { for (; shown > n; shown--) pool[shown - 1].style.display = 'none'; }
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_tags_box != 'function' || !canvas.parentNode) return;
+    if (!I32) {   // fixed memory (no growth): the views stay valid
+      I32 = new Int32Array(HEAPU8.buffer); F32 = new Float32Array(HEAPU8.buffer); U8 = HEAPU8;
+      layer = document.createElement('div');
+      layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1';
+      canvas.parentNode.append(layer);
+    }
+    var b = _roam_tags_box() >>> 2, s = I32[b], n = I32[b + 1], aspect = F32[b + 2];
+    if (s !== seq) { seq = s; seenAt = now; }
+    if (!on || now - seenAt > 400 || !(n > 0) || !(aspect > 0)) { hideFrom(0); return; }   // stale: game paused or gone
+    n = Math.min(n, 32);
+    // the picture inside the canvas: object-fit contain, or fill with the stage's Stretch
+    var r = canvas.getBoundingClientRect(), L = layer.getBoundingClientRect(), x = r.left - L.left, y = r.top - L.top,
+        w = r.width, h = r.height;
+    if (!canvas.parentNode.classList.contains('stretch')) {
+      if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
+    }
+    for (var i = 0; i < n; i++) {
+      var t = b + 4 + i * 10, el = pool[i], name = '';
+      for (var c = 0, p = (t + 3) * 4; c < 27 && U8[p + c]; c++) name += String.fromCharCode(U8[p + c]);
+      if (!el) {
+        el = pool[i] = document.createElement('div');
+        el.style.cssText = 'position:absolute;left:0;top:0;white-space:nowrap;padding:1px 6px;border-radius:4px;' +
+          'font:600 13px/1.3 system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.4);text-shadow:0 1px 2px #000';
+        layer.append(el);
+      }
+      if (el.textContent !== name) el.textContent = name;
+      el.style.transform = 'translate(' + (x + F32[t] * w).toFixed(1) + 'px,' + (y + F32[t + 1] * h).toFixed(1) +
+        'px) translate(-50%,-100%)';
+      el.style.opacity = Math.max(0.35, Math.min(1, 1 - (F32[t + 2] - 60) / 200)).toFixed(2);   // farther: fainter
+      el.style.display = '';
+    }
+    if (n > shown) shown = n;
+    hideFrom(n);
+  }
+  requestAnimationFrame(frame);
+})();

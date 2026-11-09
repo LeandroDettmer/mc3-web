@@ -195,6 +195,9 @@ static roam_pose s_roam_hist[ROAM_HIST];
 static unsigned s_roam_nhist;
 static double s_roam_tlast;
 static float s_roam_dt = 1.0f / 30.0f;          /* the last frame's length, s */
+static const roam_peer *s_roam_seen;            /* roam_net's last roam_peers list (map blips, roam_map.c) */
+static int s_roam_nseen;
+static double s_roam_seen_t;                    /* when (roam_now) */
 
 /* A lifted function called from here: ecx = this, args pushed right to
  * left below top, a 0 return address; eax back, the caller's registers put
@@ -981,6 +984,9 @@ static void roam_net(const roam_pose *me)
     memcpy(st.ext, me->ctl, ROAM_CTL);
     roam_set_local(&st);
     n = roam_peers(peers, ROAM_K_MAX);
+    s_roam_seen = peers;                        /* a second roam_peers a frame would upset its blend clock */
+    s_roam_nseen = n;
+    s_roam_seen_t = now;
     for (k = 1; k <= s_roam_slots; k++) {
         if (!s_roam_peer[k].id)
             continue;

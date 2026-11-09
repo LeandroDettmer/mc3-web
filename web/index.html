@@ -9,8 +9,7 @@
      /discs/<folder>/, or /disc/ alone). A deploy puts config.json beside
      the page: { discUrl, moduleUrl, lanUrl, signInUrl, iceServers, logUrl },
      each optional (iceServers: RTCPeerConnection's, for a TURN server; default
-     public STUN, web/rtc.js; logUrl: the stage bar's Send log POSTs the log
-     there and shows the {code} it answers); then
+     public STUN, web/rtc.js; logUrl: no longer used, Send log was removed); then
      the one disc at discUrl is played (no discs.json), the module
      (<app>.js/.wasm) comes from moduleUrl, System Link joins lanUrl, and those
      servers (other origins: CORS with credentials) get the sign-in cookie;
@@ -171,22 +170,27 @@
   body.playing { overflow: hidden; background: #000; }
   body.playing .app { display: none; }
   .stage { position: fixed; inset: 0; background: #000; display: grid; grid-template-rows: auto minmax(0, 1fr); }
-  .stage-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; background: var(--frame); }
-  .stage-bar .btn { min-height: 32px; padding: 0 12px; font-size: 14px; }
+  /* the bar is one small Settings button in the top right corner, over the picture; everything else is in the dialog */
+  .stage-bar { position: absolute; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); z-index: 2; opacity: .55; }
+  .stage-bar:hover, .stage-bar:focus-within { opacity: 1; }
+  .stage-bar .btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
   .pad-sel { max-width: 220px; min-height: 32px; font-size: 14px; }
-  #run-status { flex: 1 1 200px; color: var(--muted); font-size: 14px; }
+  #settings-dlg { width: min(520px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 16px; margin: auto;
+                  background: var(--frame); color: inherit; border: 1px solid var(--line); border-radius: 8px; touch-action: pan-y; }
+  #settings-dlg::backdrop { background: rgba(0, 0, 0, .6); }
+  #settings-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  #settings-dlg .dlg-head strong { font-size: 18px; }
+  #settings-dlg .dlg-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+  #settings-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
+  #settings-dlg .pad-sel { flex: 1 1 160px; max-width: 100%; min-height: 40px; }
+  #run-status { display: block; color: var(--muted); font-size: 14px; word-break: break-word; }
   #run-status.bad { color: var(--bad); }
   .stage canvas { width: 100% !important; height: 100% !important; object-fit: contain; display: block; outline: none; min-height: 0;
                   grid-row: -2 / -1; grid-column: 1; }    /* the last row, shared with the touch controls (web/touch.js) */
   body.playing, .stage { touch-action: none; overscroll-behavior: none; }   /* no scroll, pinch or double-tap zoom over the game */
   #log, #keys-panel, #races-panel { touch-action: pan-y; }
-  /* phones: one row of small buttons that scrolls sideways, the safe areas kept clear */
   @media (max-width: 760px), (max-height: 500px) {
-    .stage-bar { flex-wrap: nowrap; overflow-x: auto; touch-action: pan-x; gap: 6px;
-                 padding: max(4px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 4px max(8px, env(safe-area-inset-left)); }
-    .stage-bar .btn, .pad-sel { flex: none; min-height: 28px; padding: 0 8px; font-size: 12px; }
-    #run-status { flex: 0 1 auto; min-width: 80px; max-width: 26vw; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #fps { top: 44px; }
+    .stage-bar .btn { min-height: 28px; padding: 0 8px; font-size: 12px; }
     #keys-panel, #races-panel { top: 44px; max-height: calc(100% - 56px); }
   }
   /* the start page on a phone */
@@ -199,16 +203,12 @@
   }
   .checks .warn .mark { color: var(--accent); }
   .stage.stretch canvas { object-fit: fill; }
-  #fps { position: absolute; left: 8px; top: 56px; margin: 0; padding: 2px 8px; font: 14px/1.4 ui-monospace, Consolas, monospace;
+  #fps { position: absolute; left: 8px; top: 8px; margin: 0; padding: 2px 8px; font: 14px/1.4 ui-monospace, Consolas, monospace;
          color: #fff; background: rgba(0, 0, 0, .55); border-radius: 4px; pointer-events: none; }
-  .stage:fullscreen #fps { top: 8px; }
-  .stage:fullscreen { grid-template-rows: minmax(0, 1fr); }
   .stage:fullscreen .stage-bar { display: none; }
-  /* a phone has no Esc and no way to leave full screen to reach the bar: keep it */
+  /* a phone has no Esc and no way to leave full screen to reach the button: keep it */
   @media (pointer: coarse) {
-    .stage:fullscreen { grid-template-rows: auto minmax(0, 1fr); }
-    .stage:fullscreen .stage-bar { display: flex; }
-    .stage:fullscreen #fps { top: 44px; }
+    .stage:fullscreen .stage-bar { display: block; }
   }
   #log { position: absolute; right: 16px; bottom: 16px; width: min(720px, calc(100% - 32px)); max-height: 45vh; overflow: auto; margin: 0;
          padding: 12px; background: rgba(13, 13, 13, .92); border: 1px solid var(--line); border-radius: 8px;
@@ -385,7 +385,12 @@
 
 <div class="stage" id="stage" hidden>
   <div class="stage-bar">
+    <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: screen, controller, keys, log, quit">&#9881; Settings</button>
+  </div>
+  <dialog id="settings-dlg" aria-label="Settings">
+    <div class="dlg-head"><strong>Settings</strong><button type="button" class="btn" id="settings-close" aria-label="Close">Close</button></div>
     <span id="run-status" role="status">Loading…</span>
+    <div class="dlg-row">
     <button type="button" class="btn" id="full">Fullscreen</button>
     <select class="pad-sel" id="wide-sel" aria-label="Screen shape" title="Screen shape. Wide: fills the screen, the race shows more to the sides. 16:9: black bars, no widescreen view (WebGPU; changes live)"><option value="">Wide</option><option value="16:9">16:9</option><option value="21:9">21:9</option><option value="32:9">32:9</option></select>
     <button type="button" class="btn" id="stretch-btn" aria-pressed="false" title="Fill the screen (distorts the picture)">Stretch</button>
@@ -396,9 +401,9 @@
     <button type="button" class="btn" id="races-btn" aria-expanded="false" aria-controls="races-panel" hidden>Races</button>
     <button type="button" class="btn" id="log-btn" aria-expanded="false" aria-controls="log">Log</button>
     <button type="button" class="btn" id="log-save">Save log</button>
-    <button type="button" class="btn" id="log-send" title="Upload the log to the test server; tell the code shown here to whoever asked for it" hidden>Send log</button>
     <button type="button" class="btn danger" id="quit">Quit</button>
-  </div>
+    </div>
+  </dialog>
   <canvas id="canvas" tabindex="0" aria-label="Game" oncontextmenu="event.preventDefault()"></canvas>
   <pre id="fps" hidden></pre>
   <pre id="log" hidden></pre>
@@ -458,6 +463,7 @@
     { group: 'Online' },
     { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out.',
       opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
+    { key: 'MC3_NAMETAGS', label: 'Name tags', help: 'Each other player\'s name over their car in free roam (not hidden behind buildings). Changes live.', opts: ONOFF() },
     { group: 'Keyboard' },
     { key: 'RECOMP_KEYBOARD', label: 'Keyboard as pad 1', help: 'Off leaves only controllers.', opts: ONOFF() },
     { key: 'RECOMP_KEYBOARD_STICK_Y', label: 'Up and Down move the stick', help: 'Menus move with the stick. Auto: while driving (when the game says so) the arrows are gas and brake alone.',
@@ -483,6 +489,11 @@
   ];
   let settings = store.get('settings', {});
   if (typeof settings !== 'object' || !settings || Array.isArray(settings)) settings = {};
+  // Screen shape starts at 16:9, once per browser; picking Wide (Auto) afterwards sticks
+  if (!store.get('aspect169')) {
+    if (!settings.RECOMP_ASPECT) { settings.RECOMP_ASPECT = '16:9'; store.set('settings', settings); }
+    store.set('aspect169', 1);
+  }
 
   function renderSettings() {
     const body = $('settings-body');
@@ -509,6 +520,7 @@
     if (value) settings[key] = value; else delete settings[key];
     store.set('settings', settings);
     $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
+    if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
     preview();
   }
 
@@ -1003,7 +1015,7 @@
     const m = document.createElement('div');
     m.setAttribute('role', 'alert');
     m.textContent = 'The graphics device was lost, so the game cannot draw any more. Reload the page; '
-      + 'if it happens again, add ?RECOMP_GPU=webgl to the address. Send log helps. (' + String(text).trim() + ')';
+      + 'if it happens again, add ?RECOMP_GPU=webgl to the address. Save log helps. (' + String(text).trim() + ')';
     m.style.cssText = 'position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);max-width:min(560px,90vw);padding:12px 16px;border-radius:8px;background:#000d;color:#fff;font:14px sans-serif;z-index:99';
     $('stage').append(m);
   }
@@ -1313,7 +1325,7 @@
   addEventListener('gamepaddisconnected', e => { const n = padOrder.indexOf(e.gamepad.index); if (n >= 0) padOrder.splice(n, 1); window.applyPad(); });
   window.applyPad();
   setInterval(window.applyPad, 1000);
-  // The log as Save log / Send log hand it out: a test deploy's password (the /k/<key>/ of its URLs) masked.
+  // The log as Save log hands it out: a test deploy's password (the /k/<key>/ of its URLs) masked.
   const logDump = () => (logText.join('\n') + '\n').replace(/\/k\/[^/\s"']+/g, '/k/***');
   $('log-save').onclick = () => {
     const name = 'mcdub3-web-log.txt', blob = new Blob([logDump()], { type: 'text/plain' });
@@ -1323,26 +1335,12 @@
       navigator.share({ files: [file] }).catch(e => { if (e.name !== 'AbortError') download(blob, name); });
     else download(blob, name);
   };
-  // Send log (config.json logUrl, e.g. the disc Worker's /k/{key}/logs): the last 2 MB uploaded, a 6-letter code back
-  const LOG_MAX = 2 * 1024 * 1024;
-  $('log-send').onclick = async () => {
-    const b = $('log-send');
-    if (b.disabled) return;
-    b.disabled = true; b.textContent = 'Sending…';
-    try {
-      let bytes = new TextEncoder().encode(logDump());
-      if (bytes.length > LOG_MAX) bytes = new TextEncoder().encode('[page] log cut to its last 2 MB\n' + new TextDecoder().decode(bytes.subarray(bytes.length - LOG_MAX + 64)));
-      const r = await fetch(cfg.logUrl, { method: 'POST', body: bytes, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, credentials: 'include' });
-      const code = r.ok ? (await r.json()).code : '';
-      if (!code) throw new Error('HTTP ' + r.status);
-      b.textContent = 'Log: ' + code;
-      runStatus(`Log sent: code ${code}`);
-      out(`[page] log sent: code ${code}`);
-    } catch (e) {
-      b.textContent = 'Send log';
-      runStatus('Log not sent: ' + (e.message || e), true);
-    } finally { b.disabled = false; }
-  };
+  // Settings dialog (the stage bar's only button). Keys / Races / Log / Fullscreen show something over the game: close it first.
+  const dlg = $('settings-dlg');
+  $('settings-btn').onclick = () => { dlg.showModal(); $('settings-close').focus(); };
+  $('settings-close').onclick = () => dlg.close();
+  dlg.onclick = e => { if (e.target === dlg || e.target.closest('#keys-btn, #races-btn, #log-btn, #full')) dlg.close(); };   // the backdrop is the dialog itself
+  dlg.onclose = () => $('canvas').focus();                // the game keeps the keys
   $('quit').onclick = () => { if (confirm('Quit the game? Anything not saved in the game is lost.')) location.reload(); };
   // --- who is online: the server's GET /lan/stats (counts only), every 15 s while the start page shows
   const CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'];   // free-roam room ids 0..3 (0 = the default room)
@@ -1385,7 +1383,7 @@
   addEventListener('error', e => out('[page] ' + e.message));
   initTabs();
   preview();
-  loadConfig().then(() => { $('log-send').hidden = !cfg?.logUrl; lanUp(); showOnline(); return Promise.all([findDiscs(), findBuilds()]); }).then(pickInit);
+  loadConfig().then(() => { lanUp(); showOnline(); return Promise.all([findDiscs(), findBuilds()]); }).then(pickInit);
 })();
 </script>
 </body>
