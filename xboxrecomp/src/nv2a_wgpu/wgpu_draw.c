@@ -524,6 +524,13 @@ void wdraw_batch(const Nv2aRawBatch *b)
         d.rec.aa[1] = b->aa_sy > 0 ? b->aa_sy : 1.0f;
         d.rec.aa[2] = 0.5f - 0.5f * ph / (float)t->h;       /* snapy: differs with square pixels */
         d.rec.aa[3] = t->wide > 1.0f ? 1.0f / t->wide : 0.0f;  /* Hor+ squeeze (nv2a_clip) */
+        /* A clip narrower than the frame (MC3's minimap, 128 wide at x 47):
+         * its 2D map has corners far off screen, which the edge rule left
+         * unsqueezed (the map k times wider than its squeezed ring). No
+         * full-screen quad lives in such a pass: squeeze every vertex (< 0). */
+        uint32_t cw = (r[0x200 / 4] >> 16) * (b->aa_sx > 0 ? (uint32_t)b->aa_sx : 1u);
+        if (d.rec.aa[3] > 0.0f && cw && cw < (uint32_t)pw)
+            d.rec.aa[3] = -d.rec.aa[3];
     }
     memcpy(d.rec.vpoff, b->vp_offset, sizeof d.rec.vpoff);
     nv2a_ffp_fog_uniforms(r, mv, d.rec.fogplane, d.rec.fog0, d.rec.fog1);
