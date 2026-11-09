@@ -229,6 +229,10 @@ if(EMSCRIPTEN)
     target_link_options(${PROJECT_NAME} PRIVATE
         -O3 -pthread -sPROXY_TO_PTHREAD -sSUPPORT_LONGJMP=wasm -sUSE_SDL=2
         -sOFFSCREENCANVAS_SUPPORT -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2
+        # A browser without WebGL 2 in workers (a TCL Google TV, 2026-11-09) gets the context on the page thread
+        # and every GL call proxied there (RECOMP_GL_PROXY=1, nv2a_gl.c gl_make_window); elsewhere each GL call
+        # only checks that its thread owns the context.
+        -sOFFSCREEN_FRAMEBUFFER
         # No -sFULL_ES3 (client-side array emulation in every draw call; the
         # renderer draws from buffers only) and no JS-side GL error tracking.
         -sGL_ENABLE_GET_PROC_ADDRESS -sGL_TRACK_ERRORS=0

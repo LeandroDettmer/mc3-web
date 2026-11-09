@@ -934,6 +934,20 @@ int main(int argc, char **argv)
     extern void windows_boot(void);
     windows_boot();
 #endif
+#ifdef __EMSCRIPTEN__
+    {
+        /* Browser: every thread made without a stack size takes
+         * DEFAULT_PTHREAD_STACK_SIZE (4 MB, CMakeLists.txt) from the wasm
+         * memory. MC3_THREAD_STACK_KB (the page's low-memory profile: 1024)
+         * sets a smaller one for the threads made from here on. */
+        extern unsigned __default_stacksize;   /* musl's, read by pthread_attr_init/pthread_create */
+        const char *kb = getenv("MC3_THREAD_STACK_KB");
+        if (kb && atoi(kb) >= 256) {
+            __default_stacksize = (unsigned)atoi(kb) << 10;
+            fprintf(stderr, "[WEB] thread stacks: %u KB (MC3_THREAD_STACK_KB)\n", __default_stacksize >> 10);
+        }
+    }
+#endif
     return xbox_host_main_run(game_main_args, argc, argv);
 }
 #endif

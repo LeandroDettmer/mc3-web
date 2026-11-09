@@ -14,8 +14,11 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
 // there, then smaller maximums.
 // Low-memory profile (web/index.html sets Module.mc3MemMB; TVs, phones, tablets) prefers a big enough INITIAL size
 // over a big maximum: a small device cannot reserve 2 GB to grow into, and the game needs ~350-450 MB at once. So
-// fixed sizes first (maximum = initial, no growth): 1024, 768, 640, 512, 448; then growing combos (initial +
-// headroom), then 256-based ones as a last resort.
+// fixed sizes first (maximum = initial, no growth): 1024 down to 320 in small steps; then growing combos (initial +
+// headroom), then 256-based ones as a last resort. A 32-bit Chrome (Android phones, TVs) that cannot set aside a
+// memory's maximum quietly sets aside less, down to its initial size (nfsu2-web host/memory.ts, V8's
+// backing-store.cc): a growing memory may never grow there, so the game must fit its initial size (a TCL Google TV
+// refused every size from 448 MB up and gave 256/512, 2026-11-09).
 // WebKit (iPhone, iPad, Safari) sets aside a shared memory's whole maximum (256 MB with a 2 GB maximum was
 // refused on an iPhone) and ran fine with a fixed 2 GB and 40 pool workers before 981d032: that baseline first,
 // fixed sizes only (maximum = initial), pool kept at 40 even in the light profile.
@@ -26,8 +29,8 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
     || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua));
   if (webkit) delete Module['mc3Pool'];
   var tries = webkit ? [[2048, 2048], [1536, 1536], [1024, 1024], [768, 768], [512, 512]]
-    : low ? [[1024, 1024], [768, 768], [640, 640], [512, 512], [448, 448],
-        [512, 768], [448, 768], [512, 1024], [448, 1024], [256, 512], [256, 1024]]
+    : low ? [[1024, 1024], [768, 768], [640, 640], [512, 512], [448, 448], [416, 416], [384, 384], [352, 352],
+        [320, 320], [512, 768], [448, 768], [512, 1024], [448, 1024], [288, 288], [256, 512], [256, 1024]]
     : [[2048, 2048], [1024, 2048], [512, 2048], [256, 2048], [512, 1024], [256, 1024], [512, 512], [256, 512]];
   for (i = 0; i < tries.length; i++) {
     try {
@@ -43,6 +46,13 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
   throw new Error('This TV/browser cannot give the game enough memory (needs about 450 MB; refused: ' + refused.join('; ')
     + '). Close other tabs and apps, or restart the browser.');
 })();
+
+// No WebGL 2 in workers (web/index.html's probe sets RECOMP_GL_PROXY=1; a TCL Google TV, 2026-11-09): the canvas
+// stays on the page thread, where the GL thread's context is made and every GL call runs (-sOFFSCREEN_FRAMEBUFFER,
+// xboxrecomp/src/nv2a_gl/nv2a_gl.c gl_make_window). Emscripten's pthread_create hands a canvas over only when it has
+// transferControlToOffscreen; hidden here, it logs "cannot transfer control" and keeps it.
+if (!ENVIRONMENT_IS_PTHREAD && Module['canvas'] && (Module['mc3Env'] || {}).RECOMP_GL_PROXY == '1')
+  Object.defineProperty(Module['canvas'], 'transferControlToOffscreen', { value: undefined, configurable: true });
 
 // FPS overlay (web/index.html): presented-frame counter of the active renderer, read from shared wasm memory.
 // Returns undefined until the runtime is up. WebGPU unless RECOMP_GPU=webgl (or its export is missing).

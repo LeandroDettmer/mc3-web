@@ -231,6 +231,27 @@ generated files when the lift inputs did not change.
   log's last 20 lines (index.html failShow: abort, page errors before the
   runtime is up, '[WGPU] device lost', '[GL] WebGL context lost', out of
   memory lines, no frame 90 s after Play).
+  TCL Google TV (Chrome for Android TV, 32-bit, 2026-11-09, fix untested
+  on the TV): every memory from 448 MB up was refused (256/512 given; a
+  32-bit V8 that cannot set aside the maximum may set aside only the
+  initial size, so the low profile now tries fixed sizes down to 320
+  MB first), and '[GL] WebGL2 context on #canvas failed (0)': WebGL 2
+  on the page but none on an OffscreenCanvas in a worker. Now the page
+  probes a worker at Play ('[WEB] graphics: ...'). Where the worker has
+  no WebGL 2, or a start failed there before (localStorage
+  mc3.glProxy), it sets RECOMP_GL_PROXY=1: pre.js hides the canvas's
+  transferControlToOffscreen, so the canvas stays on the page thread.
+  The GL thread then makes the context there (-sOFFSCREEN_FRAMEBUFFER,
+  PROXY_ALWAYS + renderViaOffscreenBackBuffer). Void GL calls are queued
+  to the page, getters and uploads over 256 KB are round trips, and
+  emscripten_webgl_commit_frame runs at each flip. Slower; =0 forces the
+  worker. A refused context logs '[GL] try N refused: <browser's
+  reason>; attributes ...; this worker: webgl2 ..., webgl ...; UA', then
+  one retry with plainer attributes. The low profile also sets
+  RECOMP_GL_QUEUE_MB=16 (the GL record ring, 48 by default) and
+  MC3_THREAD_STACK_KB=1024 (default pthread stack, 4 MB; src/main.c).
+  '[WEB] memory in use: N MB of M MB' logs each 16 MB of sbrk (GL
+  path), to learn the real peak.
 - **Online (System Link):** the XNet API thunks (21 Remix overrides, MC3_NETPLAY=1)
   go to xnet_hle.c; on the web its transport is a WebSocket to the server's
   /lan switch (virtual IPs 10.77.0.0/18, broadcast to System Link peers).

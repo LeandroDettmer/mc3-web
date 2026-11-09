@@ -627,8 +627,10 @@
       if (env.MC3_MOVIE_HD === undefined) env.MC3_MOVIE_HD = '0';
     }
     if (low) {   // TVs and small devices (lowMem): lighter on memory, 1x (above), unless the player picked otherwise
+      // GL record queue 16 MB (48), thread stacks 1 MB (4): ~110 MB less, for a 32-bit TV browser's ~350 MB
       const d = { RECOMP_RAM_MB: '64', MC3_ROAM_CARS: '7', MC3_DISC_MEM_MB: '16', MC3_PREFETCH: '0',
-        RECOMP_GL_ANISO: '4', RECOMP_GL_SHARPEN: '0', RECOMP_GL_FXAA: '0', MC3_MOVIE_HD: '0' };
+        RECOMP_GL_ANISO: '4', RECOMP_GL_SHARPEN: '0', RECOMP_GL_FXAA: '0', MC3_MOVIE_HD: '0',
+        RECOMP_GL_QUEUE_MB: '16', MC3_THREAD_STACK_KB: '1024' };
       for (const k in d) if (env[k] === undefined) env[k] = d[k];
     }
     for (const k of Object.keys(env)) if (k.startsWith('MC3_TOUCH') && k !== 'MC3_TOUCH_TRACE') delete env[k];   // the page's own (web/touch.js)
@@ -854,6 +856,31 @@
   }
 
   const webgl2 = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
+  // WebGL 2 inside a worker, as the game's GL thread makes it (on an OffscreenCanvas). A TCL Google TV's Chrome has
+  // WebGL 2 on the page and none in workers ('[GL] WebGL2 context on #canvas failed (0)', 2026-11-09): there the game
+  // draws through the page thread (RECOMP_GL_PROXY=1, web/pre.js, nv2a_gl.c gl_make_window), slower. Asked at Play.
+  function glWorkerProbe() {
+    return new Promise(done => {
+      let w = null;
+      const src = "function p(k){var why='';try{if(typeof OffscreenCanvas!='function')return 'no OffscreenCanvas';"
+        + "var c=new OffscreenCanvas(1,1);c.addEventListener('webglcontextcreationerror',function(e){why=e.statusMessage||''});"
+        + "var g=c.getContext(k);if(!g)return 'refused'+(why?' ('+why+')':'');var r=g.getExtension('WEBGL_debug_renderer_info');"
+        + "return 'ok ('+g.getParameter(r?r.UNMASKED_RENDERER_WEBGL:g.RENDERER)+')'}catch(e){return 'threw '+e}}postMessage(p('webgl2'))";
+      const end = v => { clearTimeout(t); try { w?.terminate(); } catch {} done(v); };
+      const t = setTimeout(() => end('no answer in 5 s'), 5000);
+      try {
+        w = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+        w.onmessage = e => end(String(e.data));
+        w.onerror = e => end('worker error ' + (e.message || ''));
+      } catch (e) { end('no worker: ' + e); }
+    });
+  }
+  const pageRenderer = () => {
+    try {
+      const g = document.createElement('canvas').getContext('webgl2'), r = g && g.getExtension('WEBGL_debug_renderer_info');
+      return g ? g.getParameter(r ? r.UNMASKED_RENDERER_WEBGL : g.RENDERER) : 'none';
+    } catch { return 'none'; }
+  };
   const opfs = !!(navigator.storage && navigator.storage.getDirectory);
   // What this device gives the game, as notes that do not stop Play ('warn'): the renderer, the shared memory
   // (web/pre.js: 2 GB up front where the browser gives it, else from 1 GB down to 256 MB, growing), full screen on a phone.
@@ -874,7 +901,7 @@
         ? ['warn', 'Graphics', 'WebGL 2 only: slower (about half the frame rate). ' + (ios ? 'WebGPU comes with iOS 26 / iPadOS 26.' : android ? 'Chrome for Android has WebGPU on most phones from Android 12.' : 'Chrome and Edge have WebGPU.')]
         : [false, 'Graphics', 'no WebGPU and no WebGL 2 in this browser'],
       lowMem(Object.fromEntries(new URLSearchParams(location.search)))
-        ? ['warn', 'Memory', 'low-memory mode (' + (TV_UA.test(ua) ? 'a TV browser' : mobile() ? 'a phone or tablet' : mem ? `${mem} GB device` : 'forced') + '): ' + (ios ? 'a fixed 1 GB to 512 MB' : 'from 512 MB, growing as it needs') + ' (the game needs about 400 MB), 1x resolution, no background disc download. ?MC3_LOWMEM=0 turns it off.']
+        ? ['warn', 'Memory', 'low-memory mode (' + (TV_UA.test(ua) ? 'a TV browser' : mobile() ? 'a phone or tablet' : mem ? `${mem} GB device` : 'forced') + '): ' + (ios ? 'a fixed 1 GB to 512 MB' : 'a fixed 1 GB, or less down to 320 MB') + ' (the game needs about 300 MB this way), 1x resolution, no background disc download. ?MC3_LOWMEM=0 turns it off.']
         : android && bits === '32' ? ['warn', 'Memory', 'this Chrome is 32-bit: it gives a page 1 GB at most. The game starts smaller and grows; it needs about 400 MB.']
         : mem && mem < 4 ? ['warn', 'Memory', `this device says ${mem} GB: the game needs about 400 MB; close other tabs and apps.`]
         : ios ? ['warn', 'Memory', 'iPhone and iPad: Safari may stop the game for memory. Close other tabs and apps first.']
@@ -1104,7 +1131,7 @@
   const FATAL = [
     [/\[WGPU\] device lost/, 'Graphics device lost', 'The game cannot draw any more. Reload the page; if it happens again, add ?RECOMP_GPU=webgl to the address.'],
     [/\[GL\] WebGL context lost/, 'Graphics context lost', 'The game cannot draw any more. Reload the page; close other tabs and apps (often memory).'],
-    [/\[GL\] WebGL2 context on #canvas failed|\[GL\] (window|context):/, 'No graphics', 'This browser gave the game no WebGL 2 context.'],
+    [/\[GL\] WebGL2 context on #canvas failed|\[GL\] (window|context):/, 'No graphics', 'This browser gave the game no WebGL 2 context. Reload the page: the next start draws through the page thread (slower).'],
     // WebKit's DOMException UnknownError ("unknown transient reason (e.g. out of memory)") killing a game thread:
     // an iPhone under memory pressure (2026-11-09: closing the other apps let the game run). Before 'Out of memory':
     // its text matches that too. Our own '[WEB] opfs: ...' lines name it without being fatal.
@@ -1115,6 +1142,8 @@
     logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
     // '[WEB] memory:' lines are the memory ladder's own (a refused size is retried smaller, web/pre.js): not fatal
+    // the worker refused WebGL 2 (not through the page thread): the next start draws through the page (play())
+    if (/\[GL\] WebGL2 context on #canvas failed \(-?\d+\)$/.test(String(text).trim())) store.set('glProxy', true);
     if (!failBox && !/^\[WEB\] memory:/.test(text)) for (const [re, title, help] of FATAL) if (re.test(text)) { failShow(title, help + ' (' + String(text).trim() + ')'); break; }
   }
   // A failure over the picture (2026-11-09: a TV showed a silent black screen and has no console): what
@@ -1206,6 +1235,16 @@
       MC3Touch.enterGame($('stage'));
     }
     env.RECOMP_GPU = await gpuChoice(env);
+    // WebGL in the game's worker, or through the page thread where a worker has none (glWorkerProbe), or where a
+    // start failed in the worker before (store glProxy); RECOMP_GL_PROXY=1 / =0 forces (=0 also forgets the failure)
+    if (env.RECOMP_GL_PROXY === '0') { store.set('glProxy', false); delete env.RECOMP_GL_PROXY; }
+    else if (env.RECOMP_GPU === 'webgl' && env.RECOMP_GL_PROXY === undefined) {
+      const w = await glWorkerProbe(), before = store.get('glProxy', false);
+      out('[WEB] graphics: WebGL 2 on the page ' + (webgl2 ? 'ok (' + pageRenderer() + ')' : 'none') + ', in a worker ' + w
+        + (before ? '; a start failed in the worker before' : '') + '; ' + navigator.userAgent);
+      if (webgl2 && (!/^ok/.test(w) || before)) env.RECOMP_GL_PROXY = '1';
+    }
+    if (env.RECOMP_GL_PROXY === '1') out('[WEB] graphics: drawing through the page thread (RECOMP_GL_PROXY=1, slower; =0 forces the worker)');
     document.body.classList.add('playing');
     $('stage').hidden = false;
     const canvas = $('canvas');
@@ -1230,8 +1269,8 @@
       onRuntimeInitialized: () => (booted = true, window.applyPad?.(), runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.`)),
       onAbort: what => { runStatus('Stopped: ' + what, true); showLog(true); failShow('The game stopped', what); },
     };
-    // Low-memory profile: the wasm memory starts at 512 MB and grows (web/pre.js; else 2 GB up front, smaller
-    // only if refused), and 24 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; ~20 threads
+    // Low-memory profile: a fixed wasm memory, 1 GB or the largest down to 320 MB the browser gives (web/pre.js;
+    // else 2 GB up front, smaller only if refused), and 24 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; ~20 threads
     // run at once, more get a worker on demand).
     if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 24; out('[WEB] low-memory profile (TV, phone, tablet or small device; MC3_LOWMEM=0 turns it off)'); }
     // No picture 90 s after Play: say so with the log's last lines (a TV has no console to look at).
