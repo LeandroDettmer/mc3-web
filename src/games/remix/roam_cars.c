@@ -286,6 +286,12 @@ static int roam_car_make(int i, const uint8_t look[ROAM_CFG_SIZE], int mid)
     else                                        /* no look, unknown car or the model cache full: ours */
         memcpy((uint8_t *)XBOX_PTR(cfg), (uint8_t *)XBOX_PTR(cfg0), ROAM_CFG_SIZE);
     MEM32(cfg) = ROAM_CFG_VT;
+    /* +8 is the CarCfg's dirty mask: a record carries the sender's, 0 once
+     * its car was built and updated. operator= (sub_00271E20) sets 0x3FFF; so
+     * do we. Bit 0x80 is the wheel step of the vehicle update (0x00100657:
+     * sub_00121970 sizes the tyres from the rim and the tyre profile,
+     * sub_00105450 the wheels' physics): without it the rims drew bare. */
+    MEM32(cfg + 8u) = 0x3FFFu;
     if (mid && !roam_build_ctx(1))
         return 0;
     c->slot = 1u + (uint32_t)i % (uint32_t)s_roam_slots;

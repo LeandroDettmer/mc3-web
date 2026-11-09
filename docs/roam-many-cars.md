@@ -17,7 +17,18 @@ Addresses: Remix lift (work-remix/gen, disasm work-remix/analysis/disasm).
 player object: builder ctor sub_002CB270(name, 0, slot, CarCfg*, flag, pad)
 (vtable 0x476940), build sub_002CBC40, dtor sub_002CB2C0. Steps:
 - model instance new 0x3138 sub_000F4430 (-> veh+0x68), look applied by
-  sub_000F32A0(CarCfg, 1, slot) @0x2CBCBA;
+  sub_000F32A0(CarCfg, 1, slot) @0x2CBCBA (every bit of the CarCfg's dirty
+  mask +8 but 0x80, mask & 0xFFFFC080 after). Two parts of the look come
+  later (2026-11-09, the bare rims and wrong paint of standalone cars):
+  bit 0x80 is the wheel step of the vehicle update (0x00100657: tyre size
+  from rim + tyre profile sub_00121970, wheel physics sub_00105450), so a
+  CarCfg memcpy'd from a record (+8 = the sender's, 0 after its build) never
+  got tyres -- operator= sub_00271E20 sets +8 = 0x3FFF, roam_cars.c too now;
+  a preset paint (+0x40 != 0xFF) reaches the model's paint (+0x1228) only in
+  the model update sub_000F2C00 while +0x1270 is set, and the draw
+  (0x000FE09C) applies +0x1228 and clears +0x1270: a car built after the
+  physics step was drawn first and kept its own colour. roam_car_build calls
+  sub_000F2C00 on the model after the build;
 - vt+0x20 sub_002CB2D0: car cache acquire sub_00105B80 -> builder+0x4C
   (cache [0x50A08C], 16 slots, refcounted per car index: same model shared);
 - vt+4 sub_002CBDE0: vehicle new 0x6C (vtable 0x454F40, ctor sub_000FF160),

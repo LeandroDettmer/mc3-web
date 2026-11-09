@@ -156,6 +156,7 @@ void sub_002CB270(void);                        /* car builder ctor, thiscall, 6
 void sub_002CBC40(void);                        /* car builder: build a race car, thiscall; the vehicle */
 void sub_002CB2C0(void);                        /* car builder dtor, thiscall */
 void sub_001240F0(void);                        /* a car's profile flags, thiscall */
+void sub_000F2C00(void);                        /* car model: preset paint into +0x1228 when +0x1270, thiscall */
 void xbox_gil_atomic(int d);                    /* xboxrecomp kernel_bridge.c: no other guest thread inside */
 
 static int s_roam_fake = -1, s_roam_slots, s_roam_swap_on = -1;
@@ -615,6 +616,13 @@ static uint32_t roam_car_build(uint32_t cfg, uint32_t slot, uint32_t pad, uint32
     *res = MEM32(top + 0x4Cu);
     if (!MEM8(setup + 0x108u) && online_ram(veh))
         roam_call(sub_001240F0, MEM32(veh + 8u), top, 0, NULL);
+    /* A preset paint (CarCfg +0x40 != 0xFF) reaches the model's paint
+     * (+0x1228) only in the model update (sub_000F5E10 -> sub_000F2C00),
+     * while +0x1270 is set; the draw (0x000FE09C) applies +0x1228 and clears
+     * +0x1270. A car built mid-frame (after the physics step) was drawn
+     * first: the car's own colour, never the peer's. Load it now. */
+    if (online_ram(veh) && online_ram(MEM32(veh + 0x68u)))
+        roam_call(sub_000F2C00, MEM32(veh + 0x68u), top, 0, NULL);
     roam_call(sub_002CB2C0, top, top, 0, NULL);
     return online_ram(veh) ? veh : 0;
 }
