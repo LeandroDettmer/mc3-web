@@ -234,7 +234,7 @@
       <p class="status-sub" id="status-sub">Looking for the discs and the build.</p>
       <p class="hint online-now" id="online-now" role="status" hidden></p>
       <p class="row" id="signin" hidden style="margin-bottom:16px"><a class="btn" id="signin-link" href="#">Sign in</a> <span class="hint">The disc server wants you signed in; it sends you back here.</span></p>
-      <fieldset class="pick">
+      <fieldset class="pick" id="game-pick">
         <legend>Game</legend>
         <label class="opt"><input type="radio" name="game" value="dub"> <span>DUB Edition</span></label>
         <label class="opt"><input type="radio" name="game" value="remix"> <span>Remix</span></label>
@@ -731,6 +731,7 @@
       r.checked = r.value === want;
       r.onchange = () => { store.set('game', r.value); fillEditions(); };
     }
+    $('game-pick').hidden = usable.length < 2;     // one game on this server: nothing to choose
     fillEditions();
   }
   function fillEditions() {
