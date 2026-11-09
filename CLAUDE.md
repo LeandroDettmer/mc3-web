@@ -331,8 +331,16 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   is 768: size from the drawn clip) are stored k = aspect/(16:9) wider,
   nv2a_clip squeezes x by 1/k, full-screen 2D snaps to the edges, the HUD
   keeps its shape in the middle 16:9; the game culls to its frustum, so the
-  projection override (recomp_manual.c ~:1625) passes aspect*k for culling
-  and restores m00. WebGPU only.
+  projection override (recomp_manual.c ~:1709) passes aspect*k for culling
+  and restores m00. WebGPU only. Two more culls/snaps found 2026-11-09
+  (untested in game): the toolkit's own CPU batch cull (cull_offscreen,
+  nv2a_pb_exec.c, RECOMP_CULL) tested against the narrow 720 clip and
+  dropped every batch wholly in the side areas (buildings, props missing at
+  the sides; widened by k now); and the edge rule left every 2D vertex
+  beyond the 16:9 edge unsqueezed, so sprites the game projects into the
+  sides (glows, flares) were thrown out or smeared -- now only a
+  pre-transformed draw spanning both edges keeps it (wgpu_draw.c
+  wide_full_2d), any other is squeezed whole.
 - **Builds**: tools/build_web.sh uses ccache when installed (WSL:
   ~/.cache/ccache-mc3, CCACHE_BASEDIR = repo, so build folders share it;
   CCACHE=0 off). Builds on /mnt/e are slow; one relift per round.
