@@ -127,3 +127,31 @@ Module['mc3TouchPad'] = function (words) {
   }
   requestAnimationFrame(frame);
 })();
+
+// Race prompt: near a race start point in free roam, src/games/remix/roam_race_ai.c publishes one line
+// (roam_prompt_box: seq, then 96 bytes of text, empty = none), e.g. "Race: <name> (...) - press White (Q) to
+// start"; shown at the bottom middle of the canvas while fresh (the game updates it every frame). Main thread only.
+(function () {
+  if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
+  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null;
+  if (!canvas) return;
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_prompt_box != 'function' || !canvas.parentNode) return;
+    if (!I32) {   // fixed memory (no growth): the view stays valid
+      I32 = new Int32Array(HEAPU8.buffer);
+      el = document.createElement('div');
+      el.style.cssText = 'position:absolute;left:50%;bottom:14%;transform:translateX(-50%);pointer-events:none;' +
+        'z-index:1;padding:.35em .9em;border-radius:6px;background:rgba(0,0,0,.6);color:#fff;white-space:nowrap;' +
+        'font:700 clamp(12px,2.2vh,22px) "Arial Narrow","Roboto Condensed",Arial,sans-serif;display:none';
+      canvas.parentNode.append(el);
+    }
+    var b = _roam_prompt_box(), s = I32[b >>> 2], text = '';
+    if (s !== seq) { seq = s; seenAt = now; }
+    if (now - seenAt < 400)   // stale: paused, loading or gone
+      for (var c = 0; c < 95 && HEAPU8[b + 4 + c]; c++) text += String.fromCharCode(HEAPU8[b + 4 + c]);
+    if (el.textContent !== text) el.textContent = text;
+    el.style.display = text ? '' : 'none';
+  }
+  requestAnimationFrame(frame);
+})();

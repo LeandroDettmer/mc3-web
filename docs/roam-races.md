@@ -336,6 +336,17 @@ Risks:
 - F3.5 Compile check; the owner tests one sprint and one circuit, then checks
   repeated round trips for the heap margin ('[ROAM] heap' lines).
 
+Built 2026-11-09 (untested in game; src/games/remix/roam_race_ai.c). Differences
+from the plan: the status during the race is RC_ST_EVENT (peers treat it as away,
+like the garage). F3.3 does not hook `sub_0016ADD0`: the Arcade race leaves through
+the front end, request 0x16 or 0x14 (both EnterState(7) in the table at 0x2108C;
+sites in the race flow 0x1C38CF/0x1C3ABA and the menus 0x1622C7/0x16236F/0x168CCC).
+While our race runs, the request override turns that request into Request(6) with
+`[0x53F2E4]` = SetEvent(city, -1) (the city's cruise, as `sub_0026D9E0` picks), the
+cruise's time and weather put back. So "Quit" on the race-over or pause menu is the
+way back. F3.4 holds the car on its spot for 1.5 s and puts it back if it falls
+10 m (ground not streamed in yet). The prompt is a page overlay (roam_prompt_box).
+
 **Feature 4 (online race):**
 - F4.0 **Trace spike (1 day, the owner plays one System Link race between two
   browsers):** add a tracer for MC3_STATE_TRACE plus calls to `sub_00155AF0`,

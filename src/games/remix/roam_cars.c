@@ -390,7 +390,8 @@ static void roam_cars_load(void)
 /* A peer's interpolated pose and newest inputs into car c. */
 static void roam_car_take(roam_car *c, const roam_peer *pp)
 {
-    uint8_t away = pp->status == RC_ST_SHOP || pp->status == RC_ST_LOADING || pp->status == RC_ST_MENUS;
+    uint8_t away = pp->status == RC_ST_SHOP || pp->status == RC_ST_LOADING || pp->status == RC_ST_MENUS ||
+                   pp->status == RC_ST_EVENT;   /* in an AI race (roam_race_ai.c) */
     if (away != c->away) {
         c->away = away;
         c->live = 0;                            /* snapped onto its pose when it drives again */

@@ -326,6 +326,7 @@ static void roam_status(uint8_t st)
         fprintf(stderr, "[roam] status %s\n", st == RC_ST_ROAM      ? "roam"
                                               : st == RC_ST_SHOP    ? "garage"
                                               : st == RC_ST_LOADING ? "loading"
+                                              : st == RC_ST_EVENT   ? "race (AI race from Free Roam)"
                                                                     : "other");
     }
 }
@@ -824,6 +825,12 @@ static void roam_build(void)
     /* One local player with a car, no network race: the cruise, not the garage. */
     if (MEM32(setup + 0x4Cu) != 1u || MEM8(setup + 0x108u) || MEM8(e0 + 0x26u) || SMEM32(e0 + 0x14u) < 0)
         return;
+    /* A race (Free Roam's AI race, roam_race_ai.c) gets no remote slots: the
+     * race would count them as N undriven racers. Only the cruise (type 0). */
+    if (MEM32(setup + 0x18u) != 0) {
+        fprintf(stderr, "[ROAM] race load: no slots (race type %u)\n", (unsigned)MEM32(setup + 0x18u));
+        return;
+    }
     cfg0 = MEM32(e0 + 0x0Cu);
     if (!online_ram(cfg0) || MEM32(cfg0) != ROAM_CFG_VT)
         cfg0 = 0;
@@ -917,7 +924,8 @@ static int roam_hist_at(double t, float m[12], float vel[3], uint8_t ctl[ROAM_CT
  * (RC_ST_SHOP) the slot stays its own but the car is parked and hidden. */
 static void roam_peer_take(int k, const roam_peer *pp)
 {
-    uint8_t away = pp->status == RC_ST_SHOP || pp->status == RC_ST_LOADING || pp->status == RC_ST_MENUS;
+    uint8_t away = pp->status == RC_ST_SHOP || pp->status == RC_ST_LOADING || pp->status == RC_ST_MENUS ||
+                   pp->status == RC_ST_EVENT;
     if (away != s_roam_peer[k].away) {
         s_roam_peer[k].away = away;
         s_roam_peer[k].live = 0;                /* snapped onto its pose when it comes back */
@@ -925,6 +933,7 @@ static void roam_peer_take(int k, const roam_peer *pp)
                 !away ? "drives again: car shown"
                 : pp->status == RC_ST_SHOP    ? "is in the garage: car hidden, slot kept"
                 : pp->status == RC_ST_LOADING ? "is loading: car hidden, slot kept"
+                : pp->status == RC_ST_EVENT   ? "is in an AI race: car hidden, slot kept"
                                               : "is in the menus (not placed yet): car hidden, slot kept");
     }
     roam_quat_mat(pp->q, s_roam_peer[k].m);

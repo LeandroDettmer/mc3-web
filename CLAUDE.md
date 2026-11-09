@@ -294,6 +294,19 @@ generated files when the lift inputs did not change.
   minimap (0x450850) the 4 nearest within 300 m. roam_races_nearest() is
   the API for starting races from the map. '[ROAM] races: ...' at first
   use; MC3_ROAM_RACES=0 off, =2 logs each race.
+  AI race from a start point (feature 3, 2026-11-09, untested in game;
+  src/games/remix/roam_race_ai.c, docs/roam-races.md): within 30 m of a
+  start point, slower than 8 m/s, the page shows "Race: <name> ... press
+  White (Q)" (roam_prompt_box, web/pre.js); White fills [0x53F2E4] (copy
+  sub_00268E50, SetEvent sub_0026B8E0(city, event), 1 player) and sends
+  Request(8) + Request(6), roam status RC_ST_EVENT (peers hide our car).
+  roam_build adds no slots to a load with race type != 0, so the race ends
+  normally (the phase-7 hold needs slots). Way back: while that race runs,
+  a front-end request (0x14/0x16: the race-over or pause menu's quit)
+  becomes Request(6) with [0x53F2E4] = the city's cruise (SetEvent(city,
+  -1), time and weather kept); the first cruise frame puts the car back
+  and holds it 1.5 s, re-placed if it falls. '[RACE]' lines;
+  MC3_ROAM_RACE=0 off, =2 Request(6) alone.
   Many cars (2026-11-09, untested in game; src/games/remix/roam_cars.c,
   docs/roam-many-cars.md): peers beyond the 7 slots get standalone cars
   (the player builder, no player; pose + inputs written after the physics

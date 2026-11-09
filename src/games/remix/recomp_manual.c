@@ -1682,7 +1682,8 @@ static void roam_cars_frame(void);             /* free roam: standalone cars aft
 void sub_002BDEC0(void) { cam_call(33, 0x002BDEC0u, sub_002BDEC0_gen); roam_cars_frame(); }
 extern void sub_002C1520_gen(void);
 static void roam_player(uint32_t p);            /* free roam (O3), roam_game.c */
-void sub_002C1520(void) { roam_player(g_ecx); cam_call(34, 0x002C1520u, sub_002C1520_gen); }
+static void rra_player(uint32_t p);             /* free roam: AI race prompt, start, pose back (roam_race_ai.c) */
+void sub_002C1520(void) { rra_player(g_ecx); roam_player(g_ecx); cam_call(34, 0x002C1520u, sub_002C1520_gen); }
 extern void sub_002C5B30_gen(void);
 void sub_002C5B30(void) { cam_call(35, 0x002C5B30u, sub_002C5B30_gen); }
 
@@ -2329,12 +2330,14 @@ static int state_trace_on(void)
 static int roam_room(void);                     /* free roam: the city is the room (roam_game.c) */
 static void online_car_picked(void);            /* the Online profile keeps the car picked (below) */
 static void roam_race_over(uint32_t esp);       /* free roam: which way RACE OVER came (roam_cars.c) */
+static void rra_state_request(uint32_t esp);    /* free roam: an AI race's way back (roam_race_ai.c) */
 extern void sub_00020E40_gen(void);
 void sub_00020E40(void)
 {
     if (state_trace_on())
         fprintf(stderr, "[STATE] request %u (state %u) from %08X\n", MEM32(g_esp + 4),
                 MEM32(g_ecx + 4), MEM32(g_esp));
+    rra_state_request(g_esp);                    /* may turn the front end into the cruise (request 6) */
     roam_race_over(g_esp);
     roam_room();                                 /* the city picked (free roam room), before the load */
     online_car_picked();                         /* a car picked on the setup screen, before the load */
@@ -3670,6 +3673,7 @@ static void online_strings(void)
 #include "roam_game.c"
 #include "roam_cars.c"                          /* MC3_ROAM_CARS: room for standalone remote cars */
 #include "roam_races.c"                         /* free roam: the cities' race start points (roam_races.h) */
+#include "roam_race_ai.c"                       /* free roam: an AI race from a start point, then back (feature 3) */
 #include "roam_map.c"                           /* Online cruise: garage icons, race start points, players' blips */
 #include "roam_tags.c"                          /* free roam: players' names over their cars (page overlay) */
 
