@@ -1,0 +1,494 @@
+[
+ {
+  "start": "0x0037D05B",
+  "note": "Ported from the DUB Edition's seed 0x00370D3B (tools/match_lifts.py: shifted, 2026-10-24). There: D3DX. Indirect-call target hit 304x on the 2026-10-14 run ([ICALL] Failed to resolve). Small thiscall initialiser (mov eax,ecx; zero [eax],[eax+4],[eax+8]; ret) directly after sub_00370B4E's switch table, which made the disassembler fold it into sub_00370B4E (recorded end 0x00370D48 = this function's end)."
+ },
+ {
+  "start": "0x0043F1DD",
+  "note": "Ported from the DUB Edition's seed 0x00408F3D (tools/match_lifts.py: shifted, 2026-10-24). There: XPP. Indirect-call target observed on the 2026-10-14 run. Starts right after sub_00408EC0's `ret 8` (xor eax,eax; cmp byte [0x4085B0],al ...): a function body the static pass did not reach."
+ },
+ {
+  "start": "0x00445C79",
+  "note": "Ported from the DUB Edition's seed 0x0040F9D9 (tools/match_lifts.py: shifted, 2026-10-24). There: XPP. Indirect-call target observed on the 2026-10-14 run. Starts exactly at sub_0040F789's recorded end (mov ax,[0x524262]; push ebx ...): a function body the static pass did not reach."
+ },
+ {
+  "start": "0x003B04A0",
+  "note": "Ported from the DUB Edition's seed 0x0037A230 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK. Indirect-call target hit 61x on the 2026-10-14 run 7, then the Bink decoder crashed on a wild pointer. Real function after nop padding (sub esp,0x2C; push ebx ...); sub_0037AF10 stores its address as a function pointer (mov [ebp-0x8C], 0x37A230 at 0x0037AF85), which the static pass does not follow."
+ },
+ {
+  "start": "0x003AF0F0",
+  "note": "Ported from the DUB Edition's seed 0x00378E70 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK. Indirect-call target hit 115x on the 2026-10-14 run 9 while rockstar.bik played. Real function after nop padding (push ecx; push ebx; push ebp; push esi; push edi; mov edi,[esp+0x18]); its address is stored by Bink code at 0x0037972C (a decoder callback)."
+ },
+ {
+  "start": "0x003B81E0",
+  "note": "Ported from the DUB Edition's seed 0x00381F60 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCCC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8230",
+  "note": "Ported from the DUB Edition's seed 0x00381FB0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCD0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B82C0",
+  "note": "Ported from the DUB Edition's seed 0x00382040 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCDC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8320",
+  "note": "Ported from the DUB Edition's seed 0x003820A0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCE0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B83C0",
+  "note": "Ported from the DUB Edition's seed 0x00382140 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCEC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8430",
+  "note": "Ported from the DUB Edition's seed 0x003821B0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCF0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8500",
+  "note": "Ported from the DUB Edition's seed 0x00382280 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCC4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B85E0",
+  "note": "Ported from the DUB Edition's seed 0x00382360 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCC8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8710",
+  "note": "Ported from the DUB Edition's seed 0x00382490 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCD4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B87F0",
+  "note": "Ported from the DUB Edition's seed 0x00382570 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCD8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8930",
+  "note": "Ported from the DUB Edition's seed 0x003826B0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCE4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8A30",
+  "note": "Ported from the DUB Edition's seed 0x003827B0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCE8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8BA0",
+  "note": "Ported from the DUB Edition's seed 0x00382920 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCBC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8BF0",
+  "note": "Ported from the DUB Edition's seed 0x00382970 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov ecx, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCC0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8C80",
+  "note": "Ported from the DUB Edition's seed 0x00382A00 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCB4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8D60",
+  "note": "Ported from the DUB Edition's seed 0x00382AE0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCB8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B8F20",
+  "note": "Ported from the DUB Edition's seed 0x00382CA0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC48). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9170",
+  "note": "Ported from the DUB Edition's seed 0x00382EF0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC50). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9460",
+  "note": "Ported from the DUB Edition's seed 0x003831E0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD8C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B94D0",
+  "note": "Ported from the DUB Edition's seed 0x00383250 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD90). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9590",
+  "note": "Ported from the DUB Edition's seed 0x00383310 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD9C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9600",
+  "note": "Ported from the DUB Edition's seed 0x00383380 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDA0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B96D0",
+  "note": "Ported from the DUB Edition's seed 0x00383450 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDAC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9760",
+  "note": "Ported from the DUB Edition's seed 0x003834E0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDB0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9860",
+  "note": "Ported from the DUB Edition's seed 0x003835E0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov eax, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD84). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9960",
+  "note": "Ported from the DUB Edition's seed 0x003836E0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD88). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9AD0",
+  "note": "Ported from the DUB Edition's seed 0x00383850 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov eax, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD94). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9BD0",
+  "note": "Ported from the DUB Edition's seed 0x00383950 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD98). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9D40",
+  "note": "Ported from the DUB Edition's seed 0x00383AC0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov eax, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDA4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003B9E60",
+  "note": "Ported from the DUB Edition's seed 0x00383BE0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDA8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BA000",
+  "note": "Ported from the DUB Edition's seed 0x00383D80 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD7C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BA070",
+  "note": "Ported from the DUB Edition's seed 0x00383DF0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov ecx, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD80). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BA130",
+  "note": "Ported from the DUB Edition's seed 0x00383EB0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD74). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BA220",
+  "note": "Ported from the DUB Edition's seed 0x00383FA0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (mov ecx, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD78). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BA9E0",
+  "note": "Ported from the DUB Edition's seed 0x00384760 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE5C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BAA40",
+  "note": "Ported from the DUB Edition's seed 0x003847C0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE60). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BAAE0",
+  "note": "Ported from the DUB Edition's seed 0x00384860 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE4C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BAB30",
+  "note": "Ported from the DUB Edition's seed 0x003848B0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE50). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BABC0",
+  "note": "Ported from the DUB Edition's seed 0x00384940 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE6C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BAD10",
+  "note": "Ported from the DUB Edition's seed 0x00384A90 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE54). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BAE00",
+  "note": "Ported from the DUB Edition's seed 0x00384B80 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE58). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BAF60",
+  "note": "Ported from the DUB Edition's seed 0x00384CE0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE44). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BB050",
+  "note": "Ported from the DUB Edition's seed 0x00384DD0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE48). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BB1A0",
+  "note": "Ported from the DUB Edition's seed 0x00384F20 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE64). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BB2B0",
+  "note": "Ported from the DUB Edition's seed 0x00385030 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE68). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BB440",
+  "note": "Ported from the DUB Edition's seed 0x003851C0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE3C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BB490",
+  "note": "Ported from the DUB Edition's seed 0x00385210 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE40). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BB510",
+  "note": "Ported from the DUB Edition's seed 0x00385290 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE34). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BB5F0",
+  "note": "Ported from the DUB Edition's seed 0x00385370 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE38). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BB7D0",
+  "note": "Ported from the DUB Edition's seed 0x00385550 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDC8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BBA20",
+  "note": "Ported from the DUB Edition's seed 0x003857A0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDD0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BBD00",
+  "note": "Ported from the DUB Edition's seed 0x00385A80 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF1C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BBD70",
+  "note": "Ported from the DUB Edition's seed 0x00385AF0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF20). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BBE50",
+  "note": "Ported from the DUB Edition's seed 0x00385BD0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF0C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BBEC0",
+  "note": "Ported from the DUB Edition's seed 0x00385C40 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF10). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BBF90",
+  "note": "Ported from the DUB Edition's seed 0x00385D10 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF2C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BC020",
+  "note": "Ported from the DUB Edition's seed 0x00385DA0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF30). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BC130",
+  "note": "Ported from the DUB Edition's seed 0x00385EB0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF14). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BC240",
+  "note": "Ported from the DUB Edition's seed 0x00385FC0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF18). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BC3D0",
+  "note": "Ported from the DUB Edition's seed 0x00386150 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF04). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BC4D0",
+  "note": "Ported from the DUB Edition's seed 0x00386250 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF08). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BC650",
+  "note": "Ported from the DUB Edition's seed 0x003863D0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF24). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BC770",
+  "note": "Ported from the DUB Edition's seed 0x003864F0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF28). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BC930",
+  "note": "Ported from the DUB Edition's seed 0x003866B0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DEFC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BC990",
+  "note": "Ported from the DUB Edition's seed 0x00386710 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF00). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BCA50",
+  "note": "Ported from the DUB Edition's seed 0x003867D0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DEF4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BCB50",
+  "note": "Ported from the DUB Edition's seed 0x003868D0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DEF8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BCFC0",
+  "note": "Ported from the DUB Edition's seed 0x00386D40 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE90). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BD2A0",
+  "note": "Ported from the DUB Edition's seed 0x00387020 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (push edi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFDC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BD3F0",
+  "note": "Ported from the DUB Edition's seed 0x00387170 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (push edi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFCC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BD460",
+  "note": "Ported from the DUB Edition's seed 0x003871E0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (push edi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFEC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BD4F0",
+  "note": "Ported from the DUB Edition's seed 0x00387270 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFF0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BD600",
+  "note": "Ported from the DUB Edition's seed 0x00387380 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFD4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BD710",
+  "note": "Ported from the DUB Edition's seed 0x00387490 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFD8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BD8A0",
+  "note": "Ported from the DUB Edition's seed 0x00387620 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFC4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BD9A0",
+  "note": "Ported from the DUB Edition's seed 0x00387720 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFE4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BDAD0",
+  "note": "Ported from the DUB Edition's seed 0x00387850 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFE8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BDC90",
+  "note": "Ported from the DUB Edition's seed 0x00387A10 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (push edi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFBC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BDCF0",
+  "note": "Ported from the DUB Edition's seed 0x00387A70 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFB4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE0F0",
+  "note": "Ported from the DUB Edition's seed 0x00387E70 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK5551 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF50). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE480",
+  "note": "Ported from the DUB Edition's seed 0x00388200 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov edx, dword ptr [0x53bba8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0B0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE590",
+  "note": "Ported from the DUB Edition's seed 0x00388310 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E08C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE600",
+  "note": "Ported from the DUB Edition's seed 0x00388380 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E090). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE6D0",
+  "note": "Ported from the DUB Edition's seed 0x00388450 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E09C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE730",
+  "note": "Ported from the DUB Edition's seed 0x003884B0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0A0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE7E0",
+  "note": "Ported from the DUB Edition's seed 0x00388560 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0A4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE8A0",
+  "note": "Ported from the DUB Edition's seed 0x00388620 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov edx, dword ptr [0x53bba8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0A8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE9D0",
+  "note": "Ported from the DUB Edition's seed 0x00388750 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E084). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BEA70",
+  "note": "Ported from the DUB Edition's seed 0x003887F0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E088). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BEB70",
+  "note": "Ported from the DUB Edition's seed 0x003888F0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E094). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BEBF0",
+  "note": "Ported from the DUB Edition's seed 0x00388970 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E098). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BECD0",
+  "note": "Ported from the DUB Edition's seed 0x00388A50 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E07C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BED20",
+  "note": "Ported from the DUB Edition's seed 0x00388AA0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E080). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BEDB0",
+  "note": "Ported from the DUB Edition's seed 0x00388B30 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E074). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BEE20",
+  "note": "Ported from the DUB Edition's seed 0x00388BA0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E078). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BEFB0",
+  "note": "Ported from the DUB Edition's seed 0x00388D30 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E008). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BF200",
+  "note": "Ported from the DUB Edition's seed 0x00388F80 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E018). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BF2A0",
+  "note": "Ported from the DUB Edition's seed 0x00389020 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16MX pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDF0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BF3E0",
+  "note": "Ported from the DUB Edition's seed 0x00389160 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16X2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDE0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BF640",
+  "note": "Ported from the DUB Edition's seed 0x003893C0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16X2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDE8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BF940",
+  "note": "Ported from the DUB Edition's seed 0x003896C0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK16M pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDD8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BFB40",
+  "note": "Ported from the DUB Edition's seed 0x003898C0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32MX pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC70). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BFD00",
+  "note": "Ported from the DUB Edition's seed 0x00389A80 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32X2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC60). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BFF80",
+  "note": "Ported from the DUB Edition's seed 0x00389D00 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32X2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC68). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003C02A0",
+  "note": "Ported from the DUB Edition's seed 0x0038A020 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32M pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC58). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BA6B0",
+  "note": "Ported from the DUB Edition's seed 0x00384430 (tools/match_lifts.py: shifted, 2026-10-24). There: BINK32A pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD10). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BE3E0",
+  "note": "Ported from the DUB Edition's seed 0x00388160 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0AC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BF0A0",
+  "note": "Ported from the DUB Edition's seed 0x00388E20 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E030). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003BF140",
+  "note": "Ported from the DUB Edition's seed 0x00388EC0 (tools/match_lifts.py: shifted, 2026-10-24). There: BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E020). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00445214",
+  "note": "Ported from the DUB Edition's seed 0x0040EF74 (tools/match_lifts.py: shifted, 2026-10-24). There: XPP. Indirect-call target hit 925x on the 2026-10-14 run 15. Starts right after sub_0040EEEA's `ret 8` (mov eax,ecx; mov ecx,[eax+0x66]: a thiscall method); its address is stored by XPP code at 0x00408750 (a registered callback)."
+ },
+ {
+  "start": "0x0017B300",
+  "note": "Ported from the DUB Edition's seed 0x00163290 (tools/match_lifts.py: exact, 2026-10-24). There: Not hit yet; found 2026-10-16 by scanning .rdata/.data for pointers to real function starts (after padding or a ret) that the static pass never lifted -- the same scan that found the targets hit at run time. mov eax,[esp+4] after int3 padding; pointer in .rdata at 0x00429790."
+ },
+ {
+  "start": "0x002AC080",
+  "note": "Ported from the DUB Edition's seed 0x0027F7F0 (tools/match_lifts.py: shifted, 2026-10-24). There: Not hit yet; found 2026-10-16 by scanning .rdata/.data for pointers to real function starts (after padding or a ret) that the static pass never lifted -- the same scan that found the targets hit at run time. mov eax,[esp+4] after int3 padding; two pointers in .rdata (0x0041DF94)."
+ },
+ {
+  "start": "0x00027490",
+  "note": "The DUB Edition's seed 0x000271C0, found here by its first 24/16 bytes (unique in the Remix XBE; tools/match_lifts.py could not anchor it, 2026-10-24). Hit at the Remix's first movie: [ICALL] Failed to resolve VA 0x00027490. There: Indirect-call target observed on the 2026-10-14 run 7. push ebp; mov ebp,esp after int3 padding; listed in a vtable in .rdata at 0x0041304C (a virtual method, only ever called indirectly)."
+ },
+ {
+  "start": "0x003D9EF3",
+  "note": "The DUB Edition's seed 0x003A3C73, found here by its first 24/16 bytes (unique in the Remix XBE; tools/match_lifts.py could not anchor it, 2026-10-24). There: XNET. Indirect-call target observed on the 2026-10-14 run 8, while the game polled XNetGetTitleXnAddr (0x00395DAA) forever for a network address. Starts right after sub_003A3BEE's ret (mov dl,[ecx+0x8C8]; dec; cmp 0x19: a switch over XNet's state byte); its address is stored by XNET code at 0x003A46A6, i.e. a registered timer/DPC callback that never ran."
+ },
+ {
+  "start": "0x0013A770",
+  "note": "Indirect-call target that failed to resolve on the 2026-10-24 Remix run, after the legal screen. push ecx; push esi; mov esi,ecx after int3 padding that follows 'jmp [eax+0x18]' at 0x0013A762 -- the twin of the DUB Edition's seed 0x00123420 (same shape; there its neighbour was a jump table misread as a function). In no function's range: a gap, so it splits nothing."
+ },
+ {
+  "start": "0x0016F9C0",
+  "note": "Indirect-call target that failed to resolve on the 2026-10-24 Remix run, after the legal screen. sub esp,0x64; push esi; push edi after int3 padding that follows data (00 00 01 00) -- the twin of the DUB Edition's seed 0x00157850 (one of three byte matches for it; this is the one reached). In no function's range: a gap, so it splits nothing."
+ },
+ {
+  "start": "0x0018F9D0",
+  "note": "Indirect-call target that failed to resolve on the 2026-10-24 Remix run, at the title screen (PRESS START). mov eax,[0x0050F148]; push ebp; push esi right after the tail call 'jmp 0x00161C30' at 0x0018F9CB, no padding between: in no function's range, a gap, so it splits nothing; reached only through a pointer."
+ },
+ {
+  "start": "0x002AA2A0",
+  "note": "Indirect-call target that failed to resolve 1,354 times on the 2026-10-24 Remix run, in the menus. sub esp,0x5c; then SSE loads (movss) of a vector argument, right after 'jmp 0x002AA278' at 0x002AA29E with no padding: in no function's range, a gap, so it splits nothing; reached only through a pointer."
+ }
+]

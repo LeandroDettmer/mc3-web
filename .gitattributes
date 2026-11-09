@@ -1,0 +1,2 @@
+# Windows scripts keep Windows line endings in every checkout.
+*.bat text eol=crlf

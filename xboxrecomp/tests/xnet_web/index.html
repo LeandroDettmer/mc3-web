@@ -1,0 +1,12 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>xnet_web broadcast</title>
+<p>System Link broadcast test (bcast.c): open in two tabs; each prints what it hears from the other.</p>
+<pre id="out"></pre>
+<script src="lan.js"></script>
+<script>
+  const show = s => { console.log(s); document.getElementById('out').textContent += s + '\n'; };
+  window.Module = { mc3Env: { MC3_NET_WAIT_MS: '10000' }, print: show, printErr: show };
+  Module.mc3Lan = mc3Lan(new URLSearchParams(location.search).get('name') || 'test');
+</script>
+<script src="bcast.js"></script>

@@ -1,0 +1,13 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>apu_web sine</title>
+<p>440 Hz through apu_web.c's ring and web/audio.js's AudioWorklet. Click if silent.</p>
+<pre id="out">loading</pre>
+<script>
+  window.Module = { mc3Env: {}, print: s => console.log(s), printErr: s => console.log(s) };
+  setInterval(() => {
+    const s = Module.mc3Audio && Module.mc3Audio();
+    if (s) document.getElementById('out').textContent = JSON.stringify(s, null, 1);
+  }, 250);
+</script>
+<script src="sine.js"></script>

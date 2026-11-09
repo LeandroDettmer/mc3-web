@@ -1,0 +1,45 @@
+# Tests: everything that runs without the game. On every push and pull
+# request, on GitHub's own runners. Never on a self-hosted runner.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  toolkit:
+    name: Toolkit (lifter, disassembler)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install capstone pytest
+      - name: Lifter and disassembler tests
+        working-directory: xboxrecomp
+        run: |
+          deselect=()
+          while read -r t; do
+            case "$t" in ''|'#'*) continue ;; esac
+            deselect+=(--deselect "$t")
+          done < ../ci/known-test-failures.txt
+          python -m pytest -q -p no:cacheprovider tools/recomp tools/disasm "${deselect[@]}"
+
+  scripts:
+    name: Scripts and configuration
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: |
+          for f in tools/*.sh; do bash -n "$f" || exit 1; done
+          echo "all scripts parse"
+      - name: Python syntax
+        run: python3 -m py_compile tools/*.py

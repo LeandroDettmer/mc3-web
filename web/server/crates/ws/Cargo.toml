@@ -1,0 +1,13 @@
+[package]
+name = "mc3-ws"
+description = "The WebSocket protocol (RFC 6455) for /lan: nfsu2-web's crates/ws (MIT, th0mk), unchanged"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+tokio.workspace = true
+bytes.workspace = true
+sha1.workspace = true
+base64.workspace = true

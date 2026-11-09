@@ -1,0 +1,522 @@
+[
+ {
+  "start": "0x00370D3B",
+  "note": "D3DX. Indirect-call target hit 304x on the 2026-10-14 run ([ICALL] Failed to resolve). Small thiscall initialiser (mov eax,ecx; zero [eax],[eax+4],[eax+8]; ret) directly after sub_00370B4E's switch table, which made the disassembler fold it into sub_00370B4E (recorded end 0x00370D48 = this function's end)."
+ },
+ {
+  "start": "0x00408F3D",
+  "note": "XPP. Indirect-call target observed on the 2026-10-14 run. Starts right after sub_00408EC0's `ret 8` (xor eax,eax; cmp byte [0x4085B0],al ...): a function body the static pass did not reach."
+ },
+ {
+  "start": "0x0040F9D9",
+  "note": "XPP. Indirect-call target observed on the 2026-10-14 run. Starts exactly at sub_0040F789's recorded end (mov ax,[0x524262]; push ebx ...): a function body the static pass did not reach."
+ },
+ {
+  "start": "0x0037A230",
+  "note": "BINK. Indirect-call target hit 61x on the 2026-10-14 run 7, then the Bink decoder crashed on a wild pointer. Real function after nop padding (sub esp,0x2C; push ebx ...); sub_0037AF10 stores its address as a function pointer (mov [ebp-0x8C], 0x37A230 at 0x0037AF85), which the static pass does not follow."
+ },
+ {
+  "start": "0x000271C0",
+  "note": "Indirect-call target observed on the 2026-10-14 run 7. push ebp; mov ebp,esp after int3 padding; listed in a vtable in .rdata at 0x0041304C (a virtual method, only ever called indirectly)."
+ },
+ {
+  "start": "0x003A3C73",
+  "note": "XNET. Indirect-call target observed on the 2026-10-14 run 8, while the game polled XNetGetTitleXnAddr (0x00395DAA) forever for a network address. Starts right after sub_003A3BEE's ret (mov dl,[ecx+0x8C8]; dec; cmp 0x19: a switch over XNet's state byte); its address is stored by XNET code at 0x003A46A6, i.e. a registered timer/DPC callback that never ran."
+ },
+ {
+  "start": "0x00378E70",
+  "note": "BINK. Indirect-call target hit 115x on the 2026-10-14 run 9 while rockstar.bik played. Real function after nop padding (push ecx; push ebx; push ebp; push esi; push edi; mov edi,[esp+0x18]); its address is stored by Bink code at 0x0037972C (a decoder callback)."
+ },
+ {
+  "start": "0x00381F60",
+  "note": "BINK32 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCCC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00381FB0",
+  "note": "BINK32 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCD0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382040",
+  "note": "BINK32 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCDC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003820A0",
+  "note": "BINK32 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCE0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382140",
+  "note": "BINK32 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCEC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003821B0",
+  "note": "BINK32 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCF0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382280",
+  "note": "BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCC4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382360",
+  "note": "BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCC8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382490",
+  "note": "BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCD4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382570",
+  "note": "BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCD8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003826B0",
+  "note": "BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCE4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003827B0",
+  "note": "BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCE8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382920",
+  "note": "BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCBC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382970",
+  "note": "BINK32 pixel routine (mov ecx, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCC0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382A00",
+  "note": "BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCB4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382AE0",
+  "note": "BINK32 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DCB8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382CA0",
+  "note": "BINK32 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC48). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00382EF0",
+  "note": "BINK32 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC50). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003831E0",
+  "note": "BINK32A pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD8C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383250",
+  "note": "BINK32A pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD90). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383310",
+  "note": "BINK32A pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD9C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383380",
+  "note": "BINK32A pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDA0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383450",
+  "note": "BINK32A pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDAC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003834E0",
+  "note": "BINK32A pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDB0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003835E0",
+  "note": "BINK32A pixel routine (mov eax, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD84). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003836E0",
+  "note": "BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD88). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383850",
+  "note": "BINK32A pixel routine (mov eax, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD94). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383950",
+  "note": "BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD98). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383AC0",
+  "note": "BINK32A pixel routine (mov eax, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDA4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383BE0",
+  "note": "BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDA8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383D80",
+  "note": "BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD7C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383DF0",
+  "note": "BINK32A pixel routine (mov ecx, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD80). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383EB0",
+  "note": "BINK32A pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD74). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00383FA0",
+  "note": "BINK32A pixel routine (mov ecx, dword ptr [esp + 4]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD78). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00384760",
+  "note": "BINK16 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE5C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003847C0",
+  "note": "BINK16 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE60). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00384860",
+  "note": "BINK16 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE4C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003848B0",
+  "note": "BINK16 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE50). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00384940",
+  "note": "BINK16 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE6C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00384A90",
+  "note": "BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE54). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00384B80",
+  "note": "BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE58). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00384CE0",
+  "note": "BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE44). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00384DD0",
+  "note": "BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE48). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00384F20",
+  "note": "BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE64). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385030",
+  "note": "BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE68). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003851C0",
+  "note": "BINK16 pixel routine (mov edx, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE3C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385210",
+  "note": "BINK16 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE40). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385290",
+  "note": "BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE34). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385370",
+  "note": "BINK16 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE38). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385550",
+  "note": "BINK16 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDC8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003857A0",
+  "note": "BINK16 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDD0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385A80",
+  "note": "BINK4444 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF1C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385AF0",
+  "note": "BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF20). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385BD0",
+  "note": "BINK4444 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF0C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385C40",
+  "note": "BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF10). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385D10",
+  "note": "BINK4444 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF2C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385DA0",
+  "note": "BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF30). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385EB0",
+  "note": "BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF14). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00385FC0",
+  "note": "BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF18). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00386150",
+  "note": "BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF04). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00386250",
+  "note": "BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF08). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003863D0",
+  "note": "BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF24). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003864F0",
+  "note": "BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF28). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003866B0",
+  "note": "BINK4444 pixel routine (push esi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DEFC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00386710",
+  "note": "BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF00). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003867D0",
+  "note": "BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DEF4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003868D0",
+  "note": "BINK4444 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DEF8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00386D40",
+  "note": "BINK4444 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DE90). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387020",
+  "note": "BINK5551 pixel routine (push edi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFDC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387170",
+  "note": "BINK5551 pixel routine (push edi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFCC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003871E0",
+  "note": "BINK5551 pixel routine (push edi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFEC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387270",
+  "note": "BINK5551 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFF0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387380",
+  "note": "BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFD4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387490",
+  "note": "BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFD8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387620",
+  "note": "BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFC4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387720",
+  "note": "BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFE4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387850",
+  "note": "BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFE8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387A10",
+  "note": "BINK5551 pixel routine (push edi), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFBC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387A70",
+  "note": "BINK5551 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DFB4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00387E70",
+  "note": "BINK5551 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DF50). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388200",
+  "note": "BINKYUY2 pixel routine (mov edx, dword ptr [0x53bba8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0B0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388310",
+  "note": "BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E08C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388380",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E090). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388450",
+  "note": "BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E09C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003884B0",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0A0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388560",
+  "note": "BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0A4). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388620",
+  "note": "BINKYUY2 pixel routine (mov edx, dword ptr [0x53bba8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0A8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388750",
+  "note": "BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E084). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003887F0",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E088). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003888F0",
+  "note": "BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E094). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388970",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E098). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388A50",
+  "note": "BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E07C). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388AA0",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E080). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388B30",
+  "note": "BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E074). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388BA0",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E078). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388D30",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E008). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388F80",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E018). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00389020",
+  "note": "BINK16MX pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDF0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00389160",
+  "note": "BINK16X2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDE0). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003893C0",
+  "note": "BINK16X2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDE8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003896C0",
+  "note": "BINK16M pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DDD8). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x003898C0",
+  "note": "BINK32MX pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC70). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00389A80",
+  "note": "BINK32X2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC60). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00389D00",
+  "note": "BINK32X2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC68). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x0038A020",
+  "note": "BINK32M pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DC58). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00384430",
+  "note": "BINK32A pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053DD10). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388160",
+  "note": "BINKYUY2 pixel routine (mov eax, dword ptr [esp + 8]), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E0AC). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388E20",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E030). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x00388EC0",
+  "note": "BINKYUY2 pixel routine (push ebx), reached only through Bink's per-format routine table in BINKDATA (pointer at 0x0053E020). Found 2026-10-14 by scanning BINKDATA for pointers into BINK code sections that the static pass never lifted, after 0x00382AE0/0x00382CA0 failed to resolve in run 14."
+ },
+ {
+  "start": "0x0040EF74",
+  "note": "XPP. Indirect-call target hit 925x on the 2026-10-14 run 15. Starts right after sub_0040EEEA's `ret 8` (mov eax,ecx; mov ecx,[eax+0x66]: a thiscall method); its address is stored by XPP code at 0x00408750 (a registered callback)."
+ },
+ {
+  "start": "0x0031D100",
+  "note": "Indirect-call target that failed to resolve on the 2026-10-16 run (menu scene drawn without textures or UI): 1021x. Virtual method (vtable 0x0046D2D0, slot 7) after int3 padding: sub esp,0x64; push ebp; push esi; mov esi,ecx. Its body holds a jump table at 0x0031D410 that func_id misreads as a vtable."
+ },
+ {
+  "start": "0x00176E20",
+  "note": "Indirect-call target that failed to resolve on the 2026-10-16 run (menu scene drawn without textures or UI): 1021x. push ecx; mov eax,[0x4D75C4] directly at sub_00176E00's recorded end; pointer in .rdata at 0x0042D07C."
+ },
+ {
+  "start": "0x0027DBA0",
+  "note": "Indirect-call target that failed to resolve on the 2026-10-16 run (menu scene drawn without textures or UI): 575x. sub esp,0x5C directly at sub_0027DAB0's recorded end; two pointers in .rdata (0x0041DF60)."
+ },
+ {
+  "start": "0x00157850",
+  "note": "Indirect-call target that failed to resolve on the 2026-10-16 run (menu scene drawn without textures or UI): 1x. sub esp,0x64; push esi after int3 padding; pointer in .rdata at 0x00428760."
+ },
+ {
+  "start": "0x00123420",
+  "note": "Indirect-call target that failed to resolve on the 2026-10-16 run (menu scene drawn without textures or UI): 2x. push ecx; push esi; mov esi,ecx after padding. Splits 'sub_001233CA', which is not code: that is sub_00123350's jump table (dwords at 0x001233CC, byte index at 0x00123408) misread as a function (mov edi,edi = 8B FF), and its range ran over this real function."
+ },
+ {
+  "start": "0x00319D80",
+  "note": "Not hit yet; found 2026-10-16 by scanning .rdata/.data for pointers to real function starts (after padding or a ret) that the static pass never lifted -- the same scan that found the targets hit at run time. Same vtable as 0x0031D100 (0x0046D2D0, slot 8): push ebp; lea ebp,[esp-0x78], directly after sub_00319C10."
+ },
+ {
+  "start": "0x00163290",
+  "note": "Not hit yet; found 2026-10-16 by scanning .rdata/.data for pointers to real function starts (after padding or a ret) that the static pass never lifted -- the same scan that found the targets hit at run time. mov eax,[esp+4] after int3 padding; pointer in .rdata at 0x00429790."
+ },
+ {
+  "start": "0x0016F270",
+  "note": "Not hit yet; found 2026-10-16 by scanning .rdata/.data for pointers to real function starts (after padding or a ret) that the static pass never lifted -- the same scan that found the targets hit at run time. mov eax,[0x4D75C4] directly after sub_0016F220's ret 4; pointer in .rdata at 0x0042B5A4."
+ },
+ {
+  "start": "0x00213680",
+  "note": "Not hit yet; found 2026-10-16 by scanning .rdata/.data for pointers to real function starts (after padding or a ret) that the static pass never lifted -- the same scan that found the targets hit at run time. sub esp,0x44; push ebx after int3 padding; 11 pointers in .rdata (first at 0x00438600)."
+ },
+ {
+  "start": "0x0022A630",
+  "note": "Not hit yet; found 2026-10-16 by scanning .rdata/.data for pointers to real function starts (after padding or a ret) that the static pass never lifted -- the same scan that found the targets hit at run time. sub esp,0xAC directly after sub_0022A010; pointer in .rdata at 0x0043956C."
+ },
+ {
+  "start": "0x0027F7F0",
+  "note": "Not hit yet; found 2026-10-16 by scanning .rdata/.data for pointers to real function starts (after padding or a ret) that the static pass never lifted -- the same scan that found the targets hit at run time. mov eax,[esp+4] after int3 padding; two pointers in .rdata (0x0041DF94)."
+ },
+ {
+  "start": "0x0029A7B0",
+  "note": "Not hit yet; found 2026-10-16 by scanning .rdata/.data for pointers to real function starts (after padding or a ret) that the static pass never lifted -- the same scan that found the targets hit at run time. push ecx; push esi; mov esi,ecx (thiscall) after int3 padding; pointer in .rdata at 0x00440214."
+ },
+ {
+  "start": "0x0030F0D0",
+  "note": "Indirect-call target hit on the 2026-10-17 run when selecting a profile at the title screen ([ICALL] Failed to resolve VA 0x0030F0D0, then the game stopped). thiscall (push ebx; push ebp; push esi; mov esi,ecx) after int3 padding, ends with ret 4 at 0x0030F1FC; sub_0030F200 stores its address at 0x0030F2AA as a callback. The bytes before it (0x0030EF97..0x0030F0C4) are sub_0030EED6's switch arms and table, already lifted, so the seed splits nothing."
+ }
+]

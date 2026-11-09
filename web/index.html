@@ -1,0 +1,1379 @@
+<!doctype html>
+<!-- The start page of the browser build. Static: no framework, no build
+     step. CMake copies it into work-<game>/build-web/ (configure_file
+     @ONLY: @MC3_APP@ names that build's game); tools/web_serve.py can also
+     serve it straight from web/ with both games' builds behind it:
+       py tools/web_serve.py --root web --root work-dub/build-web \
+          --root work-remix/build-web --disc game --disc game-remix-usa
+     No game data ships with it: the discs come from that server (/discs.json,
+     /discs/<folder>/, or /disc/ alone). A deploy puts config.json beside
+     the page: { discUrl, moduleUrl, lanUrl, signInUrl, iceServers, logUrl },
+     each optional (iceServers: RTCPeerConnection's, for a TURN server; default
+     public STUN, web/rtc.js; logUrl: the stage bar's Send log POSTs the log
+     there and shows the {code} it answers); then
+     the one disc at discUrl is played (no discs.json), the module
+     (<app>.js/.wasm) comes from moduleUrl, System Link joins lanUrl, and those
+     servers (other origins: CORS with credentials) get the sign-in cookie;
+     a refused disc shows a link to signInUrl. Settings become the game's
+     environment (Module.mc3Env, web/pre.js); RECOMP_* / MC3_* in the URL
+     query override them, e.g. ?MC3_PERF=5&RECOMP_GL_SCALE=1.5.
+     Layout after th0mk's nfsu2-web start page (MIT). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<!-- Installed to the home screen, the page runs without the browser's bars: the only full screen
+     iPhone Safari gives a page (it has no Fullscreen API outside video). -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MC3 web">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0d0d0d">
+<script src="lan.js"></script>
+<script src="rtc.js"></script>
+<script src="touch.js"></script>
+<title>mcdub3 web</title>
+<style>
+  :root {
+    --bg: #0d0d0d; --frame: #171717; --panel: #242424; --field: #121212;
+    --line: #3a3a3a; --edge: #8a8a8a; --text: #fff; --muted: #c4c4c4;
+    --accent: #ffbf3c; --accent-fill: #3d3424; --accent-glow: rgba(255, 191, 60, .4);
+    --ok: #9be08a; --bad: #ff8a80;
+    --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, Menlo, Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh; color: var(--text); font: 400 16px/24px var(--font);
+    background: radial-gradient(1200px 480px at 50% -160px, #2a2a2a, transparent 70%) no-repeat, var(--bg);
+  }
+  h1, h2, h3, p, ul, fieldset { margin: 0; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  [hidden] { display: none !important; }
+  a { color: var(--accent); text-underline-offset: 3px; }
+  code { font: 14px/20px var(--mono); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  #pw-modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, .75); padding: 16px; }
+  #pw-modal form { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 24px;
+                   width: min(520px, 100%); display: grid; gap: 16px; }
+  #pw-modal h2 { margin: 0; font-size: 28px; }
+  #pw-modal #pw-input { font-size: 28px; padding: 14px 16px; background: var(--field); color: var(--text);
+                        border: 2px solid var(--edge); border-radius: 8px; width: 100%; box-sizing: border-box; }
+  #pw-modal .pw-show { font-size: 20px; display: flex; gap: 10px; align-items: center; }
+  #pw-modal .pw-show input { width: 24px; height: 24px; }
+  #pw-modal .pw-row { display: flex; gap: 12px; }
+  #pw-modal .pw-row .btn { flex: 1; font-size: 24px; padding: 16px; min-height: 60px; }
+  #pw-modal :focus { outline: 4px solid var(--accent); outline-offset: 3px; }
+  h1, h2, h3, .status, .btn, .play, kbd, .tab, legend, .set-label { font-weight: 700; font-style: italic; }
+
+  .app {
+    max-width: 1200px; margin: 0 auto; padding: 24px 16px;
+    display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr);
+  }
+  @media (min-width: 900px) {
+    .app { grid-template-columns: minmax(300px, 384px) minmax(0, 1fr); align-items: start; }
+    .top { grid-column: 1 / -1; }
+  }
+  .side, .content { display: grid; gap: 24px; min-width: 0; }
+  .panel { background: var(--panel); border-radius: 12px; padding: 24px; min-width: 0; }
+  .top { background: var(--frame); display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; }
+  h1 { font-size: 32px; line-height: 40px; }
+  h1 span { color: var(--accent); }
+  h3 { font-size: 16px; color: var(--accent); margin: 24px 0 8px; }
+  h3:first-child { margin-top: 0; }
+  #settings-body h3:first-child { margin-top: 16px; }
+  .hint { color: var(--muted); font-size: 14px; line-height: 20px; }
+  .msg { font-size: 14px; line-height: 20px; margin-top: 8px; min-height: 20px; }
+  .msg.bad, .bad-text { color: var(--bad); }
+
+  /* the hero */
+  .status { font-size: 32px; line-height: 40px; color: var(--accent); }
+  .status.bad { color: var(--bad); }
+  .status-sub { color: var(--muted); margin: 4px 0 20px; overflow-wrap: anywhere; }
+  .pick { border: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .pick legend { padding: 0; margin-bottom: 8px; font-size: 14px; color: var(--muted); }
+  .opt { flex: 1 1 140px; display: flex; gap: 8px; align-items: center; padding: 8px 12px; border: 2px solid var(--line);
+         border-radius: 8px; background: var(--field); cursor: pointer; font-weight: 700; font-style: italic; }
+  .opt:has(input:checked) { border-color: var(--accent); background: var(--accent-fill); color: var(--accent); }
+  .opt:has(input:disabled) { opacity: .5; cursor: not-allowed; }
+  .opt input { accent-color: var(--accent); margin: 0; }
+  .field { display: grid; gap: 4px; margin-bottom: 16px; font-size: 14px; color: var(--muted); }
+  select, input[type=text], textarea {
+    background: var(--field); border: 2px solid var(--edge); border-radius: 8px; padding: 6px 10px; min-height: 40px; max-width: 100%;
+  }
+  textarea { width: 100%; font: 14px/20px var(--mono); resize: vertical; }
+  .play {
+    width: 100%; height: 56px; display: flex; gap: 12px; align-items: center; justify-content: center; font-size: 24px;
+    border: 2px solid var(--accent); border-radius: 8px; background: var(--accent-fill); color: var(--accent);
+    box-shadow: 0 0 12px var(--accent-glow); cursor: pointer;
+  }
+  .play:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
+  kbd { display: inline-block; min-width: 28px; padding: 0 6px; border: 2px solid var(--edge); border-radius: 6px;
+        background: var(--field); color: var(--text); font-size: 14px; line-height: 22px; text-align: center; }
+  .play kbd { border-color: var(--accent); color: var(--accent); background: transparent; }
+  .checks { list-style: none; padding: 0; margin-top: 20px; display: grid; gap: 4px; font-size: 14px; line-height: 20px; }
+  .checks li { display: flex; gap: 8px; }
+  .checks .mark { flex: none; width: 16px; font-weight: 700; }
+  .checks .ok .mark { color: var(--ok); }
+  .checks .no .mark { color: var(--bad); }
+  .checks span:last-child { color: var(--muted); overflow-wrap: anywhere; }
+
+  /* tabs */
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px 20px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+  .tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 4px 0 8px; color: var(--muted); cursor: pointer; font-size: 18px; }
+  .tab[aria-selected=true] { color: var(--accent); border-bottom-color: var(--accent); }
+  .tabs.small .tab { font-size: 16px; }
+
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 16px;
+         border: 2px solid var(--edge); border-radius: 8px; background: #080808; cursor: pointer; text-decoration: none; color: var(--text); }
+  .btn:hover:not(:disabled) { border-color: var(--accent); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.danger { border-color: var(--bad); color: var(--bad); }
+  .file-btn { position: relative; }
+  .file-btn input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
+  .file-btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .head h3 { margin: 0; }
+
+  /* settings rows */
+  .set { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+         padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .set > div { flex: 1 1 260px; min-width: 0; }
+  .set-label { display: block; }
+  .set .hint code { color: var(--muted); }
+  .set select { flex: 0 0 auto; min-width: 160px; }
+  .preview { margin-top: 16px; padding: 12px; background: var(--field); border-radius: 8px; overflow-wrap: anywhere; }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: var(--accent); }
+
+  /* controls */
+  .keys { list-style: none; padding: 0; }
+  .keys li { display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .keys li.grp { display: block; font-weight: 600; border-bottom-width: 2px; padding-top: 14px; }
+  .keys .caps { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+
+  /* saves */
+  .profiles { list-style: none; padding: 0; display: grid; gap: 8px; }
+  .profiles li { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
+                 padding: 12px; background: var(--field); border-radius: 8px; }
+  .profiles b { font-style: italic; }
+  .empty { padding: 12px; background: var(--field); border-radius: 8px; color: var(--muted); font-size: 14px; }
+
+  .prose p + p { margin-top: 12px; }
+  .prose { color: var(--muted); }
+
+  /* playing: the canvas takes the window */
+  body.playing { overflow: hidden; background: #000; }
+  body.playing .app { display: none; }
+  .stage { position: fixed; inset: 0; background: #000; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+  .stage-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; background: var(--frame); }
+  .stage-bar .btn { min-height: 32px; padding: 0 12px; font-size: 14px; }
+  .pad-sel { max-width: 220px; min-height: 32px; font-size: 14px; }
+  #run-status { flex: 1 1 200px; color: var(--muted); font-size: 14px; }
+  #run-status.bad { color: var(--bad); }
+  .stage canvas { width: 100% !important; height: 100% !important; object-fit: contain; display: block; outline: none; min-height: 0;
+                  grid-row: -2 / -1; grid-column: 1; }    /* the last row, shared with the touch controls (web/touch.js) */
+  body.playing, .stage { touch-action: none; overscroll-behavior: none; }   /* no scroll, pinch or double-tap zoom over the game */
+  #log, #keys-panel, #races-panel { touch-action: pan-y; }
+  /* phones: one row of small buttons that scrolls sideways, the safe areas kept clear */
+  @media (max-width: 760px), (max-height: 500px) {
+    .stage-bar { flex-wrap: nowrap; overflow-x: auto; touch-action: pan-x; gap: 6px;
+                 padding: max(4px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 4px max(8px, env(safe-area-inset-left)); }
+    .stage-bar .btn, .pad-sel { flex: none; min-height: 28px; padding: 0 8px; font-size: 12px; }
+    #run-status { flex: 0 1 auto; min-width: 80px; max-width: 26vw; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    #fps { top: 44px; }
+    #keys-panel, #races-panel { top: 44px; max-height: calc(100% - 56px); }
+  }
+  /* the start page on a phone */
+  @media (max-width: 480px) {
+    .app { padding: 12px max(12px, env(safe-area-inset-left)) 24px; gap: 16px; }
+    .panel { padding: 16px; }
+    h1, .status { font-size: 24px; line-height: 32px; }
+    .tab { font-size: 16px; }
+    .set select { min-width: 0; width: 100%; }
+  }
+  .checks .warn .mark { color: var(--accent); }
+  .stage.stretch canvas { object-fit: fill; }
+  #fps { position: absolute; left: 8px; top: 56px; margin: 0; padding: 2px 8px; font: 14px/1.4 ui-monospace, Consolas, monospace;
+         color: #fff; background: rgba(0, 0, 0, .55); border-radius: 4px; pointer-events: none; }
+  .stage:fullscreen #fps { top: 8px; }
+  .stage:fullscreen { grid-template-rows: minmax(0, 1fr); }
+  .stage:fullscreen .stage-bar { display: none; }
+  /* a phone has no Esc and no way to leave full screen to reach the bar: keep it */
+  @media (pointer: coarse) {
+    .stage:fullscreen { grid-template-rows: auto minmax(0, 1fr); }
+    .stage:fullscreen .stage-bar { display: flex; }
+    .stage:fullscreen #fps { top: 44px; }
+  }
+  #log { position: absolute; right: 16px; bottom: 16px; width: min(720px, calc(100% - 32px)); max-height: 45vh; overflow: auto; margin: 0;
+         padding: 12px; background: rgba(13, 13, 13, .92); border: 1px solid var(--line); border-radius: 8px;
+         font: 12px/16px var(--mono); white-space: pre-wrap; word-break: break-all; }
+  #keys-panel, #races-panel { position: absolute; left: 16px; top: 64px; width: min(420px, calc(100% - 32px)); max-height: calc(100% - 96px); overflow: auto;
+                padding: 4px 16px 12px; background: rgba(13, 13, 13, .92); border: 1px solid var(--line); border-radius: 8px; }
+  /* races */
+  #races-box { margin-top: 24px; }
+  #races-box input[type=password] { background: var(--field); border: 2px solid var(--edge); border-radius: 8px; padding: 6px 10px; min-height: 40px; max-width: 100%; }
+  .races li .meta { color: var(--muted); font-size: 14px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="panel top">
+    <h1>mcdub3 <span>web</span></h1>
+    <p class="hint">Fan project. Bring your own disc. Not affiliated with or endorsed by Rockstar Games, Take-Two Interactive or Microsoft.</p>
+  </header>
+
+  <div class="side">
+    <section class="panel hero" aria-label="Play">
+      <p class="status" id="status" role="status">Checking…</p>
+      <p class="status-sub" id="status-sub">Looking for the discs and the build.</p>
+      <p class="hint online-now" id="online-now" role="status" hidden></p>
+      <p class="row" id="signin" hidden style="margin-bottom:16px"><a class="btn" id="signin-link" href="#">Sign in</a> <span class="hint">The disc server wants you signed in; it sends you back here.</span></p>
+      <fieldset class="pick">
+        <legend>Game</legend>
+        <label class="opt"><input type="radio" name="game" value="dub"> <span>DUB Edition</span></label>
+        <label class="opt"><input type="radio" name="game" value="remix"> <span>Remix</span></label>
+      </fieldset>
+      <label class="field" id="edition-row" hidden><span>Disc</span><select id="edition"></select></label>
+      <button type="button" class="play" id="play" disabled>Play <kbd>Enter</kbd></button>
+      <label class="opt" style="margin-top:12px"><input type="checkbox" id="skipintro" aria-describedby="skipintro-help"> <span>Skip intro</span></label>
+      <p class="hint" id="skipintro-help" style="margin-top:4px">Boots past the Rockstar logos and the intro movie, none of them played. <code>MC3_SKIP_MOVIES=hard</code></p>
+      <div id="cache" hidden>
+        <p class="hint" id="cache-status" role="status" style="margin-top:16px"></p>
+        <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-clear">Clear</button></div>
+      </div>
+      <ul class="checks" id="checks" aria-label="What the game needs"></ul>
+    </section>
+
+    <section class="panel" aria-label="About this project">
+      <div class="tabs small" role="tablist" aria-label="About this project">
+        <button type="button" class="tab" role="tab" data-tab="about">About</button>
+        <button type="button" class="tab" role="tab" data-tab="credits">Credits</button>
+        <button type="button" class="tab" role="tab" data-tab="legal">Legal</button>
+      </div>
+      <div class="pane prose" role="tabpanel" data-pane="about">
+        <p>Midnight Club 3: DUB Edition Remix in the browser: the Xbox game's own code, statically recompiled to C with xboxrecomp and built for WebAssembly, drawn with WebGPU (WebGL 2 as a fallback). Plays on PC, phones (touch controls) and TVs, with keyboard or controller.</p>
+        <p>Online: free roam with other players in the same city, and the garage with every car and part unlocked. Your online profile is kept in this browser.</p>
+        <p>You need your own copy of the game: extract your disc and serve it from your own machine with <code>tools/web_serve.py</code> or <code>web/server</code>. Nothing of the game ships with this page; saves stay in this browser.</p>
+        <p>Source: <a href="https://github.com/LeandroDettmer/mc3-web" target="_blank" rel="noopener noreferrer">github.com/LeandroDettmer/mc3-web</a>. Bugs and ideas: open an issue there; contributions by fork and pull request.</p>
+      </div>
+      <div class="pane prose" role="tabpanel" data-pane="credits" hidden>
+        <p>mcdub3 web by Leandro Dettmer, a browser port of <a href="https://github.com/laureladastra/mcdub3-nx" target="_blank" rel="noopener noreferrer">mcdub3-nx</a> by Laure Ladastra (MIT).</p>
+        <p>Built on <a href="https://github.com/sp00nznet/xboxrecomp" target="_blank" rel="noopener noreferrer">xboxrecomp</a>, the Xbox static recompilation toolkit by Ned Heller (sp00nznet) and its contributors (xboxrecomp/CONTRIBUTORS.md; MIT).</p>
+        <p>Modelled on antoxa2584x's <a href="https://github.com/antoxa2584x/nfsu2-sw" target="_blank" rel="noopener noreferrer">nfsu2-sw</a>.</p>
+        <p>This start page follows th0mk's <a href="https://github.com/th0mk/nfsu2-web" target="_blank" rel="noopener noreferrer">nfsu2-web</a> (MIT), whose free-roam networking the online mode is ported from; itself based on Talha Müderrisoğlu's <a href="https://github.com/TalhaMudo/NFSU2Recomp" target="_blank" rel="noopener noreferrer">NFSU2Recomp</a>.</p>
+      </div>
+      <div class="pane prose" role="tabpanel" data-pane="legal" hidden>
+        <p>Midnight Club is a trademark of Take-Two Interactive / Rockstar Games. This is an unofficial fan project, not affiliated with or endorsed by them or Microsoft.</p>
+        <p>This page and its repository contain no game code or data. Play only with a disc you own.</p>
+      </div>
+    </section>
+  </div>
+
+  <div class="content">
+    <section class="panel" aria-label="Options">
+      <div class="tabs" role="tablist" aria-label="Options">
+        <button type="button" class="tab" role="tab" data-tab="settings">Settings</button>
+        <button type="button" class="tab" role="tab" data-tab="controls">Controls</button>
+        <button type="button" class="tab" role="tab" data-tab="saves">Saves</button>
+        <button type="button" class="tab" role="tab" data-tab="online">Online</button>
+      </div>
+
+      <div class="pane" role="tabpanel" data-pane="settings">
+        <p class="hint">Saved in this browser. Changes apply the next time you press Play. “Default” leaves the game's own choice.</p>
+        <div id="settings-body"></div>
+        <details id="advanced">
+          <summary>Advanced: more switches</summary>
+          <p class="hint" style="margin:8px 0">One <code>KEY=VALUE</code> per line, any <code>RECOMP_*</code> or <code>MC3_*</code> switch (README, Configuration). These win over the rows above; the address's <code>?KEY=VALUE</code> wins over both.</p>
+          <label for="raw" class="hint">Extra switches</label>
+          <textarea id="raw" rows="6" spellcheck="false" placeholder="RECOMP_GL_FRAMETIME=2"></textarea>
+          <p class="msg bad" id="raw-msg" role="status"></p>
+        </details>
+        <p class="hint" style="margin-top:16px">Passed to the game:</p>
+        <p class="preview"><code id="env-preview"></code></p>
+        <div class="row" style="margin-top:16px"><button type="button" class="btn" id="reset">Reset all settings</button></div>
+      </div>
+
+      <div class="pane" role="tabpanel" data-pane="controls" hidden>
+        <div class="tabs small" role="tablist" aria-label="Controls">
+          <button type="button" class="tab" role="tab" data-tab="keyboard">Keyboard</button>
+          <button type="button" class="tab" role="tab" data-tab="pad">Controller</button>
+        </div>
+        <div class="pane" role="tabpanel" data-pane="keyboard">
+          <p class="hint" style="margin-bottom:8px">The keyboard is pad 1 (Settings, Keyboard to turn it off). Click the game first so it gets the keys.</p>
+          <ul class="keys" id="keys"></ul>
+        </div>
+        <div class="pane prose" role="tabpanel" data-pane="pad" hidden>
+          <p>Xbox, PlayStation and other controllers work through the browser's Gamepad API, as pads 1 to 4 in the order they are connected; one plugged in later is picked up within a second. Press a button on it once the game is running so the browser shows it to the page.</p>
+          <div class="set">
+            <div><label class="set-label" for="pad-sel">Controller for this tab</label><p class="hint">Only this controller drives pad 1 here, so two tabs can each use their own. Remembered for this tab only. The keyboard acts on the focused tab.</p></div>
+            <select class="pad-sel" id="pad-sel"></select>
+          </div>
+          <p>The keyboard stays on top of pad 1. Buttons sit where the Xbox pad has them: A, B, X, Y, Start, Back, the triggers, White and Black on the shoulders, both sticks and their clicks.</p>
+        </div>
+      </div>
+
+      <div class="pane" role="tabpanel" data-pane="saves" hidden>
+        <div class="head">
+          <h3>Profiles in this browser</h3>
+          <div class="row">
+            <button type="button" class="btn" id="saves-refresh">Refresh</button>
+            <label class="btn file-btn">Import Xbox save<input type="file" id="import" accept=".mc3,.gsx"></label>
+          </div>
+        </div>
+        <ul class="profiles" id="profiles" aria-label="Profiles in this browser"></ul>
+        <p class="msg" id="saves-msg" role="status"></p>
+        <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>. Import takes a profile's <code>.mc3</code> from an Xbox and signs it for the port; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
+      </div>
+
+      <div class="pane" role="tabpanel" data-pane="online" hidden>
+        <h3>System Link</h3>
+        <div class="prose">
+          <p>The game's own System Link, carried by the server: everyone who plays on the same server meets as if on one LAN, and finds the others' games in the System Link menu.</p>
+          <p>With System Link on, this page joins the server's virtual LAN (<code>web/server</code>, its <code>/lan</code> switch) and the game plays on it (the Remix; native builds use the local network, RECOMP_NET_* switches).</p>
+        </div>
+        <div class="set">
+          <div><label class="set-label" for="netplay">System Link</label><p class="hint">The Remix's System Link menu. <code>MC3_NETPLAY</code></p></div>
+          <select id="netplay"><option value="">On (default)</option><option value="0">Off</option></select>
+        </div>
+        <p class="hint" id="lan-status" role="status"></p>
+        <p class="hint" id="roam-status" role="status"></p>
+        <p class="hint online-now" id="online-now-tab" role="status" hidden></p>
+        <p class="hint" id="race-links" role="status"></p>
+        <div class="set">
+          <div><label class="set-label" for="name">Your name</label><p class="hint">What other players will see. Shown in the game's sign-in texts and on the server link.</p></div>
+          <input type="text" id="name" maxlength="15" autocomplete="nickname" placeholder="Profile name">
+        </div>
+        <h3>Online profile</h3>
+        <p class="hint" id="oprof-status" role="status"></p>
+        <div class="row" style="margin-top:8px">
+          <button type="button" class="btn" id="oprof-export">Export online profile</button>
+          <label class="btn file-btn">Import online profile<input type="file" id="oprof-import" accept=".bin"></label>
+        </div>
+        <p class="msg" id="oprof-msg" role="status"></p>
+        <p class="hint">Free Roam's money and garage, apart from your career, in this browser's private storage (<code>online/profile.bin</code>). Saved when you leave the garage and when you go back to Career, Tokyo or Arcade. An import counts from the next Free Roam.</p>
+        <div id="races-box" hidden>   <!-- hidden 2026-11-09: the game's own Join Game list is better; rooms stay on the server -->
+          <h3>Races</h3>
+          <p class="hint">Make a race or join one here, before or while the game runs. Then in the game: Online, Online Races, and Host or Join Game: only the players of your race show there. Not in a race: you meet everyone else not in one, as before.</p>
+          <p class="hint" id="races-off">Turn System Link on to see the races on this server.</p>
+          <div id="races-on" hidden>
+            <div id="race-mine" hidden>
+              <p><b id="race-mine-name"></b> <span class="hint" id="race-mine-who"></span></p>
+              <div class="row" style="margin-top:8px">
+                <button type="button" class="btn" id="race-invite">Copy invite link</button>
+                <button type="button" class="btn danger" id="race-leave">Leave race</button>
+              </div>
+            </div>
+            <ul class="profiles races" id="race-list" aria-label="Races on this server" style="margin-top:12px"></ul>
+            <form class="row" id="race-new" style="margin-top:12px">
+              <input type="text" id="race-name" maxlength="32" placeholder="Race name" aria-label="Race name" autocomplete="off">
+              <input type="password" id="race-pass" maxlength="64" placeholder="Password (optional)" aria-label="Password (optional)" autocomplete="new-password">
+              <button type="submit" class="btn">Create race</button>
+            </form>
+            <p class="msg" id="race-msg" role="status"></p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="stage" id="stage" hidden>
+  <div class="stage-bar">
+    <span id="run-status" role="status">Loading…</span>
+    <button type="button" class="btn" id="full">Fullscreen</button>
+    <select class="pad-sel" id="wide-sel" aria-label="Screen shape" title="Screen shape. Wide: fills the screen, the race shows more to the sides. 16:9: black bars, no widescreen view (WebGPU; changes live)"><option value="">Wide</option><option value="16:9">16:9</option><option value="21:9">21:9</option><option value="32:9">32:9</option></select>
+    <button type="button" class="btn" id="stretch-btn" aria-pressed="false" title="Fill the screen (distorts the picture)">Stretch</button>
+    <select class="pad-sel" id="pad-sel-bar" aria-label="Controller for this tab"></select>
+    <button type="button" class="btn" id="touch-btn" aria-pressed="false" title="On-screen controller (Settings: Touch controls)" hidden>Touch</button>
+    <button type="button" class="btn" id="fps-btn" aria-pressed="false" title="Show frames per second over the picture">FPS</button>
+    <button type="button" class="btn" id="keys-btn" aria-expanded="false" aria-controls="keys-panel">Keys</button>
+    <button type="button" class="btn" id="races-btn" aria-expanded="false" aria-controls="races-panel" hidden>Races</button>
+    <button type="button" class="btn" id="log-btn" aria-expanded="false" aria-controls="log">Log</button>
+    <button type="button" class="btn" id="log-save">Save log</button>
+    <button type="button" class="btn" id="log-send" title="Upload the log to the test server; tell the code shown here to whoever asked for it" hidden>Send log</button>
+    <button type="button" class="btn danger" id="quit">Quit</button>
+  </div>
+  <canvas id="canvas" tabindex="0" aria-label="Game" oncontextmenu="event.preventDefault()"></canvas>
+  <pre id="fps" hidden></pre>
+  <pre id="log" hidden></pre>
+  <div id="races-panel" hidden></div>
+  <div id="keys-panel" hidden>
+    <ul class="keys" id="keys-ingame"></ul>
+    <p class="hint">Controllers (Xbox, PlayStation, others) work too: press a button once so the browser shows it to the page. Pads 1-4 in the order connected.</p>
+  </div>
+</div>
+
+<script src="disc_cache.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const APPS = { dub: 'mcdub3', remix: 'mcdub3remix' };      // CMakeLists.txt: MC3_APP per game
+  const GAME_NAMES = { dub: 'DUB Edition', remix: 'Remix' };
+  const BUILT = '@MC3_APP@';                                 // this build's game when CMake copied the page
+  const BUILT_GAME = Object.keys(APPS).find(g => APPS[g] === BUILT) || null;
+
+  // --- storage: every access may throw (private windows, blocked storage)
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem('mc3.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem('mc3.' + k, JSON.stringify(v)); } catch {} },
+  };
+
+  // --- settings: each key is a getenv() of the port or its toolkit (CLAUDE.md; README, Configuration)
+  const ONOFF = (def = 'On') => def === 'On' ? [['', 'On (default)'], ['0', 'Off']] : [['', 'Off (default)'], ['1', 'On']];
+  const SETTINGS = [
+    { group: 'Picture' },
+    { key: 'RECOMP_WIDESCREEN', label: 'Console video', help: 'The console video setting the game reads.', opts: [['', '16:9 (default)'], ['0', '4:3']] },
+    { key: 'RECOMP_ASPECT', label: 'Screen shape', help: 'WebGPU: on a screen wider than 16:9 the race shows more to the sides instead of stretching; menus and the HUD keep their shape in the middle. Auto: the game picture\'s shape on the page, following window resizes and full screen.',
+      opts: [['', 'Auto (default)'], ['16:9', '16:9'], ['21:9', '21:9'], ['32:9', '32:9']] },
+    { key: 'RECOMP_GL_SCALE', label: 'Resolution', help: 'Renders at this multiple of 720×480; 1.5 gives 1280×720 with square pixels.',
+      opts: [['', 'Auto (default): 3×, 1× on phones'], ['1', '1×'], ['1.5', '1.5×'], ['2', '2×'], ['2.5', '2.5×'], ['3', '3×']] },
+    { key: 'RECOMP_GL_SQUARE', label: 'Square pixels in 16:9', help: 'Widens 16:9 frames so pixels are square, not stretched.', opts: ONOFF() },
+    { key: 'RECOMP_GL_FILL', label: 'Fill 4:3 screens', help: 'Menus and videos laid out in the middle 4:3 are shown full width (not the boot logos).', opts: ONOFF() },
+    { key: 'RECOMP_GL_FXAA', label: 'Anti-aliasing (FXAA)', help: 'Smooths edges in the final pass.', opts: ONOFF() },
+    { key: 'RECOMP_GL_SHARPEN', label: 'Sharpening', help: 'Contrast-adaptive sharpening in the final pass.',
+      opts: [['', '0.5 (default)'], ['0', 'Off'], ['0.25', '0.25'], ['0.75', '0.75'], ['1', '1']] },
+    { key: 'RECOMP_GL_MIPS', label: 'Mipmaps', help: "The game's own mip levels with trilinear filtering.", opts: ONOFF() },
+    { key: 'RECOMP_GL_ANISO', label: 'Anisotropic filtering', help: 'Sharper textures at a slant.',
+      opts: [['', '16× (default)'], ['8', '8×'], ['4', '4×'], ['2', '2×'], ['1', 'Off']] },
+    { key: 'RECOMP_GL_LOD_BIAS', label: 'Texture detail bias', help: 'Lower is sharper, with more shimmer.',
+      opts: [['', '-0.25 (default)'], ['0', '0'], ['-0.5', '-0.5'], ['-1', '-1']] },
+    { group: 'Movies' },
+    { key: 'MC3_SKIP_MOVIES', label: 'Skip intro movies', help: 'Rockstar, Rockstar San Diego and intro movies. All: none played (the Play tab\'s Skip intro). Press through: as a player would, so the logos still play.',
+      opts: [['', 'Off (default)'], ['hard', 'All'], ['1', 'Press through']] },
+    { key: 'MC3_MOVIE_HD', label: 'Movie upscale', help: 'Movies upscaled on the GPU. Needs the FFmpeg Bink decoder, which the browser build leaves out: no effect here yet.', opts: ONOFF() },
+    { key: 'RECOMP_GL_MOVIE_SCALE', label: 'Movie upscale factor', help: 'With Movie upscale.', opts: [['', '2× (default)'], ['3', '3×'], ['4', '4×']] },
+    { group: 'Game' },
+    { key: 'RECOMP_LANGUAGE', label: 'Language', help: 'Text and speech where the disc has them (European discs: all five). “Press Start” stays English.',
+      opts: [['', 'English (default)'], ['fr', 'Français'], ['de', 'Deutsch'], ['es', 'Español'], ['it', 'Italiano']] },
+    { key: 'MC3_REALTIME', label: 'Real-time races', help: 'Below 30 fps a race advances by the time passed, so it keeps its pace on a slow machine.', opts: ONOFF() },
+    { key: 'MC3_TRAFFIC_WHEEL_DIST', label: 'Traffic detail distance', help: 'How far traffic cars keep their wheels and shadow (the original 75 m makes wheels pop in close).',
+      opts: [['', '150 m (default)'], ['75', '75 m (original)'], ['300', '300 m']] },
+    { group: 'Online' },
+    { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out.',
+      opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
+    { group: 'Keyboard' },
+    { key: 'RECOMP_KEYBOARD', label: 'Keyboard as pad 1', help: 'Off leaves only controllers.', opts: ONOFF() },
+    { key: 'RECOMP_KEYBOARD_STICK_Y', label: 'Up and Down move the stick', help: 'Menus move with the stick. Auto: while driving (when the game says so) the arrows are gas and brake alone.',
+      opts: [['', 'Auto (default)'], ['1', 'Always'], ['0', 'Never']] },
+    { group: 'Touch' },
+    // page-only rows (buildEnv leaves MC3_TOUCH* out of the game's environment): web/touch.js
+    { key: 'MC3_TOUCH', label: 'Touch controls', help: 'An on-screen controller over the game (pad 1, with the keyboard and any controller). Auto: on phones and tablets, and once a finger touches the game; a key press hides it until the next touch.',
+      opts: [['', 'Auto (default)'], ['1', 'On'], ['0', 'Off']] },
+    { key: 'MC3_TOUCH_OPACITY', label: 'Touch controls opacity', help: 'How much of the game shows through them.',
+      opts: [['', '45% (default)'], ['0.25', '25%'], ['0.6', '60%'], ['0.8', '80%'], ['1', '100%']] },
+    { group: 'Performance' },
+    { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL.',
+      opts: [['', 'Auto (default)'], ['webgpu', 'WebGPU'], ['webgl', 'WebGL']] },
+    { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60. Auto: on, off (30 fps) on phones.',
+      opts: [['', 'Auto (default)'], ['1', 'On'], ['0', 'Off']] },
+    { key: 'RECOMP_RAM_MB', label: 'Game memory', help: 'The console\'s RAM. 128 MB (like an Xbox devkit) gives the game a 95 MB heap instead of 47 MB: room for more cars online, no "heap overrun" after the garage. Experimental.',
+      opts: [['', '64 MB (default)'], ['128', '128 MB']] },
+    { key: 'RECOMP_GL_PERDRAW', label: 'Per-draw matrices', help: 'WebGL limits uniform space; off sends one set of matrices (the Remix default).',
+      opts: [['', 'Per game (default)'], ['1', 'On'], ['0', 'Off']] },
+    { key: 'RECOMP_FPS_LOG', label: 'Frame rate in the log', help: 'Every 10 seconds (Log, while playing).', opts: ONOFF('Off') },
+    { key: 'MC3_PERF', label: 'Performance report in the log', help: 'Lock waits, CPU per thread and audio pacing.',
+      opts: [['', 'Off (default)'], ['5', 'Every 5 s'], ['10', 'Every 10 s']] },
+  ];
+  let settings = store.get('settings', {});
+  if (typeof settings !== 'object' || !settings || Array.isArray(settings)) settings = {};
+
+  function renderSettings() {
+    const body = $('settings-body');
+    body.textContent = '';
+    for (const s of SETTINGS) {
+      if (s.group) { const h = document.createElement('h3'); h.textContent = s.group; body.append(h); continue; }
+      const row = document.createElement('div'), text = document.createElement('div');
+      const label = document.createElement('label'), help = document.createElement('p'), code = document.createElement('code');
+      const sel = document.createElement('select');
+      row.className = 'set';
+      label.className = 'set-label'; label.htmlFor = sel.id = 'set-' + s.key; label.textContent = s.label;
+      help.className = 'hint'; help.id = sel.id + '-help'; help.append(s.help + ' '); code.textContent = s.key; help.append(code);
+      sel.setAttribute('aria-describedby', help.id);
+      for (const [v, t] of s.opts) sel.add(new Option(t, v));
+      sel.value = settings[s.key] ?? '';
+      if (sel.value !== (settings[s.key] ?? '')) delete settings[s.key];   // a value no longer offered
+      sel.onchange = () => { setSetting(s.key, sel.value); };
+      text.append(label, help);
+      row.append(text, sel);
+      body.append(row);
+    }
+  }
+  function setSetting(key, value) {
+    if (value) settings[key] = value; else delete settings[key];
+    store.set('settings', settings);
+    $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
+    preview();
+  }
+
+  // Advanced box: KEY=VALUE lines
+  function parseRaw(text) {
+    const env = {}, bad = [];
+    for (let line of text.split(/\r?\n/)) {
+      line = line.trim();
+      if (!line || line[0] === '#') continue;
+      const m = /^((?:RECOMP|MC3)_[A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
+      if (m) env[m[1]] = m[2]; else bad.push(line);
+    }
+    return { env, bad };
+  }
+
+  // What the game gets: rows, then Advanced, then the URL query; the disc last.
+  function buildEnv(disc) {
+    const env = { ...settings, ...parseRaw($('raw').value).env };
+    for (const [k, v] of new URLSearchParams(location.search))
+      if (/^(RECOMP_|MC3_)/.test(k)) env[k] = v;
+    // Absolute: WASMFS resolves relative URLs against the origin, not this page.
+    const nick = $('name').value.trim();
+    if (nick && !env.MC3_PLAYER_NAME) env.MC3_PLAYER_NAME = nick;   // the game's sign-in texts
+    // System Link (and free roam) on unless the player turned it off
+    if (env.MC3_NETPLAY === '0') delete env.MC3_NETPLAY; else env.MC3_NETPLAY = '1';
+    // Page defaults (the rows' "(default)"): 60 fps driving, 3x resolution; on a phone 30 fps and 1x (its GPU
+    // fills fewer pixels than its screen has, nfsu2-web device.ts), unless the player picked otherwise
+    const phone = window.MC3Touch?.isPhone() ?? false;
+    if (env.MC3_60FPS === '0') delete env.MC3_60FPS; else if (env.MC3_60FPS === undefined && !phone) env.MC3_60FPS = '1';
+    if (env.RECOMP_GL_SCALE === undefined) env.RECOMP_GL_SCALE = phone ? '1.5' : '3';
+    if (phone) {   // "medium" graphics on phones: 1.5x (above), lighter filtering, no post sharpening
+      if (env.RECOMP_GL_ANISO === undefined) env.RECOMP_GL_ANISO = '4';
+      if (env.RECOMP_GL_SHARPEN === undefined) env.RECOMP_GL_SHARPEN = '0';
+      if (env.RECOMP_GL_FXAA === undefined) env.RECOMP_GL_FXAA = '0';
+      if (env.MC3_MOVIE_HD === undefined) env.MC3_MOVIE_HD = '0';
+    }
+    for (const k of Object.keys(env)) if (k.startsWith('MC3_TOUCH') && k !== 'MC3_TOUCH_TRACE') delete env[k];   // the page's own (web/touch.js)
+    if (disc && !env.MC3_DISC_URL) env.MC3_DISC_URL = new URL(disc.path, location.href).href;
+    return env;
+  }
+  function preview() {
+    const { bad } = parseRaw($('raw').value);
+    $('raw-msg').textContent = bad.length ? 'Not a RECOMP_* / MC3_* switch, left out: ' + bad.join(', ') : '';
+    const env = buildEnv(null);
+    $('env-preview').textContent = Object.entries(env).map(([k, v]) => k + '=' + v).join(' ') || '(nothing: the game\'s defaults)';
+  }
+
+  // --- controls
+  const KEYS = [
+    // '#' rows are group headings. Actions from the Xbox default controls (gamerstemple.com/vg/games11/001312/001312g102.asp).
+    ['#Driving', []],
+    ['Steer (left stick)', ['←', '→']], ['Gas (right trigger; menus: up)', ['↑']], ['Brake, reverse (left trigger; menus: down)', ['↓']],
+    ['Handbrake (A)', ['Space', 'A']], ['Nitrous, slipstream turbo (X)', ['X']],
+    ['Two-wheel driving, air control (B + steer)', ['B']], ['Special maneuver, power-up (left stick click)', ['Z']],
+    ['Hydraulics on/off (d-pad down)', ['K']],
+    ['#Camera', []],
+    ['Look back (Y)', ['Y']], ['Change camera (Black)', ['E', 'Ctrl']],
+    ['Orbit camera (Y + d-pad left/right)', ['Y', 'J', 'L']], ['Camera, while paused (right stick)', ['T', 'F', 'G', 'H']],
+    ['Same, numpad', ['Num 8', 'Num 4', 'Num 2', 'Num 6']],
+    ['#Radio & map', []],
+    ['Map (d-pad up)', ['I']], ['Change music (d-pad left/right)', ['J', 'L']], ['Navigation system (Back)', ['Backspace', 'Tab']],
+    ['Flash headlights (White)', ['Q', 'Shift']],
+    ['#Menus', []],
+    ['Pause menu (Start)', ['Enter']], ['Accept race (White)', ['Q', 'Shift']], ['Navigate', ['↑', '↓', '←', '→']],
+    ['Select (A)', ['A', 'Space']], ['Right stick click (no known use)', ['C']],
+  ];
+  function renderKeys(ul) {
+    for (const [what, caps] of KEYS) {
+      const li = document.createElement('li'), s = document.createElement('span'), c = document.createElement('span');
+      if (what[0] === '#') { li.className = 'grp'; li.textContent = what.slice(1); ul.append(li); continue; }
+      s.textContent = what; c.className = 'caps';
+      for (const k of caps) { const kb = document.createElement('kbd'); kb.textContent = k; c.append(kb); }
+      li.append(s, c); ul.append(li);
+    }
+  }
+
+  // --- tabs (arrow keys move between them)
+  function initTabs() {
+    for (const list of document.querySelectorAll('[role=tablist]')) {
+      const tabs = [...list.querySelectorAll(':scope > [role=tab]')];
+      const panes = [...list.parentElement.querySelectorAll(':scope > [role=tabpanel]')];
+      const key = 'tab.' + (list.getAttribute('aria-label') || '');
+      const show = (name, focus) => {
+        for (const t of tabs) {
+          const on = t.dataset.tab === name;
+          t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1;
+          if (on && focus) t.focus();
+        }
+        for (const p of panes) p.hidden = p.dataset.pane !== name;
+        store.set(key, name);
+        if (name === 'saves') listSaves();
+        if (name === 'online') oprofShow();
+      };
+      tabs.forEach((t, i) => {
+        const pane = panes.find(p => p.dataset.pane === t.dataset.tab);
+        t.id = 'tab-' + t.dataset.tab; pane.id = 'pane-' + t.dataset.tab;
+        t.setAttribute('aria-controls', pane.id); pane.setAttribute('aria-labelledby', t.id);
+        t.onclick = () => show(t.dataset.tab);
+        t.onkeydown = e => {
+          const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+          if (d) { e.preventDefault(); show(tabs[(i + d + tabs.length) % tabs.length].dataset.tab, true); }
+        };
+      });
+      const saved = store.get(key, null);
+      show(tabs.some(t => t.dataset.tab === saved) ? saved : tabs[0].dataset.tab);
+    }
+  }
+
+  // The test password, asked in the page (prompt() is unusable with a TV remote): big field and
+  // buttons, focus starts in the field, Enter or OK confirms, arrows/Tab move between them.
+  function askPassword() {
+    return new Promise(done => {
+      const d = document.createElement('div');
+      d.id = 'pw-modal';
+      d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true'); d.setAttribute('aria-labelledby', 'pw-title');
+      d.innerHTML = '<form><h2 id="pw-title">Test password</h2>' +
+        '<input id="pw-input" type="password" autocomplete="current-password" enterkeyhint="done" aria-label="Test password">' +
+        '<label class="pw-show"><input id="pw-showbox" type="checkbox"> Show</label>' +
+        '<div class="pw-row"><button type="submit" class="btn">OK</button><button type="button" class="btn" id="pw-cancel">Cancel</button></div></form>';
+      document.body.append(d);
+      const form = d.querySelector('form'), input = d.querySelector('#pw-input');
+      const focusables = () => [...d.querySelectorAll('input, button')];
+      const close = v => { d.remove(); done(v); };
+      form.onsubmit = e => { e.preventDefault(); close(input.value.trim()); };
+      d.querySelector('#pw-cancel').onclick = () => close('');
+      d.querySelector('#pw-showbox').onchange = e => { input.type = e.target.checked ? 'text' : 'password'; };
+      d.addEventListener('keydown', e => {      // TV remotes send arrows: move between the controls
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && !(e.target.tagName === 'BUTTON' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight'))) return;
+        const f = focusables(), i = f.indexOf(document.activeElement);
+        const n = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? i + 1 : i - 1;
+        if (n >= 0 && n < f.length) { e.preventDefault(); f[n].focus(); }
+      });
+      setTimeout(() => input.focus(), 50);
+    });
+  }
+
+  // --- a deploy's config.json (see the top of this file); none: everything from this page's server
+  let cfg = null;
+  async function loadConfig() {
+    try { const r = await fetch('config.json', { cache: 'no-store' }); if (r.ok) cfg = await r.json(); } catch {}
+    // A test deploy's URLs may hold {key}: a password the disc server checks, asked once and kept in this browser.
+    if (cfg && Object.values(cfg).some(v => typeof v === 'string' && v.includes('{key}'))) {
+      let key = store.get('deployKey', '');
+      if (!key) { key = await askPassword(); if (key) store.set('deployKey', key); }
+      cfg.keyed = true;
+      for (const k of Object.keys(cfg))
+        if (typeof cfg[k] === 'string') cfg[k] = cfg[k].replaceAll('{key}', encodeURIComponent(key));
+    }
+  }
+  // The module's file: from cfg.moduleUrl when set, else beside the page.
+  const moduleFile = f => cfg?.moduleUrl ? new URL(f, cfg.moduleUrl.replace(/\/?$/, '/')).href : f;
+  // The deploy's module is on another origin: its .js comes as a blob URL, so the pthread workers Emscripten
+  // starts from the script's own URL are same-origin; the .wasm is fetched with the sign-in cookie.
+  async function moduleBlob(app) {
+    const r = await fetch(moduleFile(app + '.js'), { credentials: 'include' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    Module.instantiateWasm = (imports, done) => {
+      WebAssembly.instantiateStreaming(fetch(moduleFile(app + '.wasm'), { credentials: 'include' }), imports)
+        .then(res => done(res.instance, res.module), e => runStatus(`Cannot load ${app}.wasm: ${e.message || e}`, true));
+      return {};
+    };
+    return URL.createObjectURL(new Blob([await r.text()], { type: 'text/javascript' }));
+  }
+
+  // --- discs and builds
+  let discs = [];                 // {name, game, edition, path}
+  const builds = {};              // game -> true/false (its <app>.js is there)
+  let signIn = false;             // the deploy's disc server refused us (not signed in)
+  async function findDiscs() {
+    if (cfg?.discUrl) {           // the deploy's one disc
+      discs = [{ name: MC3DiscCache.discName(cfg.discUrl), game: BUILT_GAME || 'remix', edition: '', path: cfg.discUrl }];
+      return;
+    }
+    try {
+      const r = await fetch('discs.json', { cache: 'no-store' });
+      if (r.ok) {
+        discs = (await r.json()).map(d => ({ ...d, path: 'discs/' + encodeURIComponent(d.name) }));
+        return;
+      }
+    } catch {}
+    // Another server: one disc at disc/ (its file list at disc.list), this build's game.
+    try {
+      const r = await fetch('disc.list', { method: 'HEAD', cache: 'no-store' });
+      if (r.ok) discs = [{ name: 'disc', game: BUILT_GAME || 'dub', edition: '', path: 'disc' }];
+    } catch {}
+  }
+  async function findBuilds() {
+    await Promise.all(Object.entries(APPS).map(async ([g, app]) => {
+      try { builds[g] = (await fetch(moduleFile(app + '.js'), { method: 'HEAD', cache: 'no-store', credentials: 'include', redirect: 'manual' })).ok; } catch { builds[g] = false; }
+    }));
+  }
+  const editionLabel = d => d.edition ? d.edition.toUpperCase() + ' (' + d.name + ')' : d.name;
+  const gameDiscs = g => discs.filter(d => d.game === g);
+  function currentGame() { return document.querySelector('input[name=game]:checked')?.value || null; }
+  function currentDisc() {
+    const list = gameDiscs(currentGame());
+    return list.find(d => d.name === $('edition').value) || list[0] || null;
+  }
+
+  function pickInit() {
+    const saved = store.get('game', null);
+    const usable = Object.keys(APPS).filter(g => gameDiscs(g).length);
+    const want = [saved, BUILT_GAME, ...usable.filter(g => builds[g]), ...usable, 'dub'].find(g => g && (usable.includes(g) || !usable.length));
+    for (const r of document.querySelectorAll('input[name=game]')) {
+      const n = gameDiscs(r.value).length;
+      r.disabled = !n;
+      r.nextElementSibling.textContent = GAME_NAMES[r.value] + (n ? '' : ' (no disc)');
+      r.checked = r.value === want;
+      r.onchange = () => { store.set('game', r.value); fillEditions(); };
+    }
+    fillEditions();
+  }
+  function fillEditions() {
+    const sel = $('edition'), list = gameDiscs(currentGame());
+    const saved = store.get('disc.' + currentGame(), null);
+    sel.textContent = '';
+    for (const d of list) sel.add(new Option(editionLabel(d), d.name));
+    if (list.some(d => d.name === saved)) sel.value = saved;
+    $('edition-row').hidden = list.length < 2;
+    sel.onchange = () => { store.set('disc.' + currentGame(), sel.value); refresh(); };
+    refresh();
+  }
+
+  let discFiles = {};             // disc name -> file count (or 0: no list)
+  async function countDisc(d) {
+    if (d.name in discFiles) return discFiles[d.name];
+    try {
+      // Not signed in, a sign-in gate (Cloudflare Access) answers 401/403 or a redirect to its login page.
+      const r = await fetch(d.path + '.list', { cache: 'no-store', credentials: 'include', redirect: 'manual' });
+      if (cfg && (r.type === 'opaqueredirect' || r.status === 401 || r.status === 403)) signIn = true;
+      const lines = r.ok ? (await r.text()).split('\n').filter(Boolean) : [];
+      discFiles[d.name] = lines.some(l => /^(\.\/)?default\.xbe$/i.test(l)) ? lines.length : 0;
+    } catch { discFiles[d.name] = 0; if (cfg) signIn = true; }   // a login page without CORS headers: a network error here
+    return discFiles[d.name];
+  }
+
+  const webgl2 = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
+  const opfs = !!(navigator.storage && navigator.storage.getDirectory);
+  // What this device gives the game, as notes that do not stop Play ('warn'): the renderer, the 2 GB of shared
+  // memory the module asks for at its start (CMakeLists.txt -sINITIAL_MEMORY=2GB, no growth), full screen on a phone.
+  // Limits from nfsu2-web's notes (host/memory.ts, device.ts, checks.ts): a 32-bit Chrome for Android (most phones
+  // under 8 GB) sets aside 1 GB at most for a shared memory; Safari (every browser on an iPhone or iPad) has
+  // WebGPU from iOS 26 and stops a page that takes too much of the device's memory; an iPhone's Safari has no full
+  // screen for pages.
+  const deviceChecks = (async () => {
+    const ua = navigator.userAgent, T = window.MC3Touch;
+    const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    const android = /Android/.test(ua);
+    let gpu = false, bits = '';
+    try { gpu = !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch {}
+    try { bits = (await navigator.userAgentData?.getHighEntropyValues?.(['bitness']))?.bitness || ''; } catch {}
+    const mem = navigator.deviceMemory;
+    const rows = [
+      gpu ? [true, 'Graphics', 'WebGPU'] : webgl2
+        ? ['warn', 'Graphics', 'WebGL 2 only: slower (about half the frame rate). ' + (ios ? 'WebGPU comes with iOS 26 / iPadOS 26.' : android ? 'Chrome for Android has WebGPU on most phones from Android 12.' : 'Chrome and Edge have WebGPU.')]
+        : [false, 'Graphics', 'no WebGPU and no WebGL 2 in this browser'],
+      android && bits === '32' ? ['warn', 'Memory', 'this Chrome is 32-bit: it gives a page 1 GB at most and the game needs 2 GB. Play stops at the start ("could not allocate memory").']
+        : mem && mem < 4 ? ['warn', 'Memory', `this device says ${mem} GB: the game takes 2 GB for itself; it may not start, or stop for memory.`]
+        : ios ? ['warn', 'Memory', 'iPhone and iPad: the game takes 2 GB; Safari may stop it for memory. Close other tabs and apps first.']
+        : [true, 'Memory', '2 GB for the game'],
+    ];
+    if (T?.hasTouch()) rows.push([true, 'Touch', 'on-screen controller (Settings, Touch)']);
+    if (T?.isPhone()) rows.push(document.documentElement.requestFullscreen
+      ? [true, 'Screen', 'full screen and landscape on Play; 30 fps and 1× resolution unless you pick otherwise']
+      : ['warn', 'Screen', 'no full screen for pages in this browser: Share, Add to Home Screen, and open the game from there. Play in landscape.']);
+    return rows;
+  })();
+
+  async function refresh() {
+    const g = currentGame(), d = currentDisc();
+    const n = d ? await countDisc(d) : 0;
+    const device = await deviceChecks;
+    const checks = [
+      [n > 0, 'Disc', d ? (n ? `${editionLabel(d)}, ${n} files` : signIn ? `${d.name}: sign in first` : `${d.name}: its file list did not load`) : 'none on this server (--disc)'],
+      [!!(g && builds[g]), 'Build', g ? (builds[g] ? APPS[g] + '.js' : `${APPS[g]}.js missing: make web GAME=${g}`) : '–'],
+      [self.crossOriginIsolated, 'Threads', self.crossOriginIsolated ? 'cross-origin isolated' : 'COOP/COEP headers missing: serve with tools/web_serve.py'],
+      ...device,
+      [opfs, 'Saves', opfs ? 'kept in this browser' : 'no private storage (needs https or localhost): saves last until the page closes'],
+    ];
+    const ul = $('checks');
+    ul.textContent = '';
+    for (const [ok, what, text] of checks) {
+      const li = document.createElement('li'), m = document.createElement('span'), w = document.createElement('b'), t = document.createElement('span');
+      const warn = ok === 'warn';
+      li.className = warn ? 'warn' : ok ? 'ok' : 'no';
+      m.className = 'mark'; m.textContent = warn ? '!' : ok ? '✓' : '✗'; m.setAttribute('aria-label', warn ? 'Note:' : ok ? 'OK:' : 'Problem:');
+      w.textContent = what; t.textContent = text;
+      li.append(m, w, t); ul.append(li);
+    }
+    const ready = n > 0 && builds[g] && self.crossOriginIsolated && webgl2;
+    $('play').disabled = !ready;
+    const status = $('status');
+    status.classList.toggle('bad', !ready);
+    if (ready) { status.textContent = 'Ready'; $('status-sub').textContent = `${GAME_NAMES[g]}. Press Play or Enter to start.`; }
+    else if (signIn && !n && cfg?.keyed) {         // wrong password: asked again on the next load
+      store.set('deployKey', '');
+      status.textContent = 'Wrong password'; $('status-sub').textContent = 'Reload the page to type the test password again.';
+    }
+    else if (signIn && !n) { status.textContent = 'Sign in'; $('status-sub').textContent = 'The disc server did not let this browser in (or it is down).'; }
+    else if (!discs.length) { status.textContent = 'No disc'; $('status-sub').textContent = 'Serve your extracted disc: py tools/web_serve.py --root web --disc <folder>.'; }
+    else if (!n) { status.textContent = 'No disc'; $('status-sub').textContent = 'The server has no readable disc for this game.'; }
+    else if (!builds[g]) { status.textContent = 'Not built'; $('status-sub').textContent = `Build the ${GAME_NAMES[g]} for the browser: make web GAME=${g}, then serve its build folder too (--root work-${g}/build-web).`; }
+    else { status.textContent = "Can't start"; $('status-sub').textContent = 'See the problems below.'; }
+    $('signin').hidden = !(signIn && !n && cfg?.signInUrl);
+    if (cfg?.signInUrl) $('signin-link').href = cfg.signInUrl + (cfg.signInUrl.includes('?') ? '&' : '?') + 'to=' + encodeURIComponent(location.href);
+    cacheShow();
+  }
+
+  // --- disc cache (web/disc_cache.js): what of the disc this browser keeps, all of it ahead, clearing it
+  const fmtBytes = n => n >= 1e9 ? (n / 2 ** 30).toFixed(2) + ' GB' : (n / 2 ** 20).toFixed(0) + ' MB';
+  const pct = (a, b) => b ? Math.floor(100 * a / b) + '%' : '–';
+  const discUrl = d => new URL(d.path, location.href).href;
+  async function cacheShow() {
+    const d = currentDisc(), on = opfs && !!d && typeof MC3DiscCache == 'object';
+    $('cache').hidden = !on;
+    if (!on) return;
+    if (!MC3DiscCache.enabled(buildEnv(null).MC3_DISC_CACHE)) {
+      $('cache-status').textContent = 'Local server: the disc is read directly, nothing is cached.';
+      return;
+    }
+    try {
+      const s = await MC3DiscCache.scan(discUrl(d));
+      $('cache-status').textContent = `Disc kept in this browser: ${fmtBytes(s.have)} of ${fmtBytes(s.total)} (${pct(s.have, s.total)}). Kept parts load without the network.`;
+    } catch (e) { $('cache-status').textContent = 'Disc cache: ' + (e.message || e); }
+  }
+  async function cacheClear() {
+    if (!confirm('Delete the disc data kept in this browser? Saves stay.')) return;
+    try { await MC3DiscCache.clear(); } catch (e) { $('cache-status').textContent = 'Not cleared: ' + (e.message || e); return; }
+    cacheShow();
+  }
+
+  // --- saves: UDATA/54540079/<12 hex>/<name>.mc3 + SaveMeta.xbx in OPFS (src/web_fs.c: /opfs is the OPFS root)
+  const TITLE = '54540079', MC3_SIZE = 99162, SIG_LEN = 20, XBOX_STAMP = 0x02F59447;
+  const savesMsg = (t, bad) => { $('saves-msg').textContent = t; $('saves-msg').classList.toggle('bad', !!bad); };
+  async function titleDir(create) {
+    const root = await navigator.storage.getDirectory();
+    const u = await root.getDirectoryHandle('UDATA', { create });
+    return u.getDirectoryHandle(TITLE, { create });
+  }
+  function metaName(buf) {
+    const m = /Name=([^\r\n\0]*)/.exec(new TextDecoder('utf-16le').decode(buf));
+    return m ? m[1] : null;
+  }
+  function metaBytes(name) {           // tools/save_import.py save_meta(): BOM + Name=..\r\n, UTF-16LE
+    const s = '﻿Name=' + name + '\r\n', b = new Uint8Array(s.length * 2);
+    for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); b[2 * i] = c & 255; b[2 * i + 1] = c >> 8; }
+    return b;
+  }
+  function download(blob, name) {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  }
+  async function listSaves() {
+    const ul = $('profiles');
+    ul.textContent = '';
+    const empty = text => { const li = document.createElement('li'); li.className = 'empty'; li.textContent = text; ul.append(li); };
+    if (!opfs) { empty('This browser gives the page no private storage here (needs https or localhost): saves last until the page closes.'); return; }
+    let dir;
+    try { dir = await titleDir(false); } catch { empty('No profiles yet. Create one in the game: it is saved in this browser.'); return; }
+    const rows = [];
+    try {
+      for await (const [folder, h] of dir.entries()) {
+        if (h.kind !== 'directory') continue;
+        let mc3 = null, name = null;
+        for await (const [n, f] of h.entries()) {
+          if (f.kind !== 'file') continue;
+          if (/\.mc3$/i.test(n)) mc3 = { n, file: await f.getFile() };
+          else if (n === 'SaveMeta.xbx') name = metaName(await (await f.getFile()).arrayBuffer());
+        }
+        if (mc3) rows.push({ folder, h, mc3, name: name || mc3.n.replace(/\.mc3$/i, '') });
+      }
+    } catch (e) { savesMsg('Could not read the saves: ' + e.message, true); }
+    if (!rows.length) { empty('No profiles yet. Create one in the game: it is saved in this browser.'); return; }
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    for (const r of rows) {
+      const li = document.createElement('li'), info = document.createElement('div'), b = document.createElement('b'), p = document.createElement('p');
+      b.textContent = r.name;
+      p.className = 'hint';
+      p.textContent = `${(r.mc3.file.size / 1024).toFixed(0)} KB, saved ${new Date(r.mc3.file.lastModified).toLocaleString()} · ${r.folder}`;
+      info.append(b, p);
+      const row = document.createElement('div'); row.className = 'row';
+      const dl = document.createElement('button'), del = document.createElement('button');
+      dl.type = del.type = 'button';
+      dl.className = 'btn'; dl.textContent = 'Download';
+      dl.setAttribute('aria-label', 'Download ' + r.name);
+      dl.onclick = () => download(r.mc3.file, r.mc3.n);
+      del.className = 'btn danger'; del.textContent = 'Delete';
+      del.setAttribute('aria-label', 'Delete ' + r.name);
+      del.onclick = async () => {
+        if (!confirm(`Delete the profile “${r.name}” from this browser? Download it first to keep a copy. This cannot be undone.`)) return;
+        try { await dir.removeEntry(r.folder, { recursive: true }); savesMsg(`Deleted ${r.name}.`); }
+        catch (e) { savesMsg('Could not delete: ' + e.message, true); }
+        listSaves();
+      };
+      row.append(dl, del);
+      li.append(info, row); ul.append(li);
+    }
+  }
+  const hex = buf => [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+  async function importSave(file) {
+    if (/\.gsx$/i.test(file.name)) { savesMsg('Memory-unit images (.gsx) are not read here yet: run make import-save FILE=… or import the profile\'s .mc3.', true); return; }
+    if (!opfs) { savesMsg('No private storage in this browser here: nowhere to put the save.', true); return; }
+    const data = new Uint8Array(await file.arrayBuffer());
+    const stamp = data.length >= 4 ? new DataView(data.buffer).getUint32(0, true) : 0;
+    if (stamp !== XBOX_STAMP) { savesMsg(`${file.name}: not an Xbox MC3 profile (format 0x${stamp.toString(16).toUpperCase().padStart(8, '0')}; PS2 profiles can't be used).`, true); return; }
+    if (data.length !== MC3_SIZE) { savesMsg(`${file.name}: ${data.length} bytes, an Xbox profile has ${MC3_SIZE}.`, true); return; }
+    // A real Xbox signs with its own key; the port's keys are zero: HMAC-SHA1 under 16 zero bytes (tools/save_import.py).
+    const body = data.subarray(0, MC3_SIZE - SIG_LEN);
+    const key = await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+    const out = new Uint8Array(MC3_SIZE);
+    out.set(body); out.set(new Uint8Array(await crypto.subtle.sign('HMAC', key, body)), MC3_SIZE - SIG_LEN);
+    const name = file.name.replace(/\.mc3$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
+    const folder = hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(name))).slice(0, 12).toUpperCase();
+    try {
+      const dir = await titleDir(true);
+      let exists = true;
+      try { await dir.getDirectoryHandle(folder); } catch { exists = false; }
+      if (exists && !confirm(`A profile “${name}” is already in this browser. Replace it?`)) return;
+      const d = await dir.getDirectoryHandle(folder, { create: true });
+      for (const [n, bytes] of [[name + '.mc3', out], ['SaveMeta.xbx', metaBytes(name)]]) {
+        const w = await (await d.getFileHandle(n, { create: true })).createWritable();
+        await w.write(bytes); await w.close();
+      }
+      savesMsg(`Imported ${name} (signed for the port).`);
+    } catch (e) { savesMsg('Could not write the save: ' + e.message, true); }
+    listSaves();
+  }
+
+  // --- the Online profile: OPFS online/profile.bin, written by the game (src/games/remix/recomp_manual.c,
+  // "The Online profile"): 'MC3O', version 1, body size, CRC-32 of the body, cars; body = money + garage blob
+  const OPROF_MAGIC = 0x4F33434D, OPROF_VER = 1, OPROF_HDR = 20, OPROF_BODY = 4 + 0x18340;
+  const oprofMsg = (t, bad) => { $('oprof-msg').textContent = t; $('oprof-msg').classList.toggle('bad', !!bad); };
+  const crcTable = [...Array(256)].map((_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xEDB88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
+  const crc32 = b => { let c = ~0; for (const x of b) c = crcTable[(c ^ x) & 255] ^ (c >>> 8); return ~c >>> 0; };
+  function oprofCheck(data) {          // { money, cars }, or why not
+    if (data.length !== OPROF_HDR + OPROF_BODY) return `${data.length} bytes, an online profile has ${OPROF_HDR + OPROF_BODY}`;
+    const v = new DataView(data.buffer, data.byteOffset, data.length);
+    if (v.getUint32(0, true) !== OPROF_MAGIC) return 'not an MC3 online profile';
+    if (v.getUint32(4, true) !== OPROF_VER || v.getUint32(8, true) !== OPROF_BODY) return 'another version';
+    if (v.getUint32(12, true) !== crc32(data.subarray(OPROF_HDR))) return 'damaged (CRC)';
+    return { money: v.getInt32(OPROF_HDR, true), cars: v.getUint32(16, true) };
+  }
+  async function oprofFile(create) {
+    const d = await (await navigator.storage.getDirectory()).getDirectoryHandle('online', { create });
+    return d.getFileHandle('profile.bin', { create });
+  }
+  async function oprofShow() {
+    const s = $('oprof-status');
+    if (!opfs) { s.textContent = 'No private storage in this browser here: the online profile lasts until the page closes.'; return; }
+    let file;
+    try { file = await (await oprofFile(false)).getFile(); }
+    catch { s.textContent = 'Online profile: none yet ($2,000,000 to start).'; return; }
+    const r = oprofCheck(new Uint8Array(await file.arrayBuffer()));
+    s.textContent = typeof r === 'string' ? `Online profile: unreadable (${r}); the game starts a fresh one.`
+      : `Online profile: $${r.money.toLocaleString('en-US')}, ${r.cars} car${r.cars === 1 ? '' : 's'} · saved ${new Date(file.lastModified).toLocaleString()}`;
+  }
+  async function oprofExport() {
+    try { download(await (await oprofFile(false)).getFile(), 'mc3-online-profile.bin'); oprofMsg(''); }
+    catch { oprofMsg('No online profile in this browser yet.', true); }
+  }
+  async function oprofImport(file) {
+    if (!opfs) { oprofMsg('No private storage in this browser here: nowhere to put the profile.', true); return; }
+    const data = new Uint8Array(await file.arrayBuffer()), r = oprofCheck(data);
+    if (typeof r === 'string') { oprofMsg(`${file.name}: ${r}.`, true); return; }
+    if (!confirm(`Replace this browser's online profile with ${file.name} ($${r.money.toLocaleString('en-US')}, ${r.cars} cars)?`)) return;
+    try {
+      const w = await (await oprofFile(true)).createWritable();
+      await w.write(data); await w.close();
+      oprofMsg('Imported: it counts from the next Free Roam.');
+    } catch (e) { oprofMsg('Could not write the profile: ' + (e.message || e), true); }
+    oprofShow();
+  }
+
+  // --- play
+  // Every game thread's print lands here: the panel is redrawn at most once a
+  // frame, and only while it is shown (a DOM append and a layout read per
+  // line cost the page's main thread in log bursts).
+  const log = $('log'), MAX_LINES = 4000;
+  let logText = [], logDirty = false;
+  function out(text) {
+    logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
+    if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
+  }
+  function logFlush() {
+    logDirty = false;
+    const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
+    log.textContent = logText.slice(-MAX_LINES).join('\n') + '\n';
+    if (atEnd) log.scrollTop = log.scrollHeight;
+  }
+  const runStatus = (t, bad) => { $('run-status').textContent = t; $('run-status').classList.toggle('bad', !!bad); };
+  let playing = false, touch = null;
+  // WebGPU is only offered when an adapter answers: asked before the canvas goes to the game's worker.
+  // Auto picks WebGPU when an adapter answers (30 fps in cruise where WebGL held 15,
+  // 2026-11-08), else WebGL; the row or ?RECOMP_GPU=webgl forces WebGL.
+  async function gpuChoice(env) {
+    if (env.RECOMP_GPU === 'webgl') return 'webgl';
+    try { if (navigator.gpu && await navigator.gpu.requestAdapter()) return 'webgpu'; } catch {}
+    return 'webgl';
+  }
+  // Sound on phones (2026-11-09). iOS Safari lets an AudioContext run only if it is made or
+  // resumed inside a user gesture; the game's context (web/audio.js) is made after the awaits
+  // in play(), so it stayed suspended. Here the context is made in the Play tap and handed to
+  // audio.js (its first `new AudioContext`). Later taps resume it again (iOS 'interrupted' after
+  // a call, background or full screen). The silent switch is bypassed with audioSession.
+  let audioCtx = null;
+  function audioUnlock() {
+    if (typeof AudioContext != 'function' || audioCtx) return;
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+    try { audioCtx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' }); }
+    catch { try { audioCtx = new AudioContext({ latencyHint: 'interactive' }); } catch { return; } }
+    const Real = window.AudioContext, ctx = audioCtx;
+    window.AudioContext = function () { window.AudioContext = Real; return ctx; };
+    const kick = () => {
+      if (ctx.state === 'running' || ctx.state === 'closed') return;
+      try { const s = ctx.createBufferSource(); s.buffer = ctx.createBuffer(1, 1, 22050); s.connect(ctx.destination); s.start(0); } catch {}
+      ctx.resume().catch(() => {});
+    };
+    kick();
+    for (const t of ['touchstart', 'touchend', 'pointerup', 'click', 'keydown']) window.addEventListener(t, kick, true);
+    for (const t of ['visibilitychange', 'pageshow', 'focus']) window.addEventListener(t, kick);
+    document.addEventListener('fullscreenchange', kick);
+    const hint = document.createElement('div');
+    hint.textContent = 'Tap for sound';
+    hint.style.cssText = 'position:fixed;left:50%;bottom:12px;transform:translateX(-50%);padding:4px 10px;border-radius:12px;background:#000a;color:#fff;font:12px sans-serif;pointer-events:none;z-index:99;display:none';
+    document.body.append(hint);
+    setInterval(() => { hint.style.display = ctx.state !== 'running' && playing ? 'block' : 'none'; }, 1000);
+  }
+  async function play() {
+    if (playing || $('play').disabled) return;
+    const g = currentGame(), d = currentDisc(), app = APPS[g];
+    playing = true;
+    const env = buildEnv(d);
+    if (String(env.RECOMP_AUDIO) !== '0') audioUnlock();
+    if (window.MC3Touch?.isPhone()) {
+      // from the click itself (full screen needs it), so before any await: the whole screen, in landscape
+      document.body.classList.add('playing');
+      $('stage').hidden = false;
+      MC3Touch.enterGame($('stage'));
+    }
+    env.RECOMP_GPU = await gpuChoice(env);
+    document.body.classList.add('playing');
+    $('stage').hidden = false;
+    const canvas = $('canvas');
+    canvas.focus();
+    if (window.MC3Touch) {
+      MC3Touch.keepScreenOn(out);
+      const q = new URLSearchParams(location.search), pick = k => q.get(k) ?? settings[k];
+      const mode = { 1: 'on', 0: 'off' }[pick('MC3_TOUCH')] || 'auto';
+      touch = MC3Touch.attach($('stage'), $('fps'), { mode, opacity: Number(pick('MC3_TOUCH_OPACITY')) || 0.45 });
+      touch.onchange = on => $('touch-btn').setAttribute('aria-pressed', on);
+      $('touch-btn').setAttribute('aria-pressed', touch.isOn());
+      $('touch-btn').hidden = !(MC3Touch.hasTouch() || mode === 'on');
+    }
+    runStatus(`${GAME_NAMES[g]}, ${editionLabel(d)}: loading…`);
+    window.Module = {
+      canvas,
+      mc3Env: env,
+      mc3Lan: lanUp(),                // System Link's link (web/net.js finds it here)
+      print: out,
+      printErr: out,
+      setStatus: s => s && runStatus(s),
+      onRuntimeInitialized: () => (window.applyPad?.(), runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.`)),
+      onAbort: what => { runStatus('Stopped: ' + what, true); showLog(true); },
+    };
+    // the game's disc reads take the cache choice from OPFS (web/disc_cache.js use()): written before it starts
+    const start = async () => {
+      const s = document.createElement('script');
+      try { s.src = cfg?.moduleUrl ? await moduleBlob(app) : app + '.js'; }
+      catch (e) { runStatus(`Cannot load ${app}.js from ${cfg.moduleUrl}: ${e.message || e}`, true); return; }
+      s.onerror = () => runStatus(`Cannot load ${app}.js (build it: make web GAME=${g}).`, true);
+      document.body.append(s);
+    };
+    if (typeof MC3DiscCache == 'object') MC3DiscCache.setForce(buildEnv(d).MC3_DISC_CACHE).catch(e => console.warn('[WEB] disc cache choice not kept:', e)).then(start);
+    else start();
+  }
+  function showLog(on) {
+    log.hidden = !on;
+    $('log-btn').setAttribute('aria-expanded', on);
+    if (on) { logFlush(); log.scrollTop = log.scrollHeight; }
+  }
+
+  // --- wire up
+  renderSettings();
+  renderKeys($('keys'));
+  renderKeys($('keys-ingame'));
+  $('raw').value = store.get('raw', '');
+  $('raw').oninput = () => { store.set('raw', $('raw').value); preview(); };
+  $('reset').onclick = () => {
+    if (!confirm('Reset every setting to the game\'s default?')) return;
+    for (const k of Object.keys(settings)) delete settings[k];
+    store.set('settings', settings); $('raw').value = ''; store.set('raw', '');
+    $('netplay').value = '';
+    $('skipintro').checked = false;
+    renderSettings(); preview(); lanUp();
+  };
+  if (settings.MC3_AUTOSTART) setSetting('MC3_AUTOSTART', '');   // the Start in Cruise option is gone: a stored one would keep pressing menus
+  $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
+  $('skipintro').onchange = () => { setSetting('MC3_SKIP_MOVIES', $('skipintro').checked ? 'hard' : ''); renderSettings(); };
+  $('netplay').value = settings.MC3_NETPLAY === '0' ? '0' : '';   // an old stored '1' is the default now
+  $('netplay').onchange = () => { setSetting('MC3_NETPLAY', $('netplay').value); lanUp(); };
+  // A nick from the first visit on, so nobody plays as an empty name
+  if (!store.get('name', '')) store.set('name', 'Racer' + String(Math.floor(1000 + Math.random() * 9000)));
+  $('name').value = store.get('name', '');
+  $('name').oninput = () => { store.set('name', $('name').value.trim()); lan?.rename($('name').value.trim()); };
+  // System Link: the link to the server's switch (web/lan.js) is up while MC3_NETPLAY=1, from here into the game
+  let lan = null;
+  function lanShow(l) {
+    if (l !== lan) return;   // a link closed for a newer one
+    const names = l.peers.map(p => p.name + (p.vip === l.vip ? ' (you)' : '')).join(', ');
+    $('lan-status').textContent = l.state === 'online' ? `On the server's LAN as ${l.vipStr}: ${l.peers.length} player${l.peers.length === 1 ? '' : 's'}${names ? ' (' + names + ')' : ''}.`
+      : l.state === 'connecting' ? 'Joining the server\'s LAN…'
+      : 'No LAN on this server (start it with web/server, not tools/web_serve.py), or the link was lost.';
+    const roam = l.state === 'online' ? l.roam || [] : [];
+    $('roam-status').textContent = roam.length ? `In free roam: ${roam.length} (${roam.map(p => p.name).join(', ')}).` : '';
+    racesShow(l);
+  }
+  // Races (docs/races-protocol.md): the server's rooms; in one, the game's System Link sees only its players
+  const RACE_ERR = { gone: 'That race is gone.', full: 'That race is full.', password: 'Wrong password.',
+                     limit: 'Too many races on this server, or from your address. Try again later.' };
+  let pendingRace = new URLSearchParams(location.search).get('race'), shownErr = null, shownLeft = null;
+  if (pendingRace && settings.MC3_NETPLAY === '0') { setSetting('MC3_NETPLAY', ''); $('netplay').value = ''; }   // an invite means System Link
+  function raceMsg(t, bad) { $('race-msg').textContent = t; $('race-msg').classList.toggle('bad', !!bad); }
+  function raceJoin(r) {
+    let pass = '';
+    if (r.locked && (pass = prompt(`Password for ${r.name}:`)) === null) return;
+    raceMsg('');
+    lan?.join(r.id, pass);
+  }
+  function racesShow(l) {
+    const on = l?.state === 'online';
+    $('races-off').hidden = on; $('races-on').hidden = !on;
+    $('races-off').textContent = l ? 'Joining the server…' : 'Turn System Link on to see the races on this server.';
+    if (!on) return;
+    const mine = l.room;
+    $('race-mine').hidden = !mine;
+    if (mine) {
+      $('race-mine-name').textContent = 'In ' + mine.name;
+      $('race-mine-who').textContent = `${mine.n}/${mine.max}: ` + l.members.map(m => m.name + (m.host ? ' (host)' : '') + ((m.vip >>> 0) === l.vip ? ' (you)' : '')).join(', ');
+    }
+    const ul = $('race-list');
+    ul.textContent = '';
+    if (!l.rooms.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No races yet: create one.'; ul.append(li); }
+    for (const r of l.rooms) {
+      const li = document.createElement('li'), info = document.createElement('div'), b = document.createElement('b'), meta = document.createElement('div');
+      b.textContent = r.name;
+      if (r.locked) { const k = document.createElement('span'); k.textContent = ' 🔒'; k.title = 'Password'; k.setAttribute('aria-label', 'needs a password'); b.append(k); }
+      meta.className = 'meta';
+      meta.textContent = [r.host, `${r.n}/${r.max} players`, r.city, r.mode].filter(Boolean).join(' · ');
+      info.append(b, meta);
+      const btn = document.createElement('button');
+      btn.type = 'button'; btn.className = 'btn';
+      btn.textContent = mine?.id === r.id ? 'Joined' : r.n >= r.max ? 'Full' : 'Join';
+      btn.disabled = mine?.id === r.id || r.n >= r.max;
+      btn.onclick = () => raceJoin(r);
+      li.append(info, btn); ul.append(li);
+    }
+    if (l.error !== shownErr) { shownErr = l.error; if (l.error && l.error.op !== 'signal') raceMsg(RACE_ERR[l.error.code] || 'Refused: ' + l.error.code, true); }
+    if (l.left !== shownLeft) { shownLeft = l.left; if (l.left?.why === 'closed') raceMsg('The host left: the race is closed.', true); }
+    if (pendingRace && l.roomsSeen) {   // ?race=<id>: the invite link
+      const r = l.rooms.find(x => x.id === pendingRace);
+      pendingRace = null;
+      if (!r) raceMsg('The race of your invite link is gone.', true);
+      else if (mine?.id !== r.id) raceJoin(r);
+    }
+  }
+  $('race-new').onsubmit = e => {
+    e.preventDefault();
+    raceMsg('');
+    lan?.create({ name: $('race-name').value.trim(), pass: $('race-pass').value });
+    $('race-pass').value = '';
+  };
+  $('race-leave').onclick = () => lan?.leave();
+  $('race-invite').onclick = async () => {
+    if (!lan?.room) return;
+    const u = location.origin + location.pathname + '?race=' + encodeURIComponent(lan.room.id);
+    try { await navigator.clipboard.writeText(u); raceMsg('Invite link copied: ' + u); } catch { raceMsg('Invite link: ' + u); }
+  };
+  // while playing the page is hidden: the Races button shows the same box over the game
+  $('races-btn').onclick = () => {
+    const p = $('races-panel');
+    if (!p.contains($('races-box'))) p.append($('races-box'));
+    p.hidden = !p.hidden;
+    $('races-btn').setAttribute('aria-expanded', !p.hidden);
+    if (p.hidden) $('canvas').focus();
+  };
+  // free roam's players (the server's hub, web/server/crates/roam), asked every 3 s while the Online tab shows
+  setInterval(() => { if (lan?.state === 'online' && !document.querySelector('[data-pane="online"]')?.hidden) lan.askRoam(); }, 3000);
+  // the race room's members and how this page reaches each: direct (WebRTC, web/rtc.js) or relay (the server)
+  function raceShow(r) {
+    if (r !== lan?.rtc) return;
+    const others = r.members.filter(m => (m.vip >>> 0) !== lan.vip);
+    $('race-links').textContent = others.length ? `Race room: ${others.map(m => m.name + ' (' + r.mode(m.vip) + ')').join(', ')}.` : '';
+  }
+  function lanUp() {
+    if (buildEnv(null).MC3_NETPLAY !== '1' || typeof mc3Lan !== 'function') {
+      lan?.close(); lan = null; $('lan-status').textContent = '';
+      racesShow(null);
+      return null;
+    }
+    if (!lan || lan.state === 'offline') { lan?.close(); lan = mc3Lan($('name').value.trim(), cfg?.lanUrl); lan.on(lanShow); window.mc3Rtc?.(lan, cfg?.iceServers).on(raceShow); }
+    return lan;
+  }
+  $('saves-refresh').onclick = () => { savesMsg(''); listSaves(); };
+  $('oprof-export').onclick = oprofExport;
+  $('oprof-import').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) oprofImport(f); };
+  $('import').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importSave(f); };
+  $('play').onclick = play;
+  $('cache-clear').onclick = cacheClear;
+  // an iPhone's Safari has no element full screen: no button that does nothing (and a shorter bar)
+  // (?.: a phone may still hold an older touch.js in its cache)
+  $('full').hidden = !(window.MC3Touch?.canFullscreen?.() ?? true);
+  $('full').onclick = () => window.MC3Touch?.fullscreen ? MC3Touch.fullscreen($('stage')) : $('stage').requestFullscreen?.()?.catch(() => {});
+  $('log-btn').onclick = () => showLog(log.hidden);
+  const setStretch = on => {
+    $('stage').classList.toggle('stretch', on);
+    $('stretch-btn').setAttribute('aria-pressed', on);
+    store.set('stretch', on);
+  };
+  setStretch(store.get('stretch', false));
+  $('stretch-btn').onclick = () => { setStretch(!$('stage').classList.contains('stretch')); $('canvas').focus(); };
+  // Screen shape in the bar: the Settings row RECOMP_ASPECT, live (Module.mc3SetAspect, web/pre.js); '' = Auto = Wide
+  const syncWide = () => { $('wide-sel').value = settings.RECOMP_ASPECT || ''; };
+  syncWide();
+  $('wide-sel').onchange = () => {
+    setSetting('RECOMP_ASPECT', $('wide-sel').value);
+    renderSettings();
+    window.Module?.mc3SetAspect?.(settings.RECOMP_ASPECT || 'auto');
+    $('canvas').focus();
+  };
+  // SDL names its window 'NV2A' (nv2a_gl.c SDL_CreateWindow), which Emscripten writes into the tab's title: keep ours
+  const TAB_TITLE = document.title;
+  new MutationObserver(() => { if (document.title !== TAB_TITLE) document.title = TAB_TITLE; })
+    .observe(document.querySelector('title'), { childList: true, characterData: true, subtree: true });
+  // FPS overlay: presented frames (Module.mc3Frames, web/pre.js) over time, twice a second
+  let fpsTimer = 0, fpsLast = 0, fpsT = 0;
+  const setFps = on => {
+    $('fps-btn').setAttribute('aria-pressed', on);
+    store.set('fps', on);
+    $('fps').hidden = !on;
+    clearInterval(fpsTimer); fpsTimer = 0;
+    if (!on) return;
+    fpsLast = 0; fpsT = performance.now();
+    fpsTimer = setInterval(() => {
+      const f = window.Module?.mc3Frames?.(), now = performance.now();
+      if (f === undefined) return;
+      if (fpsLast) $('fps').textContent = ((f - fpsLast) * 1000 / (now - fpsT)).toFixed(0) + ' fps';
+      fpsLast = f; fpsT = now;
+    }, 500);
+  };
+  setFps(store.get('fps', false));
+  $('fps-btn').onclick = () => { setFps($('fps').hidden); $('canvas').focus(); };
+  $('touch-btn').onclick = () => { touch?.setOn(!touch.isOn()); $('canvas').focus(); };
+  window.MC3Touch?.noPinchZoom();
+  $('keys-btn').onclick = () => {
+    const p = $('keys-panel'); p.hidden = !p.hidden;
+    $('keys-btn').setAttribute('aria-expanded', !p.hidden);
+    $('canvas').focus();                         // the game keeps the keys
+  };
+  // Controller for this tab (sessionStorage: two tabs keep different choices). The runtime opens only the chosen
+  // pad as pad 1 (Module.mc3SetPad, web/pre.js). SDL numbers joysticks in connection order, so `order` mirrors it.
+  const padOrder = [];                                   // Gamepad.index in connection order
+  const padList = () => { const g = navigator.getGamepads?.() || []; return padOrder.filter(i => g[i]).map(i => g[i]); };
+  const padNow = () => { for (const g of navigator.getGamepads?.() || []) if (g && !padOrder.includes(g.index)) padOrder.push(g.index); };
+  const padKeys = pads => pads.map((g, n) => g.id + (pads.slice(0, n).some(p => p.id === g.id) ? '#' + pads.slice(0, n).filter(p => p.id === g.id).length : ''));
+  const padChoice = () => { try { return sessionStorage.getItem('mc3.pad') || 'auto'; } catch { return 'auto'; } };
+  const padShort = id => id.replace(/\s*\(.*$/, '');
+  window.applyPad = () => {
+    padNow();
+    const c = padChoice(), pads = padList(), keys = padKeys(pads);
+    const pos = c === 'auto' ? -2 : c === 'none' ? -1 : (keys.indexOf(c) < 0 ? 99 : keys.indexOf(c));
+    window.Module?.mc3SetPad?.(pos);
+    const label = c === 'auto' ? (pads[0] ? 'Auto: ' + padShort(pads[0].id) : 'Auto (none connected)')
+      : c === 'none' ? 'None (keyboard only)' : (pos >= 0 && pos < 99 ? padShort(pads[pos].id) + ' [' + pos + ']' : padShort(c.replace(/#\d+$/, '')) + ' (not connected)');
+    const html = ['<option value="auto">Auto (first connected)</option>']
+      .concat(keys.map((k, n) => '<option value="' + k.replace(/"/g, '&quot;') + '">' + (n + 1) + ': ' + padShort(pads[n].id).replace(/</g, '&lt;') + '</option>'),
+        c !== 'auto' && c !== 'none' && pos === 99 ? ['<option value="' + c.replace(/"/g, '&quot;') + '">' + padShort(c).replace(/</g, '&lt;') + ' (not connected)</option>'] : [],
+        ['<option value="none">None (keyboard only)</option>']).join('');
+    for (const el of [$('pad-sel'), $('pad-sel-bar')]) {
+      if (el.dataset.h !== html) { el.innerHTML = html; el.dataset.h = html; }
+      el.value = c;
+      el.title = 'Controller for this tab: ' + label + '. Only it drives pad 1 here; the keyboard works in the focused tab.';
+    }
+  };
+  for (const el of [$('pad-sel'), $('pad-sel-bar')])
+    el.onchange = () => { try { sessionStorage.setItem('mc3.pad', el.value); } catch {} window.applyPad(); if (el.id === 'pad-sel-bar') $('canvas').focus(); };
+  addEventListener('gamepadconnected', e => { if (!padOrder.includes(e.gamepad.index)) padOrder.push(e.gamepad.index); window.applyPad(); });
+  addEventListener('gamepaddisconnected', e => { const n = padOrder.indexOf(e.gamepad.index); if (n >= 0) padOrder.splice(n, 1); window.applyPad(); });
+  window.applyPad();
+  setInterval(window.applyPad, 1000);
+  // The log as Save log / Send log hand it out: a test deploy's password (the /k/<key>/ of its URLs) masked.
+  const logDump = () => (logText.join('\n') + '\n').replace(/\/k\/[^/\s"']+/g, '/k/***');
+  $('log-save').onclick = () => {
+    const name = 'mcdub3-web-log.txt', blob = new Blob([logDump()], { type: 'text/plain' });
+    // a phone: the share sheet (Save to Files, Mail, AirDrop); an iPhone's Safari may only open a blob download
+    const file = MC3Touch.isPhone() && typeof File == 'function' ? new File([blob], name, { type: 'text/plain' }) : null;
+    if (file && navigator.canShare?.({ files: [file] }))
+      navigator.share({ files: [file] }).catch(e => { if (e.name !== 'AbortError') download(blob, name); });
+    else download(blob, name);
+  };
+  // Send log (config.json logUrl, e.g. the disc Worker's /k/{key}/logs): the last 2 MB uploaded, a 6-letter code back
+  const LOG_MAX = 2 * 1024 * 1024;
+  $('log-send').onclick = async () => {
+    const b = $('log-send');
+    if (b.disabled) return;
+    b.disabled = true; b.textContent = 'Sending…';
+    try {
+      let bytes = new TextEncoder().encode(logDump());
+      if (bytes.length > LOG_MAX) bytes = new TextEncoder().encode('[page] log cut to its last 2 MB\n' + new TextDecoder().decode(bytes.subarray(bytes.length - LOG_MAX + 64)));
+      const r = await fetch(cfg.logUrl, { method: 'POST', body: bytes, headers: { 'Content-Type': 'text/plain; charset=utf-8' }, credentials: 'include' });
+      const code = r.ok ? (await r.json()).code : '';
+      if (!code) throw new Error('HTTP ' + r.status);
+      b.textContent = 'Log: ' + code;
+      runStatus(`Log sent: code ${code}`);
+      out(`[page] log sent: code ${code}`);
+    } catch (e) {
+      b.textContent = 'Send log';
+      runStatus('Log not sent: ' + (e.message || e), true);
+    } finally { b.disabled = false; }
+  };
+  $('quit').onclick = () => { if (confirm('Quit the game? Anything not saved in the game is lost.')) location.reload(); };
+  // --- who is online: the server's GET /lan/stats (counts only), every 15 s while the start page shows
+  const CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'];   // free-roam room ids 0..3 (0 = the default room)
+  function statsUrl() {
+    try {
+      const u = new URL(cfg?.lanUrl || `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/lan`, location.href);
+      u.protocol = u.protocol === 'wss:' ? 'https:' : 'http:';
+      u.pathname = u.pathname.replace(/\/$/, '') + '/stats';
+      return u.href;
+    } catch { return null; }
+  }
+  function onlineText(s) {
+    const rooms = s.freeRoam.rooms, ids = [...new Set([...CITIES.keys(), ...Object.keys(rooms).map(Number)])].sort((a, b) => a - b);
+    const city = id => `${CITIES[id] || 'City ' + id} ${rooms[id] || 0}`;
+    return `Online now: ${s.online} player${s.online === 1 ? '' : 's'} · Free roam: ${ids.map(city).join(' · ')}`;
+  }
+  async function showOnline() {
+    const els = [$('online-now'), $('online-now-tab')], url = statsUrl();
+    try {
+      if (!url) throw 0;
+      const r = await fetch(url, { cache: 'no-store' });
+      const s = await r.json();
+      if (!r.ok || !Number.isFinite(s.online) || !s.freeRoam?.rooms) throw 0;
+      for (const e of els) { e.textContent = onlineText(s); e.hidden = false; }
+    } catch { for (const e of els) e.hidden = true; }
+  }
+  setInterval(() => { if (!playing && !document.hidden) showOnline(); }, 15000);
+
+  // While playing, the game's keys must not act on the page: SDL takes them
+  // on the GL thread (proxied, so it cannot cancel them), and Tab moved the
+  // focus to Quit, where Enter or Space then pressed it.
+  const GAME_KEYS = new Set(['Tab', 'Enter', 'Space', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+  for (const t of ['keydown', 'keyup'])
+    addEventListener(t, e => { if (playing && GAME_KEYS.has(e.code) && !e.target.closest?.('#races-panel')) e.preventDefault(); }, true);
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter' || playing || e.repeat) return;
+    if (e.target.closest('input, select, textarea, button, a, summary')) return;
+    e.preventDefault(); play();
+  });
+  addEventListener('error', e => out('[page] ' + e.message));
+  initTabs();
+  preview();
+  loadConfig().then(() => { $('log-send').hidden = !cfg?.logUrl; lanUp(); showOnline(); return Promise.all([findDiscs(), findBuilds()]); }).then(pickInit);
+})();
+</script>
+</body>
+</html>

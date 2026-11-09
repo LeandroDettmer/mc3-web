@@ -1,0 +1,22 @@
+# The /lan switch Worker (src/index.js). Copy to a private folder as wrangler.toml, fill in your own values, then
+# `npx wrangler deploy` there with `main` pointing back at this folder's src/index.js. The page's config.json lanUrl
+# then names wss://<host>/lan.
+name = "mc3-lan"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+# account_id = "<your Cloudflare account id>"
+
+workers_dev = false
+preview_urls = false
+routes = [{ pattern = "lan.example.com", custom_domain = true }]
+
+[durable_objects]
+bindings = [{ name = "SWITCH", class_name = "Switch" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Switch"]   # SQLite-backed DO: available on the free plan; Switch keeps no storage beyond its alarm
+
+[vars]
+# the page's origins, exact scheme://host (any case), comma-separated; anything else gets 403; empty = any
+ALLOW_ORIGINS = "https://play.example.com"

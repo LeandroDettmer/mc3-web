@@ -1,0 +1,7 @@
+# Addresses tools/port_overrides.py cannot map by itself: DUB Edition -> Remix,
+# found by hand (2026-10-24). One per line: <dub> <remix>  # how it was found.
+0x002AB610 0x002DB4C0   # memmove (CRT): func_id names it in both lifts; its jump table differs
+0x0001B740 0x0001BC10   # loading-screen thread start: after the thread entry 0x0001B720 -> 0x0001BBF0; one extra argument, 0x4010-byte block (0x2010 in the DUB Edition)
+0x001962B3 0x001B1654   # heartbeat's Sleep(0): return address after call 0x0001735C at 0x001B164F in sub_001B15D0
+0x001962AC 0x001B164D   # the push 0 before it
+0x00012000 0x00012000   # start of .text, the same in both

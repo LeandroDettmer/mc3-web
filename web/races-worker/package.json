@@ -1,0 +1,9 @@
+{
+  "name": "mc3-races",
+  "private": true,
+  "type": "module",
+  "description": "Online Races list, rooms and WebRTC signalling on a Cloudflare Worker (docs/races-protocol.md, step 3)",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

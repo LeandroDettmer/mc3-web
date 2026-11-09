@@ -1,0 +1,9 @@
+{
+  "name": "mc3-lan",
+  "private": true,
+  "type": "module",
+  "description": "The /lan switch (System Link, race rooms, free-roam hub) on a Cloudflare Worker + Durable Object (web/server's wire contract)",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

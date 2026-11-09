@@ -1,0 +1,14 @@
+[
+ {
+  "start": "0x003AEA35",
+  "note": "Not a function: the second byte of 'sub edi, 8' (0x003AEA33) inside Bink's audio decoder sub_003AE8C0 (the DUB Edition's sub_00378640, one function there). Proposed as a call target by 'e8 80 47 00 00' at 0x003AA2B0, data in XGRPH's tail decoded as a call. As a start it cut the decoder in two, the half with the epilogue lifted on its own: BinkDoFrame returned 0x8128 bytes of stack short, the movie function popped zeros into esi/edi, and the game never left state 1 (no picture, 2026-10-24)."
+ },
+ {
+  "start": "0x00138CFB",
+  "note": "Not a function: the lahf of 'ucomiss xmm0, xmm3; lahf; test ah, 0x44; jp' inside sub_00138C60 (camera base). A tail_jump_alias with no jump to it; as a start it put a label between the compare and the lahf, so the lahf lost its flags and was dropped (2026-10-25)."
+ },
+ {
+  "start": "0x002C6C53",
+  "note": "Not a function: the lahf of 'ucomiss xmm0, [0x448990]; lahf; test ah, 0x44; jnp' inside sub_002C6300 (the player's camera control). A tail_jump_alias with no jump to it; as a start it cut the compare from its lahf, which was then dropped (2026-10-25)."
+ }
+]

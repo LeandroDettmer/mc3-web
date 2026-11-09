@@ -1,0 +1,10 @@
+{
+  "name": "mcdub3 web",
+  "short_name": "MC3 web",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0d0d0d",
+  "theme_color": "#0d0d0d"
+}
