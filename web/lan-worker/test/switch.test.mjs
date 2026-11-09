@@ -155,6 +155,18 @@ test('hub: HELLO + SNAP in, PEERS out as frames from 10.77.0.253:47210; {"t":"ro
   assert.equal(sw.hub.count, 1);
 });
 
+test('alarm only while someone plays: menu pages none, a hub player arms it', async () => {
+  const { ctx, sw, named } = setup();
+  const a = await named('Ann');
+  await named('Bob');
+  await a.say({ t: 'players', sub: 1 });
+  assert.equal(ctx.alarm, null);   // menu clients (their beats are auto-answered): the object may hibernate
+  await a.frame(udp(a.vip, HUB, [...hello(10, 'Ann', 7)], ROAM_PORT, ROAM_PORT));
+  assert.equal(sw.hub.count, 1);
+  await Promise.resolve();
+  assert.ok(ctx.alarm);
+});
+
 test('rooms: a room is its own LAN; free roam crosses rooms; signal inside only', async () => {
   const { named } = setup();
   const a = await named('Ann'), b = await named('Bob'), c = await named('Cy'), d = await named('Di'), e = await named('Ed');

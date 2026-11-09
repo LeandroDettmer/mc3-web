@@ -15,7 +15,10 @@
 // Cost (free tier): incoming WebSocket messages bill 20 to a request, outgoing are free. The hub's 500 ms tick is not
 // an alarm (two alarms a second would be 172,800 requests a day by themselves): it runs from the incoming messages,
 // at most every tick_ms, and every hub player sends at least a HELLO a second (roam_core.c T_HUB_HELLO), well inside
-// its 2.5 s grace (T_HUB_GRACE). The Lobby's 60 s alarm (idle expiry, armed only while clients exist) also ticks.
+// its 2.5 s grace (T_HUB_GRACE). The Lobby's 60 s alarm (idle expiry) also ticks; it runs only while there is work
+// (a race room or a hub player). Idle pages keep their link with {"t":"beat"} every 20 s, answered by the runtime's
+// auto-response without waking the object (web/lan.js), so with nobody in free roam or a race the object hibernates
+// and only real events (connects, closes, renames, room changes) wake it; each wake also sweeps the silent clients.
 // The hub and the rate buckets live in memory: lost when the object hibernates, which needs 10 s without a message,
 // so never during free roam; the hub refills from the next HELLOs.
 //
@@ -93,6 +96,7 @@ export class Switch extends Lobby {
   }
 
   async fetch(req) {
+    this.lazySweep();
     if (new URL(req.url).pathname === '/lan/stats') return Response.json(this.stats());
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('websocket only', { status: 426 });
     const want = Number(new URL(req.url).searchParams.get('vip')) >>> 0;
@@ -117,18 +121,21 @@ export class Switch extends Lobby {
     this.clients.set(vip, c);
     this.wsc.set(ws, c);
     this.send(vip, { t: 'welcome', vip, vipStr: vipStr(vip), mask: MASK >>> 0, mac: macStr(vip) });
-    this.arm();
     this.who(now);
     return true;
   }
 
   async webSocketMessage(ws, data, now = Date.now()) {
+    this.lazySweep(now);
     const c = this.byWs(ws);
     if (c) {
       if (typeof data !== 'string') this.frame(c, new Uint8Array(data), now);
-      else if (!this.control(c, data, now)) await super.webSocketMessage(ws, data);
+      else if (!this.control(c, data, now)) await super.webSocketMessage(ws, data, now);
     }
-    if (this.hub.count && now - this.ticked >= this.hub.opts.tick_ms) this.tick(now);
+    if (this.hub.count) {
+      if (!this.armed) this.arm();
+      if (now - this.ticked >= this.hub.opts.tick_ms) this.tick(now);
+    }
     this.who(now);
   }
 
@@ -214,6 +221,8 @@ export class Switch extends Lobby {
     await super.alarm(now);
     this.who(now);
   }
+
+  busy() { return this.hub.count > 0 || super.busy(); }
 
   drop(c) {
     const live = this.clients.get(c.a.vip) === c;

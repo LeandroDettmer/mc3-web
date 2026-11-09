@@ -1,6 +1,7 @@
 // The Lobby Durable Object driven with fake hibernatable WebSockets (node --test test/). No Cloudflare runtime needed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import worker, { Lobby, clean } from '../src/index.js';
 
 class FakeWs {
@@ -138,18 +139,49 @@ test('signal relayed only within a room', async () => {
 test('expiry: silent clients dropped by the alarm, beats keep them', async () => {
   const { ctx, lobby, join } = setup();
   const a = await join('Ann'), b = await join('Bob'), c = await join('Cy');
-  assert.ok(ctx.alarm);
+  assert.equal(ctx.alarm, null);   // menu clients only: no alarm, the object may hibernate
   await a.say({ t: 'create', name: 'r' });
+  assert.ok(ctx.alarm);            // a room: the sweep alarm runs
   await b.say({ t: 'join', room: a.ws.last('room').room.id });
   const now = Date.now() + 130e3;
   ctx.beats.set(b.ws, new Date(now - 10e3));   // b's beats were auto-answered
   ctx.beats.set(c.ws, new Date(now - 10e3));
+  ctx.alarm = null;                // fired
   await lobby.alarm(now);
   assert.deepEqual(a.ws.closed, [4000, 'idle']);
   assert.deepEqual(b.ws.last('left'), { t: 'left', room: a.ws.last('room').room.id, why: 'closed' });
   assert.equal(b.ws.closed, null);
   assert.equal(lobby.clients.size, 2);
-  assert.ok(ctx.alarm);
+  assert.equal(ctx.alarm, null);   // the room went: not re-armed
+});
+
+test('beats: the page sends the exact text the runtime auto-answers', async () => {
+  const pairs = [];
+  globalThis.WebSocketRequestResponsePair = class { constructor(req, res) { this.req = req; this.res = res; } };
+  try {
+    const ctx = fakeCtx();
+    ctx.setWebSocketAutoResponse = p => pairs.push(p);
+    new Lobby(ctx, {});
+  } finally { delete globalThis.WebSocketRequestResponsePair; }
+  assert.deepEqual(pairs.map(p => [p.req, p.res]), [['{"t":"beat"}', '{"t":"beat"}']]);
+  const page = await readFile(new URL('../../lan.js', import.meta.url), 'utf8');
+  assert.ok(page.includes(`var BEAT = '{"t":"beat"}';`), 'web/lan.js BEAT must match the auto-response');
+});
+
+test('lazy sweep: a wake drops clients silent past IDLE_MS (no alarm needed)', async () => {
+  const { ctx, lobby, join } = setup();
+  const a = await join('Ann'), b = await join('Bob');
+  const now = Date.now() + 130e3;
+  ctx.beats.set(b.ws, new Date(now - 5e3));   // b only beats (auto-answered, never delivered)
+  lobby.swept = 0;
+  lobby.lazySweep(now);
+  assert.deepEqual(a.ws.closed, [4000, 'idle']);
+  assert.equal(b.ws.closed, null);
+  assert.equal(lobby.clients.size, 1);
+  lobby.clients.get(b.vip).a.last = 0; ctx.beats.delete(b.ws);
+  lobby.lazySweep(now + 1000);   // within SWEEP_MS of the last sweep: skipped
+  assert.equal(lobby.clients.size, 1);
+  assert.equal(ctx.alarm, null);
 });
 
 test('socket close drops the client; state survives hibernation', async () => {

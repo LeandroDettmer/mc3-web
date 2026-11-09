@@ -23,7 +23,11 @@ window.mc3Lan = function (name, lanUrl) {
   var url = lanUrl || (location.protocol == 'https:' ? 'wss://' : 'ws://') + location.host + '/lan';
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
                players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null };
-  var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, sub = 1, rejoin = null, pass = '', auto = false;
+  var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, rejoin = null, pass = '', auto = false;
+  // The keep-alive: the Cloudflare switch's runtime answers this exact text itself (setWebSocketAutoResponse,
+  // web/races-worker/src/index.js BEAT), so an idle page never wakes its Durable Object. web/server ignores it: until
+  // a beat comes back, the page sends {"t":"ping"} instead (answered with a pong by every switch).
+  var BEAT = '{"t":"beat"}';
   function changed() { fns.forEach(function (f) { try { f(link); } catch (e) { console.error(e); } }); }
   function up() { return ws && ws.readyState == 1; }
   function hello() { ws.send(JSON.stringify({ t: 'hello', name: name || '', lan: 1 })); }
@@ -44,16 +48,18 @@ window.mc3Lan = function (name, lanUrl) {
       if (sub) ws.send(JSON.stringify({ t: 'rooms', sub: 1 }));
       ws.send(JSON.stringify({ t: 'players', sub: 1 }));
       if (rejoin) { auto = true; ws.send(JSON.stringify({ t: 'join', room: rejoin.id, pass: rejoin.pass })); }
-      // keeps an idle page joined (the server's IDLE, proxies); a ping, so a dead link shows as no pong
+      ws.send(BEAT);   // does this switch answer beats?
+      // keeps an idle page joined (the server's IDLE, proxies); answered, so a dead link shows as silence
       beat = setInterval(function () {
         if (me.readyState != 1) return;
-        if (pongs && Date.now() - heard > 50000) { try { me.close(4000, 'no answer'); } catch (_) {} lost(me); return; }   // a dead TCP closes late
-        me.send(JSON.stringify({ t: 'ping', id: Date.now() }));
+        if ((pongs || beats) && Date.now() - heard > 50000) { try { me.close(4000, 'no answer'); } catch (_) {} lost(me); return; }   // a dead TCP closes late
+        me.send(beats ? BEAT : JSON.stringify({ t: 'ping', id: Date.now() }));
       }, 20000);
     };
     ws.onmessage = function (e) {
       heard = Date.now();
       if (typeof e.data != 'string') { link.recv++; if (link.onframe) link.onframe(new Uint8Array(e.data)); return; }
+      if (e.data === BEAT) { beats = true; return; }
       var m;
       try { m = JSON.parse(e.data); } catch (_) { return; }
       if (m.t == 'welcome') { tries = 0; link.vip = m.vip >>> 0; link.vipStr = m.vipStr; link.mac = m.mac; link.state = 'online'; changed(); }

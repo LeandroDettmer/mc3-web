@@ -8,8 +8,10 @@
 // memory and costs nothing; `{"t":"beat"}` is answered by the runtime's auto-response (`{"t":"beat"}` echoed) without
 // waking it. Nothing is kept in storage: each socket carries its client in its attachment, and a room's settings
 // (and password verifier) ride in its host's attachment, since a room dies with its host. After a wake the
-// constructor rebuilds everything from the sockets. An alarm every 60 s while clients exist expires those silent
-// for 120 s (their last message, or the last auto-answered beat).
+// constructor rebuilds everything from the sockets. Clients silent for 120 s (their last message, or the last
+// auto-answered beat) are expired by a sweep: on any wake (a connect, a message, at most every 60 s), and by an alarm
+// every 60 s only while there is work (a room exists; the /lan switch adds free roam). Clients that only sit in the
+// menus (beats) set no alarm, so the object stays hibernated between real events.
 // shortcut: one Lobby for all rooms (fine for hundreds of rooms / a few thousand sockets); shard by room id + an index
 // DO when one object's CPU or 32k sockets become the limit.
 //
@@ -60,6 +62,7 @@ export class Lobby {
 
   async fetch(req) {
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('websocket only', { status: 426 });
+    this.lazySweep();   // a ghost's address and room go before the newcomer's welcome
     const [client, server] = Object.values(new WebSocketPair());
     if (!this.connect(server, req.headers.get('CF-Connecting-IP') || '')) return new Response('server full', { status: 503 });
     return new Response(null, { status: 101, webSocket: client });
@@ -76,11 +79,11 @@ export class Lobby {
     ws.serializeAttachment(a);
     this.clients.set(vip, { ws, a });
     this.send(vip, { t: 'welcome', vip, vipStr: vipStr(vip), mask: MASK >>> 0, mac: macStr(vip) });
-    this.arm();
     return true;
   }
 
-  async webSocketMessage(ws, data) {
+  async webSocketMessage(ws, data, now = Date.now()) {
+    this.lazySweep(now);
     const c = this.byWs(ws);
     if (!c || typeof data !== 'string' || data.length > LIMITS.msg) return;
     c.a.last = Date.now();
@@ -105,6 +108,14 @@ export class Lobby {
 
   async alarm(now) {
     if (typeof now !== 'number') now = Date.now();   // the runtime passes alarmInfo {retryCount, isRetry}; tests a time
+    this.sweep(now);
+    this.armed = false;
+    await this.arm(true);
+  }
+
+  /** Drops the clients silent for IDLE_MS: no message and no auto-answered beat. */
+  sweep(now = Date.now()) {
+    this.swept = now;
     for (const c of [...this.clients.values()]) {
       let beat = 0;
       try { beat = this.ctx.getWebSocketAutoResponseTimestamp(c.ws)?.getTime() || 0; } catch {}
@@ -113,9 +124,11 @@ export class Lobby {
         try { c.ws.close(4000, 'idle'); } catch {}
       }
     }
-    this.armed = false;
-    await this.arm(true);
   }
+  /** The sweep on a wake, at most every SWEEP_MS (no alarm runs while only menu clients are connected). */
+  lazySweep(now = Date.now()) { if (!(now - (this.swept || 0) < SWEEP_MS)) this.sweep(now); }
+  /** Work that needs the alarm: a room (its members' liveness). */
+  busy() { for (const c of this.clients.values()) if (c.a.room) return true; return false; }
 
   // --- rooms ---
 
@@ -135,6 +148,7 @@ export class Lobby {
     this.save(c);
     this.roomChanged(id);
     this.listChanged();
+    this.arm();
   }
 
   async join(c, m) {
@@ -154,6 +168,7 @@ export class Lobby {
     this.save(c);
     this.roomChanged(c.a.room);
     this.listChanged();
+    this.arm();
   }
 
   /** Out of the current room (why: the `left` reason to send it, null = none). quiet: the caller announces the list. */
@@ -218,7 +233,7 @@ export class Lobby {
   err(c, op, code) { this.send(c.a.vip, { t: 'error', op, code }); }
   async arm(force = false) {
     if (this.armed && !force) return;
-    if (!this.clients.size) return;
+    if (!this.busy()) return;
     this.armed = true;
     if (force || !(await this.ctx.storage.getAlarm())) await this.ctx.storage.setAlarm(Date.now() + SWEEP_MS);
   }
