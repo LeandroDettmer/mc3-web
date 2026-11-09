@@ -1204,10 +1204,16 @@ static DWORD WINAPI ohci_thread(LPVOID unused)
          * HcDoneHead, it found none, took the dummy tail TD for them and
          * followed its link (0xFFFFFFFF) forever at DISPATCH with the lock
          * held (Remix sub_00446674 -> sub_004464D4): the freeze at the cruise
-         * loading screen, when XInput closes its pads (2026-11-06, browser). */
+         * loading screen, when XInput closes its pads (2026-11-06, browser).
+         * Nor while a list already in HccaDoneHead is unacked: published and
+         * the frame advanced in one pass, the ISR (sub_00446259) handed the
+         * DPC SF and WDH together, and the cancel ran before the done list
+         * was walked -- the same freeze, rarer, on a heavy cruise load
+         * (2026-11-09, free roam rejoin). The DPC clears WDH; the next tick
+         * starts the frame. */
         xbox_gil_enter();
         ohci_flush_done(hc);
-        if (!(hc->reg[HcDoneHead / 4] && (hc->reg[HcInterruptStatus / 4] & INTR_WDH)))
+        if (!((hc->reg[HcInterruptStatus / 4] & INTR_WDH) && (enable & INTR_WDH)))
 #endif
         {
             uint32_t hcca = hc->reg[HcHCCA / 4];
