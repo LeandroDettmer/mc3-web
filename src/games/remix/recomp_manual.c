@@ -2328,12 +2328,14 @@ static int state_trace_on(void)
 }
 static int roam_room(void);                     /* free roam: the city is the room (roam_game.c) */
 static void online_car_picked(void);            /* the Online profile keeps the car picked (below) */
+static void roam_race_over(uint32_t esp);       /* free roam: which way RACE OVER came (roam_cars.c) */
 extern void sub_00020E40_gen(void);
 void sub_00020E40(void)
 {
     if (state_trace_on())
         fprintf(stderr, "[STATE] request %u (state %u) from %08X\n", MEM32(g_esp + 4),
                 MEM32(g_ecx + 4), MEM32(g_esp));
+    roam_race_over(g_esp);
     roam_room();                                 /* the city picked (free roam room), before the load */
     online_car_picked();                         /* a car picked on the setup screen, before the load */
     sub_00020E40_gen();

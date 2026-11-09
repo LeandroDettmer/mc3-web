@@ -111,7 +111,8 @@ static uint32_t s_cars_need;                    /* a linked peer without a car (
 static uint32_t s_car_cost;                     /* heap bytes the last car took */
 static double s_cars_next;                      /* no build/rebuild before */
 static uint32_t s_cars_said;                    /* reasons already logged */
-enum { CARS_SAY_HEAP = 1, CARS_SAY_MAX = 2, CARS_SAY_POOL = 4, CARS_SAY_PHYS = 8, CARS_SAY_FAIL = 16 };
+enum { CARS_SAY_HEAP = 1, CARS_SAY_MAX = 2, CARS_SAY_POOL = 4, CARS_SAY_PHYS = 8, CARS_SAY_FAIL = 16,
+       CARS_SAY_PAGEIN = 32 };
 
 /* Remote cars shown at most, slots included: MC3_ROAM_CARS, else by the window. */
 static int roam_cars_total(void)
@@ -472,6 +473,130 @@ static void roam_cars_net(const roam_peer *peers, int n, const uint8_t *used, do
     }
 }
 
+/* ── The cruise's own end (RACE OVER) in Free Roam ──
+ *
+ * RACE OVER is sub_00023C80 (this = [0x4CBAE0]): [this+0x38] = 1, the
+ * MenuRaceOver screen (sub_00154980, "EndReplay"), state request 0xF
+ * (sub_00020E40 from 0x00023CA5). Three ways reach it: sub_00023D00 (from
+ * 0x00023D2B: the replay's playback ended, sub_0002DAC0 -> sub_0020EB90),
+ * sub_00023E30 (from 0x00023E5B) and the race flow's phase 7 (from
+ * 0x001C3830). The race flow ([0x557EEC], vtable 0x4691B8; request vt+4
+ * sub_001C22D0, update vt+8 sub_001C3610, enter vt+0x18 sub_001C3B70: phase
+ * at +4 and +0x48, timer at +8) enters phase 7 when the race rules say the
+ * race is over (a racer finished or was eliminated: sub_001C5C30,
+ * sub_001D6680 the cruise's challenge end, sub_001DA070, sub_001DD600,
+ * sub_001E1580; each walks the racers [0x558838] (count +0x28) and the
+ * rules' per-racer records [[[0x533E24]+4]+0x65C]); phase 7's update, with
+ * no System Link session ([[0x557EFC]+0x10] < 0) and the state machine in 3,
+ * opens RACE OVER once its timer passes [0x469230]. Phase 6 is the cruise
+ * driving (enter: timer 0). The cruise's rules are vtable 0x46A7D8 (ctor
+ * 0x001D6E2F, update vt+0x34 sub_001D8F20).
+ *
+ * In Free Roam the cruise ends only when the player picks it (pause menu):
+ * a race flow found in phase 7 goes back to the phase it was in (written,
+ * not requested: phase 6's enter only zeroes the timer), its timer 0, and
+ * the racers' records are logged ('[ROAM] race over held'). A RACE OVER
+ * request that still comes is logged with its way (roam_race_over).
+ * MC3_ROAM_RACEOVER=1 lets the game end it (logs only). */
+#define ROAM_FLOW_VA   0x00557EECu      /* the race flow */
+#define ROAM_RULES_VA  0x00533E24u      /* +4: the race rules */
+#define ROAM_RACERS_VA 0x00558838u      /* the racers, count +0x28 */
+
+static int roam_free_cruise(void)
+{
+    return s_online && MEM32(0x0050F14Cu) == 0 && s_roam_slots > 0 && online_ram(MEM32(ROAM_PM_VA));
+}
+
+static void roam_racers_log(void)
+{
+    uint32_t hold = MEM32(ROAM_RULES_VA), rules = online_ram(hold) ? MEM32(hold + 4u) : 0, racers = MEM32(ROAM_RACERS_VA);
+    uint32_t arr = online_ram(rules) ? MEM32(rules + 0x65Cu) : 0, n = online_ram(racers) ? MEM32(racers + 0x28u) : 0, i, e;
+    fprintf(stderr, "[ROAM] racers: rules %08X (vtable %08X), %u racers, setup count %u:", (unsigned)rules,
+            online_ram(rules) ? (unsigned)MEM32(rules) : 0u, (unsigned)n,
+            online_ram(MEM32(ROAM_SETUP_VA)) ? (unsigned)MEM32(MEM32(ROAM_SETUP_VA) + 0x4Cu) : 0u);
+    for (i = 0; i < n && i < 16 && online_ram(arr); i++) {
+        e = MEM32(arr + 4u * i);
+        if (online_ram(e))
+            fprintf(stderr, " [%u] %02X %02X %02X %02X", (unsigned)i, MEM8(e + 4u), MEM8(e + 5u), MEM8(e + 6u), MEM8(e + 7u));
+    }
+    fprintf(stderr, " (bytes +4 done, +7 out)\n");
+}
+
+/* Each frame, after the physics step: the race flow kept out of phase 7. */
+static void roam_flow_watch(void)
+{
+    static int let = -1, said;
+    static uint32_t last, held;
+    uint32_t flow = MEM32(ROAM_FLOW_VA), sm = MEM32(0x00557ED0u), ph;
+    if (!roam_free_cruise() || !online_ram(flow)) {
+        last = 0;
+        return;
+    }
+    if (let < 0) {
+        const char *e = getenv("MC3_ROAM_RACEOVER");
+        let = e && e[0] == '1';
+    }
+    ph = MEM32(flow + 4u);
+    if (ph == last)
+        return;
+    if (said < 20) {
+        said++;
+        fprintf(stderr, "[ROAM] race flow: phase %u -> %u (state %u)\n", (unsigned)last, (unsigned)ph,
+                online_ram(sm) ? (unsigned)MEM32(sm + 4u) : 0u);
+        if (ph == 7u)
+            roam_racers_log();
+    }
+    if (ph == 7u && last && !let) {             /* the race is not over in Free Roam */
+        MEM32(flow + 4u) = last;
+        MEM32(flow + 0x48u) = last;
+        MEMF(flow + 8u) = 0.0f;
+        if (++held <= 5u || held % 300u == 0)
+            fprintf(stderr, "[ROAM] race over held (%u): the race flow back in phase %u (MC3_ROAM_RACEOVER=1 lets "
+                            "it end)\n", (unsigned)held, (unsigned)last);
+        return;
+    }
+    last = ph;
+}
+
+/* The state machine's request (sub_00020E40, thiscall (n), ret 4; esp at its
+ * return address): RACE OVER's (0xF from 0x00023CA5) says which way came. */
+static void roam_race_over(uint32_t esp)
+{
+    uint32_t from, flow = MEM32(ROAM_FLOW_VA);
+    if (MEM32(esp) != 0x00023CA5u || MEM32(esp + 4u) != 0xFu || !roam_free_cruise())
+        return;
+    from = MEM32(esp + 0x10u);                  /* sub_00023C80's caller (it pushed esi, edi) */
+    fprintf(stderr, "[ROAM] RACE OVER asked from %08X (%s), race flow phase %u timer %.2f, race type %u\n",
+            (unsigned)from,
+            from == 0x00023D2Bu ? "sub_00023D00: the replay check" :
+            from == 0x00023E5Bu ? "sub_00023E30" :
+            from == 0x001C3830u ? "race flow phase 7" : "?",
+            online_ram(flow) ? (unsigned)MEM32(flow + 4u) : 0u, online_ram(flow) ? MEMF(flow + 8u) : 0.0f,
+            online_ram(MEM32(ROAM_SETUP_VA)) ? (unsigned)MEM32(MEM32(ROAM_SETUP_VA) + 0x18u) : 0u);
+    roam_racers_log();
+}
+
+/* Another thread inside a resource page-in ([0x500F10] set): a car built
+ * now would page in through its context ("Invalid type in
+ * rmcShaderFactory", as roam_swap waits). 1: wait; 3 s at most, in case the
+ * top is left set. */
+static int roam_cars_pagein(double now)
+{
+    static double since;
+    if (!MEM32(ROAM_PAGEIN_VA)) {
+        since = 0;
+        return 0;
+    }
+    if (!since)
+        since = now;
+    if (now - since >= 3.0)
+        return 0;
+    if (roam_cars_say(CARS_SAY_PAGEIN))
+        fprintf(stderr, "[ROAM] cars: build waits: a resource page-in is in flight ([0x500F10] %08X; logged once)\n",
+                (unsigned)MEM32(ROAM_PAGEIN_VA));
+    return 1;
+}
+
 /* After the physics step (sub_002BDEC0): at most one build or rebuild, then
  * every car's pose, inputs, collisions, or its parking spot. */
 static void roam_cars_frame(void)
@@ -480,11 +605,12 @@ static void roam_cars_frame(void)
     float me[12], m[12], vel[3], d[3], dist, f;
     double now;
     int i, k;
+    roam_flow_watch();
     if (!s_cars_on || !s_roam_nhist || !online_ram(MEM32(ROAM_PM_VA)))
         return;
     now = roam_now();
     memcpy(me, s_roam_hist[(s_roam_nhist - 1) % ROAM_HIST].m, sizeof me);
-    if (!s_cars_hold && now >= s_cars_next) {
+    if (!s_cars_hold && now >= s_cars_next && !roam_cars_pagein(now)) {
         uint8_t blob[ROAM_CFG_SIZE + 4];
         for (i = 0; i < s_ncar && !(s_car[i].veh && s_car[i].want && s_car[i].here); i++)
             ;
