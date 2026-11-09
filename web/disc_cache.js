@@ -194,5 +194,5 @@ var MC3DiscCache = (() => {
     };
   }
 
-  return { BLOCK, blockLen, discName, key, manifest, dir, open, close, put, fetchBlock, scan, clear, enabled, setForce, use };
+  return { BLOCK, blockLen, discName, key, fileUrl, manifest, dir, open, close, put, fetchBlock, scan, clear, enabled, setForce, use };
 })();

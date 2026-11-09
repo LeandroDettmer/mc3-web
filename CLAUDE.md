@@ -179,7 +179,12 @@ generated files when the lift inputs did not change.
   straight to HTTP. `?MC3_DISC_CACHE=1` / `=0` forces it. A predownload
   worker fetches the whole disc on the page's click only, 3 connections,
   and stops when a game starts (BroadcastChannel 'mc3-disc'); a read with no
-  answer for 15 s is tried again and logged. Emscripten's own WASMFS fetch
+  answer for 15 s is tried again and logged. In game, the disc thread
+  fills the streamed sound banks (audio/XStreams/*.xwb, 486 MiB; music
+  mx.xwb 364 MiB: a track change fetched on demand stalled the game) into
+  the cache in the background (2026-11-09, untested): 15 s after boot, one
+  block at a time, only after 300 ms without a game read on the network;
+  '[WEB] prefetch: ...' lines. Emscripten's own WASMFS fetch
   backend left stale data across chunks, hence our backend.
 - **Input:** SDL keyboard/Gamepad on the GL thread; a key tap is held at
   least 120 ms (a down+up in one rAF pump was lost by the menus).
