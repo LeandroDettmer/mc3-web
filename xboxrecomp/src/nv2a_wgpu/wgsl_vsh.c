@@ -104,7 +104,10 @@ static const char s_prelude[] =
      * y negated (row 0 at NDC +1), z in 0..w as nv2a_vk. A widened target
      * (Hor+, D.aa.w = 1/k, wgpu_surf.c RECOMP_ASPECT): x squeezed into the
      * middle 1/k, but a 2D vertex (pre-transformed, or w = 1) within a pixel
-     * of the frame's left or right edge stays on the edge. */
+     * of the frame's left or right edge, or beyond it, stays where it is.
+     * D.aa.w < 0: squeeze every vertex (a clip narrower than the frame, or
+     * a pre-transformed draw that does not span the frame: wgpu_draw.c
+     * wide_full_2d). */
     "fn nv2a_clip(r: u32, s: vec3f, w: f32) -> vec4f {\n"
     "  let surf = D[r].surf;\n"
     "  let z = s.z * surf.z;\n"

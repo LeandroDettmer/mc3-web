@@ -2959,7 +2959,7 @@ static uint32_t s_cull_clip[4], s_cull_boxed, s_cull_inline;
 static int cull_offscreen(uint32_t lo, uint32_t nv, int vp)
 {
     float bmin[3], bmax[3];
-    float sx0 = INFINITY, sx1 = -INFINITY, sy0 = INFINITY, sy1 = -INFINITY;
+    float sx0 = INFINITY, sx1 = -INFINITY, sy0 = INFINITY, sy1 = -INFINITY, cx0, cx1;
     const VpcProg *p = NULL;
     int k, dsign = 0;
     const float margin = 2.0f;
@@ -3037,8 +3037,25 @@ static int cull_offscreen(uint32_t lo, uint32_t nv, int vp)
     s_cull_clip[2] = s_gpu.clip_w; s_cull_clip[3] = s_gpu.clip_h;
     s_cull_boxed = 1;
     s_cull_inline = s_gpu.inline_active;
-    return sx1 < (float)s_gpu.clip_x - margin
-        || sx0 > (float)(s_gpu.clip_x + s_gpu.clip_w) + margin
+    cx0 = (float)s_gpu.clip_x;
+    cx1 = (float)(s_gpu.clip_x + s_gpu.clip_w);
+#ifdef __EMSCRIPTEN__
+    {
+        /* Hor+ (nv2a_wgpu, RECOMP_ASPECT): a 16:9 frame shows k times its
+         * width, squeezed about its middle, so what lies beside the title's
+         * clip is on screen too. Tested against the narrow clip, every batch
+         * wholly in the side areas was dropped here (MC3: buildings and
+         * props missing at the sides). Too wide only costs draws. */
+        extern float nv2a_wgpu_wide(void);
+        float k = nv2a_wgpu_wide(), mid = 0.5f * (cx0 + cx1);
+        if (k > 1.0f && (float)s_gpu.clip_w > 640.0f * s_gpu.aa_sx) {
+            cx0 = mid - 0.5f * k * (float)s_gpu.clip_w;
+            cx1 = mid + 0.5f * k * (float)s_gpu.clip_w;
+        }
+    }
+#endif
+    return sx1 < cx0 - margin
+        || sx0 > cx1 + margin
         || sy1 < (float)s_gpu.clip_y - margin
         || sy0 > (float)(s_gpu.clip_y + s_gpu.clip_h) + margin;
 behind:

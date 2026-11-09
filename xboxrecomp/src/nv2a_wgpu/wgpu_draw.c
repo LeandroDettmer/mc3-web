@@ -15,6 +15,7 @@
 #include "wgpu_int.h"
 #include "../nv2a_gl/gl_vsh.h"          /* nv2a_ffp_fog_uniforms */
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -309,6 +310,31 @@ static uint32_t k_rows(const float (*rows)[4], uint32_t n, float (*cache)[4],
     return *off;
 }
 
+/* Hor+ (nv2a_clip's edge rule): does a pre-transformed draw reach both the
+ * left and the right edge of a frame pw title pixels wide (a full-screen
+ * quad, fade, post pass)? Only those keep their edge vertices on the
+ * widened frame's edges. Any other 2D draw is squeezed whole: the edge rule
+ * left every vertex beyond the 16:9 frame unsqueezed, so sprites the title
+ * projected into the side areas (light glows, flares) were thrown k times
+ * further out or smeared from the middle to the edge. Position: attribute
+ * 0, floats, x in title pixels. Another format, or a big draw: kept as it
+ * was (full). */
+static int wide_full_2d(const Nv2aRawBatch *b, float pw)
+{
+    const uint8_t *p = b->direct[0].ptr;
+    uint32_t i, n = b->vertex_count;
+    float x0 = INFINITY, x1 = -INFINITY, x;
+
+    if (!(b->attr_present & b->attr_direct & 1u) || !p || b->direct[0].type != 2 || n > 4096)
+        return 1;
+    for (i = 0; i < n; i++, p += b->direct[0].stride) {
+        memcpy(&x, p, 4);
+        if (x < x0) x0 = x;
+        if (x > x1) x1 = x;
+    }
+    return x0 <= 1.0f && x1 >= pw - 1.0f;
+}
+
 static uint32_t elem_bytes(uint32_t type, uint32_t size)
 {
     switch (type) {
@@ -530,6 +556,8 @@ void wdraw_batch(const Nv2aRawBatch *b)
          * full-screen quad lives in such a pass: squeeze every vertex (< 0). */
         uint32_t cw = (r[0x200 / 4] >> 16) * (b->aa_sx > 0 ? (uint32_t)b->aa_sx : 1u);
         if (d.rec.aa[3] > 0.0f && cw && cw < (uint32_t)pw)
+            d.rec.aa[3] = -d.rec.aa[3];
+        else if (d.rec.aa[3] > 0.0f && b->xform == 0 && !wide_full_2d(b, pw))
             d.rec.aa[3] = -d.rec.aa[3];
     }
     memcpy(d.rec.vpoff, b->vp_offset, sizeof d.rec.vpoff);
