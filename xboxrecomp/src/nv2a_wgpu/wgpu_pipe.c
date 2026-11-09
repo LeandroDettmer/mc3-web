@@ -20,6 +20,14 @@
  * ends the list there (the file is rewritten to its good part).
  * RECOMP_WGPU_PREWARM=0: no prewarm (the list is still kept), =<n>
  * pipelines a frame (default 16). RECOMP_WGPU_PIPE_CACHE=0: no file.
+ *
+ * The seed: a deploy may ship a list made in the owner's browser beside its
+ * module (<app>-pipes-seed.bin); the start page copies it to
+ * /opfs/cache/wgpu-pipes-seed.bin before the game starts (web/index.html,
+ * which also saves a browser's list as a seed: mc3ExportPipes()). At load
+ * the seed's records missing from the player's list are appended to it
+ * (indices remapped), so a first visit prewarms what the owner met. A seed
+ * with another header is ignored.
  */
 #include "wgpu_int.h"
 #include "nv2a_wgpu.h"
@@ -107,6 +115,7 @@ static void wp_put(WpTab *t, uint64_t h, const void *key, uint32_t len, uint32_t
 #define WP_EMIT_VERSION 1
 #define WP_MAGIC        0x50504757u     /* "WGPP" */
 #define WP_PATH         "/opfs/cache/wgpu-pipes.bin"
+#define WP_SEED_PATH    "/opfs/cache/wgpu-pipes-seed.bin"
 #define WP_MAX_BYTES    (32u << 20)     /* larger: something is wrong, start anew */
 #define WP_SAVE_FRAMES  30              /* new records are written at most this often */
 
@@ -223,14 +232,138 @@ static void wp_load_rec(uint32_t type, const uint8_t *p, uint32_t n)
     }
 }
 
+/* A list file's body (after a header like ours), or NULL: missing, too
+ * large, another header (logged) or unreadable. */
+static uint8_t *wp_read(const char *path, const char *what, uint32_t *len)
+{
+    uint32_t h[5], want[5];
+    uint8_t *buf = NULL;
+    long size = 0;
+    FILE *f = fopen(path, "rb");
+
+    *len = 0;
+    if (!f)
+        return NULL;
+    if (fseek(f, 0, SEEK_END) == 0)
+        size = ftell(f);
+    rewind(f);
+    wp_hdr(want);
+    if (size >= (long)sizeof h && size <= (long)WP_MAX_BYTES
+        && fread(h, sizeof h, 1, f) == 1 && !memcmp(h, want, sizeof h)) {
+        size -= (long)sizeof h;
+        buf = (uint8_t *)malloc(size ? (size_t)size : 1);
+        if (buf && size && fread(buf, (size_t)size, 1, f) != 1) {
+            free(buf);
+            buf = NULL;
+        }
+        *len = (uint32_t)size;
+    } else if (size) {
+        fprintf(stderr, "  [WGPU] pipeline %s %s: another version or damaged (%ld bytes): %s\n",
+                what, path, size, strcmp(path, WP_PATH) ? "ignored" : "started anew");
+    }
+    fclose(f);
+    return buf;
+}
+
+static int wp_out(uint32_t type, const void *p, uint32_t n)
+{
+    uint32_t w = type | n << 8, need = s_out_len + 4 + ((n + 3) & ~3u);
+    if (need > s_out_cap) {
+        uint32_t cap = s_out_cap ? s_out_cap : 4096;
+        uint8_t *b;
+        while (cap < need)
+            cap *= 2;
+        b = (uint8_t *)realloc(s_out, cap);
+        if (!b) {
+            s_cache = -1;               /* stop listing: the indices would drift */
+            return 0;
+        }
+        s_out = b;
+        s_out_cap = cap;
+    }
+    memcpy(s_out + s_out_len, &w, 4);
+    memcpy(s_out + s_out_len + 4, p, n);
+    memset(s_out + s_out_len + 4 + n, 0, ((n + 3) & ~3u) - n);
+    s_out_len = need;
+    return 1;
+}
+
+/* A module key's place in the list, added (and queued for the file) if
+ * new. 0: listing stopped (out of memory). */
+static int wp_add_shader(uint32_t type, const void *key, uint32_t n, uint32_t *idx)
+{
+    WpTab *t = type == 'V' ? &s_fv_tab : &s_ff_tab;
+    uint32_t *count = type == 'V' ? &s_nv : &s_nf;
+    uint64_t h = wp_hash(key, n);
+    WpEnt *e = wp_find(t, h, key, n);
+
+    if (e) {
+        *idx = e->id;
+        return 1;
+    }
+    if (!wp_out(type, key, n))
+        return 0;
+    *idx = (*count)++;
+    wp_put(t, h, key, n, *idx);
+    return 1;
+}
+
+/* A pipeline record, added if new: 1 if added. */
+static int wp_add_pipe(const WpFilePipe *fp)
+{
+    uint64_t h = wp_hash(fp, sizeof *fp);
+    if (wp_find(&s_fp_tab, h, fp, sizeof *fp) || !wp_out('P', fp, sizeof *fp))
+        return 0;
+    wp_put(&s_fp_tab, h, fp, sizeof *fp, s_np++);
+    return 1;
+}
+
+/* The seed's merge: its module indices -> the list's. */
+static uint32_t *s_sd_v, *s_sd_f, s_sd_nv, s_sd_nf, s_sd_new;
+
+static void wp_seed_rec(uint32_t type, const uint8_t *p, uint32_t n)
+{
+    WpFilePipe fp;
+    if (s_cache <= 0)
+        return;
+    if (type == 'V') {
+        wp_add_shader(type, p, n, &s_sd_v[s_sd_nv++]);
+    } else if (type == 'F') {
+        wp_add_shader(type, p, n, &s_sd_f[s_sd_nf++]);
+    } else {
+        memcpy(&fp, p, sizeof fp);
+        fp.vi = s_sd_v[fp.vi];          /* wp_walk: vi, fi name earlier records */
+        fp.fi = s_sd_f[fp.fi];
+        s_sd_new += (uint32_t)wp_add_pipe(&fp);
+    }
+}
+
+static void wp_seed(void)
+{
+    uint32_t len, good;
+    uint8_t *seed = wp_read(WP_SEED_PATH, "seed", &len);
+
+    if (!seed)
+        return;
+    /* a record takes at least 4 bytes: room for every index */
+    s_sd_v = (uint32_t *)calloc(len / 4 + 1, sizeof *s_sd_v);
+    s_sd_f = (uint32_t *)calloc(len / 4 + 1, sizeof *s_sd_f);
+    s_sd_nv = s_sd_nf = s_sd_new = 0;
+    if (s_sd_v && s_sd_f) {
+        good = wp_walk(seed, len, wp_seed_rec);
+        fprintf(stderr, "  [WGPU] pipeline seed " WP_SEED_PATH ": %u pipelines new to the list%s\n",
+                s_sd_new, good != len ? " (the seed ends in a bad record)" : "");
+    }
+    free(s_sd_v); free(s_sd_f); free(seed);
+    s_sd_v = s_sd_f = NULL;
+}
+
 /* Once, on the render thread before the first module is listed. */
 static void wp_load(void)
 {
     const char *e = getenv("RECOMP_WGPU_PIPE_CACHE"), *pw = getenv("RECOMP_WGPU_PREWARM");
-    uint32_t h[5], want[5], good = 0;
-    uint8_t *buf = NULL;
-    long size = 0;
-    FILE *f;
+    uint32_t size, good = 0;
+    uint8_t *buf;
 
     if (s_cache)
         return;
@@ -240,30 +373,11 @@ static void wp_load(void)
     if (pw && atoi(pw) > 0)
         s_pw_per_frame = (uint32_t)atoi(pw);
     mkdir("/opfs/cache", 0777);
-    f = fopen(WP_PATH, "rb");
-    if (f) {
-        if (fseek(f, 0, SEEK_END) == 0)
-            size = ftell(f);
-        rewind(f);
-        wp_hdr(want);
-        if (size >= (long)sizeof h && size <= (long)WP_MAX_BYTES
-            && fread(h, sizeof h, 1, f) == 1 && !memcmp(h, want, sizeof h)) {
-            size -= (long)sizeof h;
-            buf = (uint8_t *)malloc(size ? (size_t)size : 1);
-            if (buf && size && fread(buf, (size_t)size, 1, f) != 1) {
-                free(buf);
-                buf = NULL;
-            }
-        } else if (size) {
-            fprintf(stderr, "  [WGPU] pipeline list " WP_PATH ": another version or damaged"
-                    " (%ld bytes): started anew\n", size);
-        }
-        fclose(f);
-    }
+    buf = wp_read(WP_PATH, "list", &size);
     if (buf) {
-        good = wp_walk(buf, (uint32_t)size, wp_load_rec);
-        if (good != (uint32_t)size) {
-            fprintf(stderr, "  [WGPU] pipeline list " WP_PATH ": bad record at +%u of %ld bytes:"
+        good = wp_walk(buf, size, wp_load_rec);
+        if (good != size) {
+            fprintf(stderr, "  [WGPU] pipeline list " WP_PATH ": bad record at +%u of %u bytes:"
                     " the rest dropped\n", good, size);
             if (!wp_rewrite(buf, good)) {
                 free(buf);
@@ -277,7 +391,18 @@ static void wp_load(void)
     }
     s_cache = 1;
     s_saved_frame = wg_frame;
-    if (s_np && !(pw && *pw == '0')) {
+    wp_seed();
+    /* The prewarm walks the list as the file will hold it: the part loaded,
+     * then the seed's new records (queued in s_out for wp_save). */
+    if (s_out_len) {
+        uint8_t *b = (uint8_t *)realloc(buf, good + s_out_len);
+        if (b) {
+            memcpy(b + good, s_out, s_out_len);
+            buf = b;
+            good += s_out_len;
+        }
+    }
+    if (s_np && buf && !(pw && *pw == '0')) {
         s_pw = buf;
         s_pw_len = good;
         s_pw_vid = (uint32_t *)calloc(s_nv, sizeof *s_pw_vid);
@@ -294,34 +419,12 @@ static void wp_load(void)
     }
 }
 
-static void wp_out(uint32_t type, const void *p, uint32_t n)
-{
-    uint32_t w = type | n << 8, need = s_out_len + 4 + ((n + 3) & ~3u);
-    if (need > s_out_cap) {
-        uint32_t cap = s_out_cap ? s_out_cap : 4096;
-        uint8_t *b;
-        while (cap < need)
-            cap *= 2;
-        b = (uint8_t *)realloc(s_out, cap);
-        if (!b) {
-            s_cache = -1;               /* stop listing: the indices would drift */
-            return;
-        }
-        s_out = b;
-        s_out_cap = cap;
-    }
-    memcpy(s_out + s_out_len, &w, 4);
-    memcpy(s_out + s_out_len + 4, p, n);
-    memset(s_out + s_out_len + 4 + n, 0, ((n + 3) & ~3u) - n);
-    s_out_len = need;
-}
-
 static void wp_save(void)
 {
     FILE *f;
     s_saved_frame = wg_frame;
     if (!s_out_len)
-        return;
+        return;                         /* nothing new: the file is not opened */
     f = fopen(WP_PATH, "ab");
     if (!f)
         return;                         /* kept, tried again: the indices stay in step */
@@ -333,25 +436,11 @@ static void wp_save(void)
 /* Module `id` was made from key: its place in the list (added if new). */
 static void wp_list_shader(uint32_t type, uint32_t id, const void *key, uint32_t n)
 {
-    WpTab *t = type == 'V' ? &s_fv_tab : &s_ff_tab;
-    uint32_t *count = type == 'V' ? &s_nv : &s_nf, idx;
-    uint64_t h;
-    WpEnt *e;
+    uint32_t idx;
 
     wp_load();
-    if (s_cache <= 0 || !id)
+    if (s_cache <= 0 || !id || !wp_add_shader(type, key, n, &idx))
         return;
-    h = wp_hash(key, n);
-    e = wp_find(t, h, key, n);
-    if (e) {
-        idx = e->id;
-    } else {
-        wp_out(type, key, n);
-        if (s_cache <= 0)
-            return;
-        idx = (*count)++;
-        wp_put(t, h, key, n, idx);
-    }
     if (id >= s_fidx_cap) {
         uint32_t cap = s_fidx_cap ? s_fidx_cap : 1024, *a;
         while (cap <= id)
@@ -369,7 +458,6 @@ static void wp_list_shader(uint32_t type, uint32_t id, const void *key, uint32_t
 static void wp_list_pipe(uint32_t vs, uint32_t fs, const WgPipeKey *key)
 {
     WpFilePipe fp;
-    uint64_t h;
 
     if (s_cache <= 0 || vs >= s_fidx_cap || fs >= s_fidx_cap || !s_fidx[vs] || !s_fidx[fs])
         return;
@@ -377,13 +465,7 @@ static void wp_list_pipe(uint32_t vs, uint32_t fs, const WgPipeKey *key)
     fp.vi = s_fidx[vs] - 1;
     fp.fi = s_fidx[fs] - 1;
     fp.key = *key;
-    h = wp_hash(&fp, sizeof fp);
-    if (wp_find(&s_fp_tab, h, &fp, sizeof fp))
-        return;
-    wp_out('P', &fp, sizeof fp);
-    if (s_cache <= 0)
-        return;
-    wp_put(&s_fp_tab, h, &fp, sizeof fp, s_np++);
+    wp_add_pipe(&fp);
 }
 
 /* ── Shader modules ───────────────────────────────────────────────── */
@@ -621,7 +703,8 @@ static void wp_prewarm_step(uint32_t max)
     s_pw_frames++;
     if (s_pw_pos >= s_pw_len) {
         fprintf(stderr, "  [WGPU] %u pipelines prewarmed from " WP_PATH " over %u frames"
-                " (%.0f ms of list building; compiles are asynchronous)\n",
+                " (%.0f ms of list building; compiles are asynchronous; a deploy's seed:"
+                " mc3ExportPipes() on the start page)\n",
                 s_pw_pipes, s_pw_frames, s_pw_ms);
         free(s_pw); free(s_pw_vid); free(s_pw_fid);
         s_pw = NULL; s_pw_vid = s_pw_fid = NULL;
