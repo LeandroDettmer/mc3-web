@@ -593,6 +593,14 @@
     return { env, bad };
   }
 
+  // Low-memory profile (2026-11-09: the game stayed black on a TV): a TV's browser (its user agent), or a device
+  // that says 2 GB or less. ?MC3_LOWMEM=1 / =0 (or Advanced) forces it. It starts the module smaller (play():
+  // Module.mc3MemMB, mc3Pool) and sets lighter defaults (buildEnv).
+  const TV_UA = /Tizen|Web0S|webOS|NetCast|SMART-TV|SmartTV|HbbTV|BRAVIA|AFT[A-Z]|Android TV|GoogleTV|CrKey|VIDAA|Viera|AQUOS|PhilipsTV|Roku/i;
+  function lowMem(env) {
+    if (env.MC3_LOWMEM === '1' || env.MC3_LOWMEM === '0') return env.MC3_LOWMEM === '1';
+    return TV_UA.test(navigator.userAgent) || (navigator.deviceMemory > 0 && navigator.deviceMemory <= 2);
+  }
   // What the game gets: rows, then Advanced, then the URL query; the disc last.
   function buildEnv(disc) {
     const env = { ...settings, ...parseRaw($('raw').value).env };
@@ -604,14 +612,19 @@
     env.MC3_NETPLAY = '1';   // System Link (Online Races) and Free Roam: always on, idle when playing alone
     // Page defaults (the rows' "(default)"): 60 fps driving, 3x resolution; on a phone 30 fps and 1x (its GPU
     // fills fewer pixels than its screen has, nfsu2-web device.ts), unless the player picked otherwise
-    const phone = window.MC3Touch?.isPhone() ?? false;
-    if (env.MC3_60FPS === '0') delete env.MC3_60FPS; else if (env.MC3_60FPS === undefined && !phone) env.MC3_60FPS = '1';
-    if (env.RECOMP_GL_SCALE === undefined) env.RECOMP_GL_SCALE = phone ? '1.5' : '3';
+    const phone = window.MC3Touch?.isPhone() ?? false, low = lowMem(env);
+    if (env.MC3_60FPS === '0') delete env.MC3_60FPS; else if (env.MC3_60FPS === undefined && !phone && !low) env.MC3_60FPS = '1';
+    if (env.RECOMP_GL_SCALE === undefined) env.RECOMP_GL_SCALE = low ? '1' : phone ? '1.5' : '3';
     if (phone) {   // "medium" graphics on phones: 1.5x (above), lighter filtering, no post sharpening
       if (env.RECOMP_GL_ANISO === undefined) env.RECOMP_GL_ANISO = '4';
       if (env.RECOMP_GL_SHARPEN === undefined) env.RECOMP_GL_SHARPEN = '0';
       if (env.RECOMP_GL_FXAA === undefined) env.RECOMP_GL_FXAA = '0';
       if (env.MC3_MOVIE_HD === undefined) env.MC3_MOVIE_HD = '0';
+    }
+    if (low) {   // TVs and small devices (lowMem): lighter on memory, 1x (above), unless the player picked otherwise
+      const d = { RECOMP_RAM_MB: '64', MC3_ROAM_CARS: '7', MC3_DISC_MEM_MB: '16', MC3_PREFETCH: '0',
+        RECOMP_GL_ANISO: '4', RECOMP_GL_SHARPEN: '0', RECOMP_GL_FXAA: '0', MC3_MOVIE_HD: '0' };
+      for (const k in d) if (env[k] === undefined) env[k] = d[k];
     }
     for (const k of Object.keys(env)) if (k.startsWith('MC3_TOUCH') && k !== 'MC3_TOUCH_TRACE') delete env[k];   // the page's own (web/touch.js)
     if (disc && !env.MC3_DISC_URL) env.MC3_DISC_URL = new URL(disc.path, location.href).href;
@@ -837,8 +850,8 @@
 
   const webgl2 = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
   const opfs = !!(navigator.storage && navigator.storage.getDirectory);
-  // What this device gives the game, as notes that do not stop Play ('warn'): the renderer, the 2 GB of shared
-  // memory the module asks for at its start (CMakeLists.txt -sINITIAL_MEMORY=2GB, no growth), full screen on a phone.
+  // What this device gives the game, as notes that do not stop Play ('warn'): the renderer, the shared memory
+  // (web/pre.js: 2 GB up front where the browser gives it, else from 1 GB down to 256 MB, growing), full screen on a phone.
   // Limits from nfsu2-web's notes (host/memory.ts, device.ts, checks.ts): a 32-bit Chrome for Android (most phones
   // under 8 GB) sets aside 1 GB at most for a shared memory; Safari (every browser on an iPhone or iPad) has
   // WebGPU from iOS 26 and stops a page that takes too much of the device's memory; an iPhone's Safari has no full
@@ -855,10 +868,12 @@
       gpu ? [true, 'Graphics', 'WebGPU'] : webgl2
         ? ['warn', 'Graphics', 'WebGL 2 only: slower (about half the frame rate). ' + (ios ? 'WebGPU comes with iOS 26 / iPadOS 26.' : android ? 'Chrome for Android has WebGPU on most phones from Android 12.' : 'Chrome and Edge have WebGPU.')]
         : [false, 'Graphics', 'no WebGPU and no WebGL 2 in this browser'],
-      android && bits === '32' ? ['warn', 'Memory', 'this Chrome is 32-bit: it gives a page 1 GB at most and the game needs 2 GB. Play stops at the start ("could not allocate memory").']
-        : mem && mem < 4 ? ['warn', 'Memory', `this device says ${mem} GB: the game takes 2 GB for itself; it may not start, or stop for memory.`]
-        : ios ? ['warn', 'Memory', 'iPhone and iPad: the game takes 2 GB; Safari may stop it for memory. Close other tabs and apps first.']
-        : [true, 'Memory', '2 GB for the game'],
+      lowMem(Object.fromEntries(new URLSearchParams(location.search)))
+        ? ['warn', 'Memory', 'low-memory mode (' + (TV_UA.test(ua) ? 'a TV browser' : mem ? `${mem} GB device` : 'forced') + '): the game starts at 512 MB and grows as it needs (about 400 MB), 1x resolution. ?MC3_LOWMEM=0 turns it off.']
+        : android && bits === '32' ? ['warn', 'Memory', 'this Chrome is 32-bit: it gives a page 1 GB at most. The game starts smaller and grows; it needs about 400 MB.']
+        : mem && mem < 4 ? ['warn', 'Memory', `this device says ${mem} GB: the game needs about 400 MB; close other tabs and apps.`]
+        : ios ? ['warn', 'Memory', 'iPhone and iPad: Safari may stop the game for memory. Close other tabs and apps first.']
+        : [true, 'Memory', '2 GB set aside for the game'],
     ];
     if (T?.hasTouch()) rows.push([true, 'Touch', 'on-screen controller (Settings, Touch)']);
     if (T?.isPhone()) rows.push(document.documentElement.requestFullscreen
@@ -1079,24 +1094,40 @@
   // frame, and only while it is shown (a DOM append and a layout read per
   // line cost the page's main thread in log bursts).
   const log = $('log'), MAX_LINES = 4000;
-  let logText = [], logDirty = false, gpuLost = false;
+  let logText = [], logDirty = false, failBox = null;
+  // Log lines that mean the game cannot go on: the box below says so over the picture.
+  const FATAL = [
+    [/\[WGPU\] device lost/, 'Graphics device lost', 'The game cannot draw any more. Reload the page; if it happens again, add ?RECOMP_GPU=webgl to the address.'],
+    [/\[GL\] WebGL context lost/, 'Graphics context lost', 'The game cannot draw any more. Reload the page; close other tabs and apps (often memory).'],
+    [/\[GL\] WebGL2 context on #canvas failed|\[GL\] (window|context):/, 'No graphics', 'This browser gave the game no WebGL 2 context.'],
+    [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
+  ];
   function out(text) {
     logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
-    if (!gpuLost && String(text).includes('[WGPU] device lost')) gpuLostShow(text);
+    if (!failBox) for (const [re, title, help] of FATAL) if (re.test(text)) { failShow(title, help + ' (' + String(text).trim() + ')'); break; }
   }
-  // WebGPU's device lost (web/wgpu.js logs '[WGPU] device lost: <reason> <message>'): nothing is drawn
-  // from then on, so say it over the picture instead of leaving a silent black screen.
-  function gpuLostShow(text) {
-    gpuLost = true;
-    runStatus('Graphics device lost: reload the page (Log has the reason).', true);
-    const m = document.createElement('div');
+  // A failure over the picture (2026-11-09: a TV showed a silent black screen and has no console): what
+  // happened, why, and the log's last 20 lines. The first failure only; a click closes it.
+  function failShow(title, why) {
+    if (failBox) return;
+    runStatus(title + ': ' + why, true);
+    const m = failBox = document.createElement('div'), h = document.createElement('b'), p = document.createElement('p'), pre = document.createElement('pre');
     m.setAttribute('role', 'alert');
-    m.textContent = 'The graphics device was lost, so the game cannot draw any more. Reload the page; '
-      + 'if it happens again, add ?RECOMP_GPU=webgl to the address. Save log helps. (' + String(text).trim() + ')';
-    m.style.cssText = 'position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);max-width:min(560px,90vw);padding:12px 16px;border-radius:8px;background:#000d;color:#fff;font:14px sans-serif;z-index:99';
-    $('stage').append(m);
+    h.textContent = title;
+    p.textContent = why + ' Click to close; Log and Save log have the whole log.';
+    pre.textContent = logText.slice(-20).join('\n') || '(the log is empty)';
+    p.style.cssText = 'margin:6px 0';
+    pre.style.cssText = 'margin:0;max-height:40vh;overflow:auto;white-space:pre-wrap;word-break:break-all;font:11px/1.35 monospace;opacity:.85';
+    m.style.cssText = 'position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);box-sizing:border-box;width:min(760px,calc(100vw - 32px));padding:12px 16px;border-radius:8px;background:#000e;color:#fff;font:14px sans-serif;z-index:99;border:1px solid #f66';
+    m.append(h, p, pre);
+    m.onclick = () => m.remove();
+    ($('stage').hidden ? document.body : $('stage')).append(m);
   }
+  // Errors outside the game's log while it starts or runs (web/pre.js's memory refusal, a failed compile).
+  let booted = false;   // set when the runtime is up: later page errors are not the game's start
+  window.addEventListener('error', e => { if (playing && !booted) { out('[WEB] error: ' + (e.message || e.error)); failShow('The game could not start', String(e.message || e.error)); } });
+  window.addEventListener('unhandledrejection', e => { if (playing && !booted) { const r = e.reason?.message || String(e.reason); out('[WEB] error: ' + r); failShow('The game could not start', r); } });
   function logFlush() {
     logDirty = false;
     const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
@@ -1175,9 +1206,15 @@
       print: out,
       printErr: out,
       setStatus: s => s && runStatus(s),
-      onRuntimeInitialized: () => (window.applyPad?.(), runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.`)),
-      onAbort: what => { runStatus('Stopped: ' + what, true); showLog(true); },
+      onRuntimeInitialized: () => (booted = true, window.applyPad?.(), runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.`)),
+      onAbort: what => { runStatus('Stopped: ' + what, true); showLog(true); failShow('The game stopped', what); },
     };
+    // Low-memory profile: the wasm memory starts at 512 MB and grows (web/pre.js; else 2 GB up front, smaller
+    // only if refused), and 24 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; ~20 threads
+    // run at once, more get a worker on demand).
+    if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 24; out('[WEB] low-memory profile (TV or small device; MC3_LOWMEM=0 turns it off)'); }
+    // No picture 90 s after Play: say so with the log's last lines (a TV has no console to look at).
+    setTimeout(() => { if (!(window.Module?.mc3Frames?.() > 0)) failShow('No picture after 90 s', 'the game has not drawn a frame yet'); }, 90000);
     // the game's disc reads take the cache choice from OPFS (web/disc_cache.js use()): written before it starts
     const start = async () => {
       await pipeSeed(app);

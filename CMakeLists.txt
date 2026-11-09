@@ -232,10 +232,21 @@ if(EMSCRIPTEN)
         # No -sFULL_ES3 (client-side array emulation in every draw call; the
         # renderer draws from buffers only) and no JS-side GL error tracking.
         -sGL_ENABLE_GET_PROC_ADDRESS -sGL_TRACK_ERRORS=0
-        # Fixed memory, no growth: with pthreads, growth makes every JS heap
-        # access (the GL thread's WebGL calls) check for a grown buffer.
-        -sWASMFS -sINITIAL_MEMORY=2GB
-        -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=4MB -sPTHREAD_POOL_SIZE=40
+        # Growable memory, 256 MB at least, 2 GB at most. web/pre.js makes the
+        # Memory itself: 2 GB up front where the browser gives it (a PC: never
+        # grows, as the old fixed 2 GB), else smaller and growing (TVs, 32-bit
+        # browsers: a fixed 2 GB never started there). The game needs ~350-450
+        # MB. GROWABLE_ARRAYBUFFERS=1: growable SharedArrayBuffer views where
+        # the browser has them (no per-access check in JS), else Emscripten's
+        # classic check-and-refresh of the views (old Chromium on TVs).
+        -sWASMFS -sINITIAL_MEMORY=256MB -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=2GB
+        -sGROWABLE_ARRAYBUFFERS=1 -Wno-pthreads-mem-growth
+        # pre.js hands its Memory over as Module.wasmMemory: the default list + it.
+        "-sINCOMING_MODULE_JS_API=[ENVIRONMENT,arguments,canvas,dynamicLibraries,elementPointerLock,instantiateWasm,locateFile,monitorRunDependencies,noExitRuntime,noInitialRun,onAbort,onExit,onRuntimeInitialized,postRun,preInit,preRun,print,printErr,setStatus,statusMessage,stderr,stdin,stdout,thisProgram,wasm,websocket,wasmMemory]"
+        # Workers made before main: 40 (desktop), or the page's Module.mc3Pool
+        # (low-memory profile). Beyond the pool a thread gets a worker made on
+        # demand by the page thread, which never blocks (PROXY_TO_PTHREAD).
+        -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=4MB "-sPTHREAD_POOL_SIZE=Module.mc3Pool||40"
         # Guest RAM's first 64 MB at wasm address 0 (platform/wasm_memory.c):
         # Emscripten's data, stacks and heap above it.
         -sGLOBAL_BASE=67108864   # 0x04000000

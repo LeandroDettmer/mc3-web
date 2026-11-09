@@ -51,10 +51,15 @@ addToLibrary({
   _wasmfs_create_fetch_backend_js__deps: [
     '$wasmFS$backends',
     '_wasmfs_fetch_get_file_url',
+    'getenv', '$withStackSave', '$stringToUTF8OnStack', '$UTF8ToString',
   ],
   _wasmfs_create_fetch_backend_js: async function(backend) {
     const C = MC3DiscCache, BLOCK = C.BLOCK;
-    const MEM_BYTES = 48 << 20;     // the memory LRU
+    // Settings from the game's environment (this runs on a worker, where Module.mc3Env is not):
+    // MC3_DISC_MEM_MB (the LRU's size), MC3_PREFETCH=0 (no background fill).
+    const env = k => withStackSave(() => { const p = _getenv(stringToUTF8OnStack(k)); return p ? UTF8ToString(p) : ''; });
+    const E = { MC3_DISC_MEM_MB: env('MC3_DISC_MEM_MB'), MC3_PREFETCH: env('MC3_PREFETCH') };
+    const MEM_BYTES = (Number(E.MC3_DISC_MEM_MB) || 48) << 20;   // the memory LRU (16 in the page's low-memory profile)
     const OPEN_FILES = 128;         // cache files kept open (two sync handles each)
     const mem = new Map();          // "<key>#<block>" -> Uint8Array, least recently used first
     let memBytes = 0;
@@ -82,7 +87,7 @@ addToLibrary({
       }
       const disc = url.slice(0, i), rel = url.slice(i + 2);
       const m = await (manifests[disc] ??= C.manifest(disc).then(fs => new Map(fs.map(f => [f.p, f])), () => null));
-      if (m && !prefetching) { prefetching = true; prefetch(disc, m).catch(e => err(`[WEB] prefetch stopped: ${e}`)); }
+      if (m && !prefetching && E.MC3_PREFETCH !== '0') { prefetching = true; prefetch(disc, m).catch(e => err(`[WEB] prefetch stopped: ${e}`)); }
       let f = m && m.get(rel);
       if (!f) {
         const r = await fetch(url, { method: 'HEAD', credentials: 'include' });

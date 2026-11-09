@@ -8,6 +8,26 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
     if (/^(RECOMP_|MC3_)/.test(k)) ENV[k] = String(env[k]);
 });
 
+// The wasm memory, made here on the page thread (workers get it from the runtime). CMakeLists.txt links 256 MB
+// at least, growth to 2 GB. A PC gets 2 GB up front and never grows (as the old fixed 2 GB); a browser that
+// cannot set that aside (a TV, 32-bit Chrome) gets the first of 1 GB, 512 MB, 256 MB that it gives and grows
+// from there. The page's low-memory profile (Module.mc3MemMB) starts lower. A 32-bit browser may also refuse to
+// reserve a 2 GB maximum: then smaller maximums.
+if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMemory']) (function () {
+  var start = Module['mc3MemMB'] || 2048, tries = [], last = null, i;
+  [2048, 1024, 512, 256].forEach(function (mb) { if (mb <= start) tries.push([mb, 2048]); });
+  tries.push([256, 1024], [256, 512]);
+  for (i = 0; i < tries.length; i++) {
+    try {
+      Module['wasmMemory'] = new WebAssembly.Memory({ initial: tries[i][0] * 16, maximum: tries[i][1] * 16, shared: true });
+      (Module['print'] || console.log)('[WEB] memory: ' + tries[i][0] + ' MB to start, ' + tries[i][1] + ' MB at most'
+        + (i ? ' (larger sizes refused: ' + last + ')' : ''));
+      return;
+    } catch (e) { last = e && e.message || String(e); }
+  }
+  throw new Error('This browser cannot set aside memory for the game (256 MB, shared): ' + last);
+})();
+
 // FPS overlay (web/index.html): presented-frame counter of the active renderer, read from shared wasm memory.
 // Returns undefined until the runtime is up. WebGPU unless RECOMP_GPU=webgl (or its export is missing).
 Module['mc3Frames'] = function () {
@@ -87,7 +107,7 @@ Module['mc3TouchPad'] = function (words) {
   function frame(now) {
     requestAnimationFrame(frame);
     if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_tags_box != 'function' || !canvas.parentNode) return;
-    if (!I32) {   // fixed memory (no growth): the views stay valid
+    if (!I32) {   // the box is a static, below the initial memory: views made now still reach it after growth
       I32 = new Int32Array(HEAPU8.buffer); F32 = new Float32Array(HEAPU8.buffer); U8 = HEAPU8;
       layer = document.createElement('div');
       layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1';
@@ -138,7 +158,7 @@ Module['mc3TouchPad'] = function (words) {
   function frame(now) {
     requestAnimationFrame(frame);
     if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_prompt_box != 'function' || !canvas.parentNode) return;
-    if (!I32) {   // fixed memory (no growth): the view stays valid
+    if (!I32) {   // a static box (as above): the view stays valid after growth
       I32 = new Int32Array(HEAPU8.buffer);
       el = document.createElement('div');
       el.style.cssText = 'position:absolute;left:50%;bottom:14%;transform:translateX(-50%);pointer-events:none;' +
