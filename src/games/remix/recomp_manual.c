@@ -3504,7 +3504,44 @@ static int s_fr_build;                          /* inside the builder: its playe
 static uint32_t s_fr_list, s_fr_item;           /* the players row while screen 0x19 shows */
 static int s_fr_shown;                          /* the count on it, -1 unknown */
 
-static int fr_setup(void) { return s_online && MEM32(0x0050F14Cu) == 0; }
+static int fr_setup(void)
+{
+    static int off = -1;                         /* MC3_FR_SETUP=0: Arcade's own screen, untouched */
+    if (off < 0) {
+        const char *e = getenv("MC3_FR_SETUP");
+        off = e && e[0] == '0';
+    }
+    return !off && s_online && MEM32(0x0050F14Cu) == 0;
+}
+
+/* Cruise for the screen's city. Go (sub_0013B110) ignores the mode at
+ * +0x18: it looks the event name at +0x68 up in the city's list
+ * (sub_0026B010 -> sub_0026DFB0; city 0x50 bytes in [0x557EE4]: +0x14
+ * count, +0x18 names, +0x20 events of 0x30 bytes, type at +0) and
+ * sub_0026B8E0 sets the mode from that event's type. A stale race name
+ * (the race row's last pick, or the validator moving past a cruise it
+ * thinks locked) launched a race under a "Cruise" label. The name becomes
+ * the city's first type-0 event, as sub_0026D9E0 picks; none: empty, so
+ * the lookup fails and sub_0026B8E0's -1 path builds the cruise. */
+static void fr_cruise(uint32_t s)
+{
+    uint32_t tbl = MEM32(0x00557EE4u), city = MEM32(s), c, n, i, j, name = 0;
+    MEM32(s + 0x18u) = 0;
+    MEM8(s + 0x47u) = 0xFFu;
+    MEM8(s + 0x48u) = 0;
+    if (online_ram(tbl) && city < 12u) {
+        c = tbl + city * 0x50u;
+        n = MEM32(c + 0x14u);
+        for (i = 0; i < n && i < 256u; i++)
+            if (MEM32(MEM32(c + 0x20u) + i * 0x30u) == 0) {
+                name = MEM32(MEM32(c + 0x18u) + 4u * i);
+                break;
+            }
+    }
+    for (j = 0; online_ram(name) && j < 0x9Fu && MEM8(name + j); j++)
+        MEM8(s + 0x68u + j) = MEM8(name + j);
+    MEM8(s + 0x68u + j) = 0;
+}
 
 static uint32_t fr_settings(void)
 {
@@ -3553,8 +3590,7 @@ void sub_0013BA60(void)
         sub_0013BA60_gen();
         return;
     }
-    MEM32(s + 0x18u) = 0;
-    MEM8(s + 0x48u) = 0;
+    fr_cruise(s);                                /* every settings handler ends here (+0xDC): last word before Go */
     MEM32(s + 0x4Cu) = 1;
     s_fr_build = 1;
     sub_0013BA60_gen();
