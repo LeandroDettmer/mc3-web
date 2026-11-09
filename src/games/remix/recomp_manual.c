@@ -3770,6 +3770,25 @@ void sub_00364260(void)
         MEM32(setup + 0x4Cu) = n;
 }
 
+/* City unlocked? (cdecl (city), ret 4): the career's rule check alone
+ * (sub_00292CD0, type 5 'C'), without the "every city" flag 0x0053F2ED that
+ * its twin sub_00289CC0 tests first. The cruise load makes a city's garage
+ * door and way-in triggers (sub_001CD380, call at 0x001CDA74) and the garage
+ * map its icons (sub_000BF060) only for a city this calls unlocked. The
+ * Online session sets 0x0053F2ED, so Free Roam could pick Detroit, but a
+ * profile that had not reached Detroit in the career got no garage there:
+ * the door stayed shut and no icon showed (2026-11-09; San Diego is always
+ * unlocked). Online, the check takes the flag as sub_00289CC0 does. */
+void sub_00289CC0(void);
+extern void sub_00289CE0_gen(void);
+void sub_00289CE0(void)
+{
+    if (s_online)
+        sub_00289CC0();
+    else
+        sub_00289CE0_gen();
+}
+
 /* ── Free Roam's setup screen: Arcade's screen 0x19 on the Free Roam path ──
  *
  * The Free Roam pick (sub_00180160) goes through Arcade's setup screen
