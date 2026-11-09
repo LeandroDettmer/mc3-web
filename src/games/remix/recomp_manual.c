@@ -2892,13 +2892,21 @@ void sub_003CC070(void)
     net_ret((uint32_t)xnet_bind(NET_ARG(1), net_ptr(NET_ARG(2)), (int)NET_ARG(3)), 3);
 }
 
+/* Free Roam detaches the game's System Link session (fr_sl_detached, below):
+ * its datagrams are dropped both ways, so no peer joins or leaves it. */
+static int fr_sl_detached(void);
+
 /* recvfrom(s, buf, len, flags, from, fromlen) */
 extern void sub_003CC0BE_gen(void);
 void sub_003CC0BE(void)
 {
+    int r;
     if (!netplay_on()) { sub_003CC0BE_gen(); return; }
-    net_ret((uint32_t)xnet_recvfrom(NET_ARG(1), net_ptr(NET_ARG(2)), (int)NET_ARG(3), (int)NET_ARG(4),
-                                    net_ptr(NET_ARG(5)), net_ptr(NET_ARG(6))), 6);
+    do
+        r = xnet_recvfrom(NET_ARG(1), net_ptr(NET_ARG(2)), (int)NET_ARG(3), (int)NET_ARG(4),
+                          net_ptr(NET_ARG(5)), net_ptr(NET_ARG(6)));
+    while (r >= 0 && fr_sl_detached());          /* detached: drained, ends as "would block" */
+    net_ret((uint32_t)r, 6);
 }
 
 /* sendto(s, buf, len, flags, to, tolen) */
@@ -2906,6 +2914,10 @@ extern void sub_003CC0DC_gen(void);
 void sub_003CC0DC(void)
 {
     if (!netplay_on()) { sub_003CC0DC_gen(); return; }
+    if (fr_sl_detached()) {                      /* "sent" */
+        net_ret(NET_ARG(3), 6);
+        return;
+    }
     net_ret((uint32_t)xnet_sendto(NET_ARG(1), net_ptr(NET_ARG(2)), (int)NET_ARG(3), (int)NET_ARG(4),
                                   net_ptr(NET_ARG(5)), (int)NET_ARG(6)), 6);
 }
@@ -3386,6 +3398,28 @@ void sub_00021A60(void) { online_money(); roam_garage(); sub_00021A60_gen(); }  
  * 0x43) and every member's OnState (sub_00025E30) restarts the cruise
  * ('host_selected_restart'). In Free Roam (the Online session, not a System
  * Link game: [0x50F14C] == 0) both ends drop state 5; Online Races untouched. */
+/* More than state 5 ends the cruise: the session's member-left handler
+ * (vtable +0x38, sub_00026FD0: host_left / host_connection_lost ...) opens
+ * FE screen 0x12 (sub_00155760), requests state 3 and leaves the session
+ * (sub_00049A80) when a peer times out -- e.g. after our switch link drops
+ * for a second. So in Free Roam the session gets no traffic at all
+ * (recvfrom/sendto above): it never has members, as when playing alone.
+ * The roam layer has its own link. MC3_FR_SL=1 keeps System Link traffic. */
+static int fr_sl_detached(void)
+{
+    static int keep = -1, was;
+    int on;
+    if (keep < 0) {
+        const char *e = getenv("MC3_FR_SL");
+        keep = e && e[0] == '1';
+    }
+    on = !keep && s_online && MEM32(0x0050F14Cu) == 0;
+    if (on != was)
+        fprintf(stderr, "[NET] free roam: System Link session %s\n",
+                on ? "detached (its datagrams dropped)" : "attached again");
+    was = on;
+    return on;
+}
 static int fr_net_drop(uint32_t state)
 {
     if (state != 5 || !s_online || MEM32(0x0050F14Cu) != 0)
@@ -3624,6 +3658,24 @@ void sub_000BF850(void)
     uint32_t map = g_ecx, top = g_esp;
     sub_000BF850_gen();
     rmap_far(map, top);
+}
+
+/* The race's draw (vtable +0x110, thiscall (viewer), ret 4) and a car's
+ * icon (thiscall, 6 args, ret 0x18): remote cars the game leaves without
+ * its opponent arrow get one (roam_tags.c). */
+extern void sub_001CF3B0_gen(void);
+void sub_001CF3B0(void)
+{
+    uint32_t vp = MEM32(g_esp + 4u), top = g_esp;
+    roam_icons_begin();
+    sub_001CF3B0_gen();
+    roam_icons_end(vp, top);
+}
+
+void sub_000FA070(void)
+{
+    roam_icon_seen(g_ecx, g_esp);
+    sub_000FA070_gen();
 }
 
 /* The player manager is made ([0x558814], ctor sub_002BE100, one player
