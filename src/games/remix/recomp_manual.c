@@ -3672,6 +3672,7 @@ void sub_001CF3B0(void)
     roam_icons_end(vp, top);
 }
 
+extern void sub_000FA070_gen(void);            /* here too: the relift's scan reads this file only */
 void sub_000FA070(void)
 {
     roam_icon_seen(g_ecx, g_esp);

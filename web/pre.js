@@ -71,10 +71,12 @@ Module['mc3TouchPad'] = function (words) {
   Module['mc3SetPad'] = function (n) { want = n | 0; if (!timer) put(); };
 })();
 
-// Name tags: other players' names over their cars in free roam. src/games/remix/roam_tags.c publishes, each frame
-// of the main camera, where each driven remote car is on the picture (roam_tags_box: seq, n, picture width / height,
-// then n x 40 bytes: u, v (0..1), depth m, name); drawn here over the canvas at the page's frame rate. Settings
-// 'Name tags' (MC3_NAMETAGS=0 off), live through Module.mc3SetNameTags. Main thread only.
+// Name tags: other players' names over their cars in free roam, on the game's own opponent arrow. src/games/remix/
+// roam_tags.c publishes, each frame of the main camera, where each driven remote car's arrow tip is on the picture
+// (roam_tags_box: seq, n, picture width / height, the arrow's colour 0xRRGGBB, then n x 40 bytes: u, v (0..1), the
+// arrow's alpha (it fades in from 25 to 100 m and out from 200 to 300 m), name); drawn here over the canvas at the
+// page's frame rate, in the arrow's colour, no background, sized to the picture. Settings 'Name tags'
+// (MC3_NAMETAGS=0 off), live through Module.mc3SetNameTags. Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
   var canvas = Module['canvas'], on = (Module['mc3Env'] || {}).MC3_NAMETAGS !== '0';
@@ -91,7 +93,8 @@ Module['mc3TouchPad'] = function (words) {
       layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1';
       canvas.parentNode.append(layer);
     }
-    var b = _roam_tags_box() >>> 2, s = I32[b], n = I32[b + 1], aspect = F32[b + 2];
+    var b = _roam_tags_box() >>> 2, s = I32[b], n = I32[b + 1], aspect = F32[b + 2],
+        rgb = '#' + ('00000' + (I32[b + 3] & 0xFFFFFF).toString(16)).slice(-6);
     if (s !== seq) { seq = s; seenAt = now; }
     if (!on || now - seenAt > 400 || !(n > 0) || !(aspect > 0)) { hideFrom(0); return; }   // stale: game paused or gone
     n = Math.min(n, 32);
@@ -106,14 +109,17 @@ Module['mc3TouchPad'] = function (words) {
       for (var c = 0, p = (t + 3) * 4; c < 27 && U8[p + c]; c++) name += String.fromCharCode(U8[p + c]);
       if (!el) {
         el = pool[i] = document.createElement('div');
-        el.style.cssText = 'position:absolute;left:0;top:0;white-space:nowrap;padding:1px 6px;border-radius:4px;' +
-          'font:600 13px/1.3 system-ui,sans-serif;color:#fff;background:rgba(0,0,0,.4);text-shadow:0 1px 2px #000';
+        el.style.cssText = 'position:absolute;left:0;top:0;white-space:nowrap;font-weight:700;' +
+          'font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;letter-spacing:.02em;' +
+          'text-shadow:0 0 2px #000,0 1px 1px #000';
         layer.append(el);
       }
       if (el.textContent !== name) el.textContent = name;
+      el.style.color = rgb;
+      el.style.fontSize = Math.max(10, h * 0.022).toFixed(1) + 'px';   // about the HUD's small text
       el.style.transform = 'translate(' + (x + F32[t] * w).toFixed(1) + 'px,' + (y + F32[t + 1] * h).toFixed(1) +
         'px) translate(-50%,-100%)';
-      el.style.opacity = Math.max(0.35, Math.min(1, 1 - (F32[t + 2] - 60) / 200)).toFixed(2);   // farther: fainter
+      el.style.opacity = Math.max(0, Math.min(1, F32[t + 2])).toFixed(2);   // the arrow's own fade
       el.style.display = '';
     }
     if (n > shown) shown = n;
