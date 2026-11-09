@@ -2298,6 +2298,7 @@ static int state_trace_on(void)
     return on;
 }
 static int roam_room(void);                     /* free roam: the city is the room (roam_game.c) */
+static void online_car_picked(void);            /* the Online profile keeps the car picked (below) */
 extern void sub_00020E40_gen(void);
 void sub_00020E40(void)
 {
@@ -2305,6 +2306,7 @@ void sub_00020E40(void)
         fprintf(stderr, "[STATE] request %u (state %u) from %08X\n", MEM32(g_esp + 4),
                 MEM32(g_ecx + 4), MEM32(g_esp));
     roam_room();                                 /* the city picked (free roam room), before the load */
+    online_car_picked();                         /* a car picked on the setup screen, before the load */
     sub_00020E40_gen();
 }
 static uint32_t s_state_obj;                    /* for MC3_AUTOSTART (sub_0020B6F0) */
@@ -3009,25 +3011,81 @@ static uint32_t online_cars_unlocked(uint32_t *total)
  *
  * Browser only (native: $2,000,000 each session as before). The file is
  * /opfs/online/profile.bin (OPFS, beside the career's UDATA), little-endian:
- *   +0  'MC3O'   +4 version 1   +8 body size (4 + 0x18340)
+ *   +0  'MC3O'   +4 version 2   +8 body size (4 + 0x18340 + 4)
  *   +12 CRC-32 (zlib's) of the body   +16 cars owned (for the page)
  *   +20 body: money (int32), then the garage blob (0x0053F308, raw, as the
- *       career save keeps it; CarCfg vtables are this XBE's).
+ *       career save keeps it; CarCfg vtables are this XBE's; the garage
+ *       cars' parts, paint and vinyls are their CarCfgs in it), then
+ *       (version 2) the car picked: byte 0x0053F2FC (1 showroom car,
+ *       0 garage car), a zero byte, int16 0x0053F2FE (its index). Those
+ *       globals sit outside the blob and the career save; Arcade's setup
+ *       (sub_0013AB20, Free Roam's way in) copies that CarCfg (showroom
+ *       0x541700 + i*0x108, garage 0x53F810 + i*0x108) into player 0's
+ *       entry, the car the cruise builds; the garage and the car row write
+ *       them (e.g. at 0x0014E029, 0x0015516D). Version 1 files (no car) still
+ *       load: the car stays the game's pick, as before.
  * Loaded at each session's start (a missing, short, old or damaged file:
  * a fresh start, logged); none yet: $2,000,000 and the garage as it is, as
- * before. Taken from the game and saved when the garage (state 5) is left
- * and at the session's end, before the career goes back; the career's
+ * before. Taken from the game and saved when the garage (state 5) is left,
+ * when another car was picked by a state request (the setup screen's
+ * load) and at the session's end, before the career goes back; the career's
  * .mc3 is never written while Online (sub_00022040). A garage applied by
  * the game meanwhile (the main menu's Garage loads the career,
  * sub_00019560) is replaced by the online one the way the game applies a
  * profile: copy (sub_0026BD10's), sub_0026BC60(1), sub_0026CBB0. */
 #define ONLINE_PROFILE_MAGIC 0x4F33434Du        /* "MC3O" */
-#define ONLINE_PROFILE_VER   1u
+#define ONLINE_PROFILE_VER   2u
 #define ONLINE_PROFILE_HDR   20u
-#define ONLINE_PROFILE_BODY  (4u + ONLINE_GARAGE_SIZE)
+#define ONLINE_PROFILE_BODY1 (4u + ONLINE_GARAGE_SIZE)          /* version 1 */
+#define ONLINE_PROFILE_BODY  (ONLINE_PROFILE_BODY1 + 4u)        /* version 2: + the car picked */
+#define ONLINE_CAR_FROM      0x0053F2FCu        /* player 0's pick: 1 showroom car, 0 garage car */
+#define ONLINE_CAR_INDEX     0x0053F2FEu        /* int16, its index */
 static uint32_t s_on_money = ONLINE_MONEY;      /* the online profile's money */
 static uint8_t s_on_garage[ONLINE_GARAGE_SIZE]; /* and its garage, once s_on_have */
 static int s_on_have;
+static uint8_t s_on_car[4];                     /* and its car: from, 0, index (LE) */
+static int s_on_car_ok;                         /* s_on_car holds one */
+#ifdef __EMSCRIPTEN__
+static uint8_t s_online_car[4];                 /* the career's pick, for the end */
+#endif
+
+static void online_car_get(uint8_t c[4])
+{
+    uint16_t i = MEM16(ONLINE_CAR_INDEX);
+    c[0] = MEM8(ONLINE_CAR_FROM); c[1] = 0; c[2] = (uint8_t)i; c[3] = (uint8_t)(i >> 8);
+}
+
+/* The CarCfg a pick names (as sub_0013AB20 reads it), 0 when it names none:
+ * a garage car past the garage's count ([0x53F80C], 30 at most) or a
+ * showroom car past the showroom's ([0x557EB4], 127 at most). */
+static uint32_t online_car_cfg(const uint8_t c[4])
+{
+    int32_t i = (int16_t)(c[2] | c[3] << 8);
+    if (c[0] == 1u && i >= 0 && i < 127 && (uint32_t)i < MEM16(0x00557EB4u))
+        return 0x00541700u + (uint32_t)i * 0x108u;
+    if (c[0] == 0u && i >= 0 && i < 30 && (uint32_t)i < MEM8(0x0053F80Cu))
+        return 0x0053F810u + (uint32_t)i * 0x108u;
+    return 0;
+}
+
+/* The profile's car becomes the game's pick (after its garage is in);
+ * none or not there: the game's pick stays and becomes the profile's. */
+static void online_car_restore(void)
+{
+    uint32_t cfg = s_on_car_ok ? online_car_cfg(s_on_car) : 0;
+    if (cfg) {
+        MEM8(ONLINE_CAR_FROM) = s_on_car[0];
+        MEM16(ONLINE_CAR_INDEX) = (uint16_t)(s_on_car[2] | s_on_car[3] << 8);
+        fprintf(stderr, "[ONLINE] profile car: %.24s (%s car %d)\n", (const char *)XBOX_PTR(cfg + 0xE3u),
+                s_on_car[0] ? "showroom" : "garage", (int16_t)(s_on_car[2] | s_on_car[3] << 8));
+        return;
+    }
+    if (s_on_car_ok)
+        fprintf(stderr, "[ONLINE] profile car (%u, %d) is not there: the game's pick\n", s_on_car[0],
+                (int16_t)(s_on_car[2] | s_on_car[3] << 8));
+    online_car_get(s_on_car);
+    s_on_car_ok = 1;
+}
 
 /* Garage cars: of the 30 CarCfg at +0x508, those with a string at +0xF9,
  * the test sub_0026CBB0 makes per slot before it looks up the name (+0xE3). */
@@ -3067,24 +3125,30 @@ static uint8_t s_on_file[ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY];
 
 static void online_profile_load(void)
 {
-    uint32_t h[5];
+    uint32_t h[5] = { 0 };
+    size_t n;
     const char *bad = NULL;
     FILE *f = fopen(ONLINE_PROFILE_PATH, "rb");
     s_on_have = 0;
+    s_on_car_ok = 0;
     s_on_money = ONLINE_MONEY;
     if (!f) {
         fprintf(stderr, "[ONLINE] no profile yet: $%u and the garage as it is\n", ONLINE_MONEY);
         return;
     }
-    if (fread(s_on_file, 1, sizeof s_on_file, f) != sizeof s_on_file)
-        bad = "short";
+    n = fread(s_on_file, 1, sizeof s_on_file, f);  /* version 1 files are 4 bytes shorter */
     fclose(f);
-    memcpy(h, s_on_file, sizeof h);
-    if (!bad && h[0] != ONLINE_PROFILE_MAGIC)
+    if (n >= sizeof h)
+        memcpy(h, s_on_file, sizeof h);
+    if (n < ONLINE_PROFILE_HDR)
+        bad = "short";
+    else if (h[0] != ONLINE_PROFILE_MAGIC)
         bad = "not an online profile";
-    else if (!bad && (h[1] != ONLINE_PROFILE_VER || h[2] != ONLINE_PROFILE_BODY))
+    else if (!(h[1] == 1u && h[2] == ONLINE_PROFILE_BODY1) && !(h[1] == ONLINE_PROFILE_VER && h[2] == ONLINE_PROFILE_BODY))
         bad = "another version";
-    else if (!bad && h[3] != rc_crc32(s_on_file + ONLINE_PROFILE_HDR, ONLINE_PROFILE_BODY))
+    else if (n != ONLINE_PROFILE_HDR + h[2])
+        bad = "short";
+    else if (h[3] != rc_crc32(s_on_file + ONLINE_PROFILE_HDR, h[2]))
         bad = "damaged (CRC)";
     if (bad) {
         fprintf(stderr, "[ONLINE] profile " ONLINE_PROFILE_PATH " %s: a fresh start ($%u)\n", bad, ONLINE_MONEY);
@@ -3093,7 +3157,12 @@ static void online_profile_load(void)
     memcpy(&s_on_money, s_on_file + ONLINE_PROFILE_HDR, 4);
     memcpy(s_on_garage, s_on_file + ONLINE_PROFILE_HDR + 4, ONLINE_GARAGE_SIZE);
     s_on_have = 1;
-    fprintf(stderr, "[ONLINE] profile loaded: $%u, %u cars\n", s_on_money, online_cars(s_on_garage));
+    if (h[1] >= 2u) {
+        memcpy(s_on_car, s_on_file + ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY1, 4);
+        s_on_car_ok = 1;
+    }
+    fprintf(stderr, "[ONLINE] profile loaded (version %u): $%u, %u cars\n", h[1], s_on_money,
+            online_cars(s_on_garage));
 }
 
 static void online_profile_save(void)           /* written beside, then renamed over: never half a file */
@@ -3105,6 +3174,7 @@ static void online_profile_save(void)           /* written beside, then renamed 
         return;
     memcpy(s_on_file + ONLINE_PROFILE_HDR, &s_on_money, 4);
     memcpy(s_on_file + ONLINE_PROFILE_HDR + 4, s_on_garage, ONLINE_GARAGE_SIZE);
+    memcpy(s_on_file + ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY1, s_on_car, 4);
     h[3] = rc_crc32(s_on_file + ONLINE_PROFILE_HDR, ONLINE_PROFILE_BODY);
     memcpy(s_on_file, h, sizeof h);
     mkdir(ONLINE_PROFILE_DIR, 0777);
@@ -3152,9 +3222,13 @@ static void online_enter(void)
         for (int i = 0; i < 4; i++)
             s_online_unlock[i] = MEM8(s_online_flag[i]);
         s_online = 1;
+#ifdef __EMSCRIPTEN__
+        online_car_get(s_online_car);            /* the career's car pick, for the end */
+#endif
         online_profile_load();
         if (s_on_have)
             online_garage_apply();
+        online_car_restore();                    /* before Arcade's setup copies the pick (sub_0013AB20) */
         fprintf(stderr, "[ONLINE] on: money %u -> %u, all cars and parts unlocked, career money and"
                 " garage kept aside, no saves until Career, Tokyo or Arcade\n", s_online_money, s_on_money);
     }
@@ -3173,7 +3247,24 @@ static void online_garage_left(void)
         s_on_money = MEM32(m);
     memcpy(s_on_garage, (uint8_t *)XBOX_PTR(ONLINE_GARAGE_VA), ONLINE_GARAGE_SIZE);
     s_on_have = 1;
+    online_car_get(s_on_car);                   /* the car picked, in that garage */
+    s_on_car_ok = 1;
     online_profile_save();
+#endif
+}
+
+/* A state request (sub_00020E40): another car picked (the setup screen's
+ * car row, the garage) is saved with the money and garage it belongs to,
+ * so a closed page keeps it too (browser only). */
+static void online_car_picked(void)
+{
+#ifdef __EMSCRIPTEN__
+    uint8_t c[4];
+    if (!s_online)
+        return;
+    online_car_get(c);
+    if (!s_on_car_ok || memcmp(c, s_on_car, 4) != 0)
+        online_garage_left();
 #endif
 }
 
@@ -3182,12 +3273,17 @@ static void online_leave(void)
     uint32_t m = online_money_va();
     if (!s_online)
         return;
+    online_car_picked();                         /* a car picked since */
     online_profile_save();                       /* as taken at the last garage exit */
     if (m && s_online_money_ok)
         MEM32(m) = s_online_money;
     memcpy((uint8_t *)XBOX_PTR(ONLINE_GARAGE_VA), s_online_garage, ONLINE_GARAGE_SIZE);
     for (int i = 0; i < 4; i++)
         MEM8(s_online_flag[i]) = s_online_unlock[i];
+#ifdef __EMSCRIPTEN__
+    MEM8(ONLINE_CAR_FROM) = s_online_car[0];     /* the career's car pick back */
+    MEM16(ONLINE_CAR_INDEX) = (uint16_t)(s_online_car[2] | s_online_car[3] << 8);
+#endif
     s_online = 0;
     roam_stop();                                 /* free roam (O3) ends with the session */
     fprintf(stderr, "[ONLINE] off: money %u, the garage and the unlocks are the career's again\n",
@@ -3207,7 +3303,17 @@ void sub_0018C5A0(void) { sub_0018C5A0_gen(); }
  * "Online Races" (LAN_Play, sub_001801C0) stays the game's System Link, no session. */
 extern void sub_00180160_gen(void);
 static void roam_begin(uint32_t cfg);           /* free roam on + our car (O4), roam_game.c */
-void sub_00180160(void) { online_enter(); roam_begin(0x00541700u); sub_0018C530_gen(); }
+void sub_00180160(void)
+{
+    uint32_t cfg = 0x00541700u;
+    online_enter();
+#ifdef __EMSCRIPTEN__
+    if (online_car_cfg(s_on_car))                /* the profile's car to the peers, not showroom car 0 */
+        cfg = online_car_cfg(s_on_car);
+#endif
+    roam_begin(cfg);
+    sub_0018C530_gen();
+}
 
 /* The main menu's builder copies each label's text into its item when it
  * runs (CM_Networking: SetLabel sub_00348D70, a wcsncpy into the item),
@@ -3250,8 +3356,10 @@ void sub_00019560(void)
     sub_00019560_gen();
     if (s_online && (g_eax & 0xFFu)) {
         online_keep();
-        if (s_on_have)                           /* the online garage back on top */
+        if (s_on_have) {                         /* the online garage back on top, and its car */
             online_garage_apply();
+            online_car_restore();
+        }
         online_money();
         fprintf(stderr, "[ONLINE] a profile was loaded: its money (%u) and garage are kept aside now,"
                 " the session's money is %u%s\n", s_online_money, s_on_money,

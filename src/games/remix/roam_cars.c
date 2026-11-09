@@ -365,7 +365,8 @@ static void roam_cars_load(void)
         if (k > s_roam_slots)
             want++;
     }
-    want += ROAM_SPARE;
+    if (want)                                   /* spares only once the slots are full: a free slot takes a newcomer first */
+        want += ROAM_SPARE;
     if (want > cap)
         want = cap;
     for (i = 0, k = 0; s_ncar < want; s_ncar++) {
