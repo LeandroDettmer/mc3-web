@@ -3667,7 +3667,8 @@ static void online_strings(void)
 /* ── Free roam (O3): remote players as cars in the Online cruise ── */
 #include "roam_game.c"
 #include "roam_cars.c"                          /* MC3_ROAM_CARS: room for standalone remote cars */
-#include "roam_map.c"                           /* Online cruise: garage icons, far players' blips */
+#include "roam_races.c"                         /* free roam: the cities' race start points (roam_races.h) */
+#include "roam_map.c"                           /* Online cruise: garage icons, race start points, players' blips */
 #include "roam_tags.c"                          /* free roam: players' names over their cars (page overlay) */
 
 /* The HUD map's points of interest into the map server's list (vtable
@@ -3702,12 +3703,14 @@ void sub_000B7720(void)
 }
 
 /* The map's player blips (minimap sub_000C3660, full map sub_000C3E70;
- * thiscall, ret 4): then the hub's far players (roam_map.c). */
+ * thiscall, ret 4): then the race start points and the remote players
+ * (roam_map.c). */
 extern void sub_000BF850_gen(void);
 void sub_000BF850(void)
 {
     uint32_t map = g_ecx, top = g_esp;
     sub_000BF850_gen();
+    rmap_races(map, top);
     rmap_far(map, top);
 }
 

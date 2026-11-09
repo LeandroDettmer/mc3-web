@@ -279,7 +279,21 @@ generated files when the lift inputs did not change.
   id, status, place, orientation, name; old cores drop it as an unknown
   type), roam_far() gives it, and an sub_000BF850 override draws each as a
   dimmed, smaller blip with the car blip's primitive sub_000BB310
-  (MC3_ROAM_MAP=0 off). Open: names on the full map.
+  (MC3_ROAM_MAP=0 off); every linked peer gets one too, on the minimap
+  and the full map (0x450900) alike. Open: names on the full map.
+  Race start points (2026-11-09, untested in game; roam_races.{c,h},
+  roam_map.c): the cities' event lists are loaded at boot (sub_0026F910,
+  tune/race/<city>.loc + .locinf) into the city table [0x557EE4]: +0x14
+  count, +0x18 names, +0x20 events of 0x30 B (+0 RaceType 0..22, names at
+  0x4B37D0; +0xF opponents; +0x10 laps; +0x14 StartBeaconPosition, (50,0,0)
+  = none; no heading: the grid is in the race's .rac). Arcade picks a race
+  by that name (settings +0x68, sub_0026B010). The same sub_000BF850 hook
+  draws them with the garages' icon primitive sub_000BDBE0 (map textures:
+  diamond +0xA8 by colour for sprint/circuit/unordered/autocross, trophy
+  +0x9C track, star +0xA4 frenzy): the full map all of the city, the
+  minimap (0x450850) the 4 nearest within 300 m. roam_races_nearest() is
+  the API for starting races from the map. '[ROAM] races: ...' at first
+  use; MC3_ROAM_RACES=0 off, =2 logs each race.
   Many cars (2026-11-09, untested in game; src/games/remix/roam_cars.c,
   docs/roam-many-cars.md): peers beyond the 7 slots get standalone cars
   (the player builder, no player; pose + inputs written after the physics

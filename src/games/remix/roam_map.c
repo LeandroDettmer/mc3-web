@@ -37,7 +37,23 @@
  * empty: no icon showed.  Every peer of roam_net's list is drawn the same
  * way, full colour and size (a slot the game draws too gets ours on top).
  *
- * MC3_ROAM_MAP=0 turns both off. */
+ * Race start points (roam_races.c): drawn in the same hook, before the
+ * players' blips (under them), with the icon primitive the garages use,
+ * sub_000BDBE0 (map; item, car Matrix34 *, texture, float4 *colour, scale):
+ * it reads the place from item +0x34 and the heading as sin/cos at
+ * +0x40/+0x44 (sub_000CF760), then sub_000BBA40 puts it through the map's
+ * world -> map transform (vtable +0x94; the minimap pins far points to its
+ * rim) and scales by the map's zoom.  Colour float4 is r, g, b, a
+ * (sub_00033350 packs ARGB).  Textures: every HUD map loads icon_garage +0x98,
+ * icon_trophy +0x9C, icon_warehouse +0xA0, icon_star +0xA4, icon_diamond +0xA8
+ * (base init sub_000BDA40); the career's map draws its races with the diamond
+ * (sub_000C02C0).  Diamond for the road races, by colour (sprint yellow,
+ * circuit red, unordered green, autocross blue), trophy for track races, star
+ * for frenzy.  The full map (vtable 0x450900) shows every race of the city;
+ * the minimap (0x450850) only the RMAP_RACE_NEAR_N nearest within
+ * RMAP_RACE_NEAR_M metres.  MC3_ROAM_RACES=0 turns them off.
+ *
+ * MC3_ROAM_MAP=0 turns all of it off. */
 
 #define RMAP_G_VA        0x00507508u     /* the HUD's tuning: colours (float4) and scales */
 #define RMAP_RSTATE_VA   0x00507A94u     /* render state sub_0003A6A0 sets (sub_000BE140 saves it) */
@@ -151,6 +167,93 @@ static void rmap_hud_gone(uint32_t hud, uint32_t top)
     roam_vdelete(p, top);
 }
 
+#define RMAP_MINIMAP_VT   0x00450850u
+#define RMAP_RACE_NEAR_M  300.0f
+#define RMAP_RACE_NEAR_N  4
+#define RMAP_RACE_SCALE   0.85f                 /* of the garage icon's scale ([0x507508]+0x130) */
+
+void sub_000BDBE0(void);                        /* map icon, thiscall (item, car Matrix34 *, texture, float4 *, scale), ret 0x14 */
+
+static const struct { uint32_t tex; float rgba[4]; } k_rmap_race[RR_KINDS] = {
+    [RR_SPRINT]    = { 0xA8u, { 1.00f, 0.80f, 0.10f, 1.0f } },     /* diamond, yellow */
+    [RR_CIRCUIT]   = { 0xA8u, { 1.00f, 0.30f, 0.20f, 1.0f } },     /* diamond, red */
+    [RR_UNORDERED] = { 0xA8u, { 0.35f, 1.00f, 0.40f, 1.0f } },     /* diamond, green */
+    [RR_AUTOCROSS] = { 0xA8u, { 0.25f, 0.75f, 1.00f, 1.0f } },     /* diamond, blue */
+    [RR_TRACK]     = { 0x9Cu, { 1.00f, 1.00f, 1.00f, 1.0f } },     /* trophy, white */
+    [RR_FRENZY]    = { 0xA4u, { 1.00f, 0.35f, 1.00f, 1.0f } },     /* star, magenta */
+};
+
+/* The local player's car matrix for a map (player index at +0xC, -1: 0); 0 none.  buf: scratch stack top. */
+static uint32_t rmap_car_mat(uint32_t map, uint32_t buf)
+{
+    uint32_t idx = MEM32(map + 0xCu), a = idx == 0xFFFFFFFFu ? 0u : idx, pl, mat;
+    pl = roam_call(sub_002BF570, 0, buf, 1, &a);
+    if (!online_ram(pl) || !online_ram(mat = roam_call(sub_002C84D0, pl, buf, 0, NULL)))
+        return 0;
+    return mat;
+}
+
+/* After sub_000BF850 (map), before the far players: the city's race start points. */
+static void rmap_races(uint32_t map, uint32_t top)
+{
+    static int said;
+    const roam_race *pick[RMAP_RACE_NEAR_N], *r;
+    float nd[RMAP_RACE_NEAR_N], px, pz, dx, dz, d, s;
+    uint32_t g = MEM32(RMAP_G_VA), buf, item, col, mat, tex, city, args[5], k;
+    int mini, n = 0, i, j, drawn = 0, total;
+    if (!rmap_on() || !rr_mode() || !online_ram(map) || !(total = roam_races_count()))
+        return;
+    buf = (top - 0x200u) & ~0xFu;               /* colour at buf + 0x40, item (0x50) at buf + 0x80 */
+    col = buf + 0x40u;
+    item = buf + 0x80u;
+    if (!(mat = rmap_car_mat(map, buf)))
+        return;
+    mini = MEM32(map) == RMAP_MINIMAP_VT;
+    city = MEM32(map + 0x90u);
+    px = MEMF(mat + 0x24u);
+    pz = MEMF(mat + 0x2Cu);
+    s = online_ram(g) ? MEMF(g + 0x130u) * RMAP_RACE_SCALE : RMAP_RACE_SCALE;
+    if (mini)                                   /* the N nearest within reach, nearest first */
+        for (i = 0; i < total; i++) {
+            r = roam_races_get(i);
+            if (r->city != city)
+                continue;
+            dx = r->pos[0] - px;
+            dz = r->pos[2] - pz;
+            if ((d = dx * dx + dz * dz) > RMAP_RACE_NEAR_M * RMAP_RACE_NEAR_M)
+                continue;
+            for (j = n < RMAP_RACE_NEAR_N ? n++ : RMAP_RACE_NEAR_N; j > 0 && nd[j - 1] > d; j--)
+                if (j < RMAP_RACE_NEAR_N) {
+                    pick[j] = pick[j - 1];
+                    nd[j] = nd[j - 1];
+                }
+            if (j < RMAP_RACE_NEAR_N) {
+                pick[j] = r;
+                nd[j] = d;
+            }
+        }
+    for (k = 0; k < 0x50u; k += 4)
+        MEM32(item + k) = 0;
+    MEMF(item + 0x44u) = 1.0f;                  /* cos of the heading (sin at +0x40 stays 0) */
+    for (i = 0; i < (mini ? n : total); i++) {
+        r = mini ? pick[i] : roam_races_get(i);
+        if (r->city != city || !online_ram(tex = MEM32(map + k_rmap_race[r->kind].tex)))
+            continue;
+        for (k = 0; k < 3; k++)
+            MEMF(item + 0x34u + 4u * k) = r->pos[k];
+        for (k = 0; k < 4; k++)
+            MEMF(col + 4u * k) = k_rmap_race[r->kind].rgba[k];
+        args[0] = item; args[1] = mat; args[2] = tex; args[3] = col; args[4] = rmap_f2u(s);
+        roam_call(sub_000BDBE0, map, buf, 5, args);
+        drawn++;
+    }
+    if (!said && drawn) {
+        said = 1;
+        fprintf(stderr, "[roam] map: %d race start point(s) drawn (%s, city %u)\n", drawn,
+                mini ? "minimap" : "full map", city);
+    }
+}
+
 /* A remote player's status that gets a blip. */
 static int rmap_shown(uint8_t st)
 {
@@ -167,7 +270,7 @@ static void rmap_far(uint32_t map, uint32_t top)
     static int said;
     static struct { float p[3], q[4]; int far; } dot[ROAM_K_MAX + ROAM_FAR_MAX];
     roam_far_peer far[ROAM_FAR_MAX];
-    uint32_t g = MEM32(RMAP_G_VA), vt, xf, buf, col, args[5], pl, mat, saved, idx;
+    uint32_t g = MEM32(RMAP_G_VA), vt, xf, buf, col, args[5], mat, saved;
     float rot[9], s, si;
     int n = 0, nf, nnear = 0, i, k;
     if (!rmap_on() || !roam_running() || !online_ram(map) || !online_ram(g) || !online_ram(vt = MEM32(map)))
@@ -192,10 +295,7 @@ static void rmap_far(uint32_t map, uint32_t top)
     xf = MEM32(vt + 0x94u);
     buf = (top - 0x200u) & ~0xFu;               /* Matrix34 at buf, far fill colour at buf + 0x40 */
     col = buf + 0x40u;
-    idx = MEM32(map + 0xCu);
-    args[0] = idx == 0xFFFFFFFFu ? 0u : idx;
-    pl = roam_call(sub_002BF570, 0, buf, 1, args);
-    if (!online_ram(pl) || !online_ram(mat = roam_call(sub_002C84D0, pl, buf, 0, NULL)))
+    if (!(mat = rmap_car_mat(map, buf)))
         return;
     s = rmap_scale(map);
     for (k = 0; k < 4; k++)
