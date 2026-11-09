@@ -51,7 +51,9 @@
  * circuit red, unordered green, autocross blue), trophy for track races, star
  * for frenzy.  The full map (vtable 0x450900) shows every race of the city;
  * the minimap (0x450850) only the RMAP_RACE_NEAR_N nearest within
- * RMAP_RACE_NEAR_M metres.  MC3_ROAM_RACES=0 turns them off.
+ * RMAP_RACE_NEAR_M metres.  Only in the Free Roam cruise: in a race (our
+ * AI race included) the map has the game's own checkpoints, and our start
+ * points were drawn over them.  MC3_ROAM_RACES=0 turns them off.
  *
  * MC3_ROAM_MAP=0 turns all of it off. */
 
@@ -201,7 +203,11 @@ static void rmap_races(uint32_t map, uint32_t top)
     float nd[RMAP_RACE_NEAR_N], px, pz, dx, dz, d, s;
     uint32_t g = MEM32(RMAP_G_VA), buf, item, col, mat, tex, city, args[5], k;
     int mini, n = 0, i, j, drawn = 0, total;
-    if (!rmap_on() || !rr_mode() || !online_ram(map) || !(total = roam_races_count()))
+    uint32_t setup = MEM32(ROAM_SETUP_VA);
+    /* the Free Roam cruise only (race type 0, not our AI race, no System Link game): a race's map has the
+     * game's own checkpoints */
+    if (!rmap_on() || !rr_mode() || s_rra_race || !online_ram(setup) || MEM32(setup + 0x18u) != 0 ||
+        MEM32(0x0050F14Cu) != 0 || !online_ram(map) || !(total = roam_races_count()))
         return;
     buf = (top - 0x200u) & ~0xFu;               /* colour at buf + 0x40, item (0x50) at buf + 0x80 */
     col = buf + 0x40u;
