@@ -547,8 +547,8 @@
       opts: [['', 'Auto (default)'], ['webgpu', 'WebGPU'], ['webgl', 'WebGL']] },
     { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60. Auto: on, off (30 fps) on phones.',
       opts: [['', 'Auto (default)'], ['1', 'On'], ['0', 'Off']] },
-    { key: 'RECOMP_RAM_MB', label: 'Game memory', help: 'The console\'s RAM. 128 MB (like an Xbox devkit) gives the game a 95 MB heap instead of 47 MB: room for more cars online, no "heap overrun" after the garage. Experimental.',
-      opts: [['', '64 MB (default)'], ['128', '128 MB']] },
+    { key: 'RECOMP_RAM_MB', label: 'Game memory', help: 'The console\'s RAM. 128 MB (like an Xbox devkit) gives the game a 95 MB heap instead of 47 MB: room for every car online, no "heap overrun" in a full Free Roam. Auto: 128 MB on a PC, 64 MB in low-memory mode.',
+      opts: [['', 'Auto (default)'], ['64', '64 MB'], ['128', '128 MB']] },
     { key: 'MC3_LOWMEM', label: 'Low-memory mode', help: 'For TVs, phones and small devices: the game starts at 512 MB, 1x resolution, fewer threads. Auto: on for TVs and devices with 2 GB or less.',
       opts: [['', 'Auto (default)'], ['1', 'On'], ['0', 'Off']] },
     { key: 'RECOMP_GL_PERDRAW', label: 'Per-draw matrices', help: 'WebGL limits uniform space; off sends one set of matrices (the Remix default).',
@@ -637,6 +637,9 @@
       if (env.RECOMP_GL_FXAA === undefined) env.RECOMP_GL_FXAA = '0';
       if (env.MC3_MOVIE_HD === undefined) env.MC3_MOVIE_HD = '0';
     }
+    // A PC gets the devkit's 128 MB: the 47 MB heap of 64 MB died on a Free Roam cruise rebuilt with 6 remote cars
+    // ("Heap overrun", 2026-11-10); low-memory devices keep 64 (below)
+    if (!low && env.RECOMP_RAM_MB === undefined) env.RECOMP_RAM_MB = '128';
     if (low) {   // TVs and small devices (lowMem): lighter on memory, 1x (above), unless the player picked otherwise
       // A 32-bit TV browser gives 256 MB and never grows it (2026-11-09): GL record queue 4 MB (48), GL ring copies
       // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory)
