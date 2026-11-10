@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
-import { Switch, originOk, isVip, BROADCAST, HDR, MAX_DATA } from '../src/switch.js';
+import { Switch, originOk, isVip, BROADCAST, HDR, MAX_DATA, CTL } from '../src/switch.js';
 import { vipAt, vipStr, ADDRS, MASK, NET } from '../../races-worker/src/net.js';
 import { HUB, ROAM_PORT } from '../src/roam.js';
 import { hello, snap } from './wire.mjs';
@@ -135,12 +135,12 @@ test('rate limit: normal burst passes, flood dropped, sustained flood closes 100
   let t = 1e6;
   for (let i = 0; i < 700; i++) await a.frame(udp(a.vip, b.vip, bytes('z')), t);   // a roam peak in one instant
   assert.equal(b.ws.bins().length, 700);
-  for (let i = 0; i < 10; i++) await a.say({ t: 'ping', id: i }, t);   // a connect burst of JSON
-  assert.equal(a.ws.texts().length, 10);
-  for (let i = 0; i < 40; i++) await a.say({ t: 'ping', id: i }, t);   // JSON flood: 20 token burst, 10 spent
-  assert.equal(a.ws.texts().length, 10);
+  for (let i = 0; i < 80; i++) await a.say({ t: 'ping', id: i }, t);   // a connect burst: subs + rtc.js signalling for 7 peers
+  assert.equal(a.ws.texts().length, 80);
+  for (let i = 0; i < 2 * CTL.burst; i++) await a.say({ t: 'ping', id: i }, t);   // JSON flood: the rest of the burst, then dropped
+  assert.equal(a.ws.texts().length, CTL.burst);
   assert.equal(a.ws.closed, null);
-  for (let s = 0; s < 12 && !a.ws.closed; s++) { t += 1000; for (let i = 0; i < 50; i++) await a.say({ t: 'ping', id: i }, t); }
+  for (let s = 0; s < 12 && !a.ws.closed; s++) { t += 1000; for (let i = 0; i < 5 * CTL.perS; i++) await a.say({ t: 'ping', id: i }, t); }
   assert.deepEqual(a.ws.closed, [1008, 'rate limit']);
   const c = peer();   // frame flood
   t += 1e6;

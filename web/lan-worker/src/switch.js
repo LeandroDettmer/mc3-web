@@ -39,9 +39,10 @@ export const BROADCAST = 0xFFFFFFFF, HDR = 16, MAX_DATA = 1472, MAX_FRAME = HDR 
 export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, burstBytes: 2 << 20 };   // crates/lan Limits
 // Measured legit peaks (client code, 2026-11-09): binary per client ~700 frames/s worst case = free roam's 20 Hz SNAP to
 // K = 32 peers (640) + 1 Hz HELLO/PING to them; an 8-player race ~60 Hz x 7 = 420. framesPerS 2000 is ~3x that.
-// JSON: web/lan.js sends a ping every 20 s plus a handful of subs/joins/renames at connect: < 1/s; 5/s, burst 20 is >5x.
+// JSON: web/lan.js sends a ping every 20 s plus a handful of subs/joins/renames at connect: < 1/s, but web/rtc.js signals
+// through it too: an offer/answer + ~10 ICE candidates per peer, ~80 at once joining an 8-player room. 20/s, burst 200.
 // Over budget: dropped silently; empty for FLOOD_MS in a row: closed with 1008 (lan.js reconnects with backoff).
-export const CTL = { perS: 5, burst: 20 }, FLOOD_MS = 10e3;
+export const CTL = { perS: 20, burst: 200 }, FLOOD_MS = 10e3;
 export const NICK = 15, PLAYERS_MAX = 200, WHO_MS = 1000;   // the page's name field is 15 long
 const SAVE_MS = 30e3;   // a frame-only client's `last` reaches its attachment this often (idle expiry after a wake)
 
