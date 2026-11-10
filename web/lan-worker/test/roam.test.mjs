@@ -80,7 +80,7 @@ test('look-ahead and hold', () => {
   same(h.linksOf(vip(0), ROAM_PORT), [[vip(1), ROAM_PORT]]);
 });
 
-test('far list: every far_ms the placed players not linked, nearest first, with name and place', () => {
+test('far list: every far_ms the placed players of the room, unlinked first, nearest first, with name and place', () => {
   const h = new Hub();
   for (let i = 0; i < 4; i++) {
     h.frame(vip(i), ROAM_PORT, hello(100 + i, `P${i}`, 1), 0);
@@ -93,14 +93,15 @@ test('far list: every far_ms the placed players not linked, nearest first, with 
   const d = Buffer.from(far.find(o => o[0] === vip(0))[2]);
   assert.equal(d.readUInt16LE(6), d.length);
   assert.equal(d.readUInt32LE(d.length - 4), crc32(d.subarray(0, d.length - 4)));
-  same(h.linksOf(vip(0), ROAM_PORT), [[vip(1), ROAM_PORT]]);   // K = 1: 2 and 3 are far, nearest first
-  assert.equal(d[16], 2);
+  same(h.linksOf(vip(0), ROAM_PORT), [[vip(1), ROAM_PORT]]);   // K = 1: 2 and 3 first, nearest first, then 1
+  assert.equal(d[16], 3);
   assert.equal(d.readUInt32LE(17), 102);
   assert.equal(d[21], ST_ROAM);
   assert.equal(d.readFloatLE(22), 200);
   assert.equal(d.readFloatLE(30), 5);
   same([...d.subarray(42, 45)], [2, 0x50, 0x32]);
   assert.equal(d.readUInt32LE(45), 103);
+  assert.equal(d.readUInt32LE(73), 101, 'the linked one last');
   same(decode(d), { k: 'other' });
   assert.ok(h.tick(2500).every(o => o[2][5] === MSG_PEERS), 'next one at 4000');
 });
@@ -127,7 +128,8 @@ test('rooms (MC3: cities): linked and far-listed within a room only; no room = 0
   const out = h.tick(2000);
   same(h.linksOf(vip(0), ROAM_PORT), [[vip(3), ROAM_PORT]]);
   same(h.linksOf(vip(1), ROAM_PORT), [[vip(2), ROAM_PORT]]);
-  assert.ok(out.filter(o => o[2][5] === MSG_FAR).every(o => o[2][16] === 0), 'nobody far in its own room');
+  // each FAR list holds its one room-mate (linked), never a player of the other room
+  assert.ok(out.filter(o => o[2][5] === MSG_FAR).every(o => o[2][16] === 1), 'only its own room');
   h.frame(vip(3), ROAM_PORT, hello(103, 'x', 7, 1), 2100);   // player 3 drives to Atlanta
   h.tick(2500);
   same(h.linksOf(vip(0), ROAM_PORT), []);

@@ -8,9 +8,10 @@
 //! - player -> hub: a HELLO every second (its id, status, name, and the links it wants: its K; MC3 asks 12-32, MC3_ROAM_CARS), a SNAP
 //!   twice a second (where its car is and how fast it goes), a BYE when it stops.
 //! - hub -> player: every `tick_ms` (500) a PEERS list of the players linked to it, { virtual address, port, id }; an
-//!   empty one says the hub is there.  Every `far_ms` (2 s) a FAR list of the other players it is not linked with,
-//!   nearest first (at most FAR_MAX): { id, status, place, orientation, name } each, for map markers.  A core that
-//!   does not know FAR (type 9) drops it as an unknown type.
+//!   empty one says the hub is there.  Every `far_ms` (2 s) a FAR list of the other players of its room, those it is
+//!   not linked with first, then the linked ones, each nearest first (at most FAR_MAX): { id, status, place,
+//!   orientation, name } each, for map markers (a linked player whose snapshots do not reach it still gets one; the
+//!   core drops those it draws as cars).  A core that does not know FAR (type 9) drops it as an unknown type.
 //!
 //! The links: the pairs of players with a position younger than `stale_ms`, nearest first, each player at most its K
 //! (at most `degree`).  "Nearest" looks ahead: a pair counts at the least of its distance once both cars went on
@@ -409,22 +410,22 @@ impl Hub {
         out
     }
 
-    /// Each placed player's FAR list: the placed players it is not linked with (nor its own browser), nearest first.
+    /// Each placed player's FAR list: the placed players of its room (not its own browser), those it is not linked
+    /// with first, then the linked ones, each nearest first.
     // shortcut: a sort per player every far_ms (O(n^2 log n)), as tick's O(n^2): the grid walk would take this too.
     fn far(&self, keys: &[Key], places: &[Option<Place>], out: &mut Vec<(u32, u16, Vec<u8>)>) {
         for (i, ki) in keys.iter().enumerate() {
             let Some((ai, ..)) = places[i] else { continue };
             let me = &self.players[ki];
-            let mut v: Vec<(f64, usize)> = (0..keys.len())
+            let mut v: Vec<(bool, f64, usize)> = (0..keys.len())
                 .filter(|&j| j != i && keys[j].0 != ki.0 && self.players[&keys[j]].room == me.room)
-                .filter(|&j| !me.links.contains_key(&keys[j]))
-                .filter_map(|j| places[j].map(|(aj, ..)| (dist(&ai, &aj), j)))
+                .filter_map(|j| places[j].map(|(aj, ..)| (me.links.contains_key(&keys[j]), dist(&ai, &aj), j)))
                 .collect();
-            v.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            v.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
             let list: Vec<_> = v
                 .iter()
                 .take(FAR_MAX)
-                .map(|&(_, j)| {
+                .map(|&(_, _, j)| {
                     let q = &self.players[&keys[j]];
                     let at = q.pos.map(|(a, ..)| a.map(|x| x as f32)).unwrap_or_default();
                     (q.id, q.status, at, q.q, q.name.as_str())
@@ -558,7 +559,8 @@ mod tests {
         let out = h.tick(2000);
         assert_eq!(h.links_of(vip(0), ROAM_PORT), vec![(vip(3), ROAM_PORT)]);
         assert_eq!(h.links_of(vip(1), ROAM_PORT), vec![(vip(2), ROAM_PORT)]);
-        assert!(out.iter().filter(|o| o.2[5] == MSG_FAR).all(|o| o.2[16] == 0), "nobody far in its own room");
+        // each FAR list holds its one room-mate (linked), never a player of the other room
+        assert!(out.iter().filter(|o| o.2[5] == MSG_FAR).all(|o| o.2[16] == 1), "only its own room");
         // player 3 drives to Atlanta: linked with 1 and 2 at the next tick
         h.frame(vip(3), ROAM_PORT, &hello_in(103, "x", 7, 1), 2100);
         h.tick(2500);
@@ -655,7 +657,7 @@ mod tests {
         assert_eq!(h.links_of(vip(0), ROAM_PORT), vec![(vip(1), ROAM_PORT)]);
     }
 
-    /// Every far_ms each placed player hears the others it is not linked with, nearest first, with name and place.
+    /// Every far_ms each placed player hears the others of its room, unlinked first, nearest first, with name and place.
     #[test]
     fn far_list() {
         let mut h = Hub::new(Options::default());
@@ -672,9 +674,9 @@ mod tests {
         assert_eq!(&d[..4], b"MC3R");
         assert_eq!(u16::from_le_bytes([d[6], d[7]]) as usize, d.len());
         assert_eq!(u32::from_le_bytes(d[d.len() - 4..].try_into().unwrap()), crc32(&d[..d.len() - 4]));
-        // 0 is linked with 1 (K = 1): 2 and 3 are far, nearest first
+        // 0 is linked with 1 (K = 1): 2 and 3 first, nearest first, then 1
         assert_eq!(h.links_of(vip(0), ROAM_PORT), vec![(vip(1), ROAM_PORT)]);
-        assert_eq!(d[16], 2);
+        assert_eq!(d[16], 3);
         let e = &d[17..];
         assert_eq!(u32::from_le_bytes(e[..4].try_into().unwrap()), 102);
         assert_eq!(e[4], ST_ROAM);
@@ -682,6 +684,7 @@ mod tests {
         assert_eq!(f32::from_le_bytes(e[13..17].try_into().unwrap()), 5.0);
         assert_eq!(&e[25..28], &[2, b'P', b'2']);
         assert_eq!(u32::from_le_bytes(e[28..32].try_into().unwrap()), 103);
+        assert_eq!(u32::from_le_bytes(e[56..60].try_into().unwrap()), 101, "the linked one last");
         assert_eq!(decode(d), Some(Msg::Other), "a hub-bound decoder skips it");
         assert!(h.tick(2500).iter().all(|o| o.2[5] == MSG_PEERS), "next one at 4000");
     }

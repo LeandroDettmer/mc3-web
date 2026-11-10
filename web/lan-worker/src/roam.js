@@ -11,7 +11,8 @@
 // per_vip endpoints. Nothing is hidden that is really playing: roam_core.c sends a SNAP every 2 s from the garage, and
 // the first cruise frame after a load sends one with status ROAM at once (roam_game.c roam_away hides those cars anyway).
 // - hub -> player: every tick a PEERS list { virtual address, port, id } of the players linked to it; every far_ms
-//   (2 s) a FAR list of the others it is not linked with, nearest first: { id, status, place, orientation, name }
+//   (2 s) a FAR list of the others of its room, those it is not linked with first, then the linked ones, each nearest
+//   first: { id, status, place, orientation, name }
 //   (map markers; a core without FAR, type 9, drops it as an unknown type).
 
 export const HUB = 0x0A4D00FD;   // 10.77.0.253
@@ -225,16 +226,18 @@ export class Hub {
     });
     if (since(now, this.farAt ?? 0) >= o.far_ms) {
       this.farAt = now;
-      // each placed player: the placed ones it is not linked with (nor its own browser), nearest first
+      // each placed player: the placed ones of its room (not its own browser), those it is not linked with first, then
+      // the linked ones, each nearest first: a linked player whose snapshots do not reach it (a link still being made,
+      // packets lost) still gets a map blip; the core drops the ones it already draws as cars (roam_far)
       // shortcut: a sort per player every far_ms (O(n^2 log n)), as the Rust hub's.
       ps.forEach((p, i) => {
         if (!places[i]) return;
         const list = ps.map((q, j) => [j, q])
-          .filter(([j, q]) => j !== i && places[j] && q.vip !== p.vip && q.room === p.room && !p.links.has(keys[j]))
-          .map(([j, q]) => [dist(places[i].soon, places[j].soon), j, q])
-          .sort((x, y) => x[0] - y[0] || x[1] - y[1])
+          .filter(([j, q]) => j !== i && places[j] && q.vip !== p.vip && q.room === p.room)
+          .map(([j, q]) => [p.links.has(keys[j]) ? 1 : 0, dist(places[i].soon, places[j].soon), j, q])
+          .sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2])
           .slice(0, FAR_MAX)
-          .map(([, , q]) => [q.id, q.status, q.pos.at, q.q ?? [0, 0, 0, 0], q.name]);
+          .map(([, , , q]) => [q.id, q.status, q.pos.at, q.q ?? [0, 0, 0, 0], q.name]);
         out.push([p.vip, p.port, encodeFar(this.id, this.seq, list)]);
       });
     }
