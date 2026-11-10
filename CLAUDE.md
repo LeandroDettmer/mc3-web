@@ -189,7 +189,15 @@ generated files when the lift inputs did not change.
   link that keeps sending is never cut) is tried again and logged. In game,
   the disc thread fills the cache in the background (2026-11-09,
   untested): assets_x.dat_2 (free-roam car builds read it synchronously
-  under the guest lock: 0.2-1.5 s frozen cold), the streamed sound banks
+  under the guest lock: 0.2-1.5 s frozen cold, an estimate; measured
+  warm on localhost, a swap's build is 105 ms (two-browser run
+  2026-11-09); one car is ~0.35 MB model + ~1.7 MB _g file + its mesh
+  parts, so a cold build is several 1 MiB block trips. That is the brief
+  freeze every player in Free Roam sees when one joins (2026-11-10):
+  '[WEB] disc wait: ...' (a game read waiting >= 100 ms), '[ROAM] cars:
+  car N built ... in N ms', '[WEB] hitch: N ms without a frame; last car
+  build ...; last disc wait ...' (>= 250 ms; one of >= 1 s in Free Roam
+  sends the log, tag hitch) split it next time), the streamed sound banks
   (audio/XStreams/*.xwb, 486 MiB, mx.xwb first: a track change fetched on
   demand stalled the game), flash/ smallest first (643 MiB: pause, garage,
   rewards, menus, the showroom's per-car vs/ps/ms/ds_vp screens), the rest

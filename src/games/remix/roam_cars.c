@@ -263,6 +263,7 @@ static int roam_car_make(int i, const uint8_t look[ROAM_CFG_SIZE], int mid)
     uint32_t top = (g_esp - 0x400u) & ~0xFu, before, after, reserve, cfg, veh, res, a;
     const char *name;
     int32_t car = -1;
+    double t0 = roam_now();                     /* the build's time: the frame stands still meanwhile */
     if (!online_ram(setup) || !online_ram(cfg0) || MEM32(cfg0) != ROAM_CFG_VT || !online_ram(heap) || !s_roam_slots)
         return 0;
     reserve = MEM32(heap + 0xCu) / 8u > ROAM_CARS_RESERVE ? MEM32(heap + 0xCu) / 8u : ROAM_CARS_RESERVE;
@@ -317,9 +318,9 @@ static int roam_car_make(int i, const uint8_t look[ROAM_CFG_SIZE], int mid)
         fprintf(stderr, "[ROAM] cars: car %d not found in the physics level after its build: its collisions "
                         "left as built (logged once)\n", i);
     roam_show(veh, 0);                          /* shown once driven */
-    fprintf(stderr, "[ROAM] cars: car %d built (%s, slot %u%s): %u KB, heap %u KB free\n", i,
+    fprintf(stderr, "[ROAM] cars: car %d built (%s, slot %u%s) in %.0f ms: %u KB, heap %u KB free\n", i,
             roam_cfg_name(c->look) ? roam_cfg_name(c->look) : "?", (unsigned)c->slot, mid ? ", in the cruise" : "",
-            (unsigned)(s_car_cost >> 10), (unsigned)(after >> 10));
+            (roam_now() - t0) * 1e3, (unsigned)(s_car_cost >> 10), (unsigned)(after >> 10));
     return 1;
 }
 

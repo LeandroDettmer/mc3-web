@@ -1327,6 +1327,29 @@
       out('[WEB] freeze: ' + why);
       logQuiet('freeze', why);
     }, 1000);
+    // Hitch: the frame counter still for HITCH_MS or more, then moving again (a player joining Free Roam froze
+    // everyone briefly, 2026-11-10). Logged with the nearest car-build / disc lines; the first one of a second or
+    // more in Free Roam also sends the log (tag hitch, once a session).
+    const HITCH_MS = 250;
+    let hf, ht = 0, hlast = 0, hsent = false;
+    (function tick(now) {
+      const f = window.Module?.mc3Frames?.();
+      if (document.visibilityState !== 'visible' || !(f > 0)) ht = 0;
+      else if (f !== hf) {
+        const gap = ht ? now - ht : 0;
+        if (gap >= HITCH_MS && now - hlast > 2000) {
+          hlast = now;
+          const why = `${Math.round(gap)} ms without a frame; last car build: `
+            + `${lastLine(/\[ROAM\] (slot \d+: (building|.*swapped)|cars: car \d+ built)/) || 'none'}; `
+            + `last disc wait: ${lastLine(/\[WEB\] disc (wait|read)/) || 'none'}`;
+          out('[WEB] hitch: ' + why);
+          if (gap >= 1000 && !hsent && lastLine(/\[roam\] status/)) { hsent = true; logQuiet('hitch', why); }
+        }
+        ht = now;
+      }
+      hf = f;
+      requestAnimationFrame(tick);
+    })(performance.now());
   }
   // A killed tab (Aw Snap, out of memory) runs no more code: while playing, the log's last 200 KB (headed) and a
   // heartbeat are kept in localStorage every 5 s; a clean exit (pagehide: Quit, closing, leaving) clears them. The next

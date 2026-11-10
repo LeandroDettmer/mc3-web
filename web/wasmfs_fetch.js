@@ -99,6 +99,19 @@ addToLibrary({
     const READAHEAD = 2, GAME_STALL_MS = 4000, PREFETCH_RUN = 16, SMALL = 2 * BLOCK;
     let netReads = 0, lastNet = 0, prefetching = false;   // the game's own reads on the network, when the last ended
     const bgRuns = new Set();       // the background fill's requests in progress (fetchRun)
+    // A game read that waited SLOW_MS or more (the guest thread that asked stood still meanwhile; a free-roam car
+    // build waits under the guest lock, so every player's frame does): '[WEB] disc wait: ...', at most a line a
+    // second, with the slow reads since the last line summed (web/index.html's '[WEB] hitch' names the last one).
+    const SLOW_MS = 100;
+    let slowN = 0, slowMs = 0, slowAt = 0;
+    function slowRead(fi, offset, length, ms) {
+      slowN++; slowMs += ms;
+      const now = performance.now();
+      if (now - slowAt < 1000) return;
+      err(`[WEB] disc wait: ${fi.url} @${offset} ${(length / 1024).toFixed(0)} KB waited ${Math.round(ms)} ms (${slowN} slow`
+        + ` read${slowN == 1 ? '' : 's'}, ${Math.round(slowMs)} ms in all, since the last such line)`);
+      slowAt = now; slowN = 0; slowMs = 0;
+    }
     const announce = new BroadcastChannel('mc3-disc');   // the predownload (web/disc_cache.js) stops for a game
     announce.postMessage({ t: 'game' });
     self.mc3DiscIO = { mem, inflight, files, open };   // for a debugger attached to this thread
@@ -348,7 +361,7 @@ addToLibrary({
         if (offset < 0 || length <= 0 || offset >= fi.size) return 0;
         length = Math.min(length, fi.size - offset);
         if (fi.data) { HEAPU8.set(fi.data.subarray(offset, offset + length), buffer); return length; }
-        const first = (offset / BLOCK) | 0, last = ((offset + length - 1) / BLOCK) | 0, want = [];
+        const first = (offset / BLOCK) | 0, last = ((offset + length - 1) / BLOCK) | 0, want = [], t0 = performance.now();
         // several blocks, or a small file: the missing ones in one request per run (see the header)
         const small = fi.size <= SMALL, lo = small ? 0 : first, hi = small ? Math.ceil(fi.size / BLOCK) - 1 : last;
         if (hi > lo) {
@@ -363,6 +376,8 @@ addToLibrary({
         let bs;
         try { bs = await Promise.all(want); }
         catch (e) { err(`[WEB] disc read failed: ${fi.url} @${offset}: ${e}`); return -{{{ cDefs.EIO }}}; }
+        const waited = performance.now() - t0;
+        if (waited >= SLOW_MS) slowRead(fi, offset, length, waited);
         for (let bi = first; bi <= last; bi++) {
           const s = Math.max(offset, bi * BLOCK), e = Math.min(offset + length, (bi + 1) * BLOCK);
           HEAPU8.set(bs[bi - first].subarray(s - bi * BLOCK, e - bi * BLOCK), buffer + s - offset);
