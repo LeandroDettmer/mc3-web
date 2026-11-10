@@ -136,9 +136,9 @@ int roam_far(roam_far_peer *out, int max){
     if (g_s.far_us && roam_plat_now_us() - g_s.far_us < 6000000){
         for (int i = 0; i < g_s.nfar && n < max; i++){
             const roam_far_peer *e = &g_s.far[i];
-            int car = 0;   /* linked meanwhile: roam_peers shows it as a car */
+            int car = 0;   /* linked meanwhile: roam_peers shows it as a car (once a snapshot came) */
             for (int k = 0; k < RC_TABLE && !car; k++)
-                car = g_s.peer[k].state == RC_PS_EST && !g_s.peer[k].lost && g_s.peer[k].id == e->id;
+                car = g_s.peer[k].state == RC_PS_EST && !g_s.peer[k].lost && g_s.peer[k].mo.n > 0 && g_s.peer[k].id == e->id;
             if (car) continue;
             out[n] = *e;
             float dx = e->p[0] - g_me[0], dy = e->p[1] - g_me[1], dz = e->p[2] - g_me[2];
