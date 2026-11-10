@@ -53,3 +53,4 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** a player driving near you gets a car even when players in the garage or the menus held the car slots.
 - **Free Roam:** every player in your city shows on the map, and the full map (I) lists the players on its side.
 - **Firefox:** the game shows a picture again instead of a black screen (it now draws with WebGL there).
+- **Free Roam:** no more red Eclipses driving around the city: the cruise had AI racers since the options screen was skipped.

@@ -2340,6 +2340,7 @@ static int roam_room(void);                     /* free roam: the city is the ro
 static void online_car_picked(void);            /* the Online profile keeps the car picked (below) */
 static void roam_race_over(uint32_t esp);       /* free roam: which way RACE OVER came (roam_cars.c) */
 static void rra_state_request(uint32_t esp);    /* free roam: an AI race's way back (roam_race_ai.c) */
+static void fr_no_opponents(void);              /* free roam: the cruise without AI racers (below) */
 extern void sub_00020E40_gen(void);
 void sub_00020E40(void)
 {
@@ -2350,6 +2351,7 @@ void sub_00020E40(void)
     roam_race_over(g_esp);
     roam_room();                                 /* the city picked (free roam room), before the load */
     online_car_picked();                         /* a car picked on the setup screen, before the load */
+    fr_no_opponents();
     sub_00020E40_gen();
 }
 static uint32_t s_state_obj;                    /* for MC3_AUTOSTART (sub_0020B6F0) */
@@ -3912,6 +3914,30 @@ static uint32_t fr_settings(void)
 {
     uint32_t s = MEM32(FR_SETTINGS_VA);
     return online_ram(s) ? s : 0;
+}
+
+/* No AI racers in the Free Roam cruise. Go (sub_0013B110) sets the
+ * settings' opponent count +0x40 from the event (sub_00165F50: the cruise
+ * event's OpponentCount, at most 5), and the options screen's builder
+ * (sub_001662F0) sets it back to 0 for a mode without an opponents row
+ * (Cruise, jump table 0x16694C). Skipping that screen kept the count: the
+ * cruise's race init (sub_001C13E0 -> .rac reader sub_001D3AE0, racers =
+ * min(.rac, 8, setup +0x40) while +0x10D) and the AI manager sub_001E43C0
+ * built them, red Eclipses driving in the traffic lanes (2026-11-10). Each
+ * state request before the load zeroes it in every cruise setup (type 0;
+ * the AI race from a start point is another type and keeps its own). */
+static void fr_no_opponents(void)
+{
+    static const uint32_t k_setup[3] = { 0x0053F2E0u, 0x0053F2E4u, FR_SETTINGS_VA };
+    uint32_t i, s;
+    if (!fr_setup())
+        return;
+    for (i = 0; i < 3; i++)
+        if (online_ram(s = MEM32(k_setup[i])) && MEM32(s + 0x18u) == 0 && MEM32(s + 0x40u) != 0) {
+            fprintf(stderr, "[ONLINE] Free Roam: %u AI racers in the cruise setup [%08X] removed\n",
+                    (unsigned)MEM32(s + 0x40u), (unsigned)k_setup[i]);
+            MEM32(s + 0x40u) = 0;
+        }
 }
 
 static uint32_t fr_screens(void)                /* the FE's screen manager, 0 none */
