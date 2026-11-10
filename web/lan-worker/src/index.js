@@ -10,13 +10,23 @@ import { originOk } from './switch.js';
 export { Switch } from './switch.js';
 
 export default {
-  async fetch(req, env) {
+  async fetch(req, env, ctx) {
     const url = new URL(req.url);
     const allowed = (env.ALLOW_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
     if (url.pathname === '/lan/stats' && req.method === 'GET') {
       const origin = req.headers.get('Origin');
       if (origin && !originOk(allowed, origin)) return new Response('origin not allowed', { status: 403 });
-      const res = await env.SWITCH.get(env.SWITCH.idFromName('switch')).fetch(req);
+      // Edge cache (15 s, per data center): polls are answered here, so they never wake the Durable Object.
+      const cache = typeof caches !== 'undefined' ? caches.default : null, key = new Request(url.origin + url.pathname);
+      let res = cache && await cache.match(key);
+      if (!res) {
+        res = await env.SWITCH.get(env.SWITCH.idFromName('switch')).fetch(req);
+        if (cache && res.ok) {
+          const body = await res.text();
+          ctx?.waitUntil(cache.put(key, new Response(body, { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=15' } })));
+          res = new Response(body, { status: res.status });
+        }
+      }
       return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': allowed.length && origin ? origin : '*', Vary: 'Origin' } });
     }
     if (url.pathname !== '/lan') return new Response('not found', { status: 404 });

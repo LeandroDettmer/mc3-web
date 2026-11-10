@@ -44,7 +44,7 @@ export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, b
 // through it too: an offer/answer + ~10 ICE candidates per peer, ~80 at once joining an 8-player room. 20/s, burst 200.
 // Over budget: dropped silently; empty for FLOOD_MS in a row: closed with 1008 (lan.js reconnects with backoff).
 export const CTL = { perS: 20, burst: 200 }, FLOOD_MS = 10e3;
-export const NICK = 15, PLAYERS_MAX = 200, WHO_MS = 1000;   // the page's name field is 15 long
+export const NICK = 15, PLAYERS_MAX = 200, WHO_MS = 2000;   // the page's name field is 15 long
 const SAVE_MS = 30e3;   // a frame-only client's `last` reaches its attachment this often (idle expiry after a wake)
 
 export const isVip = v => (v & MASK) >>> 0 === NET && (v & 255) >= 2 && (v & 255) < 252;
@@ -184,8 +184,12 @@ export class Switch extends Lobby {
     try { m = JSON.parse(text); } catch { return false; }
     if (m?.t === 'hello') {
       const name = clean(m.name, NICK, 'Player');
+      if (typeof m.cid === 'string' && /^[\w-]{8,40}$/.test(m.cid)) c.a.cid = m.cid;
       if (this.nickTaken(c, name)) this.err(c, 'hello', 'nick-taken');   // the old name stays
-      else c.a.name = name;
+      else {
+        c.a.name = name;
+        this.evictOwn(c);
+      }
       c.a.hi = true; c.a.lan = on(m.lan);
     } else if (m?.t === 'lan') c.a.lan = on(m.on);
     else if (m?.t === 'players') c.a.who = on(m.sub);
@@ -207,8 +211,19 @@ export class Switch extends Lobby {
   nickTaken(c, name) {
     const k = name.toLowerCase();
     if (k === 'player') return false;
-    for (const q of this.clients.values()) if (q !== c && String(q.a.name).toLowerCase() === k) return true;
+    for (const q of this.clients.values()) if (q !== c && String(q.a.name).toLowerCase() === k && !(c.a.cid && q.a.cid === c.a.cid)) return true;
     return false;
+  }
+
+  /** Same browser (cid), same nick, older socket: a ghost (half-open link, reload, second tab). The newcomer replaces it. */
+  evictOwn(c) {
+    const k = String(c.a.name).toLowerCase();
+    if (!c.a.cid || k === 'player') return;
+    for (const q of [...this.clients.values()]) {
+      if (q === c || q.a.cid !== c.a.cid || String(q.a.name).toLowerCase() !== k) continue;
+      this.drop(q);
+      try { q.ws.close(4001, 'replaced'); } catch {}   // lan.js does not reconnect on 4001
+    }
   }
 
   /** A binary frame from `c`: checked, its source rewritten, routed (crates/lan Switch::frame). */

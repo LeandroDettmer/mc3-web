@@ -1841,7 +1841,7 @@
   dlg.onclose = () => $('canvas').focus();                // the game keeps the keys
   $('quit').onclick = () => { if (confirm('Quit the game? Anything not saved in the game is lost.')) location.reload(); };
   // --- who is online: pushed over the link when it changes (web/lan.js l.players, names included); without it
-  // (offline, or a switch without the push: web/server) the server's GET /lan/stats (counts only), every 15 s while the start page shows
+  // (offline, or a switch without the push: web/server) the server's GET /lan/stats (counts only), every 60 s while the start page is visible (backing off to 5 min while unchanged)
   const CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'];   // free-roam room ids 0..3 (0 = the default room)
   function statsUrl() {
     try {
@@ -1927,6 +1927,7 @@
   $('players-close').onclick = () => $('players-dlg').close();
   $('players-dlg').onclick = e => { if (e.target === $('players-dlg')) $('players-dlg').close(); };   // the backdrop
   $('players-dlg').onclose = () => (playing ? $('canvas') : playersFrom)?.focus();
+  let statsSig = '';
   async function showOnline() {
     if (renderOnline()) return;
     const els = [$('online-now'), $('online-now-tab')], url = statsUrl();
@@ -1936,11 +1937,23 @@
       const s = await r.json();
       if (!r.ok || !Number.isFinite(s.online) || !s.freeRoam?.rooms) throw 0;
       if (renderOnline()) return;   // the push came meanwhile
+      statsSig = JSON.stringify(s);
       for (const e of els) { onlineWidget(e, s); e.hidden = false; }
     } catch {
       if (renderOnline()) return; for (const e of els) e.hidden = true; }
   }
-  setInterval(() => { if (!playing && !document.hidden) showOnline(); }, 15000);
+  // poll: 60 s while the start page is visible, doubling to 5 min while the answer stays the same
+  let pollMs = 60000;
+  (function poll() {
+    setTimeout(async () => {
+      if (!playing && !document.hidden) {
+        const before = statsSig;
+        await showOnline();
+        pollMs = statsSig === before ? Math.min(pollMs * 2, 300000) : 60000;
+      }
+      poll();
+    }, pollMs);
+  })();
 
   // While playing, the game's keys must not act on the page: SDL takes them
   // on the GL thread (proxied, so it cannot cancel them), and Tab moved the
