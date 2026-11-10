@@ -337,7 +337,7 @@ test('nicks: unique among live clients, any case, trimmed; refused keeps the old
   clearTimeout(sw.whoTimer);
 });
 
-test('nicks: the same browser (cid) takes its nick back from a ghost socket; another cid is refused', async () => {
+test('nicks: the same browser (cid) may hold its nick on another socket (a second tab keeps the game online); another cid is refused', async () => {
   const { sw, peer } = setup();
   const ghost = peer(), fresh = peer(), other = peer();
   await ghost.say({ t: 'hello', name: 'Ann', lan: 1, cid: 'abcdefgh1234' });
@@ -346,6 +346,6 @@ test('nicks: the same browser (cid) takes its nick back from a ghost socket; ano
   await fresh.say({ t: 'hello', name: 'ann', lan: 1, cid: 'abcdefgh1234' });
   assert.equal(last(fresh.ws.texts(), 'error'), undefined);
   assert.equal(sw.clients.get(fresh.vip).a.name, 'ann');
-  assert.equal(sw.clients.has(ghost.vip), false, 'the ghost is dropped');
+  assert.equal(sw.clients.has(ghost.vip), true, 'the older socket (maybe the game tab) stays');
   clearTimeout(sw.whoTimer);
 });

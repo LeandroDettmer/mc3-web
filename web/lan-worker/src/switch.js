@@ -186,10 +186,7 @@ export class Switch extends Lobby {
       const name = clean(m.name, NICK, 'Player');
       if (typeof m.cid === 'string' && /^[\w-]{8,40}$/.test(m.cid)) c.a.cid = m.cid;
       if (this.nickTaken(c, name)) this.err(c, 'hello', 'nick-taken');   // the old name stays
-      else {
-        c.a.name = name;
-        this.evictOwn(c);
-      }
+      else c.a.name = name;   // the same browser (cid) may hold its nick on two sockets: a second tab, a ghost (the idle sweep drops it)
       c.a.hi = true; c.a.lan = on(m.lan);
     } else if (m?.t === 'lan') c.a.lan = on(m.on);
     else if (m?.t === 'players') c.a.who = on(m.sub);
@@ -213,17 +210,6 @@ export class Switch extends Lobby {
     if (k === 'player') return false;
     for (const q of this.clients.values()) if (q !== c && String(q.a.name).toLowerCase() === k && !(c.a.cid && q.a.cid === c.a.cid)) return true;
     return false;
-  }
-
-  /** Same browser (cid), same nick, older socket: a ghost (half-open link, reload, second tab). The newcomer replaces it. */
-  evictOwn(c) {
-    const k = String(c.a.name).toLowerCase();
-    if (!c.a.cid || k === 'player') return;
-    for (const q of [...this.clients.values()]) {
-      if (q === c || q.a.cid !== c.a.cid || String(q.a.name).toLowerCase() !== k) continue;
-      this.drop(q);
-      try { q.ws.close(4001, 'replaced'); } catch {}   // lan.js does not reconnect on 4001
-    }
   }
 
   /** A binary frame from `c`: checked, its source rewritten, routed (crates/lan Switch::frame). */
