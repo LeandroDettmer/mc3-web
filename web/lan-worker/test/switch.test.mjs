@@ -129,6 +129,25 @@ test('rate limit: a token bucket per sender', async () => {
   assert.equal(b.ws.bins().length, 2);
 });
 
+test('rate limit: normal burst passes, flood dropped, sustained flood closes 1008', async () => {
+  const { peer } = setup();
+  const a = peer(), b = peer();
+  let t = 1e6;
+  for (let i = 0; i < 700; i++) await a.frame(udp(a.vip, b.vip, bytes('z')), t);   // a roam peak in one instant
+  assert.equal(b.ws.bins().length, 700);
+  for (let i = 0; i < 10; i++) await a.say({ t: 'ping', id: i }, t);   // a connect burst of JSON
+  assert.equal(a.ws.texts().length, 10);
+  for (let i = 0; i < 40; i++) await a.say({ t: 'ping', id: i }, t);   // JSON flood: 20 token burst, 10 spent
+  assert.equal(a.ws.texts().length, 10);
+  assert.equal(a.ws.closed, null);
+  for (let s = 0; s < 12 && !a.ws.closed; s++) { t += 1000; for (let i = 0; i < 50; i++) await a.say({ t: 'ping', id: i }, t); }
+  assert.deepEqual(a.ws.closed, [1008, 'rate limit']);
+  const c = peer();   // frame flood
+  t += 1e6;
+  for (let s = 0; s < 700 && !c.ws.closed; s++) { t += 20; for (let i = 0; i < 100; i++) await c.frame(udp(c.vip, b.vip, bytes("z")), t); }   // 5000 frames/s
+  assert.deepEqual(c.ws.closed, [1008, 'rate limit']);
+});
+
 test('hub: HELLO + SNAP in, PEERS out as frames from 10.77.0.253:47210; {"t":"roam"}; leave', async () => {
   const { sw, peer } = setup();
   const ps = [peer(), peer()];

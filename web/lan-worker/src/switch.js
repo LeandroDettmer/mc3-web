@@ -37,6 +37,11 @@ import { Hub, HUB, ROAM_PORT } from './roam.js';
 
 export const BROADCAST = 0xFFFFFFFF, HDR = 16, MAX_DATA = 1472, MAX_FRAME = HDR + MAX_DATA;
 export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, burstBytes: 2 << 20 };   // crates/lan Limits
+// Measured legit peaks (client code, 2026-11-09): binary per client ~700 frames/s worst case = free roam's 20 Hz SNAP to
+// K = 32 peers (640) + 1 Hz HELLO/PING to them; an 8-player race ~60 Hz x 7 = 420. framesPerS 2000 is ~3x that.
+// JSON: web/lan.js sends a ping every 20 s plus a handful of subs/joins/renames at connect: < 1/s; 5/s, burst 20 is >5x.
+// Over budget: dropped silently; empty for FLOOD_MS in a row: closed with 1008 (lan.js reconnects with backoff).
+export const CTL = { perS: 5, burst: 20 }, FLOOD_MS = 10e3;
 export const NICK = 15, PLAYERS_MAX = 200, WHO_MS = 1000;   // the page's name field is 15 long
 const SAVE_MS = 30e3;   // a frame-only client's `last` reaches its attachment this often (idle expiry after a wake)
 
@@ -130,6 +135,7 @@ export class Switch extends Lobby {
     const c = this.byWs(ws);
     if (c) {
       if (typeof data !== 'string') this.frame(c, new Uint8Array(data), now);
+      else if (this.ctlLimited(c, now)) { /* dropped */ }
       else if (!this.control(c, data, now)) await super.webSocketMessage(ws, data, now);
     }
     if (this.hub.count) {
@@ -137,6 +143,36 @@ export class Switch extends Lobby {
       if (now - this.ticked >= this.hub.opts.tick_ms) this.tick(now);
     }
     this.who(now);
+  }
+
+  /** The bucket of `c` (frames, bytes, JSON tokens). */
+  bucket(vip, now) {
+    let k = this.buckets.get(vip);
+    if (!k) this.buckets.set(vip, k = { frames: this.rate.burstFrames, bytes: this.rate.burstBytes, at: now, ctl: CTL.burst, ctlAt: now, over: 0 });
+    return k;
+  }
+
+  /** Over budget: true (drop). Empty for FLOOD_MS in a row: the socket is closed with 1008. `over` is the time it ran dry. */
+  flood(c, k, limited, calm, now) {
+    if (calm) k.over = 0;   // refilled to half: the few messages a flood still lets through do not reset the clock
+    if (limited) {
+      if (!k.over) k.over = now;
+      else if (now - k.over > FLOOD_MS) {
+        try { c.ws.close(1008, 'rate limit'); } catch {}
+        this.drop(c);
+      }
+    }
+    return limited;
+  }
+
+  /** A JSON message's token (separate, small budget: ping/subs/join/rename are < 1/s). */
+  ctlLimited(c, now) {
+    const k = this.bucket(c.a.vip, now);
+    k.ctl = Math.min(k.ctl + Math.max(0, now - k.ctlAt) / 1000 * CTL.perS, CTL.burst);
+    k.ctlAt = now;
+    const limited = k.ctl < 1;
+    if (!limited) k.ctl -= 1;
+    return this.flood(c, k, limited, k.ctl >= CTL.burst / 2, now);
   }
 
   /** The switch's own control messages (hello with lan, lan, roam, players); false: the Lobby's (rooms, ping, ...). */
@@ -169,13 +205,12 @@ export class Switch extends Lobby {
     }
     const vip = c.a.vip, r = this.rate;
     if (now - c.a.last > SAVE_MS) { c.a.last = now; this.save(c); } else c.a.last = now;
-    let k = this.buckets.get(vip);
-    if (!k) this.buckets.set(vip, k = { frames: r.burstFrames, bytes: r.burstBytes, at: now });
+    const k = this.bucket(vip, now);
     const dt = Math.max(0, now - k.at) / 1000;
     k.at = now;
     k.frames = Math.min(k.frames + dt * r.framesPerS, r.burstFrames);
     k.bytes = Math.min(k.bytes + dt * r.bytesPerS, r.burstBytes);
-    if (k.frames < 1 || k.bytes < b.length) return 'limited';
+    if (this.flood(c, k, k.frames < 1 || k.bytes < b.length, k.frames >= r.burstFrames / 2, now)) return 'limited';
     k.frames -= 1;
     k.bytes -= b.length;
 
