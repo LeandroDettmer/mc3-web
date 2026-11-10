@@ -193,6 +193,8 @@ The lead writes `wgpu_proto.h` first.
 
 ## M5: performance
 
+Measured numbers and the open levers (arena upload, passes per frame): docs/webgpu-perf.md.
+
 **Goal:** Cruise at a steady 30 fps on the owner's PC; 60 with `MC3_60FPS=1` where the GPU allows.
 
 **Files:**
