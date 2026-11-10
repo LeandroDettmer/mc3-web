@@ -285,13 +285,17 @@ Module['mc3TouchPad'] = function (words) {
     } else {
       var hw = Math.min(w, h * 16 / 9), hx = x + (w - hw) / 2,   // the HUD keeps its 16:9 in the middle (Hor+)
           left = hx + hw * MAP_LEFT, bottom = y + h * (MAP_TOP - GAP);
-      document.querySelectorAll('.tc:not([hidden]) .tc-b').forEach(function (c) {   // touch buttons under the box
-        var q = c.getBoundingClientRect();
-        if (q.width && q.left - L.left < left + w * 0.32 && q.right - L.left > left)
-          bottom = Math.min(bottom, q.top - L.top - 6);
-      });
       st.fontSize = Math.max(10, h * 0.021).toFixed(1) + 'px';
       st.maxWidth = (w * 0.32).toFixed(0) + 'px';
+      // touch buttons the box would cover: only those overlapping its own rect (a phone's top row of buttons sits
+      // above the picture and pushed the box off it, 2026-11-10); it never leaves the picture's top
+      var bh = el.offsetHeight || h * 0.12;
+      document.querySelectorAll('.tc:not([hidden]) .tc-b').forEach(function (c) {
+        var q = c.getBoundingClientRect(), qt = q.top - L.top, qb = q.bottom - L.top;
+        if (q.width && q.left - L.left < left + w * 0.32 && q.right - L.left > left && qb > bottom - bh && qt < bottom)
+          bottom = Math.min(bottom, qt - 6);
+      });
+      bottom = Math.max(bottom, y + bh);
       st.textAlign = 'left';
       st.transform = 'translate(' + left.toFixed(1) + 'px,' + Math.max(y, bottom).toFixed(1) + 'px) translateY(-100%)';
     }
