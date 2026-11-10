@@ -525,6 +525,8 @@ static void wq_watchdog(int st)
         stalled_at = 0;
         next_s = 5;
     }
+    if (now < s_frame_ns)                   /* a frame landed after `now` was read: the gap would wrap */
+        return;
     gap = (now - s_frame_ns) / 1000000000ull;
     if (gap < next_s)
         return;
