@@ -3860,6 +3860,18 @@ static uint32_t heap_alloc_locked(uint32_t size, uint32_t alignment)
     result = (g_heap_next + alignment - 1) & ~(alignment - 1);
 
     if (result + size > XBOX_HEAP_TOP) {
+        /* More than the whole heap is a garbage size (a guest bug), not a
+         * full heap: name the kernel call site and the guest stack, whose
+         * return addresses lead to the game function that computed it
+         * (2026-11-10: 610,282,432 bytes in the Remix's Online menu). */
+        if (size > XBOX_HEAP_TOP - XBOX_HEAP_BASE) {
+            extern RECOMP_TLS uint32_t g_xbox_kernel_caller;
+            fprintf(stderr, "[HEAP] impossible request %u (0x%X) from guest 0x%08X; stack at 0x%08X:",
+                    size, size, g_xbox_kernel_caller, g_esp);
+            for (int i = 0; i < 24 && g_esp && g_esp + 4 * i < g_xbox_total_ram; i++)
+                fprintf(stderr, " %08X", *(uint32_t *)LAYOUT_PTR(g_esp + 4 * i));
+            fprintf(stderr, "\n");
+        }
         fprintf(stderr, "xbox_HeapAlloc: out of memory (requested %u, used %u/%u)\n",
                 size, g_heap_next - XBOX_HEAP_BASE,
                 (unsigned)(XBOX_HEAP_TOP - XBOX_HEAP_BASE));
