@@ -640,6 +640,9 @@
     // A PC gets the devkit's 128 MB: the 47 MB heap of 64 MB died on a Free Roam cruise rebuilt with 6 remote cars
     // ("Heap overrun", 2026-11-10); low-memory devices keep 64 (below)
     if (!low && env.RECOMP_RAM_MB === undefined) env.RECOMP_RAM_MB = '128';
+    // The remote cars heap (RoamCars, b66285a) stays off: a car swap mid-cruise froze the game (log D5JVHR, 2026-11-10:
+    // swaps took 0.6 s and 10-45 s hitches, then a PGRAPH trap never served); =48 tries it
+    if (env.MC3_ROAM_HEAP_MB === undefined) env.MC3_ROAM_HEAP_MB = '0';
     if (low) {   // TVs and small devices (lowMem): lighter on memory, 1x (above), unless the player picked otherwise
       // A 32-bit TV browser gives 256 MB and never grows it (2026-11-09): GL record queue 4 MB (48), GL ring copies
       // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory)
