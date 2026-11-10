@@ -382,13 +382,30 @@ generated files when the lift inputs did not change.
   Street challenge (feature 2, 2026-11-09, untested in game;
   src/games/remix/roam_challenge.c, docs/roam-races.md F2): within 30 m of a
   player, both under 12 m/s, White challenges; the other accepts with White
-  in 10 s; 3 s countdown with both cars held; the course is the nearest
+  in 10 s; the course is the nearest
   sprint/circuit's own checkpoints, read from its .rac at challenge time
   (tune/race/<city>/<event>.rac through the game's file system and text
-  tokenizer), ~2 km, at most 6; only the two see it (page marker
-  roam_cp_box, map icons, prompt box). Messages: roam core GAME record
-  (type 10, core 17, peer to peer, the hubs untouched). '[CHALLENGE]'
-  lines; MC3_ROAM_CHALLENGE=0 off.
+  tokenizer: position + 4 sizes), ~2 km, at most 6. Rework (2026-11-10,
+  untested in game): both cars go to a start grid (the event's checkpoint
+  before the course, side by side 2.5 m off it, facing the first
+  checkpoint; challenger left) and are held there for the 3 s countdown;
+  the checkpoints are the game's own: the Free Roam cruise's race object
+  [[0x533E24]+4] (vt 0x46B608) is an mcRaceBase with none, and its per-player
+  draw (vt+0x110 sub_001CF3B0, from the player render sub_002BE8E0) runs the
+  flare of each checkpoint in race+0x24/+0x28; we fill those (game new[]
+  sub_001B3C60 + ctor sub_001CA0A0, as the .rac reader sub_001CDC80), racer
+  record 0 (race+0x98) +0x34 target / +0x18 laps 1; pass = the game's gate
+  test sub_001D1510 + audio event 0x15; the HUD arrow (race vt+0xE8, a stub
+  in the cruise) through the cruise vtable slot pointed at sub_001DF290
+  meanwhile; countdown = HUD message queue [[player+0x58]+0x50]
+  sub_000B6330 + audio event 0xC. The game's map draws no race checkpoints
+  in the cruise (sub_000C2CE0 is race-type gated), so ours draw next + after
+  in the map tune's colours. Page marker roam_cp_box only as fallback.
+  Prompt box (web/pre.js): left, above the minimap; '\x01' first = big and
+  centred (countdown, GO, 2 s of result). Messages: roam core GAME record
+  (type 10, core 17, peer to peer, the hubs untouched; challenge v2).
+  '[CHALLENGE]' lines; MC3_ROAM_CHALLENGE=0 off, =2 no HUD/audio calls,
+  =3 no native checkpoints.
   Many cars (2026-11-09, untested in game; src/games/remix/roam_cars.c,
   docs/roam-many-cars.md): peers beyond the 7 slots get standalone cars
   (the player builder, no player; pose + inputs written after the physics

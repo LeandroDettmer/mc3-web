@@ -209,24 +209,30 @@ Module['mc3TouchPad'] = function (words) {
   requestAnimationFrame(frame);
 })();
 
-// Race prompt: near a race start point in free roam, src/games/remix/roam_race_ai.c publishes one line
-// (roam_prompt_box: seq, then 192 bytes of UTF-8, empty = none): up to three lines joined by '\n' (title, details,
-// action; '[Q]' in the action is drawn as a keycap); shown at the bottom middle of the canvas while fresh (the game updates it every frame). Main thread only.
+// Race prompt: near a race start point or a player in free roam, src/games/remix/roam_race_ai.c / roam_challenge.c
+// publish up to three lines joined by '\n' (roam_prompt_box: seq, then 192 bytes of UTF-8, empty = none: title,
+// details, action; '[Q]' in the action is drawn as a keycap). Shown while fresh (the game updates it every frame) in a
+// small box on the left of the picture, just above the HUD's minimap (bottom-left of the HUD's middle 16:9 under Hor+),
+// at most 32% of the picture wide, and kept above the touch controls. A text starting with \x01 (the countdown, GO, the
+// first 2 s of a result) is big and centred instead. Placed from the game picture's rect (letterboxing, Hor+), as the
+// name tags. Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
-  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, shown = null;
+  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null, big = false;
+  // the minimap's top-left in the HUD's 16:9 (720x480 layout): left edge and top, fractions of the HUD's width/height
+  var MAP_LEFT = 0.055, MAP_TOP = 0.64, GAP = 0.015;
   if (!canvas) return;
   function frame(now) {
     requestAnimationFrame(frame);
     if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_prompt_box != 'function' || !canvas.parentNode) return;
     if (!I32) {   // a static box (as above): the view stays valid after growth
       I32 = new Int32Array(HEAPU8.buffer);
+      F32 = new Float32Array(HEAPU8.buffer);
       el = document.createElement('div');
-      el.style.cssText = 'position:absolute;left:50%;bottom:14%;transform:translateX(-50%);pointer-events:none;' +
-        'z-index:1;box-sizing:border-box;max-width:calc(100% - 32px);padding:.5em 1em;border-radius:8px;' +
-        'background:rgba(0,0,0,.72);border:1px solid rgba(255,255,255,.25);box-shadow:0 2px 10px rgba(0,0,0,.6);' +
-        'color:#fff;text-align:center;text-shadow:0 1px 2px #000;overflow-wrap:anywhere;' +
-        'font:700 clamp(12px,2.2vh,22px) "Arial Narrow","Roboto Condensed",Arial,sans-serif;display:none';
+      el.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;z-index:1;box-sizing:border-box;' +
+        'padding:.45em .8em;border-radius:8px;background:rgba(0,0,0,.72);border:1px solid rgba(255,255,255,.25);' +
+        'box-shadow:0 2px 10px rgba(0,0,0,.6);color:#fff;text-shadow:0 1px 2px #000;overflow-wrap:anywhere;' +
+        'font-weight:700;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;display:none';
       canvas.parentNode.append(el);
     }
     var b = _roam_prompt_box(), s = I32[b >>> 2], text = '';
@@ -238,25 +244,58 @@ Module['mc3TouchPad'] = function (words) {
     }
     if (text !== shown) {
       shown = text;
+      big = text.charCodeAt(0) === 1;
+      if (big) text = text.slice(1);
       el.textContent = '';
       text.split('\n').forEach(function (line, i) {
         var d = document.createElement('div');
-        if (i === 0) d.style.cssText = 'font-size:1.2em;letter-spacing:.03em';
+        if (i === 0) d.style.cssText = big ? 'font-size:2.6em;line-height:1.05;color:#ffd24a' : 'font-size:1.15em;letter-spacing:.03em';
         else if (i === 1) d.style.cssText = 'opacity:.85;font-size:.9em';
-        else d.style.cssText = 'margin-top:.3em;color:#ffd24a';
+        else d.style.cssText = 'margin-top:.25em;color:#ffd24a';
         line.split(/(\[[^\]]+\])/).forEach(function (part) {   // [Q] = a keycap
           if (/^\[.+\]$/.test(part)) {
             var k = document.createElement('span');
             k.textContent = part.slice(1, -1);
             k.style.cssText = 'display:inline-block;min-width:1.4em;padding:0 .35em;margin:0 .1em;border-radius:4px;' +
-              'border:1px solid #fff;border-bottom-width:3px;background:#333;color:#fff;text-shadow:none';
+              'border:1px solid #fff;border-bottom-width:3px;background:#333;color:#fff;text-shadow:none;text-align:center';
             d.append(k);
           } else d.append(part);
         });
         if (text) el.append(d);
       });
     }
-    el.style.display = text ? '' : 'none';
+    if (!text) { el.style.display = 'none'; return; }
+    // the picture inside the canvas (object-fit contain unless Stretch), its shape as the name tags got it
+    var r = canvas.getBoundingClientRect(), L = canvas.parentNode.getBoundingClientRect(), x = r.left - L.left,
+        y = r.top - L.top, w = r.width, h = r.height, aspect = 16 / 9;
+    if (typeof _roam_tags_box == 'function') {
+      var a = F32[(_roam_tags_box() >>> 2) + 2];
+      if (a > 0.5 && a < 5) aspect = a;
+    }
+    if (!canvas.parentNode.classList.contains('stretch')) {
+      if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
+    }
+    if (!(w > 0 && h > 0)) { el.style.display = 'none'; return; }
+    var st = el.style;
+    if (big) {
+      st.fontSize = Math.max(14, h * 0.03).toFixed(1) + 'px';
+      st.maxWidth = (w * 0.6).toFixed(0) + 'px';
+      st.textAlign = 'center';
+      st.transform = 'translate(' + (x + w / 2).toFixed(1) + 'px,' + (y + h * 0.3).toFixed(1) + 'px) translate(-50%,-50%)';
+    } else {
+      var hw = Math.min(w, h * 16 / 9), hx = x + (w - hw) / 2,   // the HUD keeps its 16:9 in the middle (Hor+)
+          left = hx + hw * MAP_LEFT, bottom = y + h * (MAP_TOP - GAP);
+      document.querySelectorAll('.tc:not([hidden]) .tc-b').forEach(function (c) {   // touch buttons under the box
+        var q = c.getBoundingClientRect();
+        if (q.width && q.left - L.left < left + w * 0.32 && q.right - L.left > left)
+          bottom = Math.min(bottom, q.top - L.top - 6);
+      });
+      st.fontSize = Math.max(10, h * 0.021).toFixed(1) + 'px';
+      st.maxWidth = (w * 0.32).toFixed(0) + 'px';
+      st.textAlign = 'left';
+      st.transform = 'translate(' + left.toFixed(1) + 'px,' + Math.max(y, bottom).toFixed(1) + 'px) translateY(-100%)';
+    }
+    st.display = '';
   }
   requestAnimationFrame(frame);
 })();

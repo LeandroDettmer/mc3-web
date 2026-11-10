@@ -396,3 +396,20 @@ on their spot for the 3 s countdown. The next checkpoint is a page marker (pin, 
 an edge arrow when off the picture; `roam_cp_box`, web/pre.js), the course is on
 both maps in place of the start icons (diamond yellow = next, trophy = finish).
 Not done: the game's checkpoint flare object in the world.
+
+Rework 2026-11-10 (untested in game): the game's own checkpoints and a start grid.
+See the top comment of `roam_challenge.c` ("Native checkpoints") for the addresses.
+In short: the cruise race object is an mcRaceBase whose per-player draw already runs
+the checkpoint flares of race+0x24/+0x28; we give it the course (the .rac's sizes
+too, ASK v2 carries the start line and the event so the peer reads the same sizes),
+drive racer record 0 (+0x34 target, +0x18 laps), pass with the game's gate test
+`sub_001D1510` and its checkpoint sound, point the cruise vtable's arrow slot
+(+0xE8) at the ordered races' `sub_001DF290` while racing, and show the countdown
+through the HUD message queue (`sub_000B6330`, ids 2/1/0/3) with its sound (audio
+event 0xC). Both cars are teleported to the start line (the event's checkpoint
+before the course, or its start beacon; at most 300 m away) side by side and held
+for the countdown. Findings that did not lead anywhere: the game's map draws race
+checkpoints only for race types it knows (`sub_000C2CE0`, `sub_0026D780`), so the
+cruise gets ours; the .rac's player start slot was not found (only the opponents'
+`posdir`, `sub_001D3AE0`); a race-native 2-player load (System Link style) would
+bring the finish UI and results but needs synchronised loads and slot rework.
