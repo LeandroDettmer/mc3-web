@@ -55,6 +55,10 @@
  * AI race included) the map has the game's own checkpoints, and our start
  * points were drawn over them.  MC3_ROAM_RACES=0 turns them off.
  *
+ * Players panel (web/pre.js): while the full map draws in Free Roam, roam_bigmap_box
+ * counts its frames and holds our city (the roam room), and the page lists the
+ * Free Roam players beside it (same city first) from the switch's players push.
+ *
  * MC3_ROAM_MAP=0 turns all of it off. */
 
 #define RMAP_G_VA        0x00507508u     /* the HUD's tuning: colours (float4) and scales */
@@ -260,6 +264,16 @@ static void rmap_races(uint32_t map, uint32_t top)
     }
 }
 
+#define RMAP_FULLMAP_VT   0x00450900u
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+/* Read by the page (web/pre.js, the players panel beside the full map): seq +1
+ * each frame the full map draws in Free Roam, our city (roam room; -1 unknown). */
+static struct { volatile int32_t seq; int32_t city; } s_rmap_big;
+EMSCRIPTEN_KEEPALIVE uintptr_t roam_bigmap_box(void) { return (uintptr_t)&s_rmap_big; }
+#endif
+
 /* A remote player's status that gets a blip. */
 static int rmap_shown(uint8_t st)
 {
@@ -273,7 +287,8 @@ static int rmap_shown(uint8_t st)
  * spot, same colour. */
 static void rmap_far(uint32_t map, uint32_t top)
 {
-    static int said;
+    static int said_near = -1, said_far = -1;
+    static double said_t = -1e9;
     static struct { float p[3], q[4]; int far; } dot[ROAM_K_MAX + ROAM_FAR_MAX];
     roam_far_peer far[ROAM_FAR_MAX];
     uint32_t g = MEM32(RMAP_G_VA), vt, xf, buf, col, args[5], mat, saved;
@@ -281,6 +296,13 @@ static void rmap_far(uint32_t map, uint32_t top)
     int n = 0, nf, nnear = 0, i, k;
     if (!rmap_on() || !roam_running() || !online_ram(map) || !online_ram(g) || !online_ram(vt = MEM32(map)))
         return;
+#ifdef __EMSCRIPTEN__
+    if (vt == RMAP_FULLMAP_VT) {
+        uint32_t setup = MEM32(ROAM_SETUP_VA);
+        s_rmap_big.city = online_ram(setup) ? (int32_t)MEM32(setup) : -1;
+        s_rmap_big.seq++;
+    }
+#endif
     if (s_roam_seen && roam_now() - s_roam_seen_t < 0.5)
         for (i = 0; i < s_roam_nseen; i++)
             if (rmap_shown(s_roam_seen[i].status)) {
@@ -296,6 +318,15 @@ static void rmap_far(uint32_t map, uint32_t top)
             memcpy(dot[n].q, far[i].q, sizeof dot[n].q);
             dot[n++].far = 1;
         }
+    /* on each change of the counts, at most every 10 s (the first draw alone showed only the peers whose
+     * snapshots had come by then) */
+    if ((nnear != said_near || n - nnear != said_far) && roam_now() - said_t >= 10.0) {
+        said_near = nnear;
+        said_far = n - nnear;
+        said_t = roam_now();
+        fprintf(stderr, "[roam] map: %d linked + %d far player(s) drawn as blips (%s; %d peers, hub far list %d)\n",
+                nnear, n - nnear, vt == RMAP_FULLMAP_VT ? "full map" : "minimap", s_roam_nseen, nf);
+    }
     if (!n)
         return;
     xf = MEM32(vt + 0x94u);
@@ -326,8 +357,4 @@ static void rmap_far(uint32_t map, uint32_t top)
     args[0] = saved;
     roam_call(sub_0003A6A0, 0, buf, 1, args);
     roam_call(sub_00030780, 0, buf, 0, NULL);
-    if (!said) {
-        said = 1;
-        fprintf(stderr, "[roam] map: %d linked + %d far player(s) drawn as blips\n", nnear, n - nnear);
-    }
 }

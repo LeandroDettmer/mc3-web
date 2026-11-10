@@ -371,7 +371,15 @@ generated files when the lift inputs did not change.
   type), roam_far() gives it, and an sub_000BF850 override draws each as a
   dimmed, smaller blip with the car blip's primitive sub_000BB310
   (MC3_ROAM_MAP=0 off); every linked peer gets one too, on the minimap
-  and the full map (0x450900) alike. Open: names on the full map.
+  and the full map (0x450900) alike. Since 2026-11-10 (untested in game)
+  the FAR list also carries the linked players, after the unlinked ones
+  (a link whose snapshots do not arrive still gets a blip; roam_far drops
+  those drawn as cars), and '[roam] map: ...' logs on each change of the
+  counts (it used to log the first frame only). Players panel: while the
+  full map draws, roam_bigmap_box (seq, city) tells web/pre.js, which
+  lists the Free Roam players from the switch's players push on the
+  picture's right edge (same city first; none on web/server, which has no
+  push). Open: names on the full map.
   Race start points (2026-11-09, untested in game; roam_races.{c,h},
   roam_map.c): the cities' event lists are loaded at boot (sub_0026F910,
   tune/race/<city>.loc + .locinf) into the city table [0x557EE4]: +0x14

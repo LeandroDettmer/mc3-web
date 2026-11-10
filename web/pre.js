@@ -217,6 +217,77 @@ Module['mc3TouchPad'] = function (words) {
   requestAnimationFrame(frame);
 })();
 
+// Players panel: while the full map (I) is open in Free Roam, src/games/remix/roam_map.c counts its frames in
+// roam_bigmap_box (seq, our city: the roam room), and this lists the players online in Free Roam beside it, from the
+// switch's players push (Module.mc3Lan.players.list, web/lan.js: mode 'roam', city = room id): our city first, then the
+// others with their city. On the right edge of the picture, at most 20% of it wide (32:9: beside the HUD's middle
+// 16:9); hidden without a list (web/server's switch has none). Main thread only.
+(function () {
+  if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
+  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
+  var CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'], ROWS = 24;   // free-roam room ids 0..3 (web/index.html)
+  var me = String((Module['mc3Env'] || {}).MC3_PLAYER_NAME || '').toLowerCase();
+  if (!canvas) return;
+  function city(c) { return CITIES[c] || 'City ' + c; }
+  function row(text, css) { var d = document.createElement('div'); d.textContent = text; if (css) d.style.cssText = css; return d; }
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_bigmap_box != 'function' || !canvas.parentNode) return;
+    if (!I32) {   // a static box (as above): the view stays valid after growth
+      I32 = new Int32Array(HEAPU8.buffer);
+      F32 = new Float32Array(HEAPU8.buffer);
+      el = document.createElement('div');
+      el.style.cssText = 'position:absolute;left:0;top:0;pointer-events:none;z-index:1;box-sizing:border-box;' +
+        'padding:.5em .8em;border-radius:8px;background:rgba(0,0,0,.65);border:1px solid rgba(255,255,255,.2);' +
+        'color:#fff;text-shadow:0 1px 2px #000;overflow:hidden;white-space:nowrap;line-height:1.3;' +
+        'font-weight:700;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;display:none';
+      canvas.parentNode.append(el);
+    }
+    var b = _roam_bigmap_box() >>> 2, s = I32[b], here = I32[b + 1];
+    if (s !== seq) { seq = s; seenAt = now; }
+    var lan = Module['mc3Lan'], list = lan && lan.players && Array.isArray(lan.players.list) ? lan.players.list : null;
+    if (now - seenAt > 400 || !list) { el.style.display = 'none'; return; }   // map closed, paused or gone; no list
+    var roam = list.filter(function (p) { return p && p.mode == 'roam'; }), mine = [], other = [];
+    roam.forEach(function (p) { (p.city === here ? mine : other).push(p); });
+    var key = here + '|' + roam.map(function (p) { return p.name + '\u0001' + p.city; }).join('\u0002');
+    if (key !== shown) {
+      shown = key;
+      el.textContent = '';
+      el.append(row('Free Roam · ' + roam.length + ' online', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
+      var n = 0;
+      if (mine.length) el.append(row(city(here), 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
+      mine.forEach(function (p) {
+        if (n++ < ROWS) el.append(row(p.name, String(p.name).toLowerCase() == me ? 'color:#7fd4ff' : ''));
+      });
+      if (other.length) el.append(row('Other cities', 'color:#ffd24a;font-size:.85em;margin-top:.35em'));
+      other.forEach(function (p) {
+        if (n++ < ROWS) el.append(row(p.name + ' · ' + city(p.city), 'opacity:.75'));
+      });
+      if (n > ROWS) el.append(row('+' + (n - ROWS) + ' more', 'opacity:.6;font-size:.85em'));
+      var more = lan.players.more | 0;   // beyond the switch's own list
+      if (more > 0) el.append(row('+' + more + ' not listed', 'opacity:.6;font-size:.85em'));
+    }
+    // the picture inside the canvas (object-fit contain unless Stretch), its shape as the name tags got it
+    var r = canvas.getBoundingClientRect(), L = canvas.parentNode.getBoundingClientRect(), x = r.left - L.left,
+        y = r.top - L.top, w = r.width, h = r.height, aspect = 16 / 9;
+    if (typeof _roam_tags_box == 'function') {
+      var a = F32[(_roam_tags_box() >>> 2) + 2];
+      if (a > 0.5 && a < 5) aspect = a;
+    }
+    if (!canvas.parentNode.classList.contains('stretch')) {
+      if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
+    }
+    if (!(w > 0 && h > 0)) { el.style.display = 'none'; return; }
+    var st = el.style, pad = Math.max(8, h * 0.02);
+    st.fontSize = Math.max(10, h * 0.022).toFixed(1) + 'px';
+    st.maxWidth = (w * 0.2).toFixed(0) + 'px';
+    st.maxHeight = (h * 0.8).toFixed(0) + 'px';
+    st.transform = 'translate(' + (x + w - pad).toFixed(1) + 'px,' + (y + h * 0.1).toFixed(1) + 'px) translateX(-100%)';
+    st.display = '';
+  }
+  requestAnimationFrame(frame);
+})();
+
 // Race prompt: near a race start point or a player in free roam, src/games/remix/roam_race_ai.c / roam_challenge.c
 // publish up to three lines joined by '\n' (roam_prompt_box: seq, then 192 bytes of UTF-8, empty = none: title,
 // details, action; '[Q]' in the action is drawn as a keycap). Shown while fresh (the game updates it every frame) in a
