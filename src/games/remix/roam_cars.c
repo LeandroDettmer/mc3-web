@@ -18,9 +18,11 @@
  * asked of the hub (roam_set_k; MC3_ROAM_K still overrides). Cars are built
  * at the cruise's load for the peers known then (+ ROAM_SPARE), later one at
  * a time as peers come (mid-cruise with the garage's resource context,
- * roam_build_ctx), and only while the game's heap keeps ROAM_CARS_RESERVE
- * free after one more car (its cost measured on the last one): a car that
- * cannot be built is skipped with a '[ROAM] cars:' line, never an error.
+ * roam_build_ctx), in Free Roam's cars heap (roam_cheap, roam_game.c) and
+ * only while it keeps ROAM_CHEAP_KEEP free after one more car (its cost
+ * measured on the last one); without a cars heap (64 MB window) in the main
+ * heap, which keeps ROAM_CARS_RESERVE: a car that cannot be built is
+ * skipped with a '[ROAM] cars:' line, never an error.
  *
  * The builder's slot: a standalone car is built under a slot number
  * 1..s_roam_slots (several cars share one), whose race-setup entry has
@@ -365,19 +367,20 @@ static int roam_cars_cache_ok(int32_t car)
 static int roam_car_make(int i, const uint8_t look[ROAM_CFG_SIZE], int mid)
 {
     roam_car *c = &s_car[i];
-    uint32_t setup = MEM32(ROAM_SETUP_VA), cfg0 = MEM32(setup + ROAM_ENTRY + 0x0Cu), heap = MEM32(ROAM_HEAP_VA);
+    uint32_t setup = MEM32(ROAM_SETUP_VA), cfg0 = MEM32(setup + ROAM_ENTRY + 0x0Cu), heap = roam_car_heap();
     uint32_t top = (g_esp - 0x400u) & ~0xFu, before, after, reserve, cfg, veh, res, a;
     const char *name;
     int32_t car = -1;
     double t0 = roam_now();                     /* the build's time: the frame stands still meanwhile */
     if (!online_ram(setup) || !online_ram(cfg0) || MEM32(cfg0) != ROAM_CFG_VT || !online_ram(heap) || !s_roam_slots)
         return 0;
-    reserve = MEM32(heap + 0xCu) / 8u > ROAM_CARS_RESERVE ? MEM32(heap + 0xCu) / 8u : ROAM_CARS_RESERVE;
-    before = roam_heap_log(NULL);
+    reserve = s_cheap ? ROAM_CHEAP_KEEP
+            : MEM32(heap + 0xCu) / 8u > ROAM_CARS_RESERVE ? MEM32(heap + 0xCu) / 8u : ROAM_CARS_RESERVE;
+    before = roam_heap_log(heap, NULL);
     if (before < reserve + (s_car_cost ? s_car_cost : ROAM_CAR_COST0)) {
         if (roam_cars_say(CARS_SAY_HEAP))
-            fprintf(stderr, "[ROAM] cars: heap %u KB free, %u KB kept: no more cars (%d built; logged once)\n",
-                    (unsigned)(before >> 10), (unsigned)(reserve >> 10), i);
+            fprintf(stderr, "[ROAM] cars: %s %u KB free, %u KB kept: no more cars (%d built; logged once)\n",
+                    s_cheap ? "cars heap" : "heap", (unsigned)(before >> 10), (unsigned)(reserve >> 10), i);
         return 0;
     }
     if (!s_car_cfg[i] && !(s_car_cfg[i] = xbox_ContiguousAlloc(ROAM_CFG_SIZE, 16)))
@@ -410,7 +413,7 @@ static int roam_car_make(int i, const uint8_t look[ROAM_CFG_SIZE], int mid)
             fprintf(stderr, "[ROAM] cars: car %d not built (builder gave no vehicle; logged once)\n", i);
         return 0;
     }
-    after = roam_heap_log(NULL);
+    after = roam_heap_log(heap, NULL);
     if (after < before)
         s_car_cost = before - after;
     c->veh = veh;
@@ -424,9 +427,10 @@ static int roam_car_make(int i, const uint8_t look[ROAM_CFG_SIZE], int mid)
         fprintf(stderr, "[ROAM] cars: car %d not found in the physics level after its build: its collisions "
                         "left as built (logged once)\n", i);
     roam_show(veh, 0);                          /* shown once driven */
-    fprintf(stderr, "[ROAM] cars: car %d built (%s, slot %u%s) in %.0f ms: %u KB, heap %u KB free\n", i,
-            roam_cfg_name(c->look) ? roam_cfg_name(c->look) : "?", (unsigned)c->slot, mid ? ", in the cruise" : "",
-            (roam_now() - t0) * 1e3, (unsigned)(s_car_cost >> 10), (unsigned)(after >> 10));
+    fprintf(stderr, "[ROAM] cars: car %d built (%s, slot %u%s) in %.0f ms: %u KB, %s %u KB free, main heap %u KB free\n",
+            i, roam_cfg_name(c->look) ? roam_cfg_name(c->look) : "?", (unsigned)c->slot, mid ? ", in the cruise" : "",
+            (roam_now() - t0) * 1e3, (unsigned)(s_car_cost >> 10), s_cheap ? "cars heap" : "heap", (unsigned)(after >> 10),
+            (unsigned)(roam_heap_log(MEM32(ROAM_MAIN_HEAP_VA), NULL) >> 10));
     return 1;
 }
 

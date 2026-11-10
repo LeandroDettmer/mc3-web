@@ -124,6 +124,29 @@ Flash HUD text (not found). Overlay is the cheaper route.
   PB_RAM_BYTES (nv2a_pb_scan.c:173), online_ram's 0x84000000 bound; and (b)
   the heap size: an override of sub_002698C0 (or sub_003670F0) passing
   MC3_HEAP_MB instead of 47 (imm8 max 127). (b) adds an override: relift.
+- **The cars heap** (2026-11-10, untested in game; roam_cheap in
+  roam_game.c): the game's heaps are a list ([0x52B478], next at +4; the
+  ctor sub_001B4600 prepends) and operator delete (sub_001B3C00, []
+  sub_001B3CD0) finds a block's heap by address (sub_001B3D80: base +8,
+  size +0xC), not by the current heap. So a second heap of the game's own
+  type ("RoamCars": ctor + init sub_001B3DF0(base, size, 1, 0) as
+  sub_00367310 does the main one; the object in its block's first page)
+  made current ([0x52B488]) around every remote car's build -- the player
+  manager at load (sub_002BE2C0_gen, our car too), slot swaps and
+  standalone cars (roam_car_build) -- keeps the cars out of the main heap,
+  and their frees need nothing. Its memory comes from the contiguous window
+  (xbox_ContiguousAlloc), not the extended VMA: a car's textures and vertex
+  data sit in its heap blocks and the GPU reads them at bus addresses, which
+  only window memory has (dma_resolve, nv2a_pb_exec.c). Window 128 MB: main
+  heap 63 MB (was 95) + cars heap 48 MB (MC3_ROAM_HEAP_MB; 0 = none, main 95
+  as before), the same ~5 MB left over as retail's 64 MB layout (main heap
+  at 0x80BCC000: 11.8 MB of the window before it). 64 MB window: none, cars
+  in the main heap with the old caps. The cap on cars is then the cars
+  heap's room (2 MB kept after one more car): ~55 cars, above the default
+  MC3_ROAM_CARS 32. Logs '[ROAM] cars heap: N KB at ...', '[ROAM] heap
+  'RoamCars' before/after the cruise's cars', '[ROAM] main heap: N KB taken
+  meanwhile'. Made at the first cruise with remote cars, kept for the
+  session (a model the car cache read during a build stays in it).
 
 ## Per-car cost (estimates; measure)
 

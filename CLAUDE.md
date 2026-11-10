@@ -159,7 +159,8 @@ generated files when the lift inputs did not change.
   makes the contiguous window 128 MB like a devkit (g_xbox_contig_size,
   kernel.h; bus RAM tag = window size, bit 27); low RAM stays 64 MB. The
   Remix's main heap (47 MB, sub_002698C0 override) is MC3_HEAP_MB, default
-  95 at 128 MB; '[HEAP] main heap N KB' at boot.
+  63 at 128 MB (95 with MC3_ROAM_HEAP_MB=0); '[HEAP] main heap N KB' at
+  boot. Free Roam's remote cars get their own game heap at 128 MB (below).
 - **Threads:** PROXY_TO_PTHREAD; guest threads are pthreads (workers) under
   the guest lock. The page's main thread never blocks.
 - **Graphics:** the WebGL2 context is made with
@@ -447,7 +448,16 @@ generated files when the lift inputs did not change.
   64 MB; 7 = slots only); also the K asked of the hub (roam_set_k; hub
   default_k 32 for a HELLO asking none, mc3-server --roam-k, worker
   ROAM_K). Built at load + on demand, only while the heap keeps max(6 MB,
-  heap/8) after one more car; logs '[ROAM] cars: ...'. Teardown: the
+  heap/8) after one more car; logs '[ROAM] cars: ...'. Cars heap
+  (2026-11-10, untested in game; roam_cheap, docs/roam-many-cars.md): a
+  second heap of the game's own type ('RoamCars', 48 MB of the contiguous
+  window at 128 MB, MC3_ROAM_HEAP_MB, 0 off; none at 64 MB) is made
+  current ([0x52B488]) around every remote car's build (the player
+  manager at load, ours too; swaps; standalone cars): the main heap no
+  longer bounds the players shown, the cars heap keeps 2 MB. Frees find
+  their heap by address (sub_001B3D80 walks the heap list [0x52B478]).
+  Not the extended VMA: car textures/vertices are GPU-read, window only.
+  '[ROAM] cars heap: ...'. Teardown: the
   state pass (sub_00020EC0) removes them whenever a state request is
   queued in the cruise (the player manager's delete has no override).
   Open: hub-distributed world settings, names over cars, ghost mode for

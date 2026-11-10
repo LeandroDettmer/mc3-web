@@ -112,6 +112,7 @@
  * in free roam (default "MC3"). */
 #include <math.h>
 #include "net/roam/roam_api.h"
+#include "kernel/xbox_memory_layout.h"          /* xbox_ContiguousAlloc: the cars heap */
 
 #define ROAM_SETUP_VA   0x0053F2E0u     /* the current race setup */
 #define ROAM_ENTRY      0x114u          /* entry 0 */
@@ -121,6 +122,10 @@
 #define ROAM_HEAP_VA    0x0052B488u     /* the game's current heap (allocator sub_001B4740) */
 #define ROAM_CAR_BYTES  (1000u << 10)   /* a car's share of that heap, rounded up (measured 780-850 KB) */
 #define ROAM_HEAP_KEEP  (3072u << 10)   /* left free after the cruise's cars (1259 KB was fatal, 4815 KB played) */
+#define ROAM_MAIN_HEAP_VA 0x005684A8u   /* the main heap object (sub_003670F0) */
+#define ROAM_CHEAP_MB   48u             /* the cars heap at a 128 MB window (MC3_ROAM_HEAP_MB) */
+#define ROAM_CHEAP_LEFT (4u << 20)      /* window bytes left free above it */
+#define ROAM_CHEAP_KEEP (2048u << 10)   /* cars heap bytes kept free after one more car */
 #define ROAM_HIST       256u            /* our car's path: ~8 s at 30 fps */
 #define ROAM_CFG_SIZE   0x108u          /* CarCfg */
 #define ROAM_CFG_VT     0x004483DCu     /* its vtable */
@@ -160,6 +165,8 @@ void sub_002CB2C0(void);                        /* car builder dtor, thiscall */
 void sub_001240F0(void);                        /* a car's profile flags, thiscall */
 void sub_000F2C00(void);                        /* car model: preset paint into +0x1228 when +0x1270, thiscall */
 void sub_00092EF0(void);                        /* a drawable in/out of the draw list, thiscall (bool), ret 4 */
+void sub_001B4600(void);                        /* heap ctor, thiscall: links it into the heap list [0x52B478] */
+void sub_001B3DF0(void);                        /* heap init, thiscall (base, size, free lists, flag), ret 0x10 */
 void xbox_gil_atomic(int d);                    /* xboxrecomp kernel_bridge.c: no other guest thread inside */
 
 static int s_roam_fake = -1, s_roam_slots, s_roam_swap_on = -1;
@@ -566,6 +573,93 @@ static int roam_swap_start(int k)
     return 1;
 }
 
+/* Free Roam's cars heap: a second heap of the game's own type (ctor
+ * sub_001B4600, which links it into the heap list [0x52B478]; init
+ * sub_001B3DF0 as the main heap's, sub_00367310) over contiguous-window
+ * memory of its own, made current around every remote car's build (the
+ * player manager at load -- ours too --, slot swaps, standalone cars), so
+ * those cars never touch the main heap. The window, not low RAM or the
+ * extended VMA: a car's textures and vertex data sit in its heap blocks and
+ * the GPU reads them at bus addresses, which only window memory has. Frees
+ * need nothing: operator delete (sub_001B3C00, [] sub_001B3CD0) finds the
+ * heap by address (sub_001B3D80 walks the list), whatever heap is current.
+ * Made at the first cruise with remote cars, kept for the session (the car
+ * cache may keep a model read during a build in it); the heap object sits
+ * in the block's first page. MC3_ROAM_HEAP_MB=N (0: none, the cars in the
+ * main heap as before); default 48 at a 128 MB window, where the main heap
+ * is 63 MB for it (sub_002698C0 override), none at 64 MB; at most the
+ * window's free top less ROAM_CHEAP_LEFT. Logs '[ROAM] cars heap ...'. */
+static uint32_t s_cheap, s_cheap_prev;          /* the heap object (0: none); the current heap it replaced */
+static int s_cheap_tried, s_cheap_depth;
+
+static uint32_t roam_cheap(void)
+{
+    const char *e = getenv("MC3_ROAM_HEAP_MB");
+    uint32_t want, room, size, base, a[4];
+    if (s_cheap_tried)
+        return s_cheap;
+    s_cheap_tried = 1;
+    want = e && *e ? (uint32_t)strtoul(e, NULL, 10) : (g_xbox_contig_size >> 20) >= 128u ? ROAM_CHEAP_MB : 0u;
+    if (want > 1024u)
+        want = 1024u;
+    if (!want) {
+        fprintf(stderr, "[ROAM] cars heap: none (%s): remote cars in the main heap\n",
+                e && *e ? "MC3_ROAM_HEAP_MB=0" : "64 MB window");
+        return 0;
+    }
+    room = g_xbox_contig_size - xbox_ContiguousAllocatedBytes();
+    room = room > ROAM_CHEAP_LEFT ? (room - ROAM_CHEAP_LEFT) & ~0xFFFFFu : 0u;
+    size = want << 20 < room ? want << 20 : room;
+    if (size < (8u << 20) || !(base = xbox_ContiguousAlloc(size, 0x1000u))) {
+        fprintf(stderr, "[ROAM] cars heap: %u MB asked, %u KB free in the window: none, remote cars in the main heap\n",
+                (unsigned)want, (unsigned)((g_xbox_contig_size - xbox_ContiguousAllocatedBytes()) >> 10));
+        return 0;
+    }
+    roam_call(sub_001B4600, base, (g_esp - 0x400u) & ~0xFu, 0, NULL);
+    a[0] = base + 0x1000u;                      /* base, size, free lists on, 0: as the main heap */
+    a[1] = size - 0x1000u;
+    a[2] = 1;
+    a[3] = 0;
+    roam_call(sub_001B3DF0, base, (g_esp - 0x400u) & ~0xFu, 4, a);
+    memcpy((char *)XBOX_PTR(base + 0x20u), "RoamCars", 9);  /* +0x20 name, 11 bytes */
+    s_cheap = base;
+    fprintf(stderr, "[ROAM] cars heap: %u KB at 0x%08X (heap 0x%08X; main heap 0x%08X untouched by remote cars; "
+                    "window %u KB used of %u)\n", (unsigned)((size - 0x1000u) >> 10), (unsigned)(base + 0x1000u),
+            (unsigned)base, (unsigned)MEM32(ROAM_MAIN_HEAP_VA), (unsigned)(xbox_ContiguousAllocatedBytes() >> 10),
+            (unsigned)(g_xbox_contig_size >> 10));
+    return s_cheap;
+}
+
+/* The cars heap current around a remote car's build (nests); off puts the
+ * one it replaced back. No-ops without a cars heap. */
+static void roam_cheap_on(void)
+{
+    if (s_cheap && !s_cheap_depth++) {
+        s_cheap_prev = MEM32(ROAM_HEAP_VA);
+        MEM32(ROAM_HEAP_VA) = s_cheap;
+    }
+}
+
+static void roam_cheap_off(void)
+{
+    if (s_cheap && s_cheap_depth && !--s_cheap_depth)
+        MEM32(ROAM_HEAP_VA) = s_cheap_prev;
+}
+
+/* Once a frame: the cars heap current outside our builds means another
+ * guest thread saved it as "previous" during the load's build and put it
+ * back after ours: the whole game would fill it. The main heap again. */
+static void roam_cheap_check(void)
+{
+    static int said;
+    if (!s_cheap || s_cheap_depth || MEM32(ROAM_HEAP_VA) != s_cheap)
+        return;
+    MEM32(ROAM_HEAP_VA) = MEM32(ROAM_MAIN_HEAP_VA);
+    if (!said++)
+        fprintf(stderr, "[ROAM] cars heap: left current outside a car build; the main heap 0x%08X again (logged once)\n",
+                (unsigned)MEM32(ROAM_MAIN_HEAP_VA));
+}
+
 /* Slot k's car rebuilt with blob (its model read and pending in the cache):
  * the old one out and deleted as a quitting peer's and the player dtor's,
  * the new one built as the player ctor builds it. 0 if not done. */
@@ -627,6 +721,7 @@ static uint32_t roam_car_build(uint32_t cfg, uint32_t slot, uint32_t pad, uint32
     a[3] = cfg;
     a[4] = type != 0x15u && type != 0x12u;
     a[5] = pad;
+    roam_cheap_on();                            /* the car's blocks in the cars heap */
     roam_call(sub_002CB270, top, top, 6, a);
     veh = roam_call(sub_002CBC40, top, top, 0, NULL);
     *res = MEM32(top + 0x4Cu);
@@ -640,6 +735,7 @@ static uint32_t roam_car_build(uint32_t cfg, uint32_t slot, uint32_t pad, uint32
     if (online_ram(veh) && online_ram(MEM32(veh + 0x68u)))
         roam_call(sub_000F2C00, MEM32(veh + 0x68u), top, 0, NULL);
     roam_call(sub_002CB2C0, top, top, 0, NULL);
+    roam_cheap_off();
     return online_ram(veh) ? veh : 0;
 }
 
@@ -766,13 +862,14 @@ static void roam_build_step(recomp_func_t fn)
     MEM32(setup + 0x3D8u) = me;
 }
 
-/* Free bytes of the game's current heap ([0x52B488], allocator sub_001B4740:
- * +8 base, +0xC size, +0x10 bump top, +0x20 name, +0x2B free-list mode, +0x30
- * 32 bins of free blocks: +4 size, +0x14 next); its overrun is fatal
- * ("Heap overrun"). Logged with when; returns top + free blocks, 0 if unread. */
-static uint32_t roam_heap_log(const char *when)
+/* Free bytes of game heap h (the current one is [0x52B488], allocator
+ * sub_001B4740: +8 base, +0xC size, +0x10 bump top, +0x20 name, +0x2B
+ * free-list mode, +0x30 32 bins of free blocks: +4 size, +0x14 next); its
+ * overrun is fatal ("Heap overrun"). Logged with when; returns top + free
+ * blocks, 0 if unread. */
+static uint32_t roam_heap_log(uint32_t h, const char *when)
 {
-    uint32_t h = MEM32(ROAM_HEAP_VA), cap, top, bins = 0, big = 0, b, i, n = 0;
+    uint32_t cap, top, bins = 0, big = 0, b, i, n = 0;
     char name[16];
     if (!online_ram(h))
         return 0;
@@ -796,17 +893,28 @@ static uint32_t roam_heap_log(const char *when)
 }
 
 static uint32_t s_roam_heap0;                   /* free bytes before the player manager was built */
+static uint32_t s_roam_main0;                   /* the main heap's then, with a cars heap */
+
+/* The heap remote cars are built in: the cars heap, else the current one. */
+static uint32_t roam_car_heap(void)
+{
+    return s_cheap ? s_cheap : MEM32(ROAM_HEAP_VA);
+}
 
 /* After the player manager is built: the margin left, and what each car took. */
 static void roam_built(void)
 {
-    uint32_t heap0 = s_roam_heap0, heap1;
-    s_roam_heap0 = 0;
-    if (!heap0 || !s_roam_slots || !(heap1 = roam_heap_log("after the cruise's cars")))
+    uint32_t heap0 = s_roam_heap0, heap1, main0 = s_roam_main0, main1;
+    roam_cheap_off();                           /* roam_build made the cars heap current */
+    s_roam_heap0 = s_roam_main0 = 0;
+    if (!heap0 || !s_roam_slots || !(heap1 = roam_heap_log(roam_car_heap(), "after the cruise's cars")))
         return;
     if (heap1 < heap0)
         fprintf(stderr, "[ROAM] the cruise's %d cars took %u KB, about %u KB each\n", 1 + s_roam_slots,
                 (unsigned)((heap0 - heap1) >> 10), (unsigned)(((heap0 - heap1) / (1u + (uint32_t)s_roam_slots)) >> 10));
+    if (main0 && (main1 = roam_heap_log(MEM32(ROAM_MAIN_HEAP_VA), "after the cruise's cars (main)")))
+        fprintf(stderr, "[ROAM] main heap: %d KB taken meanwhile (other threads; the cars are in the cars heap)\n",
+                (int)(main0 - main1) / 1024);
 }
 
 /* Remote slots to build: the peers driving at load + ROAM_SPARE, at most
@@ -879,18 +987,22 @@ static void roam_build(void)
         n = 0;
     if (!n)
         return;
-    s_roam_heap0 = roam_heap_log("before the cruise's cars");
-    /* The game's heap is fixed (47 MB) and its overrun is fatal: a second
-     * cruise with 6 remote cars left 1259 KB and died on an 84 KB request
-     * ("Heap overrun", 2026-11-10); 2 cars left 4815 KB and played. Each car
-     * (ours too) takes ~780-850 KB: build only what fits with ROAM_HEAP_KEEP
-     * left over. The nearest peers keep their slots; MC3_ROAM_SLOTS skips it. */
+    if (roam_cheap())                           /* the player manager (all its cars) built in the cars heap */
+        s_roam_main0 = roam_heap_log(MEM32(ROAM_MAIN_HEAP_VA), "before the cruise's cars (main)");
+    s_roam_heap0 = roam_heap_log(roam_car_heap(), "before the cruise's cars");
+    /* A game heap is fixed and its overrun is fatal: a second cruise with 6
+     * remote cars left 1259 KB of the 47 MB main heap and died on an 84 KB
+     * request ("Heap overrun", 2026-11-10); 2 cars left 4815 KB and played.
+     * Each car (ours too) takes ~780-850 KB: build only what fits with
+     * ROAM_HEAP_KEEP left over (ROAM_CHEAP_KEEP in the cars heap, where only
+     * cars live). The nearest peers keep their slots; MC3_ROAM_SLOTS skips it. */
     if (s_roam_heap0 && !s_roam_fake && !getenv("MC3_ROAM_SLOTS")) {
-        uint32_t fit = s_roam_heap0 > ROAM_HEAP_KEEP ? (s_roam_heap0 - ROAM_HEAP_KEEP) / ROAM_CAR_BYTES : 0;
+        uint32_t keep = s_cheap ? ROAM_CHEAP_KEEP : ROAM_HEAP_KEEP;
+        uint32_t fit = s_roam_heap0 > keep ? (s_roam_heap0 - keep) / ROAM_CAR_BYTES : 0;
         int room = fit > 1u ? (int)fit - 1 : 0;   /* our own car comes out of it too */
         if (n > room) {
             fprintf(stderr, "[ROAM] heap: %d remote car%s fit (of %d asked), %u KB free, %u KB kept\n", room,
-                    room == 1 ? "" : "s", n, (unsigned)(s_roam_heap0 >> 10), (unsigned)(ROAM_HEAP_KEEP >> 10));
+                    room == 1 ? "" : "s", n, (unsigned)(s_roam_heap0 >> 10), (unsigned)(keep >> 10));
             n = room;
             if (np > n)
                 np = n;
@@ -942,6 +1054,7 @@ static void roam_build(void)
     fprintf(stderr, "[ROAM] cruise with %d remote car%s (slots 1-%d, %s; %d peer%s known at load, %d with a car record)\n",
             n, n == 1 ? "" : "s", n, s_roam_fake ? "MC3_ROAM_FAKE: our path, 1-3 s late" : "free roam peers", np,
             np == 1 ? "" : "s", nrec);
+    roam_cheap_on();                            /* until roam_built, after sub_002BE2C0_gen */
 }
 
 /* Pose at time t from our car's path, between two samples (inputs: the
@@ -1390,6 +1503,8 @@ static void roam_player(uint32_t p)
         return;
     slot = MEM32(p + 0x5Cu);
     veh = MEM32(p + 0x14u);
+    if (slot == 0)
+        roam_cheap_check();                     /* once a frame */
     if (slot > (uint32_t)s_roam_slots || !online_ram(veh))
         return;
     now = roam_now();

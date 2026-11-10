@@ -53,24 +53,26 @@ extern uint32_t g_xbox_contig_size;
  * sub_00367310 takes it from MmAllocateContiguousMemoryEx; the heap object
  * becomes the current heap [0x52B488] (+0xC size, +0x10 bump top). Its
  * sub-heaps (LoadHeap, VehHeap, the network heap) are carved out of it, so a
- * larger one only adds headroom. Free roam's extra cars live in it (~0.8-0.9
- * MB each, docs/roam-many-cars.md).
+ * larger one only adds headroom. Free roam's remote cars (~0.8-0.9 MB each,
+ * docs/roam-many-cars.md) live in a heap of their own with a 128 MB window
+ * (roam_cheap, roam_game.c: MC3_ROAM_HEAP_MB, 48 MB), else in this one.
  *
- * MC3_HEAP_MB=<n> sets it; unset, it is 47 with a 64 MB window and 95 with
- * RECOMP_RAM_MB=128. At most the window less 17 MB (the image and what D3D,
- * DSOUND and the rest take outside the heap: 64 - 47 at retail), so 47 / 111.
+ * MC3_HEAP_MB=<n> sets it; unset, it is 47 with a 64 MB window and 63 with
+ * RECOMP_RAM_MB=128 (95 with MC3_ROAM_HEAP_MB=0: no cars heap). At most the
+ * window less 17 MB (the image and what D3D, DSOUND and the rest take
+ * outside the heap: 64 - 47 at retail), so 47 / 111: 63 + the cars heap's 48.
  * Logs '[HEAP] main heap N KB'. */
 extern void sub_002698C0_gen(void);
 void sub_002698C0(void)
 {
     uint32_t window_mb = g_xbox_contig_size >> 20, max_mb = window_mb - 17u;
     uint32_t game_mb = MEM32(g_esp + 8), mb = game_mb, heap;
-    const char *env = getenv("MC3_HEAP_MB");
+    const char *env = getenv("MC3_HEAP_MB"), *cars = getenv("MC3_ROAM_HEAP_MB");
 
     if (env && *env)
         mb = (uint32_t)strtoul(env, NULL, 10);
     else if (window_mb >= 128u)
-        mb = game_mb + 48u;
+        mb = game_mb + (cars && *cars && !strtoul(cars, NULL, 10) ? 48u : 16u);
     if (mb < 16u)
         mb = 16u;
     if (mb > max_mb) {
