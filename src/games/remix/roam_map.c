@@ -286,7 +286,7 @@ static void rmap_far(uint32_t map, uint32_t top)
             if (rmap_shown(s_roam_seen[i].status)) {
                 memcpy(dot[n].p, s_roam_seen[i].p, sizeof dot[n].p);
                 memcpy(dot[n].q, s_roam_seen[i].q, sizeof dot[n].q);
-                dot[n++].far = 0;
+                dot[n++].far = s_roam_seen[i].status != RC_ST_ROAM;   /* away: dimmed */
             }
     nnear = n;
     nf = roam_far(far, ROAM_FAR_MAX);
