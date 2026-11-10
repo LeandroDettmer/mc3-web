@@ -1040,6 +1040,28 @@ static void roam_send_local(const roam_pose *me)
     roam_set_local(&st);
 }
 
+/* A slot for a driving peer that roam_pick_slot left without one: a slot
+ * whose peer is near but not driving (garage, loading, menus, AI race: its
+ * car parked and hidden) is given up to it, one built with the driver's
+ * car first. The old peer gets a slot again when it drives (this way, or
+ * roam_pick_slot's). 0 if the peer is not driving or no slot is held so. */
+static int roam_away_slot(const roam_peer *pp)
+{
+    uint8_t blob[ROAM_CFG_SIZE + 4];
+    int ok, k, best = 0;
+    if (roam_away(pp->status))
+        return 0;
+    ok = roam_peer_rec(pp->id, blob);
+    for (k = 1; k <= s_roam_slots; k++)
+        if (s_roam_peer[k].id && s_roam_peer[k].here && s_roam_peer[k].away &&
+            (!best || (ok && roam_cfg_same(blob, s_roam_cfgb[k]))))
+            best = k;
+    if (best)
+        fprintf(stderr, "[ROAM] slot %d: %s is not driving: slot given to %s, who drives without a car\n", best,
+                s_roam_peer[best].name, pp->name);
+    return best;
+}
+
 static void roam_net(const roam_pose *me)
 {
     static roam_peer peers[ROAM_K_MAX];         /* all the hub links us with: slots first, the rest standalone */
@@ -1071,7 +1093,8 @@ static void roam_net(const roam_pose *me)
         roam_cfg_check(k, &peers[i]);
     }
     for (i = 0; i < n; i++)
-        if (!used[i] && !roam_cars_owns(peers[i].id) && (k = roam_pick_slot(peers[i].id)) > 0) {
+        if (!used[i] && !roam_cars_owns(peers[i].id) &&
+            ((k = roam_pick_slot(peers[i].id)) > 0 || (k = roam_away_slot(&peers[i])) > 0)) {
             used[i] = 1;
             s_roam_peer[k].id = peers[i].id;
             s_roam_peer[k].here = 1;
