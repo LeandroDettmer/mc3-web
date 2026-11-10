@@ -46,3 +46,4 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Online:** the player counts update with far fewer requests.
 - **iPhone:** Restart waits for the memory of the last run instead of failing; a crash in the Online menu fixed.
 - **Free Roam:** the city screen no longer shows the online count, so the game stops asking the server for it.
+- **Free Roam:** A on the city screen starts the cruise; the time, weather, pedestrians and traffic screen is skipped.

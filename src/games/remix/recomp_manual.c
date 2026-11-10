@@ -3856,7 +3856,16 @@ void sub_00289CE0(void)
  * (sub_001395E0 on [[0x50F15C]+0xFAC], else on [manager+0x1E8] with
  * 0x45772C). The manager's +0xE0 is the screen asked for last (Go,
  * sub_00163830). The players row keeps the game's own label: the online
- * count per city it once showed cost a server poll every 20 s. */
+ * count per city it once showed cost a server poll every 20 s.
+ * The options screen (time of day, weather, pedestrians, traffic) is screen
+ * 0x1A, "MenuCustom" (mcMenuCustom, vtable 0x45D7B8, ctor sub_00165BC0): Go
+ * (sub_0013B110) asks for the id kept at screen+0x1FC (the factory
+ * sub_00156C90 builds "MenuArcade" with 0x1A, sub_0013C190), and the options
+ * screen's OK (sub_00166230) copies its choices into the settings
+ * (+4 time, +8 weather, +0x10, +0xC; only when they differ from the defaults
+ * Go has just put at 0x4B36BC/C0/CC/C8: -1, -1, 4, 4) and asks for its own
+ * +0x1E4 = 0x1B. The builder override makes the Arcade screen ask for 0x1B
+ * right away: the defaults, no options screen. */
 #define FR_SETTINGS_VA 0x0053F2E8u
 static int fr_setup(void)
 {
@@ -3921,6 +3930,8 @@ void sub_0013BA60(void)
         return;
     }
     fr_cruise(s);                                /* every settings handler ends here (+0xDC): last word before Go */
+    if (online_ram(g_ecx) && MEM32(g_ecx + 0x1FCu) == 0x1Au)
+        MEM32(g_ecx + 0x1FCu) = 0x1Bu;           /* Go asks for the options screen (0x1A); ask for what its OK asks for */
     MEM32(s + 0x4Cu) = 1;
     sub_0013BA60_gen();
     MEM32(s + 0x4Cu) = 1;                        /* it takes [0x53F2E4]'s count in a network session */
