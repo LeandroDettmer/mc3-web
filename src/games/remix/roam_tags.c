@@ -202,7 +202,8 @@ static void tags_add(int *n, const float vw[16], const float pr[16], float k, fl
         d += (MEMF(TAGS_CAM_VA + 4u * i) - p[i]) * (MEMF(TAGS_CAM_VA + 4u * i) - p[i]);
     }
     d = sqrtf(d);
-    fade = d < 100.0f ? tags_clamp01((d - 25.0f) / 75.0f) : 1.0f - tags_clamp01((d - 200.0f) / 100.0f);
+    fade = 1.0f - tags_clamp01((d - 200.0f) / 100.0f);  /* no near fade (was 25..100 m); fades out 200..300 m. Close cars stay
+                                                          * sane: tags_proj drops a point behind/at the camera (w < 0.5) or off the picture */
     if (fade <= 0.01f)
         return;
     /* the car model's bounds (sub_000A2450 on [[r+4]+8]): +0x18 its top */

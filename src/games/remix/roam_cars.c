@@ -249,6 +249,76 @@ static void roam_slots_in(void)
             roam_slot_phys(k, MEM32(p + 0x14u), 1);
 }
 
+/* A parked car's drawn matrix 30 km off and 500 m under our car (idx apart per
+ * car). Out of the physics level (roam_slot_phys) nothing syncs what is drawn
+ * from the body any more, and the game rewrites the drawn flag [[veh+0xC]+0x12D]
+ * itself (sub_001D86A0, sub_001DAD40, sub_001ED2F0): a car parked by SetMatrix
+ * and the flag alone stayed on its grid spot, drawn (2026-11-10). */
+static void roam_park_inst(uint32_t veh, int idx)
+{
+    uint32_t mtx;
+    const float *me;
+    if (!s_roam_nhist || !online_ram(veh) || !online_ram(mtx = MEM32(veh + 0x1Cu)))
+        return;
+    me = s_roam_hist[(s_roam_nhist - 1) % ROAM_HIST].m;
+    MEMF(mtx + 0x34u) = me[9] + 30000.0f + 50.0f * (float)idx;
+    MEMF(mtx + 0x38u) = me[10] - 500.0f;
+    MEMF(mtx + 0x3Cu) = me[11];
+}
+
+/* After the physics step, every frame: each slot whose peer is not driving
+ * now (none, dropped out, away) hidden and parked again, whatever the game's
+ * own update did to its car since roam_player. */
+static void roam_slots_park(void)
+{
+    uint32_t pm = MEM32(ROAM_PM_VA), p, veh;
+    int k;
+    for (k = 1; online_ram(pm) && k <= s_roam_slots; k++) {
+        if (s_roam_peer[k].id && s_roam_peer[k].here && !s_roam_peer[k].away)
+            continue;
+        if (!online_ram(p = MEM32(pm + 8u + 4u * (uint32_t)k)) || MEM32(p + 0x5Cu) != (uint32_t)k ||
+            !online_ram(veh = MEM32(p + 0x14u)))
+            continue;
+        roam_show(veh, 0);
+        roam_park_inst(veh, k);
+    }
+}
+
+/* One line per slot and standalone car: its peer, driven or parked, drawn flag,
+ * physics level, drawn position. "NOT PARKED" = no driving peer, yet drawn or near. */
+static void roam_car_line(const char *what, int k, uint32_t id, int driven, int live, uint32_t veh, int phys)
+{
+    uint32_t mtx = online_ram(veh) ? MEM32(veh + 0x1Cu) : 0, r = online_ram(veh) ? MEM32(veh + 0xCu) : 0;
+    const float *me = s_roam_nhist ? s_roam_hist[(s_roam_nhist - 1) % ROAM_HIST].m : NULL;
+    float x = online_ram(mtx) ? MEMF(mtx + 0x34u) : 0.0f, y = online_ram(mtx) ? MEMF(mtx + 0x38u) : 0.0f,
+          z = online_ram(mtx) ? MEMF(mtx + 0x3Cu) : 0.0f;
+    int drawn = online_ram(r) ? MEM8(r + 0x12Du) : -1, far = me && fabsf(x - me[9]) + fabsf(z - me[11]) > 1000.0f;
+    char peer[16];
+    if (id)
+        snprintf(peer, sizeof peer, "%08X", (unsigned)id);
+    else
+        snprintf(peer, sizeof peer, "none");
+    fprintf(stderr, "[ROAM] report %s %d: peer %s, %s, drawn %d, phys %d, at %.0f %.0f %.0f\n", what, k, peer,
+            driven ? (live ? "driven" : "driven, NOT LIVE (never posed)") : drawn == 0 && far ? "parked" : "NOT PARKED", drawn, phys, x, y, z);
+}
+
+static void roam_slots_report(const char *when)
+{
+    uint32_t pm = MEM32(ROAM_PM_VA), p;
+    int k;
+    fprintf(stderr, "[ROAM] report (%s): %d slots, %d standalone cars\n", when, s_roam_slots, s_ncar);
+    for (k = 1; online_ram(pm) && k <= s_roam_slots; k++) {
+        p = MEM32(pm + 8u + 4u * (uint32_t)k);
+        roam_car_line("slot", k, s_roam_peer[k].id,
+                      s_roam_peer[k].id && s_roam_peer[k].here && !s_roam_peer[k].away, s_roam_peer[k].live,
+                      online_ram(p) ? MEM32(p + 0x14u) : 0, s_slot_phys[k]);
+    }
+    for (k = 0; k < s_ncar; k++)
+        if (s_car[k].veh)
+            roam_car_line("car", k, s_car[k].id, s_car[k].id && s_car[k].here && !s_car[k].away, s_car[k].live, s_car[k].veh,
+                          s_car[k].phys);
+}
+
 /* Car c out of the world (physics level, drawing, vehicle registry) and
  * deleted; mid: with the build context (mid-cruise). */
 static void roam_car_drop(roam_car *c, int mid)
@@ -648,6 +718,13 @@ static void roam_cars_frame(void)
     double now;
     int i, k;
     roam_flow_watch();
+    if (s_roam_slots && s_roam_nhist && online_ram(MEM32(ROAM_PM_VA))) {
+        roam_slots_park();
+        if (s_rep_at && roam_now() >= s_rep_at) {
+            roam_slots_report(s_rep_n == 2 ? "load + 0.5 s" : "load + 5 s");
+            s_rep_at = --s_rep_n > 0 ? roam_now() + 4.5 : 0.0;
+        }
+    }
     if (!s_cars_on || !s_roam_nhist || !online_ram(MEM32(ROAM_PM_VA)))
         return;
     now = roam_now();
@@ -721,6 +798,7 @@ static void roam_cars_frame(void)
         vel[0] = vel[1] = vel[2] = 0.0f;
         cr->live = 0;
         roam_set_pose(cr->veh, m, vel);
+        roam_park_inst(cr->veh, 8 + i);
     }
 }
 

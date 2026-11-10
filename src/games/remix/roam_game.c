@@ -204,6 +204,9 @@ static float s_roam_dt = 1.0f / 30.0f;          /* the last frame's length, s */
 static const roam_peer *s_roam_seen;            /* roam_net's last roam_peers list (map blips, roam_map.c) */
 static int s_roam_nseen;
 static double s_roam_seen_t;                    /* when (roam_now) */
+static double s_rep_at;                         /* roam_cars.c: when the next slot report is due (0 none) */
+static int s_rep_n;                             /* reports left after s_rep_at's */
+static void roam_park_inst(uint32_t veh, int idx);      /* roam_cars.c: a car's drawn matrix 30 km off */
 
 /* A lifted function called from here: ecx = this, args pushed right to
  * left below top, a 0 return address; eax back, the caller's registers put
@@ -1354,6 +1357,8 @@ static void roam_player(uint32_t p)
             if (first) {
                 if (roam_spawn_clear(veh, s))   /* off a peer parked on the start spot */
                     roam_send_local(s);
+                s_rep_at = now + 0.5;           /* slot reports: once parked, then 5 s later (roam_cars.c) */
+                s_rep_n = 2;
                 roam_teleport();                /* a new spot (the garage's door): peers snap, no blend */
                 roam_status(RC_ST_ROAM);
             }
@@ -1404,6 +1409,7 @@ static void roam_player(uint32_t p)
         vel[0] = vel[1] = vel[2] = 0.0f;
         s_roam_peer[slot].live = 0;
         roam_set_pose(veh, m, vel);
+        roam_park_inst(veh, (int)slot);         /* out of the level nothing else moves what is drawn (roam_cars.c) */
         return;
     }
     c = MEM32(veh + 4u);
