@@ -30,7 +30,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Page:** New look in the game's colours, a Settings window, a key list by action, a Skip intro option and a saves import for Xbox saves.
 - **Page:** Release date and this changelog at the top.
 
-## 2026-11-10 (54f7840)
+## 2026-11-10 (46d370f)
 
 - **Crashes:** after a crash, Restart brings the game back quickly without the intro movies; when the graphics device is lost it restarts with WebGL.
 - **Crashes:** a crash in the online Free Roam offers Back to Free Roam: the game goes straight back to the cruise, at the city and spot you were.
@@ -48,3 +48,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** the city screen no longer shows the online count, so the game stops asking the server for it.
 - **Free Roam:** A on the city screen starts the cruise; the time, weather, pedestrians and traffic screen is skipped.
 - **Online:** opening the site in a second tab no longer drops the game tab out of Free Roam (players stopped seeing each other).
+- **Free Roam:** no more crash ("Heap overrun") when the cruise loads with many players: a PC now gives the game 128 MB.
+- **Free Roam:** no more nameless Eclipses parked at the start.
+- **Free Roam:** a player driving near you gets a car even when players in the garage or the menus held the car slots.
+- **Free Roam:** every player in your city shows on the map, and the full map (I) lists the players on its side.
