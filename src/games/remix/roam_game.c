@@ -119,6 +119,8 @@
 #define ROAM_SLOTS      7               /* the 8 player slots, one is ours */
 #define ROAM_SPARE      2               /* slots built beyond the peers at load */
 #define ROAM_HEAP_VA    0x0052B488u     /* the game's current heap (allocator sub_001B4740) */
+#define ROAM_CAR_BYTES  (1000u << 10)   /* a car's share of that heap, rounded up (measured 780-850 KB) */
+#define ROAM_HEAP_KEEP  (3072u << 10)   /* left free after the cruise's cars (1259 KB was fatal, 4815 KB played) */
 #define ROAM_HIST       256u            /* our car's path: ~8 s at 30 fps */
 #define ROAM_CFG_SIZE   0x108u          /* CarCfg */
 #define ROAM_CFG_VT     0x004483DCu     /* its vtable */
@@ -878,6 +880,26 @@ static void roam_build(void)
     if (!n)
         return;
     s_roam_heap0 = roam_heap_log("before the cruise's cars");
+    /* The game's heap is fixed (47 MB) and its overrun is fatal: a second
+     * cruise with 6 remote cars left 1259 KB and died on an 84 KB request
+     * ("Heap overrun", 2026-11-10); 2 cars left 4815 KB and played. Each car
+     * (ours too) takes ~780-850 KB: build only what fits with ROAM_HEAP_KEEP
+     * left over. The nearest peers keep their slots; MC3_ROAM_SLOTS skips it. */
+    if (s_roam_heap0 && !s_roam_fake && !getenv("MC3_ROAM_SLOTS")) {
+        uint32_t fit = s_roam_heap0 > ROAM_HEAP_KEEP ? (s_roam_heap0 - ROAM_HEAP_KEEP) / ROAM_CAR_BYTES : 0;
+        int room = fit > 1u ? (int)fit - 1 : 0;   /* our own car comes out of it too */
+        if (n > room) {
+            fprintf(stderr, "[ROAM] heap: %d remote car%s fit (of %d asked), %u KB free, %u KB kept\n", room,
+                    room == 1 ? "" : "s", n, (unsigned)(s_roam_heap0 >> 10), (unsigned)(ROAM_HEAP_KEEP >> 10));
+            n = room;
+            if (np > n)
+                np = n;
+        }
+        if (!n) {
+            s_roam_heap0 = 0;
+            return;
+        }
+    }
     for (i = 1; i <= (uint32_t)n; i++) {
         uint32_t e = e0 + i * ROAM_ENTRY_SIZE, cfg = MEM32(e + 0x0Cu);
         memcpy((uint8_t *)XBOX_PTR(e), (uint8_t *)XBOX_PTR(e0), ROAM_ENTRY_SIZE);
@@ -1235,8 +1257,8 @@ static void roam_show(uint32_t veh, int on)
 /* The car's drawable is in the draw list (sub_00092EF0's own test). */
 static int roam_listed(uint32_t veh)
 {
-    uint32_t o = MEM32(veh + 0xCu), n, l;
-    if (!online_ram(o) || !online_ram(l = MEM32((n = o + 8u) + 0x10u)))
+    uint32_t o = MEM32(veh + 0xCu), n = o + 8u, l;
+    if (!online_ram(o) || !online_ram(l = MEM32(n + 0x10u)))
         return -1;
     return MEM32(n + 4u) || MEM32(n + 8u) || MEM32(l + 0x1Cu) == n;
 }
