@@ -30,7 +30,10 @@ window.mc3Lan = function (name, lanUrl) {
   var BEAT = '{"t":"beat"}';
   function changed() { fns.forEach(function (f) { try { f(link); } catch (e) { console.error(e); } }); }
   function up() { return ws && ws.readyState == 1; }
-  function hello() { ws.send(JSON.stringify({ t: 'hello', name: name || '', lan: 1 })); }
+  // A random id per browser: the switch lets the same browser take its own nick back from a ghost socket of an earlier visit.
+  var cid = '';
+  try { cid = localStorage.getItem('mc3.cid') || ''; if (!/^[\w-]{8,40}$/.test(cid)) { cid = (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + '00000000').slice(0, 20); localStorage.setItem('mc3.cid', cid); } } catch (_) {}
+  function hello() { ws.send(JSON.stringify({ t: 'hello', name: name || '', lan: 1, cid: cid || undefined })); }
   // The link stays wanted until close(): a drop (network, proxy idle, the server's or Cloud Run's request timeout,
   // a redeploy) reconnects after 1, 2, 4, 8, 15 s (+-25%), asking for the same address back (?vip=, the switch gives
   // it if free), then says hello, subscribes and rejoins the race room again.  The same link object throughout, so
@@ -79,7 +82,7 @@ window.mc3Lan = function (name, lanUrl) {
       else if (m.t == 'signal') { if (link.onsignal) link.onsignal(m); }
       msgFns.forEach(function (f) { try { f(m); } catch (e) { console.error(e); } });
     };
-    ws.onclose = function () { lost(me); };
+    ws.onclose = function (e) { if (e && e.code == 4001) want = false; lost(me); };   // 4001: this browser's newer page took our place
   }
   function lost(me) {
     if (me !== ws) return;
