@@ -104,6 +104,11 @@
   .top { background: linear-gradient(90deg, var(--red-lo) 35%, rgba(122, 12, 16, .5) 70%, transparent), var(--grid);
          border: 2px solid var(--silver); border-left: 16px solid #8e9096; border-radius: 0;
          display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; }
+  #released { margin-left: 12px; font-weight: 700; }
+  #released::before { content: "\00b7  "; }
+  #changelog-dlg h3 { margin: 16px 0 6px; }
+  #changelog-dlg h3:first-child { margin-top: 0; }
+  #changelog-dlg ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
   .top .hint { color: #e6e7ea; text-shadow: var(--outline); }
   h1 { font-size: 32px; line-height: 40px; }
   h1 span { color: var(--gold); }
@@ -225,15 +230,15 @@
   .stage-bar:hover, .stage-bar:focus-within { opacity: 1; }
   .stage-bar .btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
   .pad-sel { max-width: 220px; min-height: 32px; font-size: 14px; }
-  #settings-dlg, #players-dlg { width: min(520px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 16px; margin: auto;
+  #settings-dlg, #players-dlg, #changelog-dlg { width: min(520px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 16px; margin: auto;
                   background: var(--frame); color: inherit; border: 2px solid var(--silver); border-radius: var(--r); touch-action: pan-y; }
-  #settings-dlg::backdrop, #players-dlg::backdrop { background: rgba(0, 0, 0, .6); }
-  #settings-dlg .dlg-head, #players-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -16px -16px 12px;
+  #settings-dlg::backdrop, #players-dlg::backdrop, #changelog-dlg::backdrop { background: rgba(0, 0, 0, .6); }
+  #settings-dlg .dlg-head, #players-dlg .dlg-head, #changelog-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -16px -16px 12px;
                             padding: 8px 16px; background: linear-gradient(90deg, var(--red-lo) 40%, transparent), var(--grid);
                             border-bottom: 2px solid var(--silver); }
-  #settings-dlg .dlg-head strong, #players-dlg .dlg-head strong { font-size: 18px; }
+  #settings-dlg .dlg-head strong, #players-dlg .dlg-head strong, #changelog-dlg .dlg-head strong { font-size: 18px; }
   #settings-dlg .dlg-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
-  #settings-dlg .btn, #players-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
+  #settings-dlg .btn, #players-dlg .btn, #changelog-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
   #settings-dlg .pad-sel { flex: 1 1 160px; max-width: 100%; min-height: 40px; }
   #run-status { display: block; color: var(--muted); font-size: 14px; word-break: break-word; }
   #run-status.bad { color: var(--bad); }
@@ -277,8 +282,13 @@
 <div class="app">
   <header class="panel top">
     <h1>Midnight Club <span>3</span></h1>
-    <p class="hint">Fan project</p>
+    <p class="hint">Fan project<span id="released" hidden></span></p>
+    <button type="button" class="btn" id="changelog-btn" aria-haspopup="dialog" aria-controls="changelog-dlg">Changelog</button>
   </header>
+  <dialog id="changelog-dlg" aria-label="Changelog">
+    <div class="dlg-head"><strong>Changelog</strong><button type="button" class="btn" id="changelog-close" aria-label="Close">Close</button></div>
+    <div id="changelog-body"></div>
+  </dialog>
 
   <div class="side">
     <section class="panel hero" aria-label="Play">
@@ -1575,6 +1585,44 @@
       navigator.share({ files: [file] }).catch(e => { if (e.name !== 'AbortError') download(blob, name); });
     else download(blob, name);
   };
+  // Header: release date and Changelog popup, both from CHANGELOG.md (sections "## yyyy-mm-dd (commit)", lines "- **Area:** text").
+  // Fetched once; without the file (dev server) the date stays hidden and the popup says so.
+  let changelogP;
+  const loadChangelog = () => changelogP ??= fetch('CHANGELOG.md', { cache: 'no-cache' }).then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  }).then(txt => {
+    const rel = [];
+    for (const l of txt.split(/\r?\n/)) {
+      const h = /^## (\d{4}-\d\d-\d\d)/.exec(l), c = /^- (?:\*\*(.+?):\*\* )?(.+)/.exec(l);
+      if (h) rel.push({ date: h[1], changes: [] }); else if (c && rel.length) rel.at(-1).changes.push([c[1] || '', c[2]]);
+    }
+    return rel;
+  });
+  const dayText = date => new Date(date + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
+  loadChangelog().then(rel => {
+    if (!rel[0]) return;
+    $('released').textContent = 'Released ' + dayText(rel[0].date);
+    $('released').hidden = false;
+  }).catch(() => { changelogP = null; });
+  $('changelog-btn').onclick = () => {
+    const body = $('changelog-body');
+    $('changelog-dlg').showModal();
+    loadChangelog().then(rel => body.replaceChildren(...rel.flatMap(r => {
+      const h = Object.assign(document.createElement('h3'), { textContent: dayText(r.date) }), ul = document.createElement('ul');
+      for (const [area, text] of r.changes) {
+        const li = ul.appendChild(document.createElement('li'));
+        if (area) li.append(Object.assign(document.createElement('strong'), { textContent: area + ':' }), ' ');
+        li.append(text);
+      }
+      return [h, ul];
+    }))).catch(() => {
+      changelogP = null;
+      body.replaceChildren(Object.assign(document.createElement('p'), { className: 'hint', textContent: "Couldn't load the changelog." }));
+    });
+  };
+  $('changelog-close').onclick = () => $('changelog-dlg').close();
+  $('changelog-dlg').onclick = e => { if (e.target === e.currentTarget) e.currentTarget.close(); };
   // Settings dialog (the stage bar's only button). Keys / Races / Log / Fullscreen show something over the game: close it first.
   const dlg = $('settings-dlg');
   $('settings-btn').onclick = () => { dlg.showModal(); $('settings-close').focus(); };
