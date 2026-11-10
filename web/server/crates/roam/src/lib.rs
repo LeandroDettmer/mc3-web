@@ -410,16 +410,18 @@ impl Hub {
         out
     }
 
-    /// Each placed player's FAR list: the placed players of its room (not its own browser), those it is not linked
-    /// with first, then the linked ones, each nearest first.
+    /// Each FAR list of a player with a known place: the others of its room with a known place (not its own browser),
+    /// stale ones too, at their last place (every player of a city shows on the maps), those it is not linked with
+    /// first, then the linked ones, each nearest first.
     // shortcut: a sort per player every far_ms (O(n^2 log n)), as tick's O(n^2): the grid walk would take this too.
     fn far(&self, keys: &[Key], places: &[Option<Place>], out: &mut Vec<(u32, u16, Vec<u8>)>) {
+        let spot = |j: usize| places[j].map(|(a, ..)| a).or_else(|| self.players[&keys[j]].pos.map(|(a, ..)| a));
         for (i, ki) in keys.iter().enumerate() {
-            let Some((ai, ..)) = places[i] else { continue };
+            let Some(ai) = spot(i) else { continue };
             let me = &self.players[ki];
             let mut v: Vec<(bool, f64, usize)> = (0..keys.len())
                 .filter(|&j| j != i && keys[j].0 != ki.0 && self.players[&keys[j]].room == me.room)
-                .filter_map(|j| places[j].map(|(aj, ..)| (me.links.contains_key(&keys[j]), dist(&ai, &aj), j)))
+                .filter_map(|j| spot(j).map(|aj| (me.links.contains_key(&keys[j]), dist(&ai, &aj), j)))
                 .collect();
             v.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)).then(a.2.cmp(&b.2)));
             let list: Vec<_> = v

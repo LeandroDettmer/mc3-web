@@ -274,10 +274,11 @@ static struct { volatile int32_t seq; int32_t city; } s_rmap_big;
 EMSCRIPTEN_KEEPALIVE uintptr_t roam_bigmap_box(void) { return (uintptr_t)&s_rmap_big; }
 #endif
 
-/* A remote player's status that gets a blip. */
+/* A remote player's status that gets a blip: every one (owner's rule: each player of the city always shows, menus
+ * and loads included, at its last place; dimmed unless driving). */
 static int rmap_shown(uint8_t st)
 {
-    return st == RC_ST_ROAM || st == RC_ST_EVENT || st == RC_ST_SHOP || st == RC_ST_PAUSED;
+    return st < RC_ST__N;
 }
 
 /* After sub_000BF850 (map, the game's player blips); top: the caller's esp at the call (scratch goes below it).

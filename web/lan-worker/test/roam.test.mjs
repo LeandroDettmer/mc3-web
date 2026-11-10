@@ -106,6 +106,37 @@ test('far list: every far_ms the placed players of the room, unlinked first, nea
   assert.ok(h.tick(2500).every(o => o[2][5] === MSG_PEERS), 'next one at 4000');
 });
 
+test('far list: every player of the city with a place, whatever it does (paused, garage, menus, idle, flapping, stale)', () => {
+  const h = new Hub();
+  const st = [ST_ROAM, 5 /* PAUSED */, 4 /* SHOP */, ST_MENUS, ST_LOADING, 3 /* EVENT */];
+  st.forEach((s, i) => {
+    h.frame(vip(i), ROAM_PORT, hello(100 + i, `P${i}`, 3, 0, s), 0);
+    h.frame(vip(i), ROAM_PORT, snap(100 + i, [10 * i, 0, 0], [0, 0, 0], s), 0);
+  });
+  // a flapper in a load (starts idle), then one in the menus with no SNAP for 90 s (stale), another city, no place
+  for (let n = 0; n <= h.opts.flap_n + 1; n++) { h.leave(vip(6)); h.frame(vip(6), ROAM_PORT, hello(106, 'P6', 3, 0, ST_LOADING), 0); }
+  h.frame(vip(6), ROAM_PORT, snap(106, [60, 0, 0], [0, 0, 0], ST_LOADING), 0);
+  h.frame(vip(7), ROAM_PORT, snap(107, [0, 0, 0], [0, 0, 0]), 0);   // no HELLO yet: ignored
+  h.frame(vip(7), ROAM_PORT, hello(107, 'P7', 3, 0, ST_MENUS), 0);
+  h.frame(vip(7), ROAM_PORT, snap(107, [70, 0, 0], [0, 0, 0], ST_MENUS), 0);
+  h.frame(vip(8), ROAM_PORT, hello(108, 'P8', 3, 1), 0);
+  h.frame(vip(8), ROAM_PORT, snap(108, [80, 0, 0], [0, 0, 0]), 0);
+  h.frame(vip(9), ROAM_PORT, hello(109, 'P9', 3), 0);
+  let now = 0;
+  for (; now <= 90_000; now += 1000) for (let i = 0; i < 10; i++) {
+    const s = i < 6 ? st[i] : i === 6 ? ST_LOADING : i === 7 ? ST_MENUS : ST_ROAM;
+    h.frame(vip(i), ROAM_PORT, hello(100 + i, `P${i}`, 3, i === 8 ? 1 : 0, s), now);
+    if (i !== 7 && i !== 9) h.frame(vip(i), ROAM_PORT, snap(100 + i, [10 * i, 0, 0], [0, 0, 0], s), now);
+  }
+  const d = Buffer.from(h.tick(now).find(([v, , b]) => v === vip(0) && b[5] === MSG_FAR)[2]);
+  const got = new Map();
+  for (let k = 0, o = 17; k < d[16]; k++) { got.set(d.readUInt32LE(o), [d[o + 4], d.readFloatLE(o + 5)]); o += 26 + d[o + 25]; }
+  same([...got.keys()].sort(), [101, 102, 103, 104, 105, 106, 107], 'the city but itself, the other city and the placeless');
+  same(got.get(101), [5, 10]); same(got.get(102), [4, 20]); same(got.get(103), [ST_MENUS, 30]);
+  same(got.get(106), [ST_LOADING, 60]); same(got.get(107), [ST_MENUS, 70]);
+  assert.ok([4, 6, 7].every(j => !h.linksOf(vip(0), ROAM_PORT).some(([v]) => v === vip(j))), 'links still leave idle, flapping and stale players out');
+});
+
 test('gone: BYE, leave, silence', () => {
   const h = new Hub();
   h.frame(vip(0), ROAM_PORT, hello(1, 'a', 0), 0);
@@ -160,7 +191,8 @@ test('hygiene: a player in LOADING / MENUS for 60 s without another SNAP drops o
   }
   const out = h.tick(now);
   assert.ok(!listed(h, 0, 1) && !listed(h, 1, 0));
-  assert.ok(out.filter(([, , d]) => d[5] === MSG_FAR).every(([, , d]) => d[16] === 0), 'not in a far list either');
+  const far0 = out.find(([v, , d]) => v === vip(0) && d[5] === MSG_FAR)[2];
+  assert.ok(far0[16] === 1 && Buffer.from(far0).readUInt32LE(17) === 101 && far0[21] === ST_LOADING, 'still on the maps (FAR), as LOADING');
   // it finishes loading: the first cruise frame's SNAP while ROAM lists it again at the next tick
   h.frame(vip(1), ROAM_PORT, snap(101, [10, 0, 0], [0, 0, 0], ST_ROAM), now + 100);
   h.tick(now + 600);

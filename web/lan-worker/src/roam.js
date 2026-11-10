@@ -6,7 +6,8 @@
 // - player -> hub: HELLO every second (id, status, name, links wanted: its K), SNAP twice a second (place, velocity),
 //   BYE when it stops.
 // Worker-only hygiene (the Rust hub has none): a player that stays in MENUS/LOADING for idle_ms without a SNAP of any
-// other status (ROAM, SHOP, EVENT, PAUSED) is left out of every list, its own included, until one arrives; a browser
+// other status (ROAM, SHOP, EVENT, PAUSED) is left out of every link list, its own included, until one arrives (FAR
+// lists keep it at its last place: every player of a city shows on the maps); a browser
 // that joins (or restarts its endpoint) more than flap_n times in flap_ms starts that way; a browser holds at most
 // per_vip endpoints. Nothing is hidden that is really playing: roam_core.c sends a SNAP every 2 s from the garage, and
 // the first cruise frame after a load sends one with status ROAM at once (roam_game.c roam_away hides those cars anyway).
@@ -226,15 +227,18 @@ export class Hub {
     });
     if (since(now, this.farAt ?? 0) >= o.far_ms) {
       this.farAt = now;
-      // each placed player: the placed ones of its room (not its own browser), those it is not linked with first, then
-      // the linked ones, each nearest first: a linked player whose snapshots do not reach it (a link still being made,
-      // packets lost) still gets a map blip; the core drops the ones it already draws as cars (roam_far)
+      // each player with a known place: every other one of its room with a known place (not its own browser), those
+      // it is not linked with first, then the linked ones, each nearest first: a linked player whose snapshots do not
+      // reach it (a link still being made, packets lost) still gets a map blip; the core drops the ones it already
+      // draws as cars (roam_far). Idle, flapping or stale players leave the links only, never FAR: every player of a
+      // city shows on the maps at its last known place, its status dims the blip.
       // shortcut: a sort per player every far_ms (O(n^2 log n)), as the Rust hub's.
+      const spot = i => places[i]?.soon ?? ps[i].pos.at;
       ps.forEach((p, i) => {
-        if (!places[i]) return;
+        if (!p.pos) return;
         const list = ps.map((q, j) => [j, q])
-          .filter(([j, q]) => j !== i && places[j] && q.vip !== p.vip && q.room === p.room)
-          .map(([j, q]) => [p.links.has(keys[j]) ? 1 : 0, dist(places[i].soon, places[j].soon), j, q])
+          .filter(([j, q]) => j !== i && q.pos && q.vip !== p.vip && q.room === p.room)
+          .map(([j, q]) => [p.links.has(keys[j]) ? 1 : 0, dist(spot(i), spot(j)), j, q])
           .sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2])
           .slice(0, FAR_MAX)
           .map(([, , , q]) => [q.id, q.status, q.pos.at, q.q ?? [0, 0, 0, 0], q.name]);
