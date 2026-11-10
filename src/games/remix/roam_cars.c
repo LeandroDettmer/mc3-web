@@ -646,8 +646,10 @@ static void roam_cars_frame(void)
     f = 1.0f - expf(-s_roam_dt / ROAM_TAU);
     for (i = 0; i < s_ncar; i++) {
         roam_car *cr = &s_car[i];
+        static roam_tyre tyre[ROAM_CARS_MAX];
         if (!cr->veh)
             continue;
+        roam_tyres(&tyre[i], cr->veh, "car", i);  /* roam_game.c: the wheel step once with the rim there */
         if (cr->id && cr->here && !cr->away) {
             memcpy(m, cr->m, sizeof m);
             memcpy(vel, cr->vel, sizeof vel);

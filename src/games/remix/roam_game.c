@@ -1206,6 +1206,50 @@ static void roam_show(uint32_t veh, int on)
         MEM8(o + 0x12Du) = (uint8_t)on;
 }
 
+/* A remote car's tyres (2026-11-10: a peer's Jetta drawn without tyres after
+ * 39336b5). The drawn tyres are sized only in the vehicle update's wheel step
+ * (0x00100654, while the CarCfg [veh+0x64] has dirty bit 0x80; the step
+ * clears it): sub_00121970 into the wheels [veh+0x50] (+0x54 front, +0x58
+ * rear), from the rim geometry of the car's model, [[render [veh+0xC]]+0x18]
+ * +0x3818 / +0x381C (sub_000F11E0; missing, it reads a -0.3 m rim). Arming
+ * the bit at the build is not enough: anything that runs the step first (the
+ * rim not there yet, the bit cleared on a shared or rewritten CarCfg) leaves
+ * the car bare for good. So, before each update of the car until it is done:
+ * the bit set again, and the car counted done once a step ran (bit found
+ * clear) after a check that saw the rim geometry. One log line per car. */
+typedef struct {
+    uint32_t veh;                               /* the vehicle this state is for (a rebuild starts over) */
+    uint8_t done, armed;                        /* armed: set by us with the rim geometry there */
+    double t0;
+} roam_tyre;
+
+static void roam_tyres(roam_tyre *t, uint32_t veh, const char *who, int idx)
+{
+    uint32_t cfg = MEM32(veh + 0x64u), r = MEM32(veh + 0xCu), res, w;
+    int rim;
+    if (t->veh != veh) {
+        memset(t, 0, sizeof *t);
+        t->veh = veh;
+        t->t0 = roam_now();
+    }
+    if (t->done || !online_ram(cfg))
+        return;
+    res = online_ram(r) ? MEM32(r + 0x18u) : 0;
+    rim = online_ram(res) && online_ram(MEM32(res + 0x3818u)) && online_ram(MEM32(res + 0x381Cu));
+    if (t->armed && !(MEM32(cfg + 8u) & 0x80u)) {
+        t->done = 1;
+        w = MEM32(veh + 0x50u);
+        fprintf(stderr, "[ROAM] tyres: %s %d sized after %.1f s (radius front %.3f rear %.3f, rim %.3f)\n", who, idx,
+                roam_now() - t->t0,
+                online_ram(w) && online_ram(MEM32(w + 0x54u)) ? MEMF(MEM32(w + 0x54u) + 4u) : -1.0f,
+                online_ram(w) && online_ram(MEM32(w + 0x58u)) ? MEMF(MEM32(w + 0x58u) + 4u) : -1.0f,
+                MEMF(MEM32(res + 0x3818u) + 0x14u));
+        return;
+    }
+    MEM32(cfg + 8u) |= 0x80u;
+    t->armed = (uint8_t)rim;
+}
+
 /* Free Roam starts every player on the same spot: the city cruise's start
  * (or the garage's door after a visit). A peer still there had our car
  * built inside its own, collisions on both (2026-11-10). At our first
@@ -1312,6 +1356,10 @@ static void roam_player(uint32_t p)
     roam_swap(p, (int)slot);                    /* may rebuild the car: +0x14 read again */
     if (!online_ram(veh = MEM32(p + 0x14u)))
         return;
+    {
+        static roam_tyre tyre[ROAM_SLOTS + 1];
+        roam_tyres(&tyre[slot], veh, "slot", (int)slot);
+    }
     if (s_roam_fake) {
         float side = (slot & 1u) ? 3.0f : -3.0f;
         double delay = 1.0 + (s_roam_fake > 1 ? 2.0 * (slot - 1) / (s_roam_fake - 1) : 0.0);

@@ -28,7 +28,14 @@ player object: builder ctor sub_002CB270(name, 0, slot, CarCfg*, flag, pad)
   the model update sub_000F2C00 while +0x1270 is set, and the draw
   (0x000FE09C) applies +0x1228 and clears +0x1270: a car built after the
   physics step was drawn first and kept its own colour. roam_car_build calls
-  sub_000F2C00 on the model after the build;
+  sub_000F2C00 on the model after the build. Still a bare Jetta after that
+  (2026-11-10): the step sizes the tyres from the rim geometry
+  [[veh+0xC]+0x18]+0x3818/+0x381C (sub_000F11E0, -0.3 m when missing) and
+  clears 0x80 either way, so one arming at the build can be spent too early.
+  roam_tyres (roam_game.c) re-arms 0x80 before each update of every remote
+  car (slots and standalone) until a step ran after a check that saw the rim
+  geometry; '[ROAM] tyres: slot|car N sized after S s (radius ...)' once per
+  build. No such line for a car: its update never reached the step;
 - vt+0x20 sub_002CB2D0: car cache acquire sub_00105B80 -> builder+0x4C
   (cache [0x50A08C], 16 slots, refcounted per car index: same model shared);
 - vt+4 sub_002CBDE0: vehicle new 0x6C (vtable 0x454F40, ctor sub_000FF160),
