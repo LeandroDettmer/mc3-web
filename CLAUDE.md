@@ -230,7 +230,15 @@ generated files when the lift inputs did not change.
   filtering. Failures show a box over the picture with the reason and the
   log's last 20 lines (index.html failShow: abort, page errors before the
   runtime is up, '[WGPU] device lost', '[GL] WebGL context lost', out of
-  memory lines, no frame 90 s after Play).
+  memory lines, no frame 90 s after the runtime is up; runtime not up 5 min
+  after Play). Crash tracing (2026-11-10, untested in a browser): every
+  failure box, page error after boot (no box, 3 a session), freeze (15 s
+  without a new frame, tab visible) and killed tab (log tail + heartbeat
+  in localStorage every 5 s, cleared on pagehide, sent on the next visit)
+  goes to config.json logUrl as POST ?tag=fatal|error|freeze|
+  previous-crash, headed by build, UA, GPU, memory, online state, times;
+  the log Worker (.deploy/worker.js, local) keys it logs/<day>-<tag>-
+  <code>.txt and takes 10 an hour per address.
   TCL Google TV (Chrome for Android TV, 32-bit, 2026-11-09, fix untested
   on the TV): every memory from 448 MB up was refused (256/512 given; a
   32-bit V8 that cannot set aside the maximum may set aside only the

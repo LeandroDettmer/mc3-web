@@ -1197,7 +1197,7 @@
   // frame, and only while it is shown (a DOM append and a layout read per
   // line cost the page's main thread in log bursts).
   const log = $('log'), MAX_LINES = 4000;
-  let logText = [], logDirty = false, failBox = null;
+  let logText = [], logDirty = false, failBox = null, logN = 0;   // logN: lines ever logged (keepTail writes on change)
   // Log lines that mean the game cannot go on: the box below says so over the picture.
   const FATAL = [
     [/\[WGPU\] device lost/, 'Graphics device lost', 'The game cannot draw any more. Reload the page; if it happens again, add ?RECOMP_GPU=webgl to the address.'],
@@ -1213,7 +1213,7 @@
     [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory on this device', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
   ];
   function out(text) {
-    logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
+    logN++; logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
     // '[WEB] memory:' lines are the memory ladder's own (a refused size is retried smaller, web/pre.js): not fatal
     // the worker refused WebGL 2 (not through the page thread): the next start draws through the page (play())
@@ -1244,18 +1244,110 @@
       c.style.cssText = 'margin:8px 0 0;font-weight:bold';
       c.textContent = 'Sending the log…';
       m.append(c);
-      fetch(cfg.logUrl, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'text/plain' }, body: logDump().slice(-2e6) })
-        .then(r => r.ok ? r.json() : Promise.reject(r.status))
-        .then(j => { c.textContent = 'Log code: ' + j.code + ' (send it to the developer)'; })
+      logSend('fatal', title + ': ' + why)
+        .then(code => { c.textContent = 'Log code: ' + code + ' (send it to the developer)'; })
         .catch(e => { c.textContent = 'The log could not be sent (' + e + ').'; });
     }
     m.onclick = () => m.remove();
     ($('stage').hidden ? document.body : $('stage')).append(m);
   }
-  // Errors outside the game's log while it starts or runs (web/pre.js's memory refusal, a failed compile).
-  let booted = false;   // set when the runtime is up: later page errors are not the game's start
-  window.addEventListener('error', e => { if (playing && !booted) { out('[WEB] error: ' + (e.message || e.error)); failShow('The game could not start', String(e.message || e.error)); } });
-  window.addEventListener('unhandledrejection', e => { if (playing && !booted) { const r = e.reason?.message || String(e.reason); out('[WEB] error: ' + r); failShow('The game could not start', r); } });
+  // Crash tracing (2026-11-10): every failure, page error after boot, freeze and killed tab sends the log by itself
+  // to the log store (config.json logUrl; .deploy/worker.js POST /logs?tag=, at most 10 an hour per address), with a
+  // header that places it: build, browser, GPU, memory, online state, time running.
+  let tPlay = 0, tRuntime = 0, gpuInfo = '', glInfo = null;
+  const sentN = {};
+  const lastLine = re => { for (let i = logText.length; i--;) if (re.test(logText[i])) return String(logText[i]).trim(); return ''; };
+  const since = t => t ? Math.round((performance.now() - t) / 1000) + ' s' : 'not yet';
+  function logHeader(tag, why) {
+    const mem = window.Module?.wasmMemory?.buffer?.byteLength;
+    return [`=== mc3 log: ${tag}: ${why}`,
+      `build: ${lastLine(/ package, lifted from the /) || 'no boot banner yet'}`,
+      `browser: ${navigator.userAgent}`,
+      `graphics: ${window.Module?.mc3Env?.RECOMP_GPU || 'not chosen'}; ${gpuInfo || 'WebGL ' + (glInfo ??= pageRenderer())}`,
+      `memory: device ${navigator.deviceMemory ?? '?'} GB, wasm ${mem ? Math.round(mem / 1048576) + ' MB' : '?'}`,
+      `online: link ${lan?.state || 'none'}; ${lastLine(/\[roam\] status/) || 'no Free Roam yet'}`,
+      `running: ${since(tPlay)} since Play, ${since(tRuntime)} since the runtime started; page ${location.search || '(no query)'}`,
+      `sent: ${new Date().toISOString()}`, '==='].join('\n').replace(/\/k\/[^/\s"']+/g, '/k/***') + '\n';
+  }
+  const logPost = (tag, body) => {
+    const u = new URL(cfg.logUrl, location.href);
+    u.searchParams.set('tag', tag);
+    return fetch(u, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'text/plain' }, body })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status)).then(j => j.code);
+  };
+  // the whole log (at most ~2 MB: the store's limit), headed; resolves to the log's code
+  function logSend(tag, why) {
+    if (!cfg?.logUrl) return Promise.reject('no log store on this server');
+    return logPost(tag, logHeader(tag, why) + logDump().slice(-1.9e6))
+      .then(code => (out(`[WEB] log sent: ${tag}, code ${code}`), code));
+  }
+  // non-fatal ones: no box, at most 3 of each tag a session
+  function logQuiet(tag, why) {
+    if ((sentN[tag] = (sentN[tag] || 0) + 1) > 3) return;
+    logSend(tag, why).catch(e => console.warn('[WEB] log not sent:', e));
+  }
+  // Errors outside the game's log while it starts or runs (web/pre.js's memory refusal, a failed compile): before the
+  // runtime is up they stop the start (the box); after it, they are logged and sent without a box.
+  let booted = false;   // set when the runtime is up
+  function pageError(r) {
+    if (!playing) return;
+    out('[WEB] error: ' + r);
+    if (!booted) failShow('The game could not start', r);
+    else logQuiet('error', r);
+  }
+  window.addEventListener('error', e => pageError(String(e.message || e.error) + (e.filename ? ` (${e.filename.replace(/^.*\//, '')}:${e.lineno}:${e.colno})` : '')));
+  window.addEventListener('unhandledrejection', e => pageError(e.reason?.stack || e.reason?.message || String(e.reason)));
+  // Freeze: no new frame for 15 s while the tab is visible (a hidden tab draws nothing), once the game has drawn.
+  // The WebGPU watchdog's line (xboxrecomp/src/nv2a_wgpu/wgpu_queue.c wq_watchdog, at 5 and 10 s) names where it stopped.
+  function watchFrames() {
+    let last, still = 0;
+    setInterval(() => {
+      const f = window.Module?.mc3Frames?.();
+      if (document.visibilityState !== 'visible' || !(f > 0) || f !== last) {
+        if (still >= 15 && f !== last) out(`[WEB] freeze: frames again after ${still} s`);
+        last = f; still = 0; return;
+      }
+      if (++still !== 15 || failBox) return;
+      const why = `no new frame for 15 s with the tab visible (frame counter ${f}); `
+        + `${lastLine(/\[WGPU\] watchdog/) || 'no WebGPU watchdog line'}; last disc line: ${lastLine(/\[WEB\] (disc|readahead|prefetch)/) || 'none'}`;
+      out('[WEB] freeze: ' + why);
+      logQuiet('freeze', why);
+    }, 1000);
+  }
+  // A killed tab (Aw Snap, out of memory) runs no more code: while playing, the log's last 200 KB (headed) and a
+  // heartbeat are kept in localStorage every 5 s; a clean exit (pagehide: Quit, closing, leaving) clears them. The next
+  // visit sends what is left, tagged previous-crash. Another tab still playing beats within 15 s: its own is not sent,
+  // unless this tab is the one that wrote it (a reload after Aw Snap; sessionStorage keeps the tab's id).
+  const TAIL_CHARS = 200 * 1024, tabId = (() => {
+    try { let id = sessionStorage.getItem('mc3.tab'); if (!id) sessionStorage.setItem('mc3.tab', id = Math.random().toString(36).slice(2)); return id; }
+    catch { return ''; }
+  })();
+  const tailClear = () => { try { for (const k of ['crashTail', 'crashBeat', 'crashTab']) localStorage.removeItem('mc3.' + k); } catch {} };
+  function keepTail() {
+    let n = -1;
+    const write = () => {
+      try {
+        localStorage.setItem('mc3.crashBeat', String(Date.now()));
+        localStorage.setItem('mc3.crashTab', tabId);
+        if (n === logN) return;
+        n = logN;
+        localStorage.setItem('mc3.crashTail', logHeader('previous-crash', 'the tab ended without a clean exit (killed, crashed or out of memory)')
+          + logDump(logText.slice(-4000)).slice(-TAIL_CHARS));
+      } catch {}   // storage full or blocked: nothing kept
+    };
+    write();
+    setInterval(write, 5000);
+    addEventListener('pagehide', () => { if (playing) tailClear(); });
+  }
+  function sendPreviousCrash() {
+    let tail, beat, tab;
+    try { tail = localStorage.getItem('mc3.crashTail'); beat = Number(localStorage.getItem('mc3.crashBeat')); tab = localStorage.getItem('mc3.crashTab'); }
+    catch { return; }
+    if (!tail || (tab !== tabId && Date.now() - beat < 15000)) return;
+    if (!cfg?.logUrl) { tailClear(); return; }
+    logPost('previous-crash', tail).then(code => { try { if (localStorage.getItem('mc3.crashTail') === tail) tailClear(); } catch {} console.warn('[WEB] the last game here ended without a clean exit; its log was sent, code ' + code); },
+      e => console.warn('[WEB] previous crash log not sent (kept for the next visit):', e));
+  }
   function logFlush() {
     logDirty = false;
     const atEnd = log.scrollTop + log.clientHeight >= log.scrollHeight - 4;
@@ -1269,7 +1361,10 @@
   // 2026-11-08), else WebGL; the row or ?RECOMP_GPU=webgl forces WebGL.
   async function gpuChoice(env) {
     if (env.RECOMP_GPU === 'webgl') return 'webgl';
-    try { if (navigator.gpu && await navigator.gpu.requestAdapter()) return 'webgpu'; } catch {}
+    try {
+      const a = navigator.gpu && await navigator.gpu.requestAdapter(), i = a?.info || {};
+      if (a) { gpuInfo = 'WebGPU adapter ' + ([i.vendor, i.architecture, i.device, i.description].filter(Boolean).join(' ') || '(no info)'); return 'webgpu'; }
+    } catch {}
     return 'webgl';
   }
   // Sound on phones (2026-11-09). iOS Safari lets an AudioContext run only if it is made or
@@ -1305,7 +1400,8 @@
     const nick = $('name').value.trim();
     if (nickDefault(nick) || nick.toLowerCase() === nickTaken) { askNick(nickTaken && nick.toLowerCase() === nickTaken ? 'Nick already in use: pick another.' : ''); return; }
     const g = currentGame(), d = currentDisc(), app = APPS[g];
-    playing = true;
+    playing = true; tPlay = performance.now();
+    keepTail();
     const env = buildEnv(d);
     if (String(env.RECOMP_AUDIO) !== '0') audioUnlock();
     if (window.MC3Touch?.isPhone()) {
@@ -1346,7 +1442,15 @@
       print: out,
       printErr: out,
       setStatus: s => s && runStatus(s),
-      onRuntimeInitialized: () => (booted = true, window.applyPad?.(), runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.`)),
+      onRuntimeInitialized: () => {
+        booted = true; tRuntime = performance.now();
+        window.applyPad?.();
+        runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.`);
+        // No picture 90 s after the runtime is up (not after Play: a slow link's module and disc download is not a hang);
+        // the log's last lines say why (a TV has no console to look at)
+        setTimeout(() => { if (!(window.Module?.mc3Frames?.() > 0)) failShow('No picture after 90 s', `the game has not drawn a frame yet (${since(tPlay)} since Play, ${since(tRuntime)} since the runtime started)`); }, 90000);
+        watchFrames();
+      },
       onAbort: what => { runStatus('Stopped: ' + what, true); showLog(true); failShow('The game stopped', what); },
       instantiateWasm: moduleWasm(app),
       // start-up steps the runtime still waits for (the wasm, the pool workers' loading, the disc): '0' = main runs
@@ -1356,8 +1460,8 @@
     // else 2 GB up front, smaller only if refused), and 12 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; more
     // get a worker on demand from the page thread, which never blocks; each worker is a JS heap of its own, 2026-11-09 Firefox on a TV).
     if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 12; out('[WEB] low-memory profile (TV, phone, tablet or small device; MC3_LOWMEM=0 turns it off)'); }
-    // No picture 90 s after Play: say so with the log's last lines (a TV has no console to look at).
-    setTimeout(() => { if (!(window.Module?.mc3Frames?.() > 0)) failShow('No picture after 90 s', 'the game has not drawn a frame yet'); }, 90000);
+    // The runtime never up (the module or disc never arrives): 5 minutes after Play. 'No picture' is timed from the runtime.
+    setTimeout(() => { if (!booted) failShow('The game did not start', `the runtime is not up ${since(tPlay)} after Play`); }, 300000);
     // the game's disc reads take the cache choice from OPFS (web/disc_cache.js use()): written before it starts
     const start = async () => {
       await pipeSeed(app);
@@ -1581,7 +1685,7 @@
   window.applyPad();
   setInterval(window.applyPad, 1000);
   // The log as Save log hands it out: a test deploy's password (the /k/<key>/ of its URLs) masked.
-  const logDump = () => (logText.join('\n') + '\n').replace(/\/k\/[^/\s"']+/g, '/k/***');
+  const logDump = (lines = logText) => (lines.join('\n') + '\n').replace(/\/k\/[^/\s"']+/g, '/k/***');
   $('log-save').onclick = () => {
     const name = 'mcdub3-web-log.txt', blob = new Blob([logDump()], { type: 'text/plain' });
     // a phone: the share sheet (Save to Files, Mail, AirDrop); an iPhone's Safari may only open a blob download
@@ -1751,7 +1855,7 @@
   addEventListener('error', e => out('[page] ' + e.message));
   initTabs();
   preview();
-  loadConfig().then(() => { lanUp(); showOnline(); if (nickDefault($('name').value.trim())) askNick(); return Promise.all([findDiscs(), findBuilds()]); }).then(pickInit);
+  loadConfig().then(() => { sendPreviousCrash(); lanUp(); showOnline(); if (nickDefault($('name').value.trim())) askNick(); return Promise.all([findDiscs(), findBuilds()]); }).then(pickInit);
 })();
 </script>
 </body>
