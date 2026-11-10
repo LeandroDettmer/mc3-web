@@ -898,7 +898,8 @@ addToLibrary({
       W.arenaOk = false;
       if (ap && ab) {
         if (!W.arenaGrow(ab)) W.once('abig', 'arena of ' + ab + ' bytes is over the device limit: draws dropped');
-        else { dev.queue.writeBuffer(W.arena, 0, U, ap >>> 2, (ab + 3) >>> 2); W.arenaOk = true; }
+        // a view of just the arena: Firefox refuses a source view over 2 GB (the whole heap)
+        else { dev.queue.writeBuffer(W.arena, 0, U.subarray(ap >>> 2, (ap >>> 2) + ((ab + 3) >>> 2))); W.arenaOk = true; }
       }
       W.uused = 0;
 
