@@ -71,17 +71,17 @@
   a { color: var(--gold); text-underline-offset: 3px; }
   code { font: 14px/20px var(--mono); }
   :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-  #pw-modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, .75); padding: 16px; }
-  #pw-modal form { background: var(--panel); border: 2px solid var(--silver); border-radius: var(--r); padding: 24px;
+  .modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, .75); padding: 16px; }
+  .modal form { background: var(--panel); border: 2px solid var(--silver); border-radius: var(--r); padding: 24px;
                    width: min(520px, 100%); display: grid; gap: 16px; }
-  #pw-modal h2 { margin: 0; font-size: 28px; }
-  #pw-modal #pw-input { font-size: 28px; padding: 14px 16px; background: var(--field); color: var(--text);
+  .modal h2 { margin: 0; font-size: 28px; }
+  .modal .field { font-size: 28px; padding: 14px 16px; background: var(--field); color: var(--text);
                         border: 2px solid var(--edge); border-radius: var(--r); width: 100%; box-sizing: border-box; }
-  #pw-modal .pw-show { font-size: 20px; display: flex; gap: 10px; align-items: center; }
-  #pw-modal .pw-show input { width: 24px; height: 24px; }
-  #pw-modal .pw-row { display: flex; gap: 12px; }
-  #pw-modal .pw-row .btn { flex: 1; font-size: 24px; padding: 16px; min-height: 60px; }
-  #pw-modal :focus { outline: 4px solid var(--gold); outline-offset: 3px; }
+  .modal .pw-show { font-size: 20px; display: flex; gap: 10px; align-items: center; }
+  .modal .pw-show input { width: 24px; height: 24px; }
+  .modal .pw-row { display: flex; gap: 12px; }
+  .modal .pw-row .btn { flex: 1; font-size: 24px; padding: 16px; min-height: 60px; }
+  .modal :focus { outline: 4px solid var(--gold); outline-offset: 3px; }
   .set-label, kbd { font-weight: 700; }
   /* the game's menu face: heavy, wide; titles in caps, menu items in small caps, a dark outline */
   h1, h2, h3, .status, .btn, .play, .tab, legend, .opt, summary, #settings-dlg .dlg-head strong {
@@ -709,30 +709,68 @@
 
   // The test password, asked in the page (prompt() is unusable with a TV remote): big field and
   // buttons, focus starts in the field, Enter or OK confirms, arrows/Tab move between them.
+  // A page dialog (.modal): a form of `html` (its h2 has id `<id>-title`), arrows move between the controls, focus
+  // starts in its first input.
+  function modal(id, html) {
+    const d = document.createElement('div');
+    d.id = id; d.className = 'modal';
+    d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true'); d.setAttribute('aria-labelledby', id + '-title');
+    d.innerHTML = '<form>' + html + '</form>';
+    document.body.append(d);
+    const focusables = () => [...d.querySelectorAll('input, button')];
+    d.addEventListener('keydown', e => {      // TV remotes send arrows: move between the controls
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && !(e.target.tagName === 'BUTTON' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight'))) return;
+      const f = focusables(), i = f.indexOf(document.activeElement);
+      const n = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? i + 1 : i - 1;
+      if (n >= 0 && n < f.length) { e.preventDefault(); f[n].focus(); }
+    });
+    setTimeout(() => d.querySelector('input')?.focus(), 50);
+    return d;
+  }
   function askPassword() {
     return new Promise(done => {
-      const d = document.createElement('div');
-      d.id = 'pw-modal';
-      d.setAttribute('role', 'dialog'); d.setAttribute('aria-modal', 'true'); d.setAttribute('aria-labelledby', 'pw-title');
-      d.innerHTML = '<form><h2 id="pw-title">Test password</h2>' +
-        '<input id="pw-input" type="password" autocomplete="current-password" enterkeyhint="done" aria-label="Test password">' +
+      const d = modal('pw-modal', '<h2 id="pw-modal-title">Test password</h2>' +
+        '<input id="pw-input" class="field" type="password" autocomplete="current-password" enterkeyhint="done" aria-label="Test password">' +
         '<label class="pw-show"><input id="pw-showbox" type="checkbox"> Show</label>' +
-        '<div class="pw-row"><button type="submit" class="btn">OK</button><button type="button" class="btn" id="pw-cancel">Cancel</button></div></form>';
-      document.body.append(d);
-      const form = d.querySelector('form'), input = d.querySelector('#pw-input');
-      const focusables = () => [...d.querySelectorAll('input, button')];
+        '<div class="pw-row"><button type="submit" class="btn">OK</button><button type="button" class="btn" id="pw-cancel">Cancel</button></div>');
+      const input = d.querySelector('#pw-input');
       const close = v => { d.remove(); done(v); };
-      form.onsubmit = e => { e.preventDefault(); close(input.value.trim()); };
+      d.querySelector('form').onsubmit = e => { e.preventDefault(); close(input.value.trim()); };
       d.querySelector('#pw-cancel').onclick = () => close('');
       d.querySelector('#pw-showbox').onchange = e => { input.type = e.target.checked ? 'text' : 'password'; };
-      d.addEventListener('keydown', e => {      // TV remotes send arrows: move between the controls
-        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && !(e.target.tagName === 'BUTTON' && (e.key === 'ArrowLeft' || e.key === 'ArrowRight'))) return;
-        const f = focusables(), i = f.indexOf(document.activeElement);
-        const n = (e.key === 'ArrowDown' || e.key === 'ArrowRight') ? i + 1 : i - 1;
-        if (n >= 0 && n < f.length) { e.preventDefault(); f[n].focus(); }
-      });
-      setTimeout(() => input.focus(), 50);
     });
+  }
+
+  // The nick, asked before playing when it is none, the switch's fallback 'Player' or the RacerNNNN this page once
+  // gave every newcomer, and again when the switch refused it (held by another player online, any case:
+  // web/lan-worker/src/switch.js nick-taken). Only the page's name: the game's saves are its own profiles, named in
+  // the game, so a new nick leaves them alone.
+  const nickDefault = n => !n || /^player$/i.test(n) || /^racer\d{4}$/i.test(n);
+  let nickTaken = '', nickBox = null;   // the last nick the switch refused (lower case); the open dialog
+  function askNick(why = '') {
+    if (nickBox) { nickBox.querySelector('#nick-msg').textContent = why; return; }
+    const d = nickBox = modal('nick-modal', '<h2 id="nick-modal-title">Choose your nick</h2>' +
+      '<p class="hint">What other players see. Every player online has a different one.</p>' +
+      '<input id="nick-input" class="field" type="text" maxlength="15" autocomplete="nickname" enterkeyhint="done" aria-label="Your nick" aria-describedby="nick-msg">' +
+      '<p id="nick-msg" class="bad-text" role="alert"></p>' +
+      '<div class="pw-row"><button type="submit" class="btn">OK</button></div>');
+    const input = d.querySelector('#nick-input'), msg = d.querySelector('#nick-msg'), cur = $('name').value.trim();
+    input.value = nickDefault(cur) ? '' : cur;
+    msg.textContent = why;
+    d.querySelector('form').onsubmit = e => {
+      e.preventDefault();
+      const v = input.value.trim(), k = v.toLowerCase();
+      // the players list (pushed by the switch) for a quick answer; the switch decides
+      const held = (lan?.players?.list || []).some(p => String(p.name).toLowerCase() === k) && k !== cur.toLowerCase();
+      if (nickDefault(v)) msg.textContent = 'Pick a nick of your own (not Player or RacerNNNN).';
+      else if (k === nickTaken || held) msg.textContent = 'Nick already in use: pick another.';
+      else {
+        d.remove(); nickBox = null; nickTaken = '';
+        $('name').value = v; store.set('name', v);
+        clearTimeout(renameT); lan?.rename(v);
+        if (playing) $('canvas').focus();
+      }
+    };
   }
 
   // --- a deploy's config.json (see the top of this file); none: everything from this page's server
@@ -1249,6 +1287,8 @@
   }
   async function play() {
     if (playing || $('play').disabled) return;
+    const nick = $('name').value.trim();
+    if (nickDefault(nick) || nick.toLowerCase() === nickTaken) { askNick(nickTaken && nick.toLowerCase() === nickTaken ? 'Nick already in use: pick another.' : ''); return; }
     const g = currentGame(), d = currentDisc(), app = APPS[g];
     playing = true;
     const env = buildEnv(d);
@@ -1339,11 +1379,9 @@
   $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
   $('skipintro').onchange = () => { setSetting('MC3_SKIP_MOVIES', $('skipintro').checked ? 'hard' : ''); renderSettings(); };
   if ('MC3_NETPLAY' in settings) setSetting('MC3_NETPLAY', '');   // the System Link On/Off choice is gone: online is always on
-  // A nick from the first visit on, so nobody plays as an empty name
-  if (!store.get('name', '')) store.set('name', 'Racer' + String(Math.floor(1000 + Math.random() * 9000)));
-  $('name').value = store.get('name', '');
+  $('name').value = store.get('name', '');   // none or a default one: askNick before playing
   let renameT = 0;   // a rename is a hello the switch sends on to everyone: once typing pauses
-  $('name').oninput = () => { const v = $('name').value.trim(); store.set('name', v); clearTimeout(renameT); renameT = setTimeout(() => lan?.rename(v), 400); };
+  $('name').oninput = () => { const v = $('name').value.trim(); store.set('name', v); nickTaken = ''; clearTimeout(renameT); renameT = setTimeout(() => lan?.rename(v), 400); };
   // System Link: the link to the server's switch (web/lan.js) is always up, from here into the game
   let lan = null;
   function lanShow(l) {
@@ -1393,7 +1431,10 @@
       btn.onclick = () => raceJoin(r);
       li.append(info, btn); ul.append(li);
     }
-    if (l.error !== shownErr) { shownErr = l.error; if (l.error && l.error.op !== 'signal') raceMsg(RACE_ERR[l.error.code] || 'Refused: ' + l.error.code, true); }
+    if (l.error !== shownErr) {
+      shownErr = l.error;
+      if (l.error?.op === 'hello') { nickTaken = $('name').value.trim().toLowerCase(); askNick('Nick already in use: pick another.'); }
+      else if (l.error && l.error.op !== 'signal') raceMsg(RACE_ERR[l.error.code] || 'Refused: ' + l.error.code, true); }
     if (l.left !== shownLeft) { shownLeft = l.left; if (l.left?.why === 'closed') raceMsg('The host left: the race is closed.', true); }
     if (pendingRace && l.roomsSeen) {   // ?race=<id>: the invite link
       const r = l.rooms.find(x => x.id === pendingRace);
@@ -1657,7 +1698,7 @@
   addEventListener('error', e => out('[page] ' + e.message));
   initTabs();
   preview();
-  loadConfig().then(() => { lanUp(); showOnline(); return Promise.all([findDiscs(), findBuilds()]); }).then(pickInit);
+  loadConfig().then(() => { lanUp(); showOnline(); if (nickDefault($('name').value.trim())) askNick(); return Promise.all([findDiscs(), findBuilds()]); }).then(pickInit);
 })();
 </script>
 </body>
