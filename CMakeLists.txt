@@ -246,12 +246,19 @@ if(EMSCRIPTEN)
         # screen, 2026-11-09). Views are Emscripten's check-and-refresh.
         -sWASMFS -sINITIAL_MEMORY=256MB -sALLOW_MEMORY_GROWTH=1 -sMAXIMUM_MEMORY=2GB
         -Wno-pthreads-mem-growth
+        # A malloc the memory cannot hold stops the game (abort: the page's 'Out of memory' box) instead of
+        # returning NULL: wasm address 0 is guest RAM, so a NULL host struct read garbage silently (a TV at its
+        # 256 MB wall jumped to 0x94, 2026-11-09). web/pre.js logs the refused growth first.
+        -sABORTING_MALLOC=1
         # pre.js hands its Memory over as Module.wasmMemory: the default list + it.
         "-sINCOMING_MODULE_JS_API=[ENVIRONMENT,arguments,canvas,dynamicLibraries,elementPointerLock,instantiateWasm,locateFile,monitorRunDependencies,noExitRuntime,noInitialRun,onAbort,onExit,onRuntimeInitialized,postRun,preInit,preRun,print,printErr,setStatus,statusMessage,stderr,stdin,stdout,thisProgram,wasm,websocket,wasmMemory]"
         # Workers made before main: 40 (desktop), or the page's Module.mc3Pool
         # (low-memory profile). Beyond the pool a thread gets a worker made on
         # demand by the page thread, which never blocks (PROXY_TO_PTHREAD).
-        -sSTACK_SIZE=8MB -sDEFAULT_PTHREAD_STACK_SIZE=4MB "-sPTHREAD_POOL_SIZE=Module.mc3Pool||40"
+        # STACK_SIZE is paid twice (the page thread's, and main's under PROXY_TO_PTHREAD, crt1_proxy_main.c).
+        # 2 MB: lifted code keeps its locals in wasm locals; 980 of 23,979 functions use the stack at all, the
+        # largest frame 9.6 KB (2026-11-09). Was 8 MB.
+        -sSTACK_SIZE=2MB -sDEFAULT_PTHREAD_STACK_SIZE=4MB "-sPTHREAD_POOL_SIZE=Module.mc3Pool||40"
         # Guest RAM's first 64 MB at wasm address 0 (platform/wasm_memory.c):
         # Emscripten's data, stacks and heap above it.
         -sGLOBAL_BASE=67108864   # 0x04000000

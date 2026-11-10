@@ -627,10 +627,12 @@
       if (env.MC3_MOVIE_HD === undefined) env.MC3_MOVIE_HD = '0';
     }
     if (low) {   // TVs and small devices (lowMem): lighter on memory, 1x (above), unless the player picked otherwise
-      // GL record queue 16 MB (48), thread stacks 1 MB (4): ~110 MB less, for a 32-bit TV browser's ~350 MB
+      // A 32-bit TV browser gives 256 MB and never grows it (2026-11-09): GL record queue 4 MB (48), GL ring copies
+      // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory)
       const d = { RECOMP_RAM_MB: '64', MC3_ROAM_CARS: '7', MC3_DISC_MEM_MB: '16', MC3_PREFETCH: '0',
         RECOMP_GL_ANISO: '4', RECOMP_GL_SHARPEN: '0', RECOMP_GL_FXAA: '0', MC3_MOVIE_HD: '0',
-        RECOMP_GL_QUEUE_MB: '16', MC3_THREAD_STACK_KB: '1024' };
+        RECOMP_GL_QUEUE_MB: '4', RECOMP_GL_RING_MB: '4', RECOMP_GL_MAX_PROG: '256', RECOMP_GL_VPOOL: '8',
+        MC3_THREAD_STACK_KB: '1024' };
       for (const k in d) if (env[k] === undefined) env[k] = d[k];
     }
     for (const k of Object.keys(env)) if (k.startsWith('MC3_TOUCH') && k !== 'MC3_TOUCH_TRACE') delete env[k];   // the page's own (web/touch.js)
@@ -753,12 +755,33 @@
   async function moduleBlob(app) {
     const r = await fetch(moduleFile(app + '.js'), { credentials: 'include' });
     if (!r.ok) throw new Error('HTTP ' + r.status);
-    Module.instantiateWasm = (imports, done) => {
-      WebAssembly.instantiateStreaming(fetch(moduleFile(app + '.wasm'), { credentials: 'include' }), imports)
-        .then(res => done(res.instance, res.module), e => runStatus(`Cannot load ${app}.wasm: ${e.message || e}`, true));
+    const text = await r.text();
+    out(`[WEB] module: ${app}.js fetched (${text.length >> 10} KB)`);
+    return URL.createObjectURL(new Blob([text], { type: 'text/javascript' }));
+  }
+  // The .wasm, step by step into the log (2026-11-09: Firefox on a 32-bit TV got its memory and then the log
+  // ended: nothing said whether the fetch, the compile, the instance or the pool workers died). Any failure stops
+  // the start with the 'could not start' box.
+  function moduleWasm(app) {
+    const t0 = performance.now(), ms = () => Math.round(performance.now() - t0) + ' ms';
+    const fail = (step, e) => { const m = `${step} ${app}.wasm failed: ${e?.message || e}`; out('[WEB] module: ' + m); failShow('The game could not start', m); };
+    return (imports, done) => {
+      out(`[WEB] module: fetching ${app}.wasm`);
+      fetch(moduleFile(app + '.wasm'), { credentials: 'include' }).then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        out(`[WEB] module: ${app}.wasm answered (${(r.headers.get('content-length') >> 20) || '?'} MB), compiling (${ms()})`);
+        // streaming needs the server's application/wasm (the deploy and mc3-server send it); else whole, as Emscripten
+        return /application\/wasm/.test(r.headers.get('content-type') || '') ? WebAssembly.compileStreaming(r)
+          : r.arrayBuffer().then(b => WebAssembly.compile(b));
+      }).then(mod => {
+        out(`[WEB] module: compiled (${ms()}), instantiating`);
+        return WebAssembly.instantiate(mod, imports).then(inst => {
+          out(`[WEB] module: instantiated (${ms()})`);
+          done(inst, mod);
+        }, e => fail('instantiating', e));
+      }, e => fail('fetching/compiling', e)).catch(e => fail('starting', e));
       return {};
     };
-    return URL.createObjectURL(new Blob([await r.text()], { type: 'text/javascript' }));
   }
   // WebGPU pipeline seed: a list of the pipelines the owner met, shipped beside the module as <app>-pipes-seed.bin,
   // copied to OPFS cache/wgpu-pipes-seed.bin before the game starts; the game merges it into this browser's own
@@ -1136,7 +1159,7 @@
     // an iPhone under memory pressure (2026-11-09: closing the other apps let the game run). Before 'Out of memory':
     // its text matches that too. Our own '[WEB] opfs: ...' lines name it without being fatal.
     [/worker sent an error!.*UnknownError/, 'Low on memory', 'The device is low on memory: close other apps and reload.'],
-    [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
+    [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory on this device', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
   ];
   function out(text) {
     logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
@@ -1151,7 +1174,9 @@
   function failShow(title, why) {
     if (failBox) return;
     runStatus(title + ': ' + why, true);
-    const m = failBox = document.createElement('div'), h = document.createElement('b'), p = document.createElement('p'), pre = document.createElement('pre');
+    const m = failBox = document.createElement('div');
+    out('[WEB] failure: ' + title + ': ' + why);   // into the log (and the uploaded copy); failBox set: no loop
+    const h = document.createElement('b'), p = document.createElement('p'), pre = document.createElement('pre');
     m.setAttribute('role', 'alert');
     h.textContent = title;
     p.textContent = why + ' Click to close; Log and Save log have the whole log.';
@@ -1268,11 +1293,14 @@
       setStatus: s => s && runStatus(s),
       onRuntimeInitialized: () => (booted = true, window.applyPad?.(), runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.`)),
       onAbort: what => { runStatus('Stopped: ' + what, true); showLog(true); failShow('The game stopped', what); },
+      instantiateWasm: moduleWasm(app),
+      // start-up steps the runtime still waits for (the wasm, the pool workers' loading, the disc): '0' = main runs
+      monitorRunDependencies: n => out(`[WEB] module: ${n} start-up step(s) left`),
     };
     // Low-memory profile: a fixed wasm memory, 1 GB or the largest down to 320 MB the browser gives (web/pre.js;
-    // else 2 GB up front, smaller only if refused), and 24 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; ~20 threads
-    // run at once, more get a worker on demand).
-    if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 24; out('[WEB] low-memory profile (TV, phone, tablet or small device; MC3_LOWMEM=0 turns it off)'); }
+    // else 2 GB up front, smaller only if refused), and 12 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; more
+    // get a worker on demand from the page thread, which never blocks; each worker is a JS heap of its own, 2026-11-09 Firefox on a TV).
+    if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 12; out('[WEB] low-memory profile (TV, phone, tablet or small device; MC3_LOWMEM=0 turns it off)'); }
     // No picture 90 s after Play: say so with the log's last lines (a TV has no console to look at).
     setTimeout(() => { if (!(window.Module?.mc3Frames?.() > 0)) failShow('No picture after 90 s', 'the game has not drawn a frame yet'); }, 90000);
     // the game's disc reads take the cache choice from OPFS (web/disc_cache.js use()): written before it starts
@@ -1281,7 +1309,8 @@
       const s = document.createElement('script');
       try { s.src = cfg?.moduleUrl ? await moduleBlob(app) : app + '.js'; }
       catch (e) { runStatus(`Cannot load ${app}.js from ${cfg.moduleUrl}: ${e.message || e}`, true); return; }
-      s.onerror = () => runStatus(`Cannot load ${app}.js (build it: make web GAME=${g}).`, true);
+      s.onerror = () => { out(`[WEB] module: ${app}.js did not load`); failShow('The game could not start', `Cannot load ${app}.js (build it: make web GAME=${g}).`); };
+      s.onload = () => out(`[WEB] module: ${app}.js running`);
       document.body.append(s);
     };
     if (typeof MC3DiscCache == 'object') MC3DiscCache.setForce(buildEnv(d).MC3_DISC_CACHE).catch(e => console.warn('[WEB] disc cache choice not kept:', e)).then(start);

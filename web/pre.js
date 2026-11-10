@@ -43,8 +43,43 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
       log('[WEB] memory: ' + tries[i][0] + ' MB to start, ' + tries[i][1] + ' MB at most refused: ' + (e && e.message || e));
     }
   }
-  throw new Error('This TV/browser cannot give the game enough memory (needs about 450 MB; refused: ' + refused.join('; ')
+  throw new Error('This TV/browser cannot give the game enough memory (needs about 256 MB; refused: ' + refused.join('; ')
     + '). Close other tabs and apps, or restart the browser.');
+})();
+
+// The pool workers (made when this script runs, before the .wasm): how many, and each one's loading or error, into
+// the log. A worker that never loads holds the start forever ('1 start-up step(s) left', web/index.html), silently
+// before (Firefox on a TV, 2026-11-09).
+if (!ENVIRONMENT_IS_PTHREAD) Module['preRun'] = [].concat(Module['preRun'] || [], function () {
+  if (typeof PThread != 'object') return;
+  var all = PThread.unusedWorkers.slice(), n = 0, log = Module['print'] || console.log;
+  log('[WEB] module: ' + all.length + ' pool workers made, loading the module into them');
+  all.forEach(function (w, i) {
+    w.addEventListener('message', function (e) {
+      // CMD_LOADED: 3 in Emscripten 6 (src/runtime_pthread.js), the string 'loaded' in older ones
+      if (e.data && (e.data.cmd === 3 || e.data.cmd === 'loaded') && (++n == 1 || n == all.length || n % 8 == 0))
+        log('[WEB] module: pool worker ' + n + ' of ' + all.length + ' loaded');
+    });
+    w.addEventListener('error', function (e) { log('[WEB] module: pool worker ' + (i + 1) + ' error: ' + (e.message || e.type)); });
+  });
+});
+
+// A refused growth (sbrk past what the browser set aside; a 32-bit TV's maximum is often only its initial size):
+// logged as '[WEB] out of memory: ...' (the page's 'Out of memory' box) before the runtime aborts the game
+// (-sABORTING_MALLOC, CMakeLists.txt). Every thread: whichever one mallocs grows the memory.
+if (typeof WebAssembly == 'object' && !WebAssembly.Memory.prototype.mc3Grow) (function () {
+  var grow = WebAssembly.Memory.prototype.grow, shown = 0;
+  WebAssembly.Memory.prototype.mc3Grow = grow;
+  WebAssembly.Memory.prototype.grow = function (pages) {
+    try { return grow.call(this, pages); } catch (e) {
+      if (shown++ < 3) {
+        var mb = this.buffer.byteLength / 1048576, msg = '[WEB] out of memory: growing the wasm memory from ' + mb
+          + ' MB to ' + (mb + pages / 16) + ' MB refused (' + (e && e.message || e) + ')';
+        (typeof err == 'function' ? err : console.error)(msg);
+      }
+      throw e;
+    }
+  };
 })();
 
 // No WebGL 2 in workers (web/index.html's probe sets RECOMP_GL_PROXY=1; a TCL Google TV, 2026-11-09): the canvas

@@ -70,14 +70,16 @@
   .tc-knob { width: 56px; height: 56px; background: rgba(255, 255, 255, .8); }
   `;
 
-  /** a phone: the browser says it is a mobile one, or a touch screen with a phone's short side (nfsu2-web device.ts) */
+  /** a phone: the browser says it is a mobile one, or a touch screen with a phone's short side (nfsu2-web device.ts).
+   * Never without a touch screen: Firefox on a TCL Google TV says 'Android 11; Mobile' (2026-11-09). */
   function isPhone() {
     const uad = navigator.userAgentData;
-    return uad?.mobile === true || /Android.+Mobile|iPhone|iPod/.test(navigator.userAgent)
-      || (navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) < 600);
+    return navigator.maxTouchPoints > 0 && (uad?.mobile === true || /Android.+Mobile|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) < 600));
   }
-  /** the primary pointer is a finger (phones, tablets), not a laptop whose screen also takes touch */
-  const touchFirst = () => matchMedia('(pointer: coarse)').matches;
+  /** the primary pointer is a finger (phones, tablets), not a laptop whose screen also takes touch; a TV's remote
+   * can report a coarse pointer, so a touch screen too (maxTouchPoints) */
+  const touchFirst = () => navigator.maxTouchPoints > 0 && matchMedia('(pointer: coarse)').matches;
   const hasTouch = () => navigator.maxTouchPoints > 0;
 
   /** The on-screen controller over the game in `stage` (before `before`). mode: 'auto' (on a touch-first device,

@@ -247,9 +247,27 @@ generated files when the lift inputs did not change.
   emscripten_webgl_commit_frame runs at each flip. Slower; =0 forces the
   worker. A refused context logs '[GL] try N refused: <browser's
   reason>; attributes ...; this worker: webgl2 ..., webgl ...; UA', then
-  one retry with plainer attributes. The low profile also sets
-  RECOMP_GL_QUEUE_MB=16 (the GL record ring, 48 by default) and
-  MC3_THREAD_STACK_KB=1024 (default pthread stack, 4 MB; src/main.c).
+  one retry with plainer attributes.
+  Fit in 256 MB (2026-11-09, untested on the TV): the TV gave 256 MB
+  and never grew; at 252 MB a malloc returned NULL, and since wasm
+  address 0 is guest RAM a NULL host struct reads guest bytes silently
+  (ICALL to 0x94 / 0x00700094, then a guest-lock hang). Now
+  -sABORTING_MALLOC=1 (a failed malloc aborts: 'Out of memory on this
+  device' box) and pre.js logs '[WEB] out of memory: growing the wasm
+  memory from N MB to M MB refused'; failShow writes '[WEB] failure:
+  <title>: <why>' into the log. Budget (MB, early boot, before -> after):
+  guest RAM 64 -> 64; static data 28 -> 16 (pb_exec software-vertex
+  caches on the heap at first use, the GL/WebGPU paths never get there);
+  STACK_SIZE 8, paid twice (page thread + main under PROXY_TO_PTHREAD)
+  16 -> 4 (lifted code uses no shadow stack: 980 of 23,979 functions have
+  a frame, max 9.6 KB); contiguous window 64 -> 64; NV2A 16 -> 9 and MCPX
+  8 -> 4 (only the register megabytes backed, xbox_memory_layout.c
+  MCPX_AT); GL queue 16 -> 4 (RECOMP_GL_QUEUE_MB, web floor 4; a draw
+  over a quarter is dropped and logged); GL ring copies 20 -> 5
+  (RECOMP_GL_RING_MB=4, they grow on demand); GL program table 4 -> 1
+  (RECOMP_GL_MAX_PROG=256). The vertex pool (RECOMP_GL_VPOOL, 8 in the
+  low profile) and the disc LRU are GPU / JS memory, not wasm.
+  MC3_THREAD_STACK_KB=1024 stays (ample by the frame sizes above).
   '[WEB] memory in use: N MB of M MB' logs each 16 MB of sbrk (GL
   path), to learn the real peak.
 - **Online (System Link):** the XNet API thunks (21 Remix overrides, MC3_NETPLAY=1)
