@@ -105,33 +105,6 @@
     };
   }
 
-  // Free roam's players per city for the game's setup screen (src/games/remix/recomp_manual.c, roam_room_box):
-  // the switch's GET <lan url>/stats (counts only) from the link's players push when there is one (no request), else every 20 s while the tab is visible; [0] = updates, [1 + room] = players.
-  function roomsToBox(rooms) {
-    var h = new Int32Array(HEAPU8.buffer, _roam_room_box() >>> 0, 17);
-    for (var i = 0; i < 16; i++) Atomics.store(h, 1 + i, rooms[i] | 0);
-    Atomics.add(h, 0, 1);
-  }
-  var lastFetch = 0;
-  setInterval(function () {
-    var l = Module['mc3Lan'], u, p;
-    if (!l || !l.url || l.state != 'online' || typeof _roam_room_box != 'function' || typeof HEAPU8 == 'undefined' || !HEAPU8) return;
-    p = l.players;
-    if (p && p.freeRoam && p.freeRoam.rooms) { roomsToBox(p.freeRoam.rooms); return; }   // pushed by the switch: no request
-    if ((typeof document != 'undefined' && document.hidden) || Date.now() - lastFetch < 20000) return;
-    lastFetch = Date.now();
-    try {
-      u = new URL(l.url, location.href);
-      u.protocol = u.protocol == 'wss:' ? 'https:' : 'http:';
-      u.pathname = u.pathname.replace(/\/$/, '') + '/stats';
-      u.search = '';
-    } catch (e) { return; }
-    fetch(u.href, { cache: 'no-store' }).then(function (r) { return r.ok ? r.json() : null; }).then(function (s) {
-      var rooms = s && s.freeRoam && s.freeRoam.rooms;
-      if (rooms) roomsToBox(rooms);
-    }).catch(function () {});
-  }, 2000);
-
   attach('System Link', function () { return typeof _xnet_web_mailbox == 'function' ? _xnet_web_mailbox : null; }, 0x42574E58, false, 'mc3Net');
   attach('free roam', function () { return typeof _roam_web_mailbox == 'function' ? _roam_web_mailbox : null; }, 0x52574D52, true, 'mc3RoamNet');
 })();

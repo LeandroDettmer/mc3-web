@@ -2565,7 +2565,6 @@ static void traffic_lod_step(void)
 }
 
 static void online_strings(void);               /* Online (O1), at the end of this file */
-static void fr_setup_frame(void);               /* Free Roam's setup screen, at the end of this file */
 extern void sub_0020B6F0_gen(void);
 void sub_0020B6F0(void)
 {
@@ -2591,7 +2590,6 @@ void sub_0020B6F0(void)
     traffic_lod_step();
     online_strings();
     roam_room();
-    fr_setup_frame();
     sub_0020B6F0_gen();
     realtime_step(real);
     if (s_state_obj) {                          /* states 2 and 3: a race or cruise (sub_0001EDB0) */
@@ -3857,22 +3855,9 @@ void sub_00289CE0(void)
  * [[[0x50F148]+0xC]+0xC] +0x60 (0x78 bytes), then Flash variable "title"
  * (sub_001395E0 on [[0x50F15C]+0xFAC], else on [manager+0x1E8] with
  * 0x45772C). The manager's +0xE0 is the screen asked for last (Go,
- * sub_00163830). Counts: the page polls the server's GET /lan/stats
- * (web/net.js) into roam_room_box; the row is set again on every rebuild
- * (a city change rebuilds) and when its count changes (looked at each 2 s). */
+ * sub_00163830). The players row keeps the game's own label: the online
+ * count per city it once showed cost a server poll every 20 s. */
 #define FR_SETTINGS_VA 0x0053F2E8u
-#define FR_ROOMS       16
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-static int32_t s_fr_rooms[1 + FR_ROOMS];        /* [0] the page's updates (0: none yet), [1 + room] players */
-EMSCRIPTEN_KEEPALIVE uintptr_t roam_room_box(void) { return (uintptr_t)s_fr_rooms; }
-#else
-static int32_t s_fr_rooms[1 + FR_ROOMS];        /* native: no page, the count reads "-" */
-#endif
-static int s_fr_build;                          /* inside the builder: its players label is ours */
-static uint32_t s_fr_list, s_fr_item;           /* the players row while screen 0x19 shows */
-static int s_fr_shown;                          /* the count on it, -1 unknown */
-
 static int fr_setup(void)
 {
     static int off = -1;                         /* MC3_FR_SETUP=0: Arcade's own screen, untouched */
@@ -3926,67 +3911,25 @@ static uint32_t fr_screens(void)                /* the FE's screen manager, 0 no
     return a;
 }
 
-static int fr_count(void)                       /* players in the city row's room, -1 unknown */
-{
-    uint32_t s = fr_settings(), city;
-    if (!s || !__atomic_load_n(&s_fr_rooms[0], __ATOMIC_ACQUIRE))
-        return -1;
-    city = MEM32(s);
-    return city < FR_ROOMS ? __atomic_load_n(&s_fr_rooms[1 + city], __ATOMIC_RELAXED) : 0;
-}
-
-static void fr_text(uint32_t va, int n)         /* "Online: N" in UTF-16 at va */
-{
-    char t[24];
-    int i;
-    if (n < 0)
-        snprintf(t, sizeof t, "Online: -");
-    else
-        snprintf(t, sizeof t, "Online: %d", n);
-    for (i = 0; t[i]; i++)
-        MEM16(va + 2u * (uint32_t)i) = (uint8_t)t[i];
-    MEM16(va + 2u * (uint32_t)i) = 0;
-}
-
-/* The builder, thiscall (): Cruise, one local player; its players label is
- * replaced (sub_00348D70 below). */
+/* The builder, thiscall (): Cruise, one local player. */
 extern void sub_0013BA60_gen(void);
 void sub_0013BA60(void)
 {
     uint32_t s = fr_settings();
-    s_fr_item = 0;
     if (!fr_setup() || !s) {
         sub_0013BA60_gen();
         return;
     }
     fr_cruise(s);                                /* every settings handler ends here (+0xDC): last word before Go */
     MEM32(s + 0x4Cu) = 1;
-    s_fr_build = 1;
     sub_0013BA60_gen();
-    s_fr_build = 0;
     MEM32(s + 0x4Cu) = 1;                        /* it takes [0x53F2E4]'s count in a network session */
 }
 
-/* SetLabel, thiscall (item, column, text), ret 12. In the Free Roam
- * builder: the players row's text (the string table's "CM_<n>_Players")
- * becomes "Online: N", and the row is kept for fr_setup_frame. */
+/* SetLabel, thiscall (item, column, text), ret 12. */
 extern void sub_00348D70_gen(void);
 void sub_00348D70(void)
 {
-    if (s_fr_build) {
-        uint32_t s = fr_settings(), n, b, t;
-        char key[24];
-        snprintf(key, sizeof key, "CM_%u_Players", s ? MEM32(s + 0x4Cu) : 1u);
-        if (str_table(&n, &b) && (t = str_text(n, b, key)) && MEM32(g_esp + 0xCu) == t) {
-            uint32_t txt = (g_esp - 0x400u) & ~0xFu; /* below the call's own frame */
-            s_fr_list = g_ecx;
-            s_fr_item = MEM32(g_esp + 4u);
-            s_fr_shown = fr_count();
-            fr_text(txt, s_fr_shown);
-            MEM32(g_esp + 0xCu) = txt;
-            s_fr_build = 0;
-        }
-    }
     rra_label(g_esp);                            /* AI race: "Go to Menus" reads "Back to Free Roam" (roam_race_ai.c) */
     sub_00348D70_gen();
 }
@@ -4051,55 +3994,4 @@ void sub_00154E40(void)
         g_esp = r[4]; g_ebp = r[5]; g_esi = r[6]; g_edi = r[7];
     }
     fprintf(stderr, "[ONLINE] setup screen: FREE ROAM, Cruise, players row = online in the city\n");
-}
-
-/* Per frame (sub_0020B6F0): while screen 0x19 shows in Free Roam, the
- * players row follows its city's count (looked at each 2 s). */
-static void fr_setup_frame(void)
-{
-    static uint32_t last_ms;
-    struct timespec ts;
-    uint32_t scr, ms;
-    int n;
-    if (!s_fr_item)
-        return;
-    if (!fr_setup() || !(scr = fr_screens()) || MEM32(scr + 0xE0u) != 0x19u) {
-        s_fr_item = 0;                           /* the list is the FE's, another screen's now */
-        return;
-    }
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    ms = (uint32_t)(ts.tv_sec * 1000u + ts.tv_nsec / 1000000u);
-    if (ms - last_ms < 2000u)
-        return;
-    last_ms = ms;
-    if ((n = fr_count()) == s_fr_shown)
-        return;
-    s_fr_shown = n;
-    {   /* Still our row? SetLabel copies into [[item+8]+2*8] (column 2); a list rebuilt
-         * by another screen (Back to the menus) leaves s_fr_item freed, and the copy then
-         * writes "Online: N" over whatever owns that memory now. */
-        uint32_t lab = online_ram(s_fr_item) ? MEM32(s_fr_item + 8u) : 0, dst = online_ram(lab) ? MEM32(lab + 16u) : 0;
-        static const char want[] = "Online:";
-        int i;
-        for (i = 0; online_ram(dst) && i < 7 && MEM16(dst + 2u * (uint32_t)i) == (uint8_t)want[i]; i++)
-            ;
-        if (i < 7) {
-            s_fr_item = 0;
-            return;
-        }
-    }
-    {
-        uint32_t r[8] = { g_eax, g_ecx, g_edx, g_ebx, g_esp, g_ebp, g_esi, g_edi }, txt;
-        txt = (r[4] - 0x400u) & ~0xFu;
-        fr_text(txt, n);
-        g_esp = txt - 0x40u;
-        g_esp -= 4; MEM32(g_esp) = txt;          /* thiscall (item, 2, text), ret 12 */
-        g_esp -= 4; MEM32(g_esp) = 2;
-        g_esp -= 4; MEM32(g_esp) = s_fr_item;
-        g_esp -= 4; MEM32(g_esp) = 0;            /* return address */
-        g_ecx = s_fr_list;
-        sub_00348D70_gen();
-        g_eax = r[0]; g_ecx = r[1]; g_edx = r[2]; g_ebx = r[3];
-        g_esp = r[4]; g_ebp = r[5]; g_esi = r[6]; g_edi = r[7];
-    }
 }
