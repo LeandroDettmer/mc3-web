@@ -930,10 +930,14 @@ static int roam_hist_at(double t, float m[12], float vel[3], uint8_t ctl[ROAM_CT
 
 /* A peer's interpolated pose and newest inputs into slot k; in its garage
  * (RC_ST_SHOP) the slot stays its own but the car is parked and hidden. */
+static uint8_t roam_away(uint8_t st)            /* a peer whose car is parked and hidden */
+{
+    return st == RC_ST_SHOP || st == RC_ST_LOADING || st == RC_ST_MENUS || st == RC_ST_EVENT;
+}
+
 static void roam_peer_take(int k, const roam_peer *pp)
 {
-    uint8_t away = pp->status == RC_ST_SHOP || pp->status == RC_ST_LOADING || pp->status == RC_ST_MENUS ||
-                   pp->status == RC_ST_EVENT;
+    uint8_t away = roam_away(pp->status);
     if (away != s_roam_peer[k].away) {
         s_roam_peer[k].away = away;
         s_roam_peer[k].live = 0;                /* snapped onto its pose when it comes back */
@@ -983,13 +987,9 @@ static void roam_ctl_pack(uint32_t c, uint8_t out[ROAM_CTL])
 static int roam_cars_owns(uint32_t id);          /* roam_cars.c: a standalone car is this peer's */
 static void roam_cars_net(const roam_peer *peers, int n, const uint8_t *used, double now);
 
-static void roam_net(const roam_pose *me)
+static void roam_send_local(const roam_pose *me)
 {
-    static roam_peer peers[ROAM_K_MAX];         /* all the hub links us with: slots first, the rest standalone */
-    uint8_t used[ROAM_K_MAX] = { 0 };
     rc_state st;
-    int n, i, k;
-    double now = me->t;
     memset(&st, 0, sizeof st);
     memcpy(st.p, me->m + 9, sizeof st.p);
     memcpy(st.v, me->vel, sizeof st.v);
@@ -1000,6 +1000,15 @@ static void roam_net(const roam_pose *me)
     st.ext_len = ROAM_CTL;                      /* the receiver applies these through the game */
     memcpy(st.ext, me->ctl, ROAM_CTL);
     roam_set_local(&st);
+}
+
+static void roam_net(const roam_pose *me)
+{
+    static roam_peer peers[ROAM_K_MAX];         /* all the hub links us with: slots first, the rest standalone */
+    uint8_t used[ROAM_K_MAX] = { 0 };
+    int n, i, k;
+    double now = me->t;
+    roam_send_local(me);
     n = roam_peers(peers, ROAM_K_MAX);
     s_roam_seen = peers;                        /* a second roam_peers a frame would upset its blend clock */
     s_roam_nseen = n;
@@ -1197,6 +1206,51 @@ static void roam_show(uint32_t veh, int on)
         MEM8(o + 0x12Du) = (uint8_t)on;
 }
 
+/* Free Roam starts every player on the same spot: the city cruise's start
+ * (or the garage's door after a visit). A peer still there had our car
+ * built inside its own, collisions on both (2026-11-10). At our first
+ * cruise frame, once roam_net has the peers' poses, our car steps along its
+ * forward row (ahead, then behind, farther each try) to the first spot with
+ * no driving peer within ROAM_CLEAR m (else the emptiest); lifted a little
+ * for slopes. Not after an AI race: roam_race_ai.c puts the car back there.
+ * 1: moved (s updated). */
+#define ROAM_CLEAR 7.0f                         /* m, horizontal, centre to centre (a car is ~4.5 m) */
+static int s_rra_back;                          /* roam_race_ai.c */
+
+static int roam_spawn_clear(uint32_t veh, roam_pose *s)
+{
+    static const float step[] = { 0, 10, -10, 20, -20, 30, -30, 40, -40 };
+    float m[12], best_d = -1.0f;
+    int i, j, best = 0;
+    if (s_rra_back || !s_roam_seen)
+        return 0;
+    for (i = 0; i < (int)(sizeof step / sizeof step[0]); i++) {
+        float x = s->m[9] + s->m[6] * step[i], z = s->m[11] + s->m[8] * step[i], d = 1e9f;
+        for (j = 0; j < s_roam_nseen; j++)
+            if (!roam_away(s_roam_seen[j].status)) {
+                float dx = s_roam_seen[j].p[0] - x, dz = s_roam_seen[j].p[2] - z, dd = sqrtf(dx * dx + dz * dz);
+                d = dd < d ? dd : d;
+            }
+        if (d > best_d) {
+            best_d = d;
+            best = i;
+        }
+        if (d >= ROAM_CLEAR)
+            break;
+    }
+    if (!best)
+        return 0;
+    memcpy(m, s->m, sizeof m);
+    m[9] += m[6] * step[best];
+    m[10] += m[7] * step[best] + 0.5f + 0.1f * fabsf(step[best]);
+    m[11] += m[8] * step[best];
+    roam_set_pose(veh, m, s->vel);
+    fprintf(stderr, "[ROAM] spawn: a player within %.1f m of the start spot: moved %+.0f m along the road "
+            "(nearest player now %.1f m)\n", ROAM_CLEAR, step[best], best_d);
+    memcpy(s->m, m, sizeof m);
+    return 1;
+}
+
 /* Each player's update (sub_002C1520, thiscall), before the game's own:
  * slot 0 (ours, updated first) is recorded and sent, slots 1..n are driven
  * through the game's network-remote path (roam_remote); a slot without a
@@ -1238,15 +1292,20 @@ static void roam_player(uint32_t p)
             memset(s->ctl, 0, ROAM_CTL);
         s_roam_nhist++;
         if (!s_roam_fake) {
-            if (!s_roam_cfg_loaded) {           /* the cruise runs: our car (a garage buy included), shown again */
+            int first = !s_roam_cfg_loaded;
+            if (first) {                        /* the cruise runs: our car (a garage buy included), shown again */
                 uint32_t setup = MEM32(ROAM_SETUP_VA);
                 s_roam_cfg_loaded = 1;
                 if (online_ram(setup))
                     roam_send_cfg(MEM32(setup + ROAM_ENTRY + 0x0Cu));
+            }
+            roam_net(s);                        /* still RC_ST_LOADING on a first frame: peers keep our car hidden */
+            if (first) {
+                if (roam_spawn_clear(veh, s))   /* off a peer parked on the start spot */
+                    roam_send_local(s);
                 roam_teleport();                /* a new spot (the garage's door): peers snap, no blend */
                 roam_status(RC_ST_ROAM);
             }
-            roam_net(s);
         }
         return;
     }
