@@ -138,7 +138,7 @@ test('rate limit: normal burst passes, flood dropped, sustained flood closes 100
   for (let i = 0; i < 80; i++) await a.say({ t: 'ping', id: i }, t);   // a connect burst: subs + rtc.js signalling for 7 peers
   assert.equal(a.ws.texts().length, 80);
   for (let i = 0; i < 2 * CTL.burst; i++) await a.say({ t: 'ping', id: i }, t);   // JSON flood: the rest of the burst, then dropped
-  assert.equal(a.ws.texts().length, CTL.burst);
+  assert.equal(a.ws.texts().length, CTL.burst - 80);
   assert.equal(a.ws.closed, null);
   for (let s = 0; s < 12 && !a.ws.closed; s++) { t += 1000; for (let i = 0; i < 5 * CTL.perS; i++) await a.say({ t: 'ping', id: i }, t); }
   assert.deepEqual(a.ws.closed, [1008, 'rate limit']);
