@@ -325,8 +325,10 @@ generated files when the lift inputs did not change.
   car builder's controller step sub_002CB320 runs for remote slots as in a
   network race, else a pad -1 car has no controller [veh+4] and the inputs
   are dropped: wheels still, car dragged; MC3_ROAM_TRACE=1 per-slot line);
-  unused slots are parked 30 km off and 500 m below and hidden
-  ([[veh+0xC]+0x12D] = 0, the car's drawn flag: the minimap pins far blips
+  unused slots are parked 30 km off and 500 m below, hidden and out of
+  the physics level (2026-11-10: in it, the 2 spare slots were invisible
+  cars our car hit at the spawn; back in while a state request is queued,
+  for the game's delete; roam_slot_phys) ([[veh+0xC]+0x12D] = 0, the car's drawn flag: the minimap pins far blips
   to its rim, sub_000B95B0, and skips undrawn cars); minimap blips come
   free (sub_000BF850 walks the player manager, position [veh+0x1C]+0x34). Each slot's race-setup entry has its own CarCfg (O4, copied
   with operator= sub_00272010). Re-entering Free Roam resets the 1 + N

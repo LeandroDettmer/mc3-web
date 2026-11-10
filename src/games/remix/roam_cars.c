@@ -195,24 +195,58 @@ static int roam_car_inlevel(uint32_t veh)
     return online_ram(e + 8u) && MEM32(e + 8u) == phys;
 }
 
-/* Car c in (on 1) or out of the physics level, if we manage it. */
-static void roam_car_phys(roam_car *c, int on, uint32_t top)
+/* Car veh in (on 1) or out of the physics level, if we manage it (*st: 1 in,
+ * 0 out, -1 unknown). */
+static void roam_veh_phys(uint32_t veh, int32_t *st, int on, uint32_t top)
 {
     uint32_t lvl = MEM32(ROAM_PHYS_VA), vt, a[2];
-    if (c->phys < 0 || c->phys == on || !online_ram(lvl) || !online_ram(vt = MEM32(lvl)))
+    if (*st < 0 || *st == on || !online_ram(lvl) || !online_ram(vt = MEM32(lvl)))
         return;
     if (on) {
-        a[0] = MEM32(MEM32(c->veh + 8u) + 0x68u);
+        a[0] = MEM32(MEM32(veh + 8u) + 0x68u);
         a[1] = 0;
         roam_call(recomp_lookup(MEM32(vt + 0x70u)), lvl, top, 2, a);
     } else {
-        a[0] = MEM16(MEM32(c->veh + 0x1Cu) + 8u);
+        a[0] = MEM16(MEM32(veh + 0x1Cu) + 8u);
         roam_call(recomp_lookup(MEM32(vt + 0x14u)), lvl, top, 1, a);
     }
-    c->phys = roam_car_inlevel(c->veh);
-    if (c->phys != on && roam_cars_say(on ? CARS_SAY_POOL : CARS_SAY_PHYS))
+    *st = roam_car_inlevel(veh);
+    if (*st != on && roam_cars_say(on ? CARS_SAY_POOL : CARS_SAY_PHYS))
         fprintf(stderr, "[ROAM] cars: physics level %s refused (car left %s; logged once)\n",
                 on ? "add" : "remove", on ? "without collisions" : "in it");
+}
+
+static void roam_car_phys(roam_car *c, int on, uint32_t top)
+{
+    roam_veh_phys(c->veh, &c->phys, on, top);
+}
+
+/* Slot k's car in or out of the physics level (roam_game.c parks it out).
+ * Never out while a state request is queued: the cruise may end in that
+ * pass, and the game's player delete takes the car out of the level
+ * itself (sub_000FFB40). */
+static void roam_slot_phys(int k, uint32_t veh, int on)
+{
+    uint32_t sm = MEM32(0x00557ED0u);
+    if (k < 1 || k > ROAM_SLOTS || !online_ram(veh))
+        return;
+    if (veh != s_slot_veh[k]) {                 /* built or rebuilt: in the level as the game left it */
+        s_slot_veh[k] = veh;
+        s_slot_phys[k] = roam_car_inlevel(veh) ? 1 : -1;
+    }
+    if (!on && online_ram(sm) && MEM32(sm + 0x3Cu))
+        return;
+    roam_veh_phys(veh, &s_slot_phys[k], on, (g_esp - 0x400u) & ~0xFu);
+}
+
+/* Every slot's car back in the level (a state request: the game deletes them). */
+static void roam_slots_in(void)
+{
+    uint32_t pm = MEM32(ROAM_PM_VA), p;
+    int k;
+    for (k = 1; online_ram(pm) && k <= s_roam_slots; k++)
+        if (online_ram(p = MEM32(pm + 8u + 4u * (uint32_t)k)) && MEM32(p + 0x5Cu) == (uint32_t)k)
+            roam_slot_phys(k, MEM32(p + 0x14u), 1);
 }
 
 /* Car c out of the world (physics level, drawing, vehicle registry) and
@@ -697,6 +731,8 @@ static void roam_cars_frame(void)
 static void roam_cars_pass(uint32_t obj, int after)
 {
     static uint32_t state;
+    if (!after && online_ram(obj) && MEM32(obj + 0x3Cu))
+        roam_slots_in();                        /* parked slots: the game's delete expects them in the level */
     if (!s_cars_on || !online_ram(obj))
         return;
     if (!after) {

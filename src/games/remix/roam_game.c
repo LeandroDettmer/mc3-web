@@ -175,6 +175,11 @@ static struct {                                 /* by slot, id 0 = none */
     uint8_t away;                               /* 1: in its garage (RC_ST_SHOP): slot held, car parked, hidden */
     double lost;                                /* when it dropped out */
 } s_roam_peer[ROAM_SLOTS + 1];
+/* A parked slot's car out of the physics level (roam_slot_phys, roam_cars.c):
+ * the car it was checked for and 1 in, 0 out, -1 not found (left as built). */
+static uint32_t s_slot_veh[ROAM_SLOTS + 1];
+static int32_t s_slot_phys[ROAM_SLOTS + 1];
+static void roam_slot_phys(int k, uint32_t veh, int on);
 static struct {                                 /* the one swap in flight, slot 0 = none */
     int slot;
     int32_t car;                                /* its cache key */
@@ -635,6 +640,7 @@ static int roam_rebuild(uint32_t p, int k, const uint8_t blob[ROAM_CFG_SIZE])
     if (!online_ram(setup) || !online_ram(cfg) || MEM32(cfg) != ROAM_CFG_VT || cfg == MEM32(e0 + 0x0Cu) ||
         !online_ram(veh) || !roam_build_ctx(1))
         return 0;
+    roam_slot_phys(k, veh, 1);                  /* the game's removal below expects it in the level */
     roam_call(sub_000FFB40, veh, top, 0, NULL); /* physics level, drawing, vehicle registry */
     roam_car_delete(veh, res, top);
     MEM32(p + 0x14u) = 0;
@@ -815,6 +821,7 @@ static void roam_build(void)
     memset(s_roam_car, 0xFF, sizeof s_roam_car);
     s_roam_nhist = 0;
     memset(s_roam_peer, 0, sizeof s_roam_peer);
+    memset(s_slot_veh, 0, sizeof s_slot_veh);   /* a new car may reuse an old one's address */
     memset(s_roam_cfgb, 0, sizeof s_roam_cfgb);
     memset(s_roam_gen, 0, sizeof s_roam_gen);
     memset(s_roam_want, 0, sizeof s_roam_want);
@@ -1379,9 +1386,12 @@ static void roam_player(uint32_t p)
          * (enable/disable sub_0010E7C0/sub_0010E760): at 0 the car is not
          * drawn and the blip (sub_000BE140) and HUD icons (sub_000BE5C0)
          * skip it. Parked from the first frame: before our history exists
-         * the slots still sit on the start spot, so take our car's matrix. */
+         * the slots still sit on the start spot, so take our car's matrix.
+         * Out of the physics level too: parked there, the 2 spare slots'
+         * cars still blocked our car on the start spot, unseen (2026-11-10). */
         uint32_t p0 = MEM32(MEM32(0x558814u) + 8u), v0, m0;
         roam_show(veh, 0);
+        roam_slot_phys((int)slot, veh, 0);
         if (s_roam_nhist)
             memcpy(m, s_roam_hist[(s_roam_nhist - 1) % ROAM_HIST].m, sizeof m);
         else if (online_ram(p0) && online_ram(v0 = MEM32(p0 + 0x14u)) && online_ram(m0 = MEM32(v0 + 0x1Cu)))
@@ -1399,6 +1409,7 @@ static void roam_player(uint32_t p)
     c = MEM32(veh + 4u);
     if (!s_roam_peer[slot].live) {
         roam_set_pose(veh, m, vel);
+        roam_slot_phys((int)slot, veh, 1);
         roam_show(veh, 1);
         s_roam_peer[slot].live = 1;
     }
