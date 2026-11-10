@@ -50,7 +50,9 @@
  * A missing module or entry point is logged once and its op skipped.
  *
  * Logs: '[WGPU] adapter ... device ready, canvas <fmt>' once; every distinct
- * WebGPU validation error once; RECOMP_WGPU_STATS=1 prints a line a second;
+ * WebGPU validation error once; RECOMP_WGPU_STATS=1 prints a line a second
+ * and, every 300 frames, '[WGPU] state calls per frame ...' (GPU state calls
+ * issued and the records that repeated the pass's state);
  * '[WGPU] slow frame N ms, M pipelines made' for a frame over 100 ms that
  * made pipelines.
  *
@@ -154,7 +156,7 @@ addToLibrary({
     // state (set in init/start: the library object is serialised as source,
     // so no Map/Set here)
     ctl: 0, dev: null, ctx: null, canvas: null, canvasInfo: null, canvasFmt: '',
-    tex: null, dead: null, said: null, stats: false, win: null, uid: 0,
+    tex: null, dead: null, said: null, stats: false, win: null, ct: null, uid: 0,
     samp: null, white2d: null, whiteCube: null, defSmp: null,
     arena: null, arenaSize: 0, arenaOk: false, bgl0: null, bg0: null,
     ubuf: null, ustage: null, uf: null, uu: null, uused: 0,
@@ -200,6 +202,7 @@ addToLibrary({
         return;
       }
       W.stats = /^[1-9]/.test(W.env('RECOMP_WGPU_STATS'));
+      W.ct = W.stats ? W.newCt() : null;
       W.setState(W.DEV_PENDING);
       W.start().catch((e) => {
         W.log('no WebGPU device: ' + (e && e.message || e));
@@ -264,6 +267,20 @@ addToLibrary({
     newWin(t) {
       return { t: t, frames: 0, presented: 0, passes: 0, cmds: 0, encUs: 0, trUs: 0, draws: 0,
                pipes: 0, arena: 0 };
+    },
+    // RECOMP_WGPU_STATS=1: state-call counters (W.ct, null when off), logged every CT_FRAMES frames
+    CT_FRAMES: 300,
+    newCt() {
+      return { f: 0, draws: 0, dpass: 0, passes: 0, sp: 0, spSame: 0, st: 0, stSame: 0, stWhite: 0,
+               bgNew: 0, vp: 0, vpSame: 0, sc: 0, scSame: 0, bc: 0, sr: 0, clr: 0,
+               wbArena: 0, wbUni: 0, wtex: 0 };
+    },
+    // a state record: counted, and whether it repeats what the pass has
+    ctSame(k, a, b) {
+      var c = WGPU.ct, i;
+      c[k]++;
+      for (i = 0; i < a.length && a[i] === b[i]; i++);
+      if (i === a.length) c[k + 'Same']++;
     },
 
     // tables, the arena and group 0, the uniform ring, defaults, fixed layouts
@@ -438,6 +455,7 @@ addToLibrary({
       var W = WGPU, T = W.TU, id = U[(p + T.id) >>> 2], t = W.tex.get(id);
       if (!t) { W.once('tu', 'TEX_UPLOAD: unknown texture ' + id); return; }
       var src = U[(p + T.src) >>> 2], n = U[(p + T.bytes) >>> 2];
+      if (W.ct) W.ct.wtex += n;
       W.dev.queue.writeTexture(
         { texture: t.gpu, mipLevel: U[(p + T.mip) >>> 2],
           origin: { x: U[(p + T.x) >>> 2], y: U[(p + T.y) >>> 2], z: U[(p + T.layer) >>> 2] } },
@@ -624,6 +642,7 @@ addToLibrary({
       var pass = enc.beginRenderPass(WGPU_GT.tw(d, 0));   // M4 GPU timing (wgpu_stats.js)
       pass.setBindGroup(0, W.bg0);
       pass.setIndexBuffer(W.arena, 'uint32');
+      if (W.ct) W.ct.dpass++;
       // WebGPU's state at a pass's start, as the contract says C assumes
       W.ps = { pass: pass, tw: tw, th: th, cf: cf, df: df, ds: ds, pipe: null, bg1: null,
                vp: [0, 0, tw, th, 0, 1], sc: [0, 0, tw, th], ref: 0, bc: { r: 0, g: 0, b: 0, a: 0 } };
@@ -635,7 +654,9 @@ addToLibrary({
       var w = F[(p + V.w) >>> 2], h = F[(p + V.h) >>> 2];
       if (!(w > 0 && h > 0)) { W.once('vp0', 'SET_VIEWPORT: empty (' + w + 'x' + h + '): dropped'); return; }
       var lo = Math.min(Math.max(F[(p + V.min) >>> 2], 0), 1), hi = Math.min(Math.max(F[(p + V.max) >>> 2], lo), 1);
+      var o = s.vp;
       s.vp = [F[(p + V.x) >>> 2], F[(p + V.y) >>> 2], w, h, lo, hi];
+      if (W.ct) W.ctSame('vp', o, s.vp);
       s.pass.setViewport(s.vp[0], s.vp[1], w, h, lo, hi);
     },
     // a rectangle clamped to the attachment
@@ -645,8 +666,9 @@ addToLibrary({
       return [x, y, Math.min(w, s.tw - x), Math.min(h, s.th - y)];
     },
     scissor(p, U) {
-      var W = WGPU, S = W.SC, s = W.ps;
+      var W = WGPU, S = W.SC, s = W.ps, o = s.sc;
       s.sc = W.clampRect(U[(p + S.x) >>> 2], U[(p + S.y) >>> 2], U[(p + S.w) >>> 2], U[(p + S.h) >>> 2]);
+      if (W.ct) W.ctSame('sc', o, s.sc);
       s.pass.setScissorRect(s.sc[0], s.sc[1], s.sc[2], s.sc[3]);
     },
 
@@ -658,6 +680,7 @@ addToLibrary({
       if (!r[2] || !r[3]) return;
       var col = s.cf && (fl & W.CR_COLOR), dep = s.df && (fl & W.CR_DEPTH), stn = s.ds && (fl & W.CR_STENCIL);
       if (!col && !dep && !stn) return;
+      if (W.ct) W.ct.clr++;
       var mask = col ? (fl >>> 8) & 15 : 0;
       var key = 'clear ' + s.cf + '/' + s.df + '/' + mask + '/' + (dep ? 1 : 0) + (stn ? 1 : 0);
       // the colour is the blend constant (1 x constant + 0), the depth the viewport's min = max
@@ -697,6 +720,7 @@ addToLibrary({
         W.pipeMake(e);
       }
       if (e.bad || !e.gpu) { s.pipe = null; return; }
+      if (W.ct) { W.ct.sp++; if (s.pipe === e) W.ct.spSame++; }
       if (s.pipe !== e) {
         if (s.bg1 && (!s.pipe || s.pipe.dk !== e.dk)) s.bg1 = null;   // another group 1 layout: rebind before a draw
         s.pass.setPipeline(e.gpu); s.pipe = e;
@@ -735,7 +759,9 @@ addToLibrary({
         }
         bg = W.dev.createBindGroup({ layout: W.bgl1.get(dims), entries: en });
         W.bg1.set(key, bg);
+        if (W.ct) W.ct.bgNew++;
       }
+      if (W.ct) { W.ct.st++; if (s.bg1 === bg) W.ct.stSame++; }
       if (s.bg1 !== bg) { s.pass.setBindGroup(1, bg); s.bg1 = bg; }
     },
 
@@ -750,6 +776,7 @@ addToLibrary({
         }
         bg = W.dev.createBindGroup({ layout: W.bgl1.get(e.dk), entries: en });
         W.bg1.set(key, bg);
+        if (W.ct) W.ct.bgNew++;
       }
       return bg;
     },
@@ -900,6 +927,7 @@ addToLibrary({
         if (!W.arenaGrow(ab)) W.once('abig', 'arena of ' + ab + ' bytes is over the device limit: draws dropped');
         // a view of just the arena: Firefox refuses a source view over 2 GB (the whole heap)
         else { dev.queue.writeBuffer(W.arena, 0, U.subarray(ap >>> 2, (ap >>> 2) + ((ab + 3) >>> 2))); W.arenaOk = true; }
+        if (W.ct && W.arenaOk) W.ct.wbArena += ab;
       }
       W.uused = 0;
 
@@ -940,8 +968,10 @@ addToLibrary({
               s.bc = { r: F[(p + W.BC.r) >>> 2], g: F[(p + W.BC.g) >>> 2],
                        b: F[(p + W.BC.b) >>> 2], a: F[(p + W.BC.a) >>> 2] };
               pass.setBlendConstant(s.bc);
+              if (W.ct) W.ct.bc++;
               break;
             case W.OP_STENCIL_REF:
+              if (W.ct) W.ct.sr++;
               s.ref = U[(p + W.SR.ref) >>> 2] & 255;
               pass.setStencilReference(s.ref);
               break;
@@ -957,7 +987,7 @@ addToLibrary({
             case W.OP_DRAW:
               var e = s.pipe;
               if (!e || e.bad || !W.arenaOk) break;
-              if (!s.bg1) { s.bg1 = W.bg1White(e); pass.setBindGroup(1, s.bg1); }
+              if (!s.bg1) { s.bg1 = W.bg1White(e); pass.setBindGroup(1, s.bg1); if (W.ct) W.ct.stWhite++; }
               pass.drawIndexed(U[(p + W.DR.index_count) >>> 2], 1, U[(p + W.DR.first_index) >>> 2], 0,
                                U[(p + W.DR.record) >>> 2]);
               draws++;
@@ -980,6 +1010,7 @@ addToLibrary({
       W.pend.length = 0;
       if (n !== count) W.once('ccount', 'command count: list has ' + n + ', WgFrame says ' + count);
       if (W.uused) dev.queue.writeBuffer(W.ubuf, 0, W.ustage, 0, W.uused * W.USLOT);
+      if (W.ct) W.ct.wbUni += W.uused * W.USLOT;
       WGPU_GT.end(enc);
       try { dev.queue.submit([enc.finish()]); }
       catch (e) { W.once('sub:' + (e && e.message), 'submit failed: ' + (e && e.message || e)); }
@@ -1032,6 +1063,23 @@ addToLibrary({
                 + ' ms/frame, in flight ' + (I[W.ci('frames_submitted')] - Atomics.load(I, W.ci('frames_done')))
                 + ', errors ' + U[W.ci('st_errors')]);
           W.win = W.newWin(now);
+        }
+        var c = W.ct;
+        c.draws += draws; c.passes += passes;
+        if (!(flags & W.FF_PARTIAL) && ++c.f >= W.CT_FRAMES) {
+          var k = 1 / c.f, q = (x) => (x * k).toFixed(1), kb = (x) => (x * k / 1024).toFixed(0);
+          // issued = records that reached the GPU call; same = records that repeated the pass's state
+          W.log('state calls per frame (' + c.f + ' frames): draws ' + q(c.draws) + ', passes ' + q(c.passes)
+                + ' (draw passes ' + q(c.dpass) + ': setBindGroup(0) + setIndexBuffer each), setPipeline '
+                + q(c.sp - c.spSame) + ' (SET_PIPE ' + q(c.sp) + ', same ' + q(c.spSame) + '), setBindGroup(1) '
+                + q(c.st - c.stSame + c.stWhite) + ' (SET_TEX ' + q(c.st) + ', same ' + q(c.stSame) + ', white '
+                + q(c.stWhite) + '), bind groups made ' + q(c.bgNew) + ', setViewport ' + q(c.vp) + ' (same '
+                + q(c.vpSame) + '), setScissorRect ' + q(c.sc) + ' (same ' + q(c.scSame) + '), blend const '
+                + q(c.bc) + ', stencil ref ' + q(c.sr) + ', clear quads ' + q(c.clr)
+                + ' (each setPipeline/Viewport/ScissorRect x2), setVertexBuffer 0 (vertex pulling), writeBuffer '
+                + kb(c.wbArena + c.wbUni) + ' KB (arena ' + kb(c.wbArena) + ', uniforms ' + kb(c.wbUni)
+                + '), writeTexture ' + kb(c.wtex) + ' KB');
+          W.ct = W.newCt();
         }
       }
     },
