@@ -169,7 +169,7 @@ test('hub: HELLO + SNAP in, PEERS out as frames from 10.77.0.253:47210; {"t":"ro
   assert.equal(ps[0].ws.bins().length, 0);
   // the alarm ticks too
   await sw.alarm(now + 600);
-  assert.equal(ps[0].ws.bins().length, 1);
+  assert.equal(ps[0].ws.bins().filter(b => b[16 + 5] === 2).length, 1, 'one PEERS (a FAR list too: far_ms passed)');
   sw.drop(sw.clients.get(ps[0].vip));
   assert.equal(sw.hub.count, 1);
 });

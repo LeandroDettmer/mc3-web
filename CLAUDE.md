@@ -367,9 +367,13 @@ generated files when the lift inputs did not change.
   (sub_000B6A90 override) and pushes after every map-server clear
   (sub_000D0140 override); deleted with the HUD (sub_000B7720). Log
   '[ONLINE] map: garage map ...'. Players beyond
-  the K nearest: the hubs send a FAR list (msg 9, every 2 s, at most 20:
-  id, status, place, orientation, name; old cores drop it as an unknown
-  type), roam_far() gives it, and an sub_000BF850 override draws each as a
+  the K nearest: the hubs send a FAR list (msg 9, every 1 s, the whole
+  city up to 256 (FAR_MAX): id, status, place, orientation, name; old
+  cores drop it as an unknown type; 2026-11-10, untested in game: parts
+  of 20 (FAR_PART) a datagram, one seq, header flags part | parts << 8,
+  nearest part 0 sent last so a core before 18 keeps the nearest 20; the
+  core takes the list at part 0, RC_FAR_PARTS kept; the minimap draws the
+  20 nearest + any within 400 m, the full map all), roam_far() gives it, and an sub_000BF850 override draws each as a
   dimmed, smaller blip with the car blip's primitive sub_000BB310
   (MC3_ROAM_MAP=0 off); every linked peer gets one too, on the minimap
   and the full map (0x450900) alike. Since 2026-11-10 (untested in game)

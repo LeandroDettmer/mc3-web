@@ -12,9 +12,11 @@
 // per_vip endpoints. Nothing is hidden that is really playing: roam_core.c sends a SNAP every 2 s from the garage, and
 // the first cruise frame after a load sends one with status ROAM at once (roam_game.c roam_away hides those cars anyway).
 // - hub -> player: every tick a PEERS list { virtual address, port, id } of the players linked to it; every far_ms
-//   (2 s) a FAR list of the others of its room, those it is not linked with first, then the linked ones, each nearest
-//   first: { id, status, place, orientation, name }
-//   (map markers; a core without FAR, type 9, drops it as an unknown type).
+//   (1 s) a FAR list of the others of its room (all of them, at most FAR_MAX), those it is not linked with first, then
+//   the linked ones, each nearest first: { id, status, place, orientation, name }
+//   (map markers; a core without FAR, type 9, drops it as an unknown type). The list goes in parts of FAR_PART, one
+//   datagram each, header flags = part | parts << 8, one seq, the nearest part (0) sent last: a core that knows no
+//   parts keeps the last FAR it got, so it still shows the nearest FAR_PART.
 
 export const HUB = 0x0A4D00FD;   // 10.77.0.253
 export const ROAM_PORT = 47210;
@@ -23,11 +25,12 @@ const HDR = 16, CRC = 4;
 export const MSG_HELLO = 1, MSG_PEERS = 2, MSG_SNAP = 3, MSG_BYE = 8, MSG_FAR = 9;
 export const HF_CREW = 0x0200, ST_MENUS = 0, ST_LOADING = 1, ST_ROAM = 2;
 const LIST_MAX = 96;
-export const FAR_MAX = 20;   // 50 bytes each at worst: one datagram under 1200 bytes
+export const FAR_PART = 20;   // entries per FAR datagram: 50 bytes each at worst, one datagram under 1200 bytes
+export const FAR_MAX = 256;   // entries per FAR list (a city), over ceil(n / FAR_PART) datagrams
 
 export const OPTIONS = {
   default_k: 32, degree: 64, tick_ms: 500, stale_ms: 60_000, gone_ms: 10_000, soon_ms: 1000, look_ms: 4000,
-  view_m: 150, away_m: 100, hold_ms: 5000, keep: 0.5, max_players: 64 * 250, far_ms: 2000,
+  view_m: 150, away_m: 100, hold_ms: 5000, keep: 0.5, max_players: 64 * 250, far_ms: 1000,
   idle_ms: 60_000, flap_ms: 60_000, flap_n: 4, per_vip: 2,
 };
 
@@ -100,13 +103,15 @@ export function encodePeers(sender, seq, list) {
   return b;
 }
 
-/** A FAR datagram: [id, status, place, orientation as the SNAP carried it, name] each, at most FAR_MAX. */
-export function encodeFar(sender, seq, list) {
-  const l = list.slice(0, FAR_MAX).map(([id, status, p, q, name]) => [id, status, p, q, name.slice(0, 24)]);
+/** A FAR datagram, part `part` of `parts`: [id, status, place, orientation as the SNAP carried it, name] each, at most
+ *  FAR_PART. */
+export function encodeFar(sender, seq, list, part = 0, parts = 1) {
+  const l = list.slice(0, FAR_PART).map(([id, status, p, q, name]) => [id, status, p, q, name.slice(0, 24)]);
   const len = HDR + 1 + l.reduce((s, e) => s + 26 + e[4].length, 0) + CRC;
   const b = new Uint8Array(len), dv = new DataView(b.buffer);
   b.set(MAGIC); b[4] = 1; b[5] = MSG_FAR;
   dv.setUint16(6, len, true); dv.setUint32(8, sender, true); dv.setUint16(12, seq, true);
+  dv.setUint16(14, part | parts << 8, true);
   b[16] = l.length;
   let o = 17;
   for (const [id, status, p, q, name] of l) {
@@ -242,7 +247,9 @@ export class Hub {
           .sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2])
           .slice(0, FAR_MAX)
           .map(([, , , q]) => [q.id, q.status, q.pos.at, q.q ?? [0, 0, 0, 0], q.name]);
-        out.push([p.vip, p.port, encodeFar(this.id, this.seq, list)]);
+        const parts = Math.max(1, Math.ceil(list.length / FAR_PART));
+        for (let k = parts - 1; k >= 0; k--)   // the nearest part last (see the top)
+          out.push([p.vip, p.port, encodeFar(this.id, this.seq, list.slice(k * FAR_PART, (k + 1) * FAR_PART), k, parts)]);
       });
     }
     return out;

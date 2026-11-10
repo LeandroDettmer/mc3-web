@@ -19,8 +19,8 @@
  * garages and movers are pushed every frame whatever those gates say (where
  * the gates already pass, nothing changes: that path adds them anyway).
  *
- * Far players.  The hub's FAR list (roam_far: the players beyond the K
- * nearest, ~every 2 s) is drawn as blips only, no car, after the game's own
+ * Far players.  The hub's FAR list (roam_far: every player of the city beyond the K
+ * nearest, ~every 1 s) is drawn as blips only, no car, after the game's own
  * player blips (sub_000BF850, minimap and full map), with the same primitive
  * as a car's blip (sub_000BE140's path): the map's world -> map transform
  * (vtable +0x94, pins far points to the minimap's rim, sub_000B95B0) about
@@ -65,6 +65,8 @@
 #define RMAP_RSTATE_VA   0x00507A94u     /* render state sub_0003A6A0 sets (sub_000BE140 saves it) */
 #define RMAP_FAR_DIM     0.55f
 #define RMAP_FAR_SIZE    0.8f
+#define RMAP_MINI_FAR_N  20              /* far players the minimap draws at least (pinned to its rim) */
+#define RMAP_MINI_FAR_M  400.0f          /* and every one nearer than this */
 
 void sub_0003A6A0(void);                        /* HUD render state, cdecl (int) */
 void sub_00030780(void);                        /* HUD render state flush */
@@ -291,7 +293,7 @@ static void rmap_far(uint32_t map, uint32_t top)
     static int said_near = -1, said_far = -1;
     static double said_t = -1e9;
     static struct { float p[3], q[4]; int far; } dot[ROAM_K_MAX + ROAM_FAR_MAX];
-    roam_far_peer far[ROAM_FAR_MAX];
+    static roam_far_peer far[ROAM_FAR_MAX];     /* the whole city: 16 KB, off the stack */
     uint32_t g = MEM32(RMAP_G_VA), vt, xf, buf, col, args[5], mat, saved;
     float rot[9], s, si;
     int n = 0, nf, nnear = 0, i, k;
@@ -313,8 +315,11 @@ static void rmap_far(uint32_t map, uint32_t top)
             }
     nnear = n;
     nf = roam_far(far, ROAM_FAR_MAX);
+    /* the full map: every one; the minimap (it pins far points to its rim): the RMAP_MINI_FAR_N nearest (the list
+     * is nearest first) and any within RMAP_MINI_FAR_M, not a rim crowded with the whole city */
     for (i = 0; i < nf; i++)
-        if (rmap_shown(far[i].status)) {
+        if (rmap_shown(far[i].status) &&
+            (vt == RMAP_FULLMAP_VT || i < RMAP_MINI_FAR_N || far[i].dist < RMAP_MINI_FAR_M)) {
             memcpy(dot[n].p, far[i].p, sizeof dot[n].p);
             memcpy(dot[n].q, far[i].q, sizeof dot[n].q);
             dot[n++].far = 1;

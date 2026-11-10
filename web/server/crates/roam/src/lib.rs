@@ -8,10 +8,12 @@
 //! - player -> hub: a HELLO every second (its id, status, name, and the links it wants: its K; MC3 asks 12-32, MC3_ROAM_CARS), a SNAP
 //!   twice a second (where its car is and how fast it goes), a BYE when it stops.
 //! - hub -> player: every `tick_ms` (500) a PEERS list of the players linked to it, { virtual address, port, id }; an
-//!   empty one says the hub is there.  Every `far_ms` (2 s) a FAR list of the other players of its room, those it is
+//!   empty one says the hub is there.  Every `far_ms` (1 s) a FAR list of the other players of its room, those it is
 //!   not linked with first, then the linked ones, each nearest first (at most FAR_MAX): { id, status, place,
 //!   orientation, name } each, for map markers (a linked player whose snapshots do not reach it still gets one; the
-//!   core drops those it draws as cars).  A core that does not know FAR (type 9) drops it as an unknown type.
+//!   core drops those it draws as cars).  A core that does not know FAR (type 9) drops it as an unknown type.  The
+//!   list goes in parts of FAR_PART, one datagram each, header flags = part | parts << 8, one seq, the nearest part
+//!   (0) sent last: a core that knows no parts keeps the last FAR it got, so it still shows the nearest FAR_PART.
 //!
 //! The links: the pairs of players with a position younger than `stale_ms`, nearest first, each player at most its K
 //! (at most `degree`).  "Nearest" looks ahead: a pair counts at the least of its distance once both cars went on
@@ -43,8 +45,10 @@ const MSG_FAR: u8 = 9;
 const HF_CREW: u16 = 0x0200;
 const ST_ROAM: u8 = 2;
 const LIST_MAX: usize = 96;
-/// FAR entries at most: 50 bytes each at worst, one datagram under 1200 bytes
-pub const FAR_MAX: usize = 20;
+/// FAR entries per datagram at most: 50 bytes each at worst, one datagram under 1200 bytes
+pub const FAR_PART: usize = 20;
+/// FAR entries per list (a city) at most, over ceil(n / FAR_PART) datagrams
+pub const FAR_MAX: usize = 256;
 
 #[derive(Clone, Debug)]
 pub struct Options {
@@ -79,7 +83,7 @@ impl Default for Options {
             hold_ms: 5000,
             keep: 0.5,
             max_players: mc3_lan::ADDRS as usize,
-            far_ms: 2000,
+            far_ms: 1000,
         }
     }
 }
@@ -203,15 +207,16 @@ pub fn encode_peers(sender: u32, seq: u16, list: &[(u32, u16, u32)]) -> Vec<u8> 
     b
 }
 
-/// A FAR datagram: (id, status, place, orientation as the SNAP carried it, name) each, at most FAR_MAX.
-pub fn encode_far(sender: u32, seq: u16, list: &[(u32, u8, [f32; 3], [i16; 4], &str)]) -> Vec<u8> {
-    let n = list.len().min(FAR_MAX);
+/// A FAR datagram, part `part` of `parts`: (id, status, place, orientation as the SNAP carried it, name) each, at most
+/// FAR_PART.
+pub fn encode_far(sender: u32, seq: u16, part: u8, parts: u8, list: &[(u32, u8, [f32; 3], [i16; 4], &str)]) -> Vec<u8> {
+    let n = list.len().min(FAR_PART);
     let mut b = Vec::with_capacity(HDR + 1 + 50 * n + CRC);
     b.extend_from_slice(MAGIC);
     b.extend_from_slice(&[1, MSG_FAR, 0, 0]);
     b.extend_from_slice(&sender.to_le_bytes());
     b.extend_from_slice(&seq.to_le_bytes());
-    b.extend_from_slice(&[0, 0]);
+    b.extend_from_slice(&[part, parts]);
     b.push(n as u8);
     for &(id, status, p, q, name) in &list[..n] {
         b.extend_from_slice(&id.to_le_bytes());
@@ -433,7 +438,12 @@ impl Hub {
                     (q.id, q.status, at, q.q, q.name.as_str())
                 })
                 .collect();
-            out.push((ki.0, ki.1, encode_far(self.id, self.seq, &list)));
+            let parts = list.len().div_ceil(FAR_PART).max(1);
+            for k in (0..parts).rev() {
+                // the nearest part last (see the top)
+                let l = &list[(k * FAR_PART).min(list.len())..((k + 1) * FAR_PART).min(list.len())];
+                out.push((ki.0, ki.1, encode_far(self.id, self.seq, k as u8, parts as u8, l)));
+            }
         }
     }
 
@@ -688,7 +698,37 @@ mod tests {
         assert_eq!(u32::from_le_bytes(e[28..32].try_into().unwrap()), 103);
         assert_eq!(u32::from_le_bytes(e[56..60].try_into().unwrap()), 101, "the linked one last");
         assert_eq!(decode(d), Some(Msg::Other), "a hub-bound decoder skips it");
-        assert!(h.tick(2500).iter().all(|o| o.2[5] == MSG_PEERS), "next one at 4000");
+        assert!(h.tick(2500).iter().all(|o| o.2[5] == MSG_PEERS), "next one at 3000");
+    }
+
+    /// A city of 60 players: every receiver hears all 59 others over 3 FAR datagrams, the nearest part last.
+    #[test]
+    fn far_list_parts() {
+        let mut h = Hub::new(Options::default());
+        for i in 0..60u32 {
+            h.frame(vip(i), ROAM_PORT, &hello(100 + i, &format!("Player number {i}"), 3), 0);
+            h.frame(vip(i), ROAM_PORT, &snap(100 + i, [37.0 * i as f32, 0.0, -11.0 * i as f32], [0.0; 3]), 0);
+        }
+        let out = h.tick(1000);
+        let far: Vec<_> = out.iter().filter(|o| o.2[5] == MSG_FAR).collect();
+        assert_eq!(far.len(), 60 * 3);
+        for i in 0..60u32 {
+            let mine: Vec<&Vec<u8>> = far.iter().filter(|o| o.0 == vip(i)).map(|o| &o.2).collect();
+            let flags: Vec<u16> = mine.iter().map(|d| u16::from_le_bytes([d[14], d[15]])).collect();
+            assert_eq!(flags, vec![2 | 3 << 8, 1 | 3 << 8, 3 << 8], "parts 2, 1, 0: the nearest one last");
+            let mut ids = vec![];
+            for d in &mine {
+                assert!(d.len() < 1200 && u16::from_le_bytes([d[6], d[7]]) as usize == d.len());
+                assert_eq!(u32::from_le_bytes(d[d.len() - 4..].try_into().unwrap()), crc32(&d[..d.len() - 4]));
+                let mut o = 17;
+                for _ in 0..d[16] {
+                    ids.push(u32::from_le_bytes(d[o..o + 4].try_into().unwrap()));
+                    o += 26 + d[o + 25] as usize;
+                }
+            }
+            ids.sort();
+            assert_eq!(ids, (0..60).filter(|&j| j != i).map(|j| 100 + j).collect::<Vec<_>>(), "{i} hears all 59");
+        }
     }
 
     #[test]

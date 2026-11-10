@@ -103,7 +103,28 @@ test('far list: every far_ms the placed players of the room, unlinked first, nea
   assert.equal(d.readUInt32LE(45), 103);
   assert.equal(d.readUInt32LE(73), 101, 'the linked one last');
   same(decode(d), { k: 'other' });
-  assert.ok(h.tick(2500).every(o => o[2][5] === MSG_PEERS), 'next one at 4000');
+  assert.ok(h.tick(2500).every(o => o[2][5] === MSG_PEERS), 'next one at 3000');
+});
+
+test('far list: a city of 60 players, every receiver gets all 59 others over FAR datagrams, the nearest part last', () => {
+  const h = new Hub();
+  for (let i = 0; i < 60; i++) {
+    h.frame(vip(i), ROAM_PORT, hello(100 + i, `Player number ${i}`, 3), 0);
+    h.frame(vip(i), ROAM_PORT, snap(100 + i, [37 * i, 0, -11 * i], [0, 0, 0]), 0);
+  }
+  const far = h.tick(1000).filter(o => o[2][5] === MSG_FAR);
+  assert.equal(far.length, 60 * 3, '59 entries: 3 parts of at most 20 each');
+  for (let i = 0; i < 60; i++) {
+    const mine = far.filter(o => o[0] === vip(i)).map(o => Buffer.from(o[2]));
+    same(mine.map(d => d.readUInt16LE(14)), [2 | 3 << 8, 1 | 3 << 8, 0 | 3 << 8], 'parts 2, 1, 0: the nearest one last');
+    assert.ok(mine.every(d => d.length < 1200 && d.readUInt16LE(6) === d.length && d.readUInt16LE(12) === mine[0].readUInt16LE(12)));
+    assert.ok(mine.every(d => d.readUInt32LE(d.length - 4) === crc32(d.subarray(0, d.length - 4))));
+    const ids = [];
+    for (const d of mine) for (let k = 0, o = 17; k < d[16]; k++) { ids.push(d.readUInt32LE(o)); o += 26 + d[o + 25]; }
+    same([...new Set(ids)].sort((a, b) => a - b), [...Array(60).keys()].filter(j => j !== i).map(j => 100 + j), `${i} hears all 59`);
+  }
+  assert.ok(h.tick(1500).every(o => o[2][5] === MSG_PEERS), 'one list a second');
+  assert.equal(h.tick(2000).filter(o => o[2][5] === MSG_FAR).length, 180);
 });
 
 test('far list: every player of the city with a place, whatever it does (paused, garage, menus, idle, flapping, stale)', () => {
