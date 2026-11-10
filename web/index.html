@@ -1825,7 +1825,7 @@
     } catch { return null; }
   }
   // the widget: live dot + total, then Free Roam (players, per city), Races (open rooms: the server counts rooms,
-  // not their players) and Elsewhere (online - free roam: menus, career, and whoever is in a race)
+  // not their players) and Career (online - free roam: menus, career, and whoever is in a race)
   function onlineWidget(el, s) {
     const n = v => Math.max(0, Math.floor(Number(v)) || 0), rooms = s.freeRoam.rooms;
     const el$ = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
@@ -1834,7 +1834,7 @@
     head.append(dot, el$('b', '', online), el$('span', '', online === 1 ? 'player online' : 'players online'));
     const box = (k, label) => { const d = el$('div', 'on-mode'); d.append(el$('b', '', k), el$('span', '', label)); return d; };
     const modes = el$('div', 'on-modes');
-    modes.append(box(roam, 'Free Roam'), box(races, races === 1 ? 'race open' : 'races open'), box(online - roam, 'Elsewhere'));
+    modes.append(box(roam, 'Free Roam'), box(races, races === 1 ? 'race open' : 'races open'), box(online - roam, 'Career'));
     modes.lastChild.title = 'Menus, career and online races';
     const cities = el$('p', 'on-cities');
     const ids = [...new Set([...CITIES.keys(), ...Object.keys(rooms).map(Number).filter(i => Number.isInteger(i) && i >= 0)])].sort((a, b) => a - b);
@@ -1878,7 +1878,7 @@
     }
     if (n(s.more)) { const m = document.createElement('p'); m.className = 'hint'; m.style.marginTop = '12px'; m.textContent = `+${n(s.more)} more not listed.`; out.push(m); }
     const md = s.modes || {};
-    $('players-sum').textContent = `${n(s.online)} online: ${n(md.roam)} in Free Roam, ${n(md.race)} in race rooms, ${n(md.menu)} elsewhere.`;
+    $('players-sum').textContent = `${n(s.online)} online: ${n(md.roam)} in Free Roam, ${n(md.race)} in race rooms, ${n(md.menu)} in Career.`;
     $('players-list').replaceChildren(...out);
   }
   let playersFrom = null;
