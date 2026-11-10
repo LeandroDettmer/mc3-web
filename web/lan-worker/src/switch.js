@@ -27,7 +27,8 @@
 // every WHO_MS: {"t":"players", online, freeRoam, races (as GET /lan/stats), modes: {roam, race, menu},
 // list: [{name, mode: 'roam'|'race'|'menu', city?: free-roam room id, race?: room name}] (at most PLAYERS_MAX, free
 // roam by city first, then races, then the menus, by name), more: the players beyond the list}. Nicks are cleaned
-// and cut to NICK characters on hello.
+// and cut to NICK characters on hello, and unique among the live clients (any case; 'Player', the empty name's
+// fallback, excepted): a hello with a held nick gets {"t":"error","op":"hello","code":"nick-taken"} and keeps its old name.
 //
 // vars: ALLOW_ORIGINS "https://a.example,https://b.example" (scheme://host, comma-separated, any case); empty = any.
 
@@ -182,7 +183,10 @@ export class Switch extends Lobby {
     let m;
     try { m = JSON.parse(text); } catch { return false; }
     if (m?.t === 'hello') {
-      c.a.name = clean(m.name, NICK, 'Player'); c.a.hi = true; c.a.lan = on(m.lan);
+      const name = clean(m.name, NICK, 'Player');
+      if (this.nickTaken(c, name)) this.err(c, 'hello', 'nick-taken');   // the old name stays
+      else c.a.name = name;
+      c.a.hi = true; c.a.lan = on(m.lan);
     } else if (m?.t === 'lan') c.a.lan = on(m.on);
     else if (m?.t === 'players') c.a.who = on(m.sub);
     else if (m?.t !== 'roam') return false;
@@ -195,6 +199,16 @@ export class Switch extends Lobby {
       if (c.a.room) { this.roomChanged(c.a.room); this.listChanged(); }
     }
     return true;
+  }
+
+  /** Does another live client hold `name` (any case)? 'Player', the fallback for an empty name, may be shared. */
+  // shortcut: a scan of the clients per hello (hellos are rare and rate limited; no index to keep across hibernation);
+  // a Map of names if a switch ever holds tens of thousands.
+  nickTaken(c, name) {
+    const k = name.toLowerCase();
+    if (k === 'player') return false;
+    for (const q of this.clients.values()) if (q !== c && String(q.a.name).toLowerCase() === k) return true;
+    return false;
   }
 
   /** A binary frame from `c`: checked, its source rewritten, routed (crates/lan Switch::frame). */

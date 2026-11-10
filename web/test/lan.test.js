@@ -138,6 +138,15 @@ const n = socks.length;
 run(80000);
 assert.ok(socks.length > n, 'watchdog reconnects a silent link');
 
+// a held nick: the switch refuses the hello; the page sees link.error (op hello) and renames
+ws = socks[socks.length - 1];
+ws.open();
+ws.msg({ t: 'welcome', vip: B, vipStr: '10.77.2.3', mac: 'y' });
+ws.msg({ t: 'error', op: 'hello', code: 'nick-taken' });
+assert.deepStrictEqual(link.error, { t: 'error', op: 'hello', code: 'nick-taken' });
+link.rename('Ann2');
+assert.deepStrictEqual(ws.json().at(-1), { t: 'hello', name: 'Ann2', lan: 1 });
+
 // close(): offline for good
 link.close();
 assert.strictEqual(link.state, 'offline');

@@ -308,3 +308,31 @@ test('players: pushed to subscribers on change, at most every WHO_MS; modes, cit
   assert.equal(last(a.ws.texts(), 'players'), undefined);
   clearTimeout(sw.whoTimer);
 });
+
+test('nicks: unique among live clients, any case, trimmed; refused keeps the old name; freed on close; Player shared', async () => {
+  const { sw, named, peer } = setup();
+  const a = await named('Ann');
+  const b = peer();
+  await b.say({ t: 'hello', name: '  aNN ', lan: 1 });
+  assert.deepEqual(last(b.ws.texts(), 'error'), { t: 'error', op: 'hello', code: 'nick-taken' });
+  assert.equal(sw.clients.get(b.vip).a.name, 'Player', 'kept its old name');
+  assert.ok(sw.clients.get(b.vip).a.hi && sw.clients.get(b.vip).a.lan, 'still in System Link');
+  await b.say({ t: 'hello', name: 'Bob', lan: 1 });
+  assert.equal(last(b.ws.texts(), 'error'), undefined);
+  await b.say({ t: 'hello', name: 'Ann', lan: 1 });   // a rename onto a held nick: refused, Bob stays
+  assert.equal(last(b.ws.texts(), 'error').code, 'nick-taken');
+  assert.equal(sw.clients.get(b.vip).a.name, 'Bob');
+  await a.say({ t: 'hello', name: 'ANN', lan: 1 });   // its own nick in another case: fine
+  assert.equal(last(a.ws.texts(), 'error'), undefined);
+  assert.equal(sw.clients.get(a.vip).a.name, 'ANN');
+  sw.drop(sw.clients.get(a.vip));
+  await b.say({ t: 'hello', name: 'ann', lan: 1 });   // freed on close
+  assert.equal(last(b.ws.texts(), 'error'), undefined);
+  assert.equal(sw.clients.get(b.vip).a.name, 'ann');
+  const c = peer(), d = peer();   // empty names fall back to 'Player', which many may hold
+  await c.say({ t: 'hello', name: '', lan: 1 });
+  await d.say({ t: 'hello', name: 'player', lan: 1 });
+  assert.equal(last(c.ws.texts(), 'error'), undefined);
+  assert.equal(last(d.ws.texts(), 'error'), undefined);
+  clearTimeout(sw.whoTimer);
+});
