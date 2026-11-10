@@ -9,6 +9,16 @@ and moves its commit on. One line per change, in plain text, as `- **Area:** wha
 things and noticeable improvements first, smaller fixes last. Left out: the server's insides, logs, tests, docs and
 the recompilation toolkit's internals. The newest section's date is the release date shown in the page's header.
 
+## 2026-11-10 (91a6989)
+
+- **Crashes:** after a crash, Restart brings the game back quickly without the intro movies; when the graphics device is lost it restarts with WebGL.
+- **Crashes:** a crash in the online Free Roam offers Back to Free Roam: the game goes straight back to the cruise, at the city and spot you were.
+- **Crashes:** crashes, freezes and closed tabs now send their log by themselves, so they can be fixed.
+- **Free Roam:** joining while another player sits on the start spot no longer puts your car inside theirs.
+- **Free Roam:** other players' cars no longer show without tyres.
+- **iPhone:** no more false "Out of memory" box at start.
+- **Loading:** a slow first start no longer shows "No picture" too soon.
+
 ## 2026-11-09 (a749352)
 
 - **Game:** Midnight Club 3: DUB Edition Remix runs in the browser, with sound, music, movies, saves and keyboard or controller.
