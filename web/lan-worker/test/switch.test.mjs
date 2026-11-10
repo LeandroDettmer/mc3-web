@@ -240,7 +240,7 @@ test('worker: /lan only, Origin checked, then the one Switch', async () => {
   assert.equal((await worker.fetch(req('/lan', 'https://evil.example'), env)).status, 403);
   assert.equal((await worker.fetch(req('/lan', 'https://game.example', 'h2c'), env)).status, 426);
   assert.equal((await worker.fetch(req('/lan?vip=5', 'https://game.example'), env)).status, 200);
-  assert.equal(got[0], 'switch');
+  assert.equal(got[0], 'switch-2');
 });
 
 test('stats: counts only, per room, CORS by the allowlist', async () => {
