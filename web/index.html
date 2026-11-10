@@ -1784,6 +1784,7 @@
   });
   const dayText = date => new Date(date + 'T12:00:00Z').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
   loadChangelog().then(rel => {
+    // CHANGELOG.md is oldest first: its first section is the release date (9 November 2026), whatever comes later
     if (!rel[0]) return;
     $('released').textContent = 'Released ' + dayText(rel[0].date);
     $('released').hidden = false;

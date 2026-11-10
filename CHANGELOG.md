@@ -1,23 +1,13 @@
 # Changelog
 
-What changed for players, newest first: the start page's Changelog button shows this file (the deploy's stage script
+What changed for players, oldest first: the start page's Changelog button shows this file (the deploy's stage script
 copies it next to index.html).
 
 Each day with a release gets one section: `## <date> (<commit>)`, the commit being the last one the release brings, so
 the next section covers the commits after it. A second release on the same day adds its lines to that day's section
 and moves its commit on. One line per change, in plain text, as `- **Area:** what changed`, written for players: new
 things and noticeable improvements first, smaller fixes last. Left out: the server's insides, logs, tests, docs and
-the recompilation toolkit's internals. The newest section's date is the release date shown in the page's header.
-
-## 2026-11-10 (91a6989)
-
-- **Crashes:** after a crash, Restart brings the game back quickly without the intro movies; when the graphics device is lost it restarts with WebGL.
-- **Crashes:** a crash in the online Free Roam offers Back to Free Roam: the game goes straight back to the cruise, at the city and spot you were.
-- **Crashes:** crashes, freezes and closed tabs now send their log by themselves, so they can be fixed.
-- **Free Roam:** joining while another player sits on the start spot no longer puts your car inside theirs.
-- **Free Roam:** other players' cars no longer show without tyres.
-- **iPhone:** no more false "Out of memory" box at start.
-- **Loading:** a slow first start no longer shows "No picture" too soon.
+the recompilation toolkit's internals. The page header always shows the first release, 9 November 2026; each later day adds its section at the end, dated that day.
 
 ## 2026-11-09 (a749352)
 
@@ -39,3 +29,13 @@ the recompilation toolkit's internals. The newest section's date is the release 
 - **Loading:** The game files are downloaded once and kept in the browser; the rest loads quietly in the background.
 - **Page:** New look in the game's colours, a Settings window, a key list by action, a Skip intro option and a saves import for Xbox saves.
 - **Page:** Release date and this changelog at the top.
+
+## 2026-11-10 (91a6989)
+
+- **Crashes:** after a crash, Restart brings the game back quickly without the intro movies; when the graphics device is lost it restarts with WebGL.
+- **Crashes:** a crash in the online Free Roam offers Back to Free Roam: the game goes straight back to the cruise, at the city and spot you were.
+- **Crashes:** crashes, freezes and closed tabs now send their log by themselves, so they can be fixed.
+- **Free Roam:** joining while another player sits on the start spot no longer puts your car inside theirs.
+- **Free Roam:** other players' cars no longer show without tyres.
+- **iPhone:** no more false "Out of memory" box at start.
+- **Loading:** a slow first start no longer shows "No picture" too soon.
