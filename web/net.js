@@ -53,8 +53,9 @@
           fv.setUint16(12, ports & 0xFFFF);
           fv.setUint16(14, ports >>> 16);
           f.set(u8.subarray(o + SLOT_HDR, o + SLOT_HDR + len), SLOT_HDR);
-          var rtc = !roam && link && link.rtc;   // System Link inside a race room: peer to peer where it can (web/rtc.js)
-          if (!link || !(rtc ? rtc.send(f) : link.send(f))) Atomics.add(h, W_TX_DROP, 1);
+          // peer to peer where it can (web/rtc.js): System Link inside a race room, free roam to the nearest players
+          var rtc = link && link.rtc;
+          if (!link || !(rtc ? (roam ? rtc.roamSend(f) : rtc.send(f)) : link.send(f))) Atomics.add(h, W_TX_DROP, 1);
         }
         tail = (tail + 1) | 0;
         Atomics.store(h, W_TX_TAIL, tail);
@@ -100,7 +101,8 @@
       var z = function (i) { return h ? Atomics.load(h, i) >>> 0 : 0; };
       return { attached: !!h, state: link ? link.state : 'none', vip: link ? link.vipStr : '', peers: link ? link.peers.length : 0,
                sent: link ? link.sent : 0, recv: link ? link.recv : 0,
-               p2pSent: link && link.rtc && !roam ? link.rtc.sent : 0, p2pRecv: link && link.rtc && !roam ? link.rtc.recv : 0, txDrop: z(W_TX_DROP), rxDrop: z(W_RX_DROP),
+               p2pSent: link && link.rtc ? (roam ? link.rtc.roamSent : link.rtc.sent) : 0,
+               p2pRecv: link && link.rtc ? (roam ? link.rtc.roamRecv : link.rtc.recv) : 0, txDrop: z(W_TX_DROP), rxDrop: z(W_RX_DROP),
                cTxFull: z(W_C_TX_FULL), cRxLost: z(W_C_RX_LOST) };
     };
   }

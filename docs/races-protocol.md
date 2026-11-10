@@ -43,7 +43,7 @@ to deliver the same objects in order per client.
 | `{"t":"join","room":id,"pass":s?}` | Enter a room. Leaves the current room first. |
 | `{"t":"leave"}` | Leave the room (no room afterwards). |
 | `{"t":"beat"}` | Heartbeat, every 20 s while connected. Changes nothing. |
-| `{"t":"signal","to":vip,"kind":"offer"\|"answer"\|"ice","data":any}` | Reserved for step 2: relayed to `to` if both are in the same room. |
+| `{"t":"signal","to":vip,"kind":"offer"\|"answer"\|"ice","data":any}` | Step 2: relayed to `to` if both are in the same room. With `"roam":1` (Worker switch only): relayed if both are free-roam players of the same city (the hub's room), no race room needed; else error `roam`. |
 | `{"t":"where","w":w}` | Worker switch only (web/lan-worker/src/switch.js): what this page is doing, kept private for the owner (GET /lan/activity below), not shown in the players list. `w` = `page` (start page, game not started), `loading` (Play pressed until the game's menus), `menu` (game menus, garage), `career`, `arcade` (offline races). Any other `w` is ignored. No reply. The page (web/lan.js `link.where`) sends it only on change, at most once per 5 s, and after the hello of every (re)connect. A socket that never sent one counts as `menu`. Free Roam (the hub knows it) and race rooms (the client's room) win over it: such a player is `roam` / `race` there. |
 
 Fields: `name` the race's name (cleaned like a nick, at most 32 characters, empty ->
@@ -59,7 +59,7 @@ optional, shown in the list only); `max` 2..8 (default 8; System Link races hold
 | `{"t":"room","room":room,"members":[member,...]}` | To every member of a room, on entering it and on every change of its members. |
 | `{"t":"left","room":id,"why":w}` | To a member that is no longer in the room: `why` = `"leave"` (asked), `"closed"` (the host left: the room is gone). |
 | `{"t":"error","op":op,"code":c}` | A `create`, `join` or `signal` refused (codes below). |
-| `{"t":"signal","from":vip,"kind":k,"data":any}` | Reserved for step 2: a member's signal to this client. |
+| `{"t":"signal","from":vip,"kind":k,"data":any}` | Step 2: a member's signal to this client (`"roam":1` added when it was a free-roam one). |
 
 ```text
 room   = {"id":id,"name":s,"host":nick,"hostVip":vip,"city":s,"mode":s,"n":members,"max":n,"locked":bool}
@@ -169,7 +169,8 @@ nowhere else (error `room`).
   lower vip makes the offer (an offer from a higher vip is ignored: no glare). One
   `RTCPeerConnection` per pair with one data channel, `negotiated: true, id: 0`,
   `ordered: false, maxRetransmits: 0` (System Link is UDP: late is lost). ICE servers:
-  config.json `iceServers` (for a TURN server later), else public STUN only
+  the switch's `GET <lan url as http(s)>/ice` (STUN + TURN; asked once per session,
+  again after 5 h), else config.json `iceServers`, else public STUN only
   (`stun:stun.l.google.com:19302`, `stun:stun.cloudflare.com:3478`).
 - **Frames.** Over the channel goes the switch's frame (16-byte header, kind 3, the
   datagram after it). The receiver checks kind and length, drops the free-roam port,
@@ -185,15 +186,32 @@ nowhere else (error `room`).
   cannot tell the difference (xnet_web.c's receive slot carries the source, not the
   destination). A member who entered a moment ago and is not yet in the page's list
   misses a broadcast or two; System Link's discovery repeats them.
-- **Free roam** (port 47210, the hub 10.77.0.253) never uses a channel: net.js sends
-  only System Link's mailbox through rtc.js.
+- **Free roam** (port 47210) has pairs of its own (signals with `"roam":1`, its own
+  `RTCPeerConnection`, same channel options): the page opens channels to the players
+  the game sends free-roam frames to, busiest first (roam_core.c thins snapshots with
+  distance, so the busiest are the nearest; at least 2 frames in the last second), at
+  most 2 new a second, at most 12 (6 in the low-memory profile); the lower vip offers,
+  a page at its limit ignores offers. A frame to a peer with an open channel goes over
+  it; frames to the hub (10.77.0.253) and broadcasts always go to the switch, and so
+  does everything else (fallback). A channel with no frame either way for 10 s
+  closes. A pair not open after 15 s (ICE failed, even through TURN) stays on the
+  switch; the offerer tries again after 30, 60, 120, 240, 300 s. The receiver keeps
+  only frames to port 47210 and writes the channel's peer as the source and itself as
+  the destination. The page setting 'Direct connections (P2P) in Free Roam' (default
+  on, `MC3_ROAM_P2P=0` off; it shares the player's IP address with nearby players)
+  closes them live. A switch without free-roam signalling (web/server) answers error
+  `room`: the page stops trying for the session. Log lines `[rtc] free roam <vip>:
+  direct (P2P)` / `P2P through a TURN relay` / `no direct path (...)` / `channel
+  closed (...)`, and once a minute a count of frames P2P and via the server;
+  `Module.mc3RoamNet()` gives `p2pSent`/`p2pRecv`.
 - **Failure and leaving.** A channel that closes or a connection that fails goes back
   to the relay at once; the offerer tries again after 5, 10 and 15 s, then the pair
   stays on the relay until the next `room` message. A member gone from `room`, a
   `left`, or the link going offline closes the pairs.
 - **Page.** The Online tab lists the room's other members with `direct` (channel open)
   or `relay`. `Module.mc3Net()` counts `p2pSent`/`p2pRecv` beside the switch's.
-- **Test.** `node web/test/rtc.test.js` checks the routing rule; with
+- **Test.** `node web/test/rtc.test.js` checks the routing rule, the free-roam pick and
+  the ICE list URL; with
   `NDC=<folder holding node_modules/node-datachannel>` also a loopback of three pages
   (two direct, one relayed) on a fake switch.
 

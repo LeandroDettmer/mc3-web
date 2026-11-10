@@ -532,6 +532,8 @@
     { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out.',
       opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
     { key: 'MC3_NAMETAGS', label: 'Name tags', help: 'Each other player\'s name over their car in free roam (not hidden behind buildings). Changes live.', opts: ONOFF() },
+    // page-only (web/rtc.js roamP2P; the game ignores it)
+    { key: 'MC3_ROAM_P2P', label: 'Direct connections (P2P) in Free Roam', help: 'The nearest players\' cars come straight from their browsers, not through the server: lighter on the server. It shares your IP address with those players. Off: everything goes through the server. Changes live.', opts: ONOFF() },
     { group: 'Keyboard' },
     { key: 'RECOMP_KEYBOARD', label: 'Keyboard as pad 1', help: 'Off leaves only controllers.', opts: ONOFF() },
     { key: 'RECOMP_KEYBOARD_STICK_Y', label: 'Up and Down move the stick', help: 'Menus move with the stick. Auto: while driving (when the game says so) the arrows are gas and brake alone.',
@@ -591,6 +593,7 @@
     store.set('settings', settings);
     $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
     if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
+    if (key === 'MC3_ROAM_P2P' && lan?.rtc) lan.rtc.roamP2P = roamP2P();   // web/rtc.js, live
     preview();
   }
 
@@ -1711,9 +1714,21 @@
       racesShow(null);
       return null;
     }
-    if (!lan || lan.state === 'offline') { lan?.close(); lan = mc3Lan($('name').value.trim(), cfg?.lanUrl); lan.where?.(whereNow()); lan.on(lanShow); window.mc3Rtc?.(lan, cfg?.iceServers).on(raceShow); }
+    if (!lan || lan.state === 'offline') {
+      lan?.rtc?.close?.();
+      lan?.close(); lan = mc3Lan($('name').value.trim(), cfg?.lanUrl); lan.where?.(whereNow()); lan.on(lanShow);
+      const rtc = window.mc3Rtc?.(lan, cfg?.iceServers);
+      if (rtc) {   // Free Roam P2P: the setting, 6 channels in low-memory mode (12), outcomes in the log
+        rtc.roamP2P = roamP2P();
+        rtc.roamMax = lowMem({ ...settings, ...Object.fromEntries(new URLSearchParams(location.search)) }) ? 6 : 12;
+        rtc.log = out;
+        rtc.on(raceShow);
+      }
+    }
     return lan;
   }
+  // Settings 'Direct connections (P2P) in Free Roam' (?MC3_ROAM_P2P=0 / =1 wins): on unless set to 0
+  function roamP2P() { return (new URLSearchParams(location.search).get('MC3_ROAM_P2P') ?? settings.MC3_ROAM_P2P) !== '0'; }
   $('saves-refresh').onclick = () => { savesMsg(''); listSaves(); };
   $('oprof-export').onclick = oprofExport;
   $('oprof-import').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) oprofImport(f); };

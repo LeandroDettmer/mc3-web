@@ -19,6 +19,27 @@ assert.deepStrictEqual(mc3Rtc.plan(B, 10, [10, 20, 30], open([20])), [[20, 'dc']
 assert.deepStrictEqual(mc3Rtc.plan(B, 10, [20, 30], open([20, 30])), [[20, 'dc'], [30, 'dc']]);
 console.log('plan: ok');
 
+// --- pick (free roam): busiest first, at least ROAM.minFrames, within max channels and n new ones, skip()
+const none = () => false;
+assert.deepStrictEqual(mc3Rtc.pick({ 20: 30, 30: 5, 40: 18 }, [], 12, 2, none), [20, 40], 'two new a tick, busiest first');
+assert.deepStrictEqual(mc3Rtc.pick({ 20: 30, 30: 5, 40: 18 }, [20], 2, 2, none), [40], 'max channels in all');
+assert.deepStrictEqual(mc3Rtc.pick({ 20: 30 }, [20, 30], 2, 2, none), [], 'full');
+assert.deepStrictEqual(mc3Rtc.pick({ 20: 1, 30: 2 }, [], 12, 2, none), [30], 'HELLO only (1 a second): no channel');
+assert.deepStrictEqual(mc3Rtc.pick({ 20: 9, 30: 9, 40: 9 }, [], 12, 3, v => v == 30), [20, 40], 'skip: lower vip, backing off');
+console.log('pick: ok');
+
+// --- ICE servers from the switch: wss://host/lan -> https://host/lan/ice, asked once at the start
+{
+  const urls = [], logs = [], f0 = globalThis.fetch;
+  globalThis.fetch = u => { urls.push(u); return Promise.resolve({ ok: true, json: () => ({ iceServers: [{ urls: ['stun:s'] }, { urls: ['turn:t'], username: 'u', credential: 'c' }] }) }); };
+  const l = { url: 'wss://lan.example/lan', vip: 1, state: 'online', onMsg() {}, on() {}, sendMsg() {}, send() {} };
+  const r = mc3Rtc(l);
+  r.log = s => logs.push(s);
+  globalThis.fetch = f0;
+  assert.deepStrictEqual(urls, ['https://lan.example/lan/ice']);
+  setTimeout(() => { assert.deepStrictEqual(logs, ['[rtc] ICE servers from the switch: STUN + TURN']); r.close(); console.log('ice: ok'); });
+}
+
 if (!process.env.NDC) { console.log('loopback: skipped (set NDC)'); return; }
 const poly = require(require.resolve('node-datachannel/polyfill', { paths: [process.env.NDC] }));
 globalThis.RTCPeerConnection = poly.RTCPeerConnection;
@@ -34,7 +55,7 @@ function page(vip) {
   const fns = [], msg = [];
   const l = { vip, vipStr: '10.77.0.' + vip, state: 'online', sent: 0, recv: 0, onframe: null,
     on: f => { fns.push(f); f(l); }, onMsg: f => msg.push(f), deliver: m => msg.forEach(f => f(m)),
-    sendMsg: m => { if (m.t == 'signal' && m.to != 30 && vip != 30) setTimeout(() => sw.links[m.to].deliver({ t: 'signal', from: vip, kind: m.kind, data: m.data })); },
+    sendMsg: m => { if (m.t == 'signal' && m.to != 30 && vip != 30) setTimeout(() => sw.links[m.to].deliver({ t: 'signal', from: vip, kind: m.kind, data: m.data, roam: m.roam })); },
     send: f => {
       const g = f.slice(), v = new DataView(g.buffer), dst = v.getUint32(8);
       v.setUint32(4, vip); sw.frames++; if (dst == B) sw.bcasts++;
@@ -75,7 +96,56 @@ const t0 = Date.now();
       assert.deepStrictEqual(got, [[10, 20, 'spoof']]);
       console.log('loopback: ok (' + (Date.now() - t0) + ' ms)');
       [ra, rb, rc].forEach(r => r.close());
-      setTimeout(() => process.exit(0), 200);
+      setTimeout(roamLoop, 200);
     }, 300);
   }, 500);
 })();
+
+// Free roam: A (110) holds 1 channel at most and sends 20 frames a second to B (120), 5 to D (140): it opens B only
+// (the busiest), sends B's frames over it, D's and the hub's through the switch; B writes A's vip as the source
+// whatever the frame says; the channel closes once idle.
+function roamLoop() {
+  const HUB = 0x0A4D00FD;
+  mc3Rtc.ROAM.idleMs = 1500;
+  const PA = page(110), PB = page(120), PD = page(140);
+  const xa = mc3Rtc(PA), xb = mc3Rtc(PB), xd = mc3Rtc(PD);
+  const logs = []; xa.log = s => { logs.push(s); console.log('  A ' + s); }; xb.log = s => console.log('  B ' + s);
+  xa.roamMax = 1;
+  got.length = 0;
+  let n = 0;
+  const pump = setInterval(() => {
+    xa.roamSend(frame(110, 120, ROAM, ROAM, 'snap-b'));
+    if (n++ % 4 == 0) xa.roamSend(frame(110, 140, ROAM, ROAM, 'snap-d'));
+  }, 50);
+  const t1 = Date.now();
+  (function wait() {
+    if (xa.roamMode(120) != 'direct' || xb.roamMode(110) != 'direct') {
+      if (Date.now() - t1 > 15000) { console.error('roam loopback: no channel in 15 s'); process.exit(1); }
+      return setTimeout(wait, 50);
+    }
+    clearInterval(pump);
+    assert.strictEqual(xa.roamMode(140), 'relay', 'roamMax 1: D stays on the switch');
+    setTimeout(() => {
+      got.length = 0; sw.frames = 0;
+      const s0 = xa.roamSent, r0 = xa.roamRelay;
+      xa.roamSend(frame(110, 120, ROAM, ROAM, 'p2p'));
+      xa.roamSend(frame(110, 140, ROAM, ROAM, 'relay'));
+      xa.roamSend(frame(110, HUB, ROAM, ROAM, 'hub'));
+      xb.roamSend(frame(77, 110, ROAM, ROAM, 'spoof'));
+      setTimeout(() => {
+        const s = got.map(g => g.join(' ')).sort();
+        assert.deepStrictEqual(s, ['110 120 spoof', '120 110 p2p', '140 110 relay'], s.join('|'));
+        assert.strictEqual(xa.roamSent - s0, 1); assert.strictEqual(xa.roamRelay - r0, 1);
+        assert.strictEqual(sw.frames, 2, 'D and the hub through the switch');
+        assert.ok(logs.some(l => l.includes('free roam 0.0.0.120: direct (P2P)')), logs.join('|'));
+        // idle: no frames for idleMs, the next ticks close it
+        setTimeout(() => {
+          assert.strictEqual(xa.roamMode(120), 'relay', 'idle channel closed');
+          console.log('roam loopback: ok (' + (Date.now() - t1) + ' ms; A sent ' + xa.roamSent + ' over P2P, ' + xa.roamRelay + ' via the switch)');
+          [xa, xb, xd].forEach(r => r.close());
+          setTimeout(() => process.exit(0), 200);
+        }, 3500);
+      }, 300);
+    }, 200);
+  })();
+}

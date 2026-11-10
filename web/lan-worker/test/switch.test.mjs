@@ -225,6 +225,29 @@ test('rooms: a room is its own LAN; free roam crosses rooms; signal inside only'
   assert.equal(d.ws.bins().length + e.ws.bins().length, 2);
 });
 
+test('free-roam signal ("roam":1): between hub players of one city only, no room needed', async () => {
+  const { sw, named } = setup();
+  const a = await named('Ann'), b = await named('Bob'), c = await named('Cy'), d = await named('Di');
+  const join = (p, id, city) => sw.webSocketMessage(p.ws, Uint8Array.from(udp(0, HUB, hello(id, p.w.vipStr, 0, city), 1, ROAM_PORT)).buffer);
+  await join(a, 1, 2); await join(b, 2, 2); await join(c, 3, 5);   // d stays in the menus
+  for (const p of [a, b, c, d]) p.ws.take();
+  await a.say({ t: 'signal', to: b.vip, kind: 'offer', data: { sdp: 'x' }, roam: 1 });
+  assert.deepEqual(last(b.ws.texts(), 'signal'), { t: 'signal', from: a.vip, kind: 'offer', data: { sdp: 'x' }, roam: 1 });
+  await b.say({ t: 'signal', to: a.vip, kind: 'ice', data: null, roam: 1 });
+  assert.deepEqual(last(a.ws.texts(), 'signal'), { t: 'signal', from: b.vip, kind: 'ice', data: null, roam: 1 });
+  await a.say({ t: 'signal', to: c.vip, kind: 'offer', data: { sdp: 'x' }, roam: 1 });   // another city
+  await a.say({ t: 'signal', to: d.vip, kind: 'offer', data: { sdp: 'x' }, roam: 1 });   // not in free roam
+  await d.say({ t: 'signal', to: a.vip, kind: 'offer', data: { sdp: 'x' }, roam: 1 });
+  assert.deepEqual(a.ws.texts().filter(m => m.t === 'error').map(m => m.code), ['roam', 'roam']);
+  const dt = d.ws.texts();
+  assert.equal(c.ws.texts().length + dt.filter(m => m.t === 'signal').length, 0);
+  assert.equal(last(dt, 'error').code, 'roam');
+  await a.say({ t: 'signal', to: b.vip, kind: 'offer', data: { sdp: 'x' } });   // without "roam": the race-room rule
+  assert.equal(last(a.ws.texts(), 'error').code, 'room');
+  await a.say({ t: 'signal', to: b.vip, kind: 'bogus', data: 1, roam: 1 });
+  assert.equal(b.ws.texts().length, 0);
+});
+
 test('origins', () => {
   const list = ['https://game.example', 'https://game2.example'];
   assert.ok(originOk([], null) && originOk([], 'http://x'));

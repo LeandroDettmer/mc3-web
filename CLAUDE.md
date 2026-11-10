@@ -309,7 +309,13 @@ generated files when the lift inputs did not change.
   mailbox), and the hub in web/server/crates/roam (mc3-server --roam, on by
   default; vip 10.77.0.253:47210; sends each player its K nearest, K = 7,
   MC3_ROAM_K). It is a mesh shaped by the hub: snapshots go player to
-  player through the switch; the hub only picks the links. Game side
+  player through the switch; the hub only picks the links. Hybrid P2P
+  (2026-11-10, untested in a browser; web/rtc.js free roam, docs/races-protocol.md
+  step 2): the page opens WebRTC channels to the up to 12 (low-memory 6) busiest
+  roam destinations (= nearest), signals "roam":1 relayed by the Worker switch
+  within a city; frames to a peer with an open channel go over it, the hub's and
+  the rest via the switch; ICE from the switch's /lan/ice (TURN), page setting
+  MC3_ROAM_P2P (shares IPs), '[rtc] free roam ...' lines. Game side
   src/games/remix/roam_game.c: the Online cruise's race setup [0x53F2E0]
   gets 1 + N entries (copies of entry 0, +0x10/+0x14/+0x18 = -1, net flag
   0), so the game builds N extra player cars at load (N = peers at load

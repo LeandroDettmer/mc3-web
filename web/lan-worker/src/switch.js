@@ -7,7 +7,8 @@
 // Switch extends the races Lobby (web/races-worker: rooms, signalling, hello/ping, idle expiry, hibernation) with
 // what crates/lan adds: binary frames routed between members (unicast, broadcast to System Link peers, a room is its
 // own LAN, free roam's port and the hub route whatever the rooms), the peers list, {"t":"lan"}, {"t":"roam"}, ?vip=
-// on reconnect, a per-sender token bucket; and the free-roam hub (src/roam.js) at 10.77.0.253:47210.
+// on reconnect, a per-sender token bucket; and the free-roam hub (src/roam.js) at 10.77.0.253:47210. Beyond crates/lan:
+// {"t":"signal",...,"roam":1} between two free-roam players of one city (signal() below; web/rtc.js free roam).
 //
 // Frames (big-endian): [0] kind, [1..3] 0, [4..7] source vip (rewritten to the sender's), [8..11] destination vip
 // (0xFFFFFFFF broadcast), [12..13] source port, [14..15] destination port, [16..] datagram (<= 1472 bytes).
@@ -64,6 +65,9 @@ export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, b
 // K = 32 peers (640) + 1 Hz HELLO/PING to them; an 8-player race ~60 Hz x 7 = 420. framesPerS 2000 is ~3x that.
 // JSON: web/lan.js sends a ping every 20 s plus a handful of subs/joins/renames at connect: < 1/s, but web/rtc.js signals
 // through it too: an offer/answer + ~10 ICE candidates per peer, ~80 at once joining an 8-player room. 20/s, burst 200.
+// Free roam's P2P (rtc.js, "roam":1) shares that budget (an estimate, not measured live): a pair costs each end ~6-11
+// (offer or answer + its candidates); a page opens at most 2 pairs a second and holds 12, so entering a busy city is
+// ~70-130 at most over 6 s, and driving through it a pair or two every few seconds; failed pairs back off 30 s .. 5 min.
 // Over budget: dropped silently; empty for FLOOD_MS in a row: closed with 1008 (lan.js reconnects with backoff).
 export const CTL = { perS: 20, burst: 200 }, FLOOD_MS = 10e3;
 export const NICK = 15, PLAYERS_MAX = 200, WHO_MS = 2000, ACTIVITY_LOG_MS = 60e3;   // the page's name field is 15 long
@@ -353,6 +357,26 @@ export class Switch extends Lobby {
       if (q && reach(q) && this.bin(q, b)) n = 1;
     }
     return n;
+  }
+
+  /** {"t":"signal",...,"roam":1}: WebRTC between two free-roam players of the same city (web/rtc.js free roam), relayed
+   *  with "roam":1; refused as 'roam' otherwise. Without "roam" it is the Lobby's race-room signal. */
+  signal(c, m, size) {
+    if (m.roam !== 1) return super.signal(c, m, size);
+    if (size > LIMITS.signal) return this.err(c, 'signal', 'big');
+    const to = this.clients.get(Number(m.to) >>> 0);
+    if (!to || to === c || !this.sameCity(c.a.vip, to.a.vip)) return this.err(c, 'signal', 'roam');
+    if (!['offer', 'answer', 'ice'].includes(m.kind)) return;
+    this.send(to.a.vip, { t: 'signal', from: c.a.vip, kind: m.kind, data: m.data ?? null, roam: 1 });
+  }
+
+  /** Are vips a and b both hub players of one free-roam room (city)? */
+  // shortcut: a scan of the hub per signal (a pair's opening sends ~10); an index by vip if the hub holds thousands.
+  sameCity(a, b) {
+    const ra = new Set(), rb = new Set();
+    for (const p of this.hub.players.values()) { if (p.vip === a) ra.add(p.room); else if (p.vip === b) rb.add(p.room); }
+    for (const r of ra) if (rb.has(r)) return true;
+    return false;
   }
 
   /** The hub's lists out, as frames from 10.77.0.253:47210 (crates/lan Switch::inject). */
