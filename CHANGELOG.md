@@ -30,7 +30,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Page:** New look in the game's colours, a Settings window, a key list by action, a Skip intro option and a saves import for Xbox saves.
 - **Page:** Release date and this changelog at the top.
 
-## 2026-11-10 (936dfb1)
+## 2026-11-10 (25acca5)
 
 - **Crashes:** after a crash, Restart brings the game back quickly without the intro movies; when the graphics device is lost it restarts with WebGL.
 - **Crashes:** a crash in the online Free Roam offers Back to Free Roam: the game goes straight back to the cruise, at the city and spot you were.
@@ -41,3 +41,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** no more invisible cars at the start spot that you could crash into.
 - **iPhone:** no more false "Out of memory" box at start.
 - **Loading:** a slow first start no longer shows "No picture" too soon.
+- **Free Roam:** another player falling into the sea no longer opens the Restart Cruise menu for everyone.
+- **Online:** your own nick is never refused when you come back; another player still can't take it.
+- **Online:** the player counts update with far fewer requests.
+- **iPhone:** Restart waits for the memory of the last run instead of failing; a crash in the Online menu fixed.
