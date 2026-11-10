@@ -31,8 +31,9 @@
  * (no path asked for 1 s) and the screen's own transition (3 s / 30
  * frames after its file opened). The menus move with the d-pad.
  *
- * MC3_AUTOSTART=freeroam (Remix, a test hook for free roam): the same way,
- * but one Down more on the main menu (Online, the item after Arcade), A on
+ * MC3_AUTOSTART=freeroam (Remix, a test hook for free roam and the page's
+ * crash recovery 'Back to Free Roam'): the same way, but no Down on the
+ * main menu (Online is its first item since main_menu_online_first), A on
  * its screen (flash\bg_network.xbck: Free Roam is the first item), then
  * Arcade's setup screens as above. MC3_AUTOSTART=freeroam:<city> (atlanta,
  * detroit, tokyo; sandiego the default) presses Right that many times on
@@ -210,7 +211,7 @@ void mc3_autostart_frame(int in_game, int downs_to_arcade)
         return;
     }
     if (s_freeroam)
-        downs_to_arcade++;         /* Online: the item after Arcade */
+        downs_to_arcade = 0;       /* Online: the Remix main menu's first item, the cursor on it (main_menu_online_first) */
     to = seen & SEEN_LOADING ? ST_LOADING : seen & SEEN_ARCADE ? ST_ARCADE
        : seen & SEEN_NETWORK ? ST_NETWORK : seen & SEEN_MAIN ? ST_MAIN : s_stage;
     if (to == s_stage && s_stage == ST_BOOT && (seen & SEEN_TITLE))

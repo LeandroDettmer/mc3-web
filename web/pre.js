@@ -99,6 +99,14 @@ Module['mc3Frames'] = function () {
   return box ? Atomics.load(new Uint32Array(HEAPU8.buffer), box >>> 2) : undefined;
 };
 
+// Crash recovery (web/index.html resumeKeep): where Free Roam was last driven, from src/games/remix/roam_race_ai.c's
+// roam_resume_box { seq, live, city, m[12] }. undefined until the runtime is up or on a game without it.
+Module['mc3Resume'] = function () {
+  if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_resume_box != 'function') return;
+  var b = _roam_resume_box() >>> 2, I32 = new Int32Array(HEAPU8.buffer), F32 = new Float32Array(HEAPU8.buffer);
+  return { seq: Atomics.load(I32, b), live: I32[b + 1], city: I32[b + 2], m: Array.from(F32.subarray(b + 3, b + 15)) };
+};
+
 // Touch controls (web/touch.js): their virtual pad's 14 words into xboxrecomp/src/input/touch_pad_web.c's box, which
 // the runtime merges into pad 1. False until the runtime is up (the caller sends again).
 Module['mc3TouchPad'] = function (words) {

@@ -138,6 +138,60 @@ static void rra_prompt(const char *text)
 #endif
 }
 
+#ifdef __EMSCRIPTEN__
+/* Crash recovery (2026-11-10, web only). Each Free Roam cruise frame our
+ * city and car matrix go to roam_resume_box (live 1); a way to the menus
+ * (request 0x14/0x16 outside our AI race: a clean exit) sets live 0. The
+ * page (web/index.html resumeKeep) keeps the last live one in
+ * localStorage; after a crash its 'Back to Free Roam' reloads with
+ * MC3_AUTOSTART=freeroam:<city> (src/autostart.c presses the menus) and
+ * MC3_RESUME_ROAM=<city>,<12 floats>: at the first cruise frame of that
+ * city the car goes there through the AI race's way back (s_rra_back: put
+ * back, held RRA_HOLD s, put back again if it falls). */
+static struct { volatile int32_t seq, live, city; float m[12]; } s_resume_box;
+EMSCRIPTEN_KEEPALIVE uintptr_t roam_resume_box(void) { return (uintptr_t)&s_resume_box; }
+
+static void rra_resume_put(int live, uint32_t city, uint32_t mtx)
+{
+    s_resume_box.live = live;
+    if (live) {
+        s_resume_box.city = (int32_t)city;
+        for (int k = 0; k < 12; k++)
+            s_resume_box.m[k] = MEMF(mtx + 0x10u + 4u * k);
+    }
+    __atomic_add_fetch(&s_resume_box.seq, 1, __ATOMIC_RELEASE);
+}
+
+/* MC3_RESUME_ROAM, once: at the first Free Roam cruise frame */
+static void rra_resume_take(uint32_t city)
+{
+    static int done;
+    const char *e = getenv("MC3_RESUME_ROAM");
+    unsigned c;
+    float m[12];
+    int ok, k;
+    if (done || !e || !*e)
+        return;
+    done = 1;
+    ok = sscanf(e, "%u,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f", &c, &m[0], &m[1], &m[2], &m[3], &m[4], &m[5],
+                &m[6], &m[7], &m[8], &m[9], &m[10], &m[11]) == 13;
+    for (k = 0; ok && k < 12; k++)
+        ok = isfinite(m[k]) && fabsf(m[k]) < 100000.0f;
+    if (!ok || c != city) {
+        fprintf(stderr, "[ROAM] resume: %s (MC3_RESUME_ROAM=%.40s): this cruise starts at its own spot\n",
+                ok ? "another city" : "not 13 numbers", e);
+        return;
+    }
+    memcpy(s_rra_m, m, sizeof m);
+    s_rra_m[10] += 0.5f;                        /* off the ground, not into it */
+    s_rra_back = 1;
+    s_rra_t0 = 0;
+    s_rra_tries = 0;
+    fprintf(stderr, "[ROAM] resume: back where the last session ended, city %u (%.1f, %.1f, %.1f)\n",
+            c, m[9], m[10], m[11]);
+}
+#endif
+
 static int rra_mode(void)                       /* 0 off, 1 on, 2 on without Request(8) */
 {
     static int m = -1;
@@ -210,6 +264,10 @@ static void rra_state_request(uint32_t esp)
         s_rra_race = s_rra_back = 0;
         return;
     }
+#ifdef __EMSCRIPTEN__
+    if ((n == 0x14u || n == 0x16u) && !(s_rra_race && online_ram(cur) && MEM32(cur + 0x18u) != 0))
+        rra_resume_put(0, 0, 0);                /* to the menus: a clean exit, nothing to resume */
+#endif
     if (!s_rra_race || (n != 0x14u && n != 0x16u) || !online_ram(next))
         return;
     if (!online_ram(cur) || MEM32(cur + 0x18u) == 0) {  /* a cruise is running: ours is not (stale flag) */
@@ -270,6 +328,13 @@ static void rra_player(uint32_t p)
     x = MEMF(mtx + 0x34u);
     y = MEMF(mtx + 0x38u);
     z = MEMF(mtx + 0x3Cu);
+#ifdef __EMSCRIPTEN__
+    if (MEM32(setup + 0x18u) == 0 && !s_rra_race && MEM32(0x0050F14Cu) == 0) {   /* the Free Roam cruise */
+        rra_resume_take(MEM32(setup));
+        if (!s_rra_back)
+            rra_resume_put(1, MEM32(setup), mtx);
+    }
+#endif
     if (s_rra_back && MEM32(setup + 0x18u) == 0) {          /* the cruise again: our car back on its spot */
         double now = roam_now(), dt;
         if (!s_rra_t0) {
