@@ -2567,7 +2567,16 @@ static GLint arr_active(GLuint prog, const char *name, int max)
 }
 
 #define GL_MAX_PROG 1024
+#if defined(__EMSCRIPTEN__)
+/* Browser: on the heap at the first program, RECOMP_GL_MAX_PROG slots
+ * (64-1024, default 1024; the page's low-memory profile: 256). 1024 slots
+ * are 4 MB, which a TV's 256 MB wasm memory cannot spare (2026-11-09). */
+static GlProg *s_prog;
+static int s_max_prog = GL_MAX_PROG;
+#else
 static GlProg s_prog[GL_MAX_PROG];
+#define s_max_prog GL_MAX_PROG
+#endif
 static uint32_t s_prog_made, s_prog_live;
 #define PROG_BUCKETS 1024
 static int s_prog_head[PROG_BUCKETS];      /* index + 1 */
@@ -3158,7 +3167,16 @@ static GlProg *prog_register(uint64_t vkey, const Nv2aPshKey *pk, GLuint prog)
     GlProg *p = NULL, *victim = NULL;
     uint32_t bucket = prog_bucket(vkey, pk);
     int i;
-    for (i = 0; i < GL_MAX_PROG; i++) {
+#if defined(__EMSCRIPTEN__)
+    if (!s_prog) {
+        const char *e = getenv("RECOMP_GL_MAX_PROG");
+        if (e && atoi(e) >= 64 && atoi(e) <= GL_MAX_PROG)
+            s_max_prog = atoi(e);
+        s_prog = (GlProg *)calloc((size_t)s_max_prog, sizeof *s_prog);   /* fails: aborts (-sABORTING_MALLOC) */
+        fprintf(stderr, "  [GL] program table: %d slots (RECOMP_GL_MAX_PROG)\n", s_max_prog);
+    }
+#endif
+    for (i = 0; i < s_max_prog; i++) {
         GlProg *c = &s_prog[i];
         if (!c->prog) { if (!victim || victim->prog) victim = c; }
         else if (!victim || (victim->prog && c->used < victim->used)) victim = c;
@@ -3786,6 +3804,21 @@ static int ready(void)
     glGenBuffers(1, &s_ibo);
     s_vring.buf = s_vbo;
     s_iring.buf = s_ibo;
+#if defined(__EMSCRIPTEN__)
+    {
+        /* RECOMP_GL_RING_MB: the vertex ring's first size (default 16; the
+         * index ring a quarter, at least 1). Each has a copy in wasm memory
+         * (ring_shadow); the page's low-memory profile asks 4. A ring grows
+         * when one draw needs more (ring_alloc). */
+        const char *e = getenv("RECOMP_GL_RING_MB");
+        if (e && atoi(e) >= 2 && atoi(e) <= 64) {
+            s_vring.cap = (GLsizeiptr)atoi(e) << 20;
+            s_iring.cap = (GLsizeiptr)(atoi(e) / 4 > 1 ? atoi(e) / 4 : 1) << 20;
+            fprintf(stderr, "  [GL] vertex/index rings %d + %d MB (RECOMP_GL_RING_MB)\n",
+                    (int)(s_vring.cap >> 20), (int)(s_iring.cap >> 20));
+        }
+    }
+#endif
     if (!ring_persist(&s_vring)) {           /* each on its own: storage is immutable */
         vpool_init();                        /* sets the pools' pcap (WebGL) */
         glBindBuffer(GL_ARRAY_BUFFER, s_vbo);
@@ -8063,7 +8096,14 @@ static int q_start(void)
     pthread_t t;
     pthread_attr_t at;
     const char *mb = getenv("RECOMP_GL_QUEUE_MB");
+#if defined(__EMSCRIPTEN__)
+    /* Browser: down to 4 MB (the page's low-memory profile; a TV's wasm
+     * memory is 256 MB, 2026-11-09). A draw over a quarter is dropped and
+     * logged ('[GL] queued draw of N bytes dropped'). */
+    if (mb && atoi(mb) >= 4 && atoi(mb) <= 48)
+#else
     if (mb && atoi(mb) >= 16 && atoi(mb) <= 48)   /* a quarter must hold MG_STAGE_MAX */
+#endif
         s_q_bytes = (uint32_t)atoi(mb) << 20;
     s_q = (uint8_t *)malloc(Q_BYTES + 256);
     if (!s_q)

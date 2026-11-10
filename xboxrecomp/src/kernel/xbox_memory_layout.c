@@ -112,6 +112,18 @@ static void *g_nv2a_memory = NULL;
 /* MCPX southbridge register span: APU 0xFE800000 through NIC 0xFEF00000. */
 #define XBOX_MCPX_BASE 0xFE800000u
 #define XBOX_MCPX_SIZE (8u * 1024u * 1024u)
+#if defined(__EMSCRIPTEN__)
+/* Browser: only the megabytes that hold registers are backed (wasm memory is
+ * all there is; a TV gives 256 MB, 2026-11-09). NV2A: PMC..PRAMIN, USER
+ * (0xFD800000) last, so 9 of 16. MCPX: the APU (base), AC'97 + USB
+ * (0xFEC00000-0xFEDFFFFF) and the NIC (0xFEF00000): 4 of 8, not contiguous,
+ * so an address in it goes through the granule table (MCPX_AT). The rest
+ * reads the shared scratch granule (platform/wasm_memory.c). */
+#define XBOX_NV2A_BACKED (9u * 1024u * 1024u)
+#define MCPX_AT(off) ((char *)xbox_ptr(XBOX_MCPX_BASE + (off)))
+#else
+#define MCPX_AT(off) ((char *)g_mcpx_memory + (off))
+#endif
 static void *g_mcpx_memory = NULL;
 
 /* Flash ROM. The console's 256 KB flash is mirrored through the top of the
@@ -434,7 +446,7 @@ static void ac97_arm_write_trap(void)
 
     if (!g_mcpx_memory || g_ac97_page)
         return;
-    g_ac97_page = (char *)g_mcpx_memory + AC97_NABM_OFFSET;
+    g_ac97_page = MCPX_AT(AC97_NABM_OFFSET);
     /* First, so it runs before the game target's own crash reporter, which
      * would otherwise print the write as an access violation. */
     g_ac97_veh = AddVectoredExceptionHandler(1, ac97_write_veh);
@@ -2769,7 +2781,7 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
      */
     {
 #if defined(__EMSCRIPTEN__)
-        g_nv2a_memory = xbox_wasm_back(XBOX_NV2A_BASE, XBOX_NV2A_SIZE);
+        g_nv2a_memory = xbox_wasm_back(XBOX_NV2A_BASE, XBOX_NV2A_BACKED);
 #else
         uintptr_t nv2a_native = XBOX_NV2A_BASE + g_memory_offset;
         g_nv2a_memory = VirtualAlloc(
@@ -2818,7 +2830,12 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
      */
     {
 #if defined(__EMSCRIPTEN__)
-        g_mcpx_memory = xbox_wasm_back(XBOX_MCPX_BASE, XBOX_MCPX_SIZE);
+        g_mcpx_memory = xbox_wasm_back(XBOX_MCPX_BASE, 1u << 20);              /* APU */
+        if (g_mcpx_memory && (!xbox_wasm_back(XBOX_MCPX_BASE + 0x400000u, 2u << 20)   /* AC'97, USB */
+                              || !xbox_wasm_back(XBOX_MCPX_BASE + 0x700000u, 1u << 20)))   /* NIC */
+            g_mcpx_memory = NULL;
+        fprintf(stderr, "  [WASM] register apertures backed: NV2A %u of %u MB, MCPX 4 of %u MB\n",
+                XBOX_NV2A_BACKED >> 20, XBOX_NV2A_SIZE >> 20, XBOX_MCPX_SIZE >> 20);
 #else
         uintptr_t mcpx_native = XBOX_MCPX_BASE + g_memory_offset;
         g_mcpx_memory = VirtualAlloc(
@@ -2872,10 +2889,9 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
                  * ac97_arm_write_trap), and wins against one that re-reads.
                  * DirectSound creates either way, which is what the engine
                  * behind it needs. */
-                *(volatile uint32_t *)((char *)g_mcpx_memory
-                                       + MCPX_AC97_CODEC_STATUS)
+                *(volatile uint32_t *)MCPX_AT(MCPX_AC97_CODEC_STATUS)
                     |= MCPX_AC97_CODEC_READY;
-                g_ac97_poll_page = (char *)g_mcpx_memory + AC97_NABM_OFFSET;
+                g_ac97_poll_page = MCPX_AT(AC97_NABM_OFFSET);
                 fprintf(stderr, "  AC97: codec reported ready at 0x%08X"
                                 " (plain memory; reset bits polled)\n",
                         XBOX_MCPX_BASE + MCPX_AC97_CODEC_STATUS);
@@ -2896,8 +2912,7 @@ BOOL xbox_MemoryLayoutInit(const void *xbe_data, size_t xbe_size)
                 if (g_apu_mmio_trapped)
                     fprintf(stderr, "  APU: 0x%08X..0x%08X trapped for MMIO\n",
                             XBOX_MCPX_BASE, XBOX_MCPX_BASE + 0x00080000u);
-                *(volatile uint32_t *)((char *)g_mcpx_memory
-                                       + MCPX_AC97_CODEC_STATUS)
+                *(volatile uint32_t *)MCPX_AT(MCPX_AC97_CODEC_STATUS)
                     |= MCPX_AC97_CODEC_READY;
                 /* Before the trap is armed: this write would otherwise be
                  * the first thing to fault. */

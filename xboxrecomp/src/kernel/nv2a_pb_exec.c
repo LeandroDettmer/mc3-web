@@ -602,8 +602,15 @@ typedef struct { float pos[4], d0[4], t0[4]; int ok; } VpOut;
 /* Per-batch results by vertex index: a strip or an indexed mesh names most
  * vertices several times, and the program is the expensive part. */
 #define VP_CACHE 65536
+#if defined(__EMSCRIPTEN__)
+/* Browser: on the heap at first use (3.6 MB of wasm memory otherwise, which
+ * a TV's 256 MB cannot spare; the GL path rarely runs the CPU program). */
+static uint32_t *s_vp_stamp;
+static VpOut    *s_vp_cache;
+#else
 static uint32_t s_vp_stamp[VP_CACHE];
 static VpOut    s_vp_cache[VP_CACHE];
+#endif
 
 static int vp_method(uint32_t method, uint32_t param)
 {
@@ -821,6 +828,12 @@ static const VpOut *vp_vertex(uint32_t index)
     VpOut *o;
     uint32_t a;
 
+#if defined(__EMSCRIPTEN__)
+    if (!s_vp_cache) {                      /* fails: aborts (-sABORTING_MALLOC) */
+        s_vp_stamp = (uint32_t *)calloc(VP_CACHE, sizeof *s_vp_stamp);
+        s_vp_cache = (VpOut *)calloc(VP_CACHE, sizeof *s_vp_cache);
+    }
+#endif
     if (index < VP_CACHE && s_vp_stamp[index] == s_vp.gen)
         return &s_vp_cache[index];
     for (a = 0; a < NV_VERTEX_ATTRS; a++)
@@ -2127,7 +2140,13 @@ static void raster_tri(uint32_t i0, uint32_t i1, uint32_t i2, void *ctx)
 /* Hand the batch to the registered back end as a triangle list, using the
  * same topology rules as the CPU path below. */
 #define NV_BACKEND_MAX_VERTS (NV_MAX_INDICES * 3)
+#if defined(__EMSCRIPTEN__)
+/* Browser: on the heap at the first CPU-transformed batch (backend_batch);
+ * the GL and WebGPU back ends take raw batches and never get there. */
+static Nv2aVertex *s_bverts;
+#else
 static Nv2aVertex s_bverts[NV_BACKEND_MAX_VERTS];
+#endif
 
 static int backend_vertex(uint32_t index, Nv2aVertex *out)
 {
@@ -2158,7 +2177,11 @@ static struct { uint32_t batches, dark_lit; } s_vit;
 
 #define NV_VCACHE 65536
 typedef struct { uint32_t gen, index; int ok; Nv2aVertex v; } VCacheEntry;
+#if defined(__EMSCRIPTEN__)
+static VCacheEntry *s_vcache;               /* as s_bverts */
+#else
 static VCacheEntry s_vcache[NV_VCACHE];
+#endif
 static uint32_t s_vcache_gen;
 
 static int backend_vertex_cached(uint32_t index, Nv2aVertex *out)
@@ -2205,8 +2228,14 @@ static void backend_batch(void)
     Nv2aBatch batch;
     uint32_t n = 0;
 
+#if defined(__EMSCRIPTEN__)
+    if (!s_bverts) {                        /* fails: aborts (-sABORTING_MALLOC) */
+        s_bverts = (Nv2aVertex *)malloc(NV_BACKEND_MAX_VERTS * sizeof *s_bverts);
+        s_vcache = (VCacheEntry *)calloc(NV_VCACHE, sizeof *s_vcache);
+    }
+#endif
     if (++s_vcache_gen == 0) {               /* wrapped: old tags could match */
-        memset(s_vcache, 0, sizeof s_vcache);
+        memset(s_vcache, 0, NV_VCACHE * sizeof *s_vcache);
         s_vcache_gen = 1;
     }
 
