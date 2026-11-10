@@ -32,11 +32,16 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
     : low ? [[1024, 1024], [768, 768], [640, 640], [512, 512], [448, 448], [416, 416], [384, 384], [352, 352],
         [320, 320], [512, 768], [448, 768], [512, 1024], [448, 1024], [288, 288], [256, 512], [256, 1024]]
     : [[2048, 2048], [1024, 2048], [512, 2048], [256, 2048], [512, 1024], [256, 1024], [512, 512], [256, 512]];
+  // Firefox refuses any typed array of 2 GB or more passed to a DOM call ("can't be an ArrayBuffer or an
+  // ArrayBufferView larger than 2 GB", bugzil.la/1838218): WebGPU's writeBuffer (#1, a7042ba) and Emscripten's WebGL 2
+  // calls, which pass the whole HEAPU8. One 64 KB page under 2048 MB keeps every heap view below the limit.
+  var gecko = /Firefox\//.test(ua), pages = (mb) => mb * 16 - (gecko && mb >= 2048 ? 1 : 0);
   for (i = 0; i < tries.length; i++) {
     try {
-      Module['wasmMemory'] = new WebAssembly.Memory({ initial: tries[i][0] * 16, maximum: tries[i][1] * 16, shared: true });
+      Module['wasmMemory'] = new WebAssembly.Memory({ initial: pages(tries[i][0]), maximum: pages(tries[i][1]), shared: true });
       log('[WEB] memory: ' + tries[i][0] + ' MB to start, ' + tries[i][1] + ' MB at most'
-        + (webkit ? ' (WebKit: fixed, pool 40)' : low ? ' (low profile)' : '') + (refused.length ? ' (refused: ' + refused.join('; ') + ')' : ''));
+        + (webkit ? ' (WebKit: fixed, pool 40)' : low ? ' (low profile)' : '') + (gecko ? ' (Firefox: 64 KB less than 2 GB)' : '')
+        + (refused.length ? ' (refused: ' + refused.join('; ') + ')' : ''));
       return;
     } catch (e) {
       refused.push(tries[i][0] + '/' + tries[i][1] + ' ' + (e && e.message || String(e)));

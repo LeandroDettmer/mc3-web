@@ -543,7 +543,7 @@
     { key: 'MC3_TOUCH_OPACITY', label: 'Touch controls opacity', help: 'How much of the game shows through them.',
       opts: [['', '45% (default)'], ['0.25', '25%'], ['0.6', '60%'], ['0.8', '80%'], ['1', '100%']] },
     { group: 'Performance' },
-    { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL.',
+    { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL. Firefox always uses WebGL (its WebGPU shows a black screen).',
       opts: [['', 'Auto (default)'], ['webgpu', 'WebGPU'], ['webgl', 'WebGL']] },
     { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60. Auto: on, off (30 fps) on phones.',
       opts: [['', 'Auto (default)'], ['1', 'On'], ['0', 'Off']] },
@@ -968,7 +968,7 @@
     const ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
     const android = /Android/.test(ua);
     let gpu = false, bits = '';
-    try { gpu = !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch {}
+    try { gpu = !/Firefox\//.test(ua) && !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch {}   // Firefox: WebGL (gpuChoice)
     try { bits = (await navigator.userAgentData?.getHighEntropyValues?.(['bitness']))?.bitness || ''; } catch {}
     const mem = navigator.deviceMemory;
     const rows = [
@@ -1403,8 +1403,11 @@
   // WebGPU is only offered when an adapter answers: asked before the canvas goes to the game's worker.
   // Auto picks WebGPU when an adapter answers (30 fps in cruise where WebGL held 15,
   // 2026-11-08), else WebGL; the row or ?RECOMP_GPU=webgl forces WebGL.
+  // Firefox: WebGL even when WebGPU is picked. Its WebGPU drew every frame into the game worker's canvas with no error
+  // and the page stayed black (#1, 2026-11-10: frame counter moving, music playing).
   async function gpuChoice(env) {
     if (env.RECOMP_GPU === 'webgl') return 'webgl';
+    if (/Firefox\//.test(navigator.userAgent)) { out('[WEB] graphics: Firefox shows no WebGPU picture from the game\'s worker: WebGL'); return 'webgl'; }
     try {
       const a = navigator.gpu && await navigator.gpu.requestAdapter(), i = a?.info || {};
       if (a) { gpuInfo = 'WebGPU adapter ' + ([i.vendor, i.architecture, i.device, i.description].filter(Boolean).join(' ') || '(no info)'); return 'webgpu'; }
