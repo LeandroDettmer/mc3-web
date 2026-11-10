@@ -279,7 +279,7 @@ test('players: pushed to subscribers on change, at most every WHO_MS; modes, cit
   await b.say({ t: 'ping', id: 1 }, now += 2000);
   got = last(a.ws.texts(), 'players');
   assert.deepEqual(got.list, [{ name: 'Bo', mode: 'roam', city: 2 }, { name: 'Ann', mode: 'menu' }]);
-  assert.deepEqual(got.modes, { roam: 1, race: 0, menu: 1 });
+  assert.deepEqual(got.modes, { roam: 1, race: 0, career: 0, arcade: 0, menu: 1, loading: 0, page: 0 });
   assert.deepEqual(got.freeRoam, { total: 1, rooms: { 2: 1 } });
   // nothing changed: nothing sent
   await b.say({ t: 'ping', id: 2 }, now += 2000);
@@ -306,6 +306,37 @@ test('players: pushed to subscribers on change, at most every WHO_MS; modes, cit
   peer();
   await a.say({ t: 'ping', id: 5 }, now += 2000);
   assert.equal(last(a.ws.texts(), 'players'), undefined);
+  clearTimeout(sw.whoTimer);
+});
+
+test('where: the page says what it does; validated, no reply, free roam and race rooms win, old pages are menu', async () => {
+  const { sw, named } = setup();
+  const [a, b, c, d, e, f] = [await named('Ann'), await named('Bob'), await named('Cy'), await named('Di'), await named('Ed'), await named('Flo')];
+  let now = Date.now() + 10_000;
+  await a.say({ t: 'players', sub: 1 }, now);
+  let got = last(a.ws.texts(), 'players');
+  assert.deepEqual(got.list.map(p => p.mode), ['menu', 'menu', 'menu', 'menu', 'menu', 'menu'], 'never said: menu (old pages)');
+  b.ws.take();
+  for (const [p, w] of [[a, 'page'], [b, 'loading'], [c, 'career'], [d, 'arcade'], [e, 'bogus']]) await p.say({ t: 'where', w }, now);
+  assert.deepEqual(b.ws.texts(), [], 'no reply to where');
+  await a.say({ t: 'ping', id: 1 }, now += 2000);
+  got = last(a.ws.texts(), 'players');
+  assert.deepEqual(got.list.map(p => [p.name, p.mode]), [['Cy', 'career'], ['Di', 'arcade'], ['Ed', 'menu'], ['Flo', 'menu'], ['Bob', 'loading'], ['Ann', 'page']]);
+  assert.deepEqual(got.modes, { roam: 0, race: 0, career: 1, arcade: 1, menu: 2, loading: 1, page: 1 });
+  // a bad value keeps the old one; a rename (hello) keeps it too
+  await c.say({ t: 'where', w: 5 }, now);
+  await c.say({ t: 'hello', name: 'Cyd', lan: 1 }, now);
+  assert.equal(sw.clients.get(c.vip).a.w, 'career');
+  // free roam beats it; so does a race room
+  await d.frame(udp(d.vip, HUB, [...hello(1, 'Di', 0, 1)], ROAM_PORT, ROAM_PORT), now + 100);
+  await e.say({ t: 'create', name: 'Night' }, now);
+  await f.say({ t: 'join', room: sw.rooms()[0].a.host.id }, now);
+  await a.say({ t: 'ping', id: 2 }, now += 2000);
+  got = last(a.ws.texts(), 'players');
+  assert.deepEqual(got.list.map(p => p.mode), ['roam', 'race', 'race', 'career', 'loading', 'page']);
+  assert.equal(got.modes.arcade, 0);
+  // the choice survives the attachment (a hibernation wake rebuilds the clients from it)
+  assert.equal(sw.clients.get(b.vip).ws.deserializeAttachment().w, 'loading');
   clearTimeout(sw.whoTimer);
 });
 

@@ -44,6 +44,7 @@ to deliver the same objects in order per client.
 | `{"t":"leave"}` | Leave the room (no room afterwards). |
 | `{"t":"beat"}` | Heartbeat, every 20 s while connected. Changes nothing. |
 | `{"t":"signal","to":vip,"kind":"offer"\|"answer"\|"ice","data":any}` | Reserved for step 2: relayed to `to` if both are in the same room. |
+| `{"t":"where","w":w}` | Worker switch only (web/lan-worker/src/switch.js): what this page is doing, for the online players list. `w` = `page` (start page, game not started), `loading` (Play pressed until the game's menus), `menu` (game menus, garage), `career`, `arcade` (offline races). Any other `w` is ignored. No reply. The page (web/lan.js `link.where`) sends it only on change, at most once per 5 s, and after the hello of every (re)connect. A socket that never sent one counts as `menu`. Free Roam (the hub knows it) and race rooms (the client's room) win over it: such a player is listed `roam` / `race`. |
 
 Fields: `name` the race's name (cleaned like a nick, at most 32 characters, empty ->
 `<nick>'s race`); `city`, `mode` free text the page knows (at most 24 characters,
@@ -67,6 +68,15 @@ member = {"vip":vip,"vipStr":"10.77.x.y","name":nick,"host":bool}
 
 `city`/`mode` are `""` when unknown. The list is sorted oldest room first. A
 password, its hash or its verifier is never in any message.
+
+Who is online (Worker switch only; `{"t":"players","sub":1}` subscribes, pushed on change, at most
+every 2 s): `{"t":"players","online":n,"freeRoam":{...},"races":{...},"modes":{"roam","race","career","arcade","menu","loading","page"},"list":[{"name","mode","city?","race?"}],"more":n}`.
+`mode` is one of the `modes` keys, in that order in the list; `roam` and `race` come from the switch
+itself, the other five from the player's last `where`. The page's widget labels them Free Roam, in
+Races, Career, Arcade, Menus, Loading, On the start page. How the game side tells them:
+src/games/remix/recomp_manual.c `activity_update` (state at `[0x557ED0]+4`: 0/1/4 loading, 7 menu,
+2/3/6 career when `[0x53F2D4]` == 2 else arcade, 5 garage keeps the activity it was entered from
+when that was career or arcade, else menu), read by the page through `Module.mc3Activity`.
 
 Error codes: `gone` (no such room), `full` (n == max), `password` (locked and no
 or a wrong password), `limit` (too many rooms on the server or from this address),

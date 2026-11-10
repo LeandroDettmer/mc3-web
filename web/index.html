@@ -208,7 +208,7 @@
   .on-head b, .on-mode b { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; color: var(--gold);
                            text-shadow: var(--outline); font-variant-numeric: tabular-nums; }
   .on-head b { font-size: 28px; line-height: 32px; }
-  .on-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+  .on-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; margin-top: 8px; }
   .on-mode { padding: 8px; border-radius: var(--r); background: var(--panel); color: var(--muted); font-size: 13px; line-height: 18px; min-width: 0; overflow-wrap: anywhere; }
   .on-mode b { display: block; font-size: 20px; line-height: 26px; }
   .on-cities { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 8px; font-size: 13px; line-height: 18px; color: var(--silver); }
@@ -1693,13 +1693,22 @@
     const others = r.members.filter(m => (m.vip >>> 0) !== lan.vip);
     $('race-links').textContent = others.length ? `Race room: ${others.map(m => m.name + ' (' + r.mode(m.vip) + ')').join(', ')}.` : '';
   }
+  // What this page is doing, for the online players list (web/lan.js link.where; the link sends it on change only, at
+  // most every 5 s): the start page, Play pressed until the game's menus, then the game's own activity
+  // (Module.mc3Activity, src/games/remix/recomp_manual.c: 0 loading, 1 menu, 2 career, 3 arcade).
+  function whereNow() {
+    if (!playing) return 'page';
+    const a = booted ? window.Module?.mc3Activity?.() : 0;
+    return a === 0 ? 'loading' : a === 2 ? 'career' : a === 3 ? 'arcade' : 'menu';   // undefined (a game without it): menu
+  }
+  setInterval(() => lan?.where?.(whereNow()), 2000);
   function lanUp() {
     if (typeof mc3Lan !== 'function') {
       lan?.close(); lan = null; $('lan-status').textContent = '';
       racesShow(null);
       return null;
     }
-    if (!lan || lan.state === 'offline') { lan?.close(); lan = mc3Lan($('name').value.trim(), cfg?.lanUrl); lan.on(lanShow); window.mc3Rtc?.(lan, cfg?.iceServers).on(raceShow); }
+    if (!lan || lan.state === 'offline') { lan?.close(); lan = mc3Lan($('name').value.trim(), cfg?.lanUrl); lan.where?.(whereNow()); lan.on(lanShow); window.mc3Rtc?.(lan, cfg?.iceServers).on(raceShow); }
     return lan;
   }
   $('saves-refresh').onclick = () => { savesMsg(''); listSaves(); };
@@ -1858,8 +1867,10 @@
       return u.href;
     } catch { return null; }
   }
-  // the widget: live dot + total, then Free Roam (players, per city), Races (open rooms: the server counts rooms,
-  // not their players) and Career (online - free roam: menus, career, and whoever is in a race)
+  // the widget: live dot + total, then the players per activity (the push's modes: Free Roam, in Races, Career, Arcade,
+  // Menus, Loading, On the start page) and Free Roam per city. Without the push (GET /lan/stats: counts only) it keeps
+  // Free Roam, open race rooms and everybody else.
+  const ACTIVITY = [['career', 'Career'], ['arcade', 'Arcade'], ['menu', 'Menus'], ['loading', 'Loading'], ['page', 'On the start page']];
   function onlineWidget(el, s) {
     const n = v => Math.max(0, Math.floor(Number(v)) || 0), rooms = s.freeRoam.rooms;
     const el$ = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
@@ -1868,8 +1879,14 @@
     head.append(dot, el$('b', '', online), el$('span', '', online === 1 ? 'player online' : 'players online'));
     const box = (k, label) => { const d = el$('div', 'on-mode'); d.append(el$('b', '', k), el$('span', '', label)); return d; };
     const modes = el$('div', 'on-modes');
-    modes.append(box(roam, 'Free Roam'), box(races, races === 1 ? 'race open' : 'races open'), box(online - roam, 'Career'));
-    modes.lastChild.title = 'Menus, career and online races';
+    if (s.modes) {
+      const md = s.modes, inRace = box(n(md.race), 'in Races');
+      inRace.title = races === 1 ? '1 race room open' : races + ' race rooms open';
+      modes.append(box(roam, 'Free Roam'), inRace, ...ACTIVITY.map(([k, label]) => box(n(md[k]), label)));
+    } else {
+      modes.append(box(roam, 'Free Roam'), box(races, races === 1 ? 'race open' : 'races open'), box(online - roam, 'Not in Free Roam'));
+      modes.lastChild.title = 'Menus, career, arcade and online races';
+    }
     const cities = el$('p', 'on-cities');
     const ids = [...new Set([...CITIES.keys(), ...Object.keys(rooms).map(Number).filter(i => Number.isInteger(i) && i >= 0)])].sort((a, b) => a - b);
     for (const id of ids) {
@@ -1895,11 +1912,12 @@
     if ($('players-dlg').open) playersList(s);
     return true;
   }
-  // View players: every listed name by mode (free roam per city, race rooms, the rest), live while open
+  // View players: every listed name by activity (free roam per city, race rooms, career, arcade, menus, loading, start page), live while open
   function playersList(s) {
     const n = v => Math.max(0, Math.floor(Number(v)) || 0), groups = new Map(), out = [];
     for (const p of s.list) {
-      const k = p.mode === 'roam' ? 'Free Roam: ' + (CITIES[p.city] || 'City ' + n(p.city)) : p.mode === 'race' ? 'Race room: ' + (p.race || 'unnamed') : 'Menus, career, online races';
+      const k = p.mode === 'roam' ? 'Free Roam: ' + (CITIES[p.city] || 'City ' + n(p.city)) : p.mode === 'race' ? 'Race room: ' + (p.race || 'unnamed')
+        : ACTIVITY.find(a => a[0] === p.mode)?.[1] ?? 'Menus';
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k).push(p.name);
     }
@@ -1912,7 +1930,7 @@
     }
     if (n(s.more)) { const m = document.createElement('p'); m.className = 'hint'; m.style.marginTop = '12px'; m.textContent = `+${n(s.more)} more not listed.`; out.push(m); }
     const md = s.modes || {};
-    $('players-sum').textContent = `${n(s.online)} online: ${n(md.roam)} in Free Roam, ${n(md.race)} in race rooms, ${n(md.menu)} in Career.`;
+    $('players-sum').textContent = `${n(s.online)} online: ${n(md.roam)} in Free Roam, ${n(md.race)} in race rooms, ${ACTIVITY.map(([k, label]) => `${n(md[k])} ${k === 'page' ? 'on the start page' : label.toLowerCase()}`).join(', ')}.`;
     $('players-list').replaceChildren(...out);
   }
   let playersFrom = null;

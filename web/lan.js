@@ -8,6 +8,8 @@
 //                                    // a lost link goes 'offline', then 'connecting' again by itself until close() (see connect())
 //   link.send(frame) / link.onframe  // binary frames (net.js); link.rename(name); link.close()
 //   link.askRoam()                   // the server's free-roam players (its hub) into l.roam [{name, status}], then l.on's
+//   link.where(w)                    // what the page is doing, for the players list: 'page' | 'loading' | 'menu' | 'career' | 'arcade'
+//                                    // ({"t":"where","w"}, only on change, at most every 5 s, again after a reconnect's hello)
 //   l.players                        // who is online, pushed by the switch when it changes (web/lan-worker/src/switch.js
 //                                    // {"t":"players"}: online, freeRoam, races, modes, list [{name, mode, city?, race?}], more);
 //                                    // null while offline or from a switch without it (web/server): the page polls /lan/stats then
@@ -35,6 +37,15 @@ window.mc3Lan = function (name, lanUrl) {
   var cid = '';
   try { cid = localStorage.getItem('mc3.cid') || ''; if (!/^[\w-]{8,40}$/.test(cid)) { cid = (Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2) + '00000000').slice(0, 20); localStorage.setItem('mc3.cid', cid); } } catch (_) {}
   function hello() { ws.send(JSON.stringify({ t: 'hello', name: name || '', lan: 1, cid: cid || undefined })); }
+  // What this page is doing (link.where): sent only when it changed, at most once per WHERE_MS (an incoming message
+  // is billed by the Worker), and again after every (re)connect's hello: a new socket starts as 'menu' on the switch.
+  var WHERE_MS = 5000, now = '', told = '', toldAt = 0, whereT = 0;
+  function tellWhere() {
+    whereT = 0;
+    if (!up() || !now || now == told) return;
+    told = now; toldAt = Date.now();
+    ws.send(JSON.stringify({ t: 'where', w: now }));
+  }
   // The link stays wanted until close(): a drop (network, proxy idle, the server's or Cloud Run's request timeout,
   // a redeploy) reconnects after 1, 2, 4, 8, 15 s (+-25%), asking for the same address back (?vip=, the switch gives
   // it if free), then says hello, subscribes and rejoins the race room again.  The same link object throughout, so
@@ -49,6 +60,7 @@ window.mc3Lan = function (name, lanUrl) {
     ws.onopen = function () {
       heard = Date.now();
       hello();
+      told = ''; tellWhere();
       if (sub) ws.send(JSON.stringify({ t: 'rooms', sub: 1 }));
       ws.send(JSON.stringify({ t: 'players', sub: 1 }));
       if (rejoin) { auto = true; ws.send(JSON.stringify({ t: 'join', room: rejoin.id, pass: rejoin.pass })); }
@@ -114,6 +126,13 @@ window.mc3Lan = function (name, lanUrl) {
   link.rename = function (n) { name = n; if (up()) hello(); };
   // Subscribes to the players push again (the switch answers at once); the page calls it when it wants the list and has none.
   link.askPlayers = function () { if (up()) ws.send(JSON.stringify({ t: 'players', sub: 1 })); };
+  // w: 'page' | 'loading' | 'menu' | 'career' | 'arcade' (the switch ignores any other); call as often as you like
+  link.where = function (w) {
+    now = w;
+    if (!up() || w == told || whereT) return;
+    var wait = toldAt + WHERE_MS - Date.now();
+    if (wait <= 0) tellWhere(); else whereT = setTimeout(tellWhere, wait);
+  };
   link.askRoam = function () { if (up()) ws.send(JSON.stringify({ t: 'roam' })); };
   link.onMsg = function (f) { msgFns.push(f); };   // every control message (rooms, signal: web/rtc.js)
   link.sendMsg = function (m) { if (m && m.t == 'rooms') sub = m.sub ? 1 : 0; if (up()) ws.send(JSON.stringify(m)); };

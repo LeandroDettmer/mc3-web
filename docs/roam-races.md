@@ -22,7 +22,7 @@ one run with a trace is needed before building on it.
 | Address | What |
 |---|---|
 | `[0x557ED0]` | mcGameState. State at +4, request queue at +0xC (10 slots, ring +0x34/+0x38/+0x3C). vt+4 `sub_00020E40` = Request(id), vt+8 `sub_00020EC0` = run the requests, vt+0x18 `sub_00021D30` = EnterState(n). |
-| `[0x53F2D4]` | game mode (2 = career; Arcade path `sub_0013A400` writes 1; 3/4/5 other modes, not needed here) |
+| `[0x53F2D4]` | game mode (2 = career; Arcade path `sub_0013A400` writes 0 for a cruise, 1 for a race; the front end's enter `sub_00021410` writes 3, the reload's enter 4, the garage's `sub_00021A60` 5; the byte `[0x50F128]` holds the profile's mode and is copied back when the mode is 5 on some paths, 0x2074A, 0x213D8). The online players list reads it (`activity_update`, recomp_manual.c) |
 | `[0x53F2E0]` | race setup **in use** (the loaded race or cruise) |
 | `[0x53F2E4]` | race setup **to load next**. State 2's enter (`sub_00021170`) builds the level from it. |
 | `[0x53F2E8]` | Arcade setup screen's settings (same class) |

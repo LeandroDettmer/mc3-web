@@ -2355,6 +2355,40 @@ void sub_00020E40(void)
     sub_00020E40_gen();
 }
 static uint32_t s_state_obj;                    /* for MC3_AUTOSTART (sub_0020B6F0) */
+
+/* What the player is doing, for the page's "where" message (web/index.html
+ * lanWhere -> the Worker's players list). Recomputed at each state pass
+ * (sub_00020EC0, every frame) from the state at obj+4 and the game mode
+ * [0x53F2D4] (docs/roam-races.md 1.1, 1.2); the page reads s_activity through
+ * mc3_activity_box (web/pre.js Module.mc3Activity):
+ *   0 loading  state 0/1/4 (boot, the intro movies); 0 also before the first pass
+ *   1 menu     state 7 (front end: title, main menu, setup screens)
+ *   2 career   states 2/3/6 (level, pause, reload) with mode 2 (Career and Tokyo)
+ *   3 arcade   states 2/3/6 with any other mode (Arcade races; Online's Free Roam
+ *              cruise too, mode 0: the server's hub says Free Roam first)
+ * State 5 (garage) keeps the activity it was entered from when that was career
+ * or arcade (the career's garage), else it is a menu (the main menu's Garage).
+ * Unknown states: unchanged. */
+enum { ACT_LOADING, ACT_MENU, ACT_CAREER, ACT_ARCADE };
+static volatile int32_t s_activity;
+static void activity_update(uint32_t obj)
+{
+    static int32_t last;                        /* the last activity outside the garage */
+    uint32_t st = MEM32(obj + 4);
+    int32_t a;
+    switch (st) {
+    case 0: case 1: case 4: a = ACT_LOADING; break;
+    case 7: a = ACT_MENU; break;
+    case 2: case 3: case 6: a = MEM32(0x0053F2D4u) == 2u ? ACT_CAREER : ACT_ARCADE; break;
+    case 5: a = last == ACT_CAREER || last == ACT_ARCADE ? last : ACT_MENU; s_activity = a; return;
+    default: return;
+    }
+    s_activity = last = a;
+}
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+EMSCRIPTEN_KEEPALIVE uintptr_t mc3_activity_box(void) { return (uintptr_t)&s_activity; }
+#endif
 static void online_garage_left(void);           /* the Online profile is saved (below) */
 static void roam_cars_pass(uint32_t obj, int after); /* free roam: standalone cars (roam_cars.c) */
 extern void sub_00020EC0_gen(void);
@@ -2365,6 +2399,7 @@ void sub_00020EC0(void)
     roam_cars_pass(obj, 0);                     /* standalone cars out before a cruise teardown (roam_cars.c) */
     sub_00020EC0_gen();
     roam_cars_pass(obj, 1);
+    activity_update(obj);
     if (state_trace_on() && MEM32(obj + 4) != before)
         fprintf(stderr, "[STATE] %u -> %u\n", before, MEM32(obj + 4));
     if (before == 5u && MEM32(obj + 4) != 5u)  /* the garage (state 5) is left */

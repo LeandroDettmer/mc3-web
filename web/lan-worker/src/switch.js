@@ -24,9 +24,16 @@
 //
 // Who is online (the start page's "Playing now" box and its View players list): {"t":"players","sub":1} subscribes;
 // the subscriber gets the list at once, then again whenever it changed (joins, leaves, renames, mode or city), at most
-// every WHO_MS: {"t":"players", online, freeRoam, races (as GET /lan/stats), modes: {roam, race, menu},
-// list: [{name, mode: 'roam'|'race'|'menu', city?: free-roam room id, race?: room name}] (at most PLAYERS_MAX, free
-// roam by city first, then races, then the menus, by name), more: the players beyond the list}. Nicks are cleaned
+// every WHO_MS: {"t":"players", online, freeRoam, races (as GET /lan/stats), modes: {roam, race, career, arcade, menu,
+// loading, page} (counts, every key always there),
+// list: [{name, mode: 'roam'|'race'|'career'|'arcade'|'menu'|'loading'|'page', city?: free-roam room id, race?: room name}]
+// (at most PLAYERS_MAX, in the order of the modes above: free roam by city first, then races, career, ..., by name),
+// more: the players beyond the list}. A player in free roam (the hub knows it) or in a race room is 'roam' / 'race';
+// every other one is what its page last said with {"t":"where","w":"page|loading|menu|career|arcade"} (web/lan.js
+// link.where: the start page, Play pressed until the game's menus, game menus, career, arcade; stored in the client's
+// attachment `w`, anything else ignored, no reply); no 'where' yet (an old page, a new socket) counts as 'menu'. The
+// page sends it only on change (at most every 5 s) and after each hello of a (re)connect: ~10 incoming messages per
+// session, 1/20 request each. Nicks are cleaned
 // and cut to NICK characters on hello, and unique among the live clients (any case; 'Player', the empty name's
 // fallback, excepted): a hello with a held nick gets {"t":"error","op":"hello","code":"nick-taken"} and keeps its old name.
 //
@@ -58,6 +65,11 @@ export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, b
 // Over budget: dropped silently; empty for FLOOD_MS in a row: closed with 1008 (lan.js reconnects with backoff).
 export const CTL = { perS: 20, burst: 200 }, FLOOD_MS = 10e3;
 export const NICK = 15, PLAYERS_MAX = 200, WHO_MS = 2000;   // the page's name field is 15 long
+// What a player not in free roam or a race room is doing ({"t":"where","w"} from the page, web/lan.js link.where), in the
+// list's order; a player whose page never said (an old page, or not yet) counts as 'menu'. Free roam and race rooms are
+// the switch's own knowledge (the hub, the client's room) and win over it.
+export const WHERE = ['career', 'arcade', 'menu', 'loading', 'page'];
+const MODES = ['roam', 'race', ...WHERE];
 // shortcut: the churn counters live in memory (lost when the object hibernates: needs 10 s without a message, so a
 // reconnect storm never loses them); the cap per IP, counted from the live sockets, is what is left if it did.
 export const GUARD = { perCid: 2, perIp: 8, helloMs: 10e3, churnMax: 20, churnMs: 60e3, coolMs: 60e3 };
@@ -127,11 +139,12 @@ export class Switch extends Lobby {
 
   /** {"t":"players"} (see the head of this file): the stats, every client's mode, the first PLAYERS_MAX names. */
   players() {
-    const roam = new Map(), races = new Map(), modes = { roam: 0, race: 0, menu: 0 }, rank = { roam: 0, race: 1, menu: 2 };
+    const roam = new Map(), races = new Map(), modes = {}, rank = {};
+    MODES.forEach((m, i) => { modes[m] = 0; rank[m] = i; });
     for (const p of this.hub.players.values()) if (!roam.has(p.vip)) roam.set(p.vip, p.room >>> 0);
     for (const h of this.rooms()) races.set(h.a.host.id, h.a.host.name);
     const all = [...this.clients.values()].map(({ a }) => {
-      const e = { name: String(a.name).slice(0, NICK), mode: 'menu' };
+      const e = { name: String(a.name).slice(0, NICK), mode: WHERE.includes(a.w) ? a.w : 'menu' };
       if (roam.has(a.vip)) { e.mode = 'roam'; e.city = roam.get(a.vip); }
       else if (a.room) { e.mode = 'race'; e.race = races.get(a.room) ?? ''; }
       modes[e.mode]++;
@@ -236,9 +249,9 @@ export class Switch extends Lobby {
     return this.flood(c, k, limited, k.ctl >= CTL.burst / 2, now);
   }
 
-  /** The switch's own control messages (hello with lan, lan, roam, players); false: the Lobby's (rooms, ping, ...). */
+  /** The switch's own control messages (hello with lan, lan, roam, players, where); false: the Lobby's (rooms, ping, ...). */
   control(c, text, now) {
-    if (text.length > LIMITS.msg || !/"(hello|lan|roam|players)"/.test(text)) return false;
+    if (text.length > LIMITS.msg || !/"(hello|lan|roam|players|where)"/.test(text)) return false;
     let m;
     try { m = JSON.parse(text); } catch { return false; }
     if (m?.t === 'hello') {
@@ -253,6 +266,7 @@ export class Switch extends Lobby {
       c.a.hi = true; c.a.lan = on(m.lan);
     } else if (m?.t === 'lan') c.a.lan = on(m.on);
     else if (m?.t === 'players') c.a.who = on(m.sub);
+    else if (m?.t === 'where') { if (WHERE.includes(m.w)) c.a.w = m.w; }   // anything else: ignored, the old one stays
     else if (m?.t !== 'roam') return false;
     c.a.last = now;
     this.save(c);

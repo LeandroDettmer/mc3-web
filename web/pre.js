@@ -112,6 +112,14 @@ Module['mc3Resume'] = function () {
   return { seq: Atomics.load(I32, b), live: I32[b + 1], city: I32[b + 2], m: Array.from(F32.subarray(b + 3, b + 15)) };
 };
 
+// What the player is doing (web/index.html lanWhere -> the switch's "where"), from src/games/remix/recomp_manual.c's
+// mc3_activity_box: 0 loading (boot, intro movies), 1 menu, 2 career, 3 arcade. undefined until the runtime is up or
+// on a game without it.
+Module['mc3Activity'] = function () {
+  if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _mc3_activity_box != 'function') return;
+  return Atomics.load(new Int32Array(HEAPU8.buffer), _mc3_activity_box() >>> 2);
+};
+
 // Touch controls (web/touch.js): their virtual pad's 14 words into xboxrecomp/src/input/touch_pad_web.c's box, which
 // the runtime merges into pad 1. False until the runtime is up (the caller sends again).
 Module['mc3TouchPad'] = function (words) {
