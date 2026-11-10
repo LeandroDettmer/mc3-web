@@ -878,7 +878,10 @@ void rc_tick(rc_session *s, int64_t now){
             rc_msg m; hdr(s, &m, RC_MSG_SNAP);
             m.u.snap.status = s->status; m.u.snap.epoch = s->epoch; m.u.snap.clock = s->clock; m.u.snap.cfg_rev = s->cfg_rev;
             m.u.snap.n = 1; m.u.snap.s[0] = s->last[0];
-            tx_to(s, s->conf.hub_ip, s->conf.hub_port, &m); s->hub_snap_tx = now;
+            tx_to(s, s->conf.hub_ip, s->conf.hub_port, &m);
+            /* linked peers too: else they mark us lost after 3 s and our map blip (and slot) vanish */
+            for (int i = 0; i < RC_TABLE; i++) if (s->peer[i].state == RC_PS_EST) tx(s, &s->peer[i], &m);
+            s->hub_snap_tx = now;
         }
         int st = !hub ? 0 : s->hub_heard_us ? 2 : 1;
         if (st != s->hub_was && st != 1)
