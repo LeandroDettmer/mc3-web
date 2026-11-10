@@ -279,7 +279,7 @@ test('players: pushed to subscribers on change, at most every WHO_MS; modes, cit
   await b.say({ t: 'ping', id: 1 }, now += 2000);
   got = last(a.ws.texts(), 'players');
   assert.deepEqual(got.list, [{ name: 'Bo', mode: 'roam', city: 2 }, { name: 'Ann', mode: 'menu' }]);
-  assert.deepEqual(got.modes, { roam: 1, race: 0, career: 0, arcade: 0, menu: 1, loading: 0, page: 0 });
+  assert.deepEqual(got.modes, { roam: 1, race: 0, menu: 1 });
   assert.deepEqual(got.freeRoam, { total: 1, rooms: { 2: 1 } });
   // nothing changed: nothing sent
   await b.say({ t: 'ping', id: 2 }, now += 2000);
@@ -309,20 +309,21 @@ test('players: pushed to subscribers on change, at most every WHO_MS; modes, cit
   clearTimeout(sw.whoTimer);
 });
 
-test('where: the page says what it does; validated, no reply, free roam and race rooms win, old pages are menu', async () => {
+test('where: private. The push stays coarse; activity() has the detail; validated, no reply, free roam and race rooms win, old pages are menu', async () => {
   const { sw, named } = setup();
   const [a, b, c, d, e, f] = [await named('Ann'), await named('Bob'), await named('Cy'), await named('Di'), await named('Ed'), await named('Flo')];
   let now = Date.now() + 10_000;
   await a.say({ t: 'players', sub: 1 }, now);
-  let got = last(a.ws.texts(), 'players');
-  assert.deepEqual(got.list.map(p => p.mode), ['menu', 'menu', 'menu', 'menu', 'menu', 'menu'], 'never said: menu (old pages)');
+  assert.deepEqual(sw.activity().activities, { roam: 0, race: 0, career: 0, arcade: 0, menu: 6, loading: 0, page: 0 }, 'never said: menu (old pages)');
   b.ws.take();
   for (const [p, w] of [[a, 'page'], [b, 'loading'], [c, 'career'], [d, 'arcade'], [e, 'bogus']]) await p.say({ t: 'where', w }, now);
   assert.deepEqual(b.ws.texts(), [], 'no reply to where');
   await a.say({ t: 'ping', id: 1 }, now += 2000);
-  got = last(a.ws.texts(), 'players');
-  assert.deepEqual(got.list.map(p => [p.name, p.mode]), [['Cy', 'career'], ['Di', 'arcade'], ['Ed', 'menu'], ['Flo', 'menu'], ['Bob', 'loading'], ['Ann', 'page']]);
-  assert.deepEqual(got.modes, { roam: 0, race: 0, career: 1, arcade: 1, menu: 2, loading: 1, page: 1 });
+  let got = last(a.ws.texts(), 'players');
+  assert.deepEqual(got.modes, { roam: 0, race: 0, menu: 6 }, 'the push does not tell');
+  assert.ok(got.list.every(p => p.mode === 'menu' && Object.keys(p).join() === 'name,mode'));
+  assert.deepEqual(sw.activity().activities, { roam: 0, race: 0, career: 1, arcade: 1, menu: 2, loading: 1, page: 1 });
+  assert.deepEqual(sw.stats(), { online: 6, freeRoam: { total: 0, rooms: {} }, races: { rooms: 0 } });
   // a bad value keeps the old one; a rename (hello) keeps it too
   await c.say({ t: 'where', w: 5 }, now);
   await c.say({ t: 'hello', name: 'Cyd', lan: 1 }, now);
@@ -331,13 +332,56 @@ test('where: the page says what it does; validated, no reply, free roam and race
   await d.frame(udp(d.vip, HUB, [...hello(1, 'Di', 0, 1)], ROAM_PORT, ROAM_PORT), now + 100);
   await e.say({ t: 'create', name: 'Night' }, now);
   await f.say({ t: 'join', room: sw.rooms()[0].a.host.id }, now);
-  await a.say({ t: 'ping', id: 2 }, now += 2000);
-  got = last(a.ws.texts(), 'players');
-  assert.deepEqual(got.list.map(p => p.mode), ['roam', 'race', 'race', 'career', 'loading', 'page']);
-  assert.equal(got.modes.arcade, 0);
+  const act = sw.activity();
+  assert.equal(act.online, 6);
+  assert.deepEqual(act.activities, { roam: 1, race: 2, career: 1, arcade: 0, menu: 0, loading: 1, page: 1 });
+  assert.deepEqual(act.cities, { 1: 1 });
+  assert.deepEqual(act.list.find(p => p.name === 'Di'), { name: 'Di', activity: 'roam', city: 1 });
+  assert.deepEqual(act.list.find(p => p.name === 'Bob'), { name: 'Bob', activity: 'loading' });
   // the choice survives the attachment (a hibernation wake rebuilds the clients from it)
   assert.equal(sw.clients.get(b.vip).ws.deserializeAttachment().w, 'loading');
   clearTimeout(sw.whoTimer);
+});
+
+test('logActivity: one line when the counts changed, at most every 60 s', async () => {
+  const { sw, named } = setup();
+  const a = await named('Ann'), logs = [], real = console.log;
+  console.log = l => logs.push(l);
+  try {
+    let now = 1e6;
+    sw.logActivity(now);
+    assert.equal(logs.length, 1);
+    assert.match(logs[0], /^activity online=1 {.*"menu":1.*} cities={}$/);
+    await a.say({ t: 'where', w: 'career' }, now += 1000);   // changed, but inside the minute
+    assert.equal(logs.length, 1);
+    await a.say({ t: 'where', w: 'arcade' }, now += 60e3);
+    assert.equal(logs.length, 2);
+    assert.match(logs[1], /"arcade":1/);
+    sw.logActivity(now += 61e3);   // a minute on, nothing changed
+    assert.equal(logs.length, 2);
+  } finally { console.log = real; }
+  clearTimeout(sw.whoTimer);
+});
+
+test('GET /lan/activity: ADMIN_KEY (header or ?key=), 404 without or unset, no CORS, not cached', async () => {
+  const { default: worker } = await import('../src/index.js');
+  const sw = { activity: () => ({ online: 0 }) }, calls = [];
+  const env = k => ({ ADMIN_KEY: k, SWITCH: { idFromName: n => n, get: () => ({ fetch: async r => (calls.push(new URL(r.url).pathname), Response.json({ online: 0 })) }) } });
+  const get = (e, path, headers) => worker.fetch(new Request('https://x.test' + path, { headers }), e, undefined);
+  const e = env('s3cret');
+  assert.equal((await get(e, '/lan/activity')).status, 404);
+  assert.equal((await get(e, '/lan/activity', { Authorization: 'Bearer nope' })).status, 404);
+  assert.equal((await get(e, '/lan/activity?key=nope')).status, 404);
+  assert.equal((await get(env(undefined), '/lan/activity?key=undefined')).status, 404);
+  assert.equal((await get(env(''), '/lan/activity', { Authorization: 'Bearer ' })).status, 404);
+  assert.equal(calls.length, 0, 'the object is never woken without the key');
+  for (const r of [await get(e, '/lan/activity', { Authorization: 'Bearer s3cret' }), await get(e, '/lan/activity?key=s3cret', { Origin: 'https://evil.test' })]) {
+    assert.equal(r.status, 200);
+    assert.equal(r.headers.get('Cache-Control'), 'no-store');
+    assert.equal(r.headers.get('Access-Control-Allow-Origin'), null);
+    assert.deepEqual(await r.json(), { online: 0 });
+  }
+  assert.deepEqual(calls, ['/lan/activity', '/lan/activity']);
 });
 
 test('nicks: unique among live clients, any case, trimmed; refused keeps the old name; freed on close; Player shared', async () => {

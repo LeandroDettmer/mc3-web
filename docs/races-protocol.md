@@ -44,7 +44,7 @@ to deliver the same objects in order per client.
 | `{"t":"leave"}` | Leave the room (no room afterwards). |
 | `{"t":"beat"}` | Heartbeat, every 20 s while connected. Changes nothing. |
 | `{"t":"signal","to":vip,"kind":"offer"\|"answer"\|"ice","data":any}` | Reserved for step 2: relayed to `to` if both are in the same room. |
-| `{"t":"where","w":w}` | Worker switch only (web/lan-worker/src/switch.js): what this page is doing, for the online players list. `w` = `page` (start page, game not started), `loading` (Play pressed until the game's menus), `menu` (game menus, garage), `career`, `arcade` (offline races). Any other `w` is ignored. No reply. The page (web/lan.js `link.where`) sends it only on change, at most once per 5 s, and after the hello of every (re)connect. A socket that never sent one counts as `menu`. Free Roam (the hub knows it) and race rooms (the client's room) win over it: such a player is listed `roam` / `race`. |
+| `{"t":"where","w":w}` | Worker switch only (web/lan-worker/src/switch.js): what this page is doing, kept private for the owner (GET /lan/activity below), not shown in the players list. `w` = `page` (start page, game not started), `loading` (Play pressed until the game's menus), `menu` (game menus, garage), `career`, `arcade` (offline races). Any other `w` is ignored. No reply. The page (web/lan.js `link.where`) sends it only on change, at most once per 5 s, and after the hello of every (re)connect. A socket that never sent one counts as `menu`. Free Roam (the hub knows it) and race rooms (the client's room) win over it: such a player is `roam` / `race` there. |
 
 Fields: `name` the race's name (cleaned like a nick, at most 32 characters, empty ->
 `<nick>'s race`); `city`, `mode` free text the page knows (at most 24 characters,
@@ -70,11 +70,17 @@ member = {"vip":vip,"vipStr":"10.77.x.y","name":nick,"host":bool}
 password, its hash or its verifier is never in any message.
 
 Who is online (Worker switch only; `{"t":"players","sub":1}` subscribes, pushed on change, at most
-every 2 s): `{"t":"players","online":n,"freeRoam":{...},"races":{...},"modes":{"roam","race","career","arcade","menu","loading","page"},"list":[{"name","mode","city?","race?"}],"more":n}`.
-`mode` is one of the `modes` keys, in that order in the list; `roam` and `race` come from the switch
-itself, the other five from the player's last `where`. The page's widget labels them Free Roam, in
-Races, Career, Arcade, Menus, Loading, On the start page. How the game side tells them:
-src/games/remix/recomp_manual.c `activity_update` (state at `[0x557ED0]+4`: 0/1/4 loading, 7 menu,
+every 2 s): `{"t":"players","online":n,"freeRoam":{...},"races":{...},"modes":{"roam","race","menu"},"list":[{"name","mode","city?","race?"}],"more":n}`.
+`mode` is `roam` (in Free Roam; the hub knows it), `race` (in a race room) or `menu` (everybody else; the page
+shows it as Career). The page's `where` is not in the push nor in GET `/lan/stats`.
+
+Activity (private, Worker only): `GET /lan/activity` with `Authorization: Bearer <ADMIN_KEY>` (the Worker secret;
+`?key=` also works but lands in logs, prefer the header). Without or with a wrong key, or with no secret set: 404.
+No CORS, never cached. Answer: `{"online":n,"activities":{"roam","race","career","arcade","menu","loading","page":n},"cities":{"<room id>":n},"list":[{"name","activity","city?"}]}`.
+`roam` and `race` come from the switch itself, the other five from the player's last `where`. The Durable Object also
+prints one `console.log` line (`activity online=... {...} cities={...}`, `wrangler tail`) when the counts changed, at most
+every 60 s, checked on each `where`. Set the key: `cd .deploy/lan-worker && XDG_CONFIG_HOME="$PWD/../xdg" npx wrangler secret put ADMIN_KEY`.
+How the game side tells the activities: src/games/remix/recomp_manual.c `activity_update` (state at `[0x557ED0]+4`: 0/1/4 loading, 7 menu,
 2/3/6 career when `[0x53F2D4]` == 2 else arcade, 5 garage keeps the activity it was entered from
 when that was career or arcade, else menu), read by the page through `Module.mc3Activity`.
 
