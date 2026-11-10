@@ -4044,6 +4044,19 @@ static void fr_setup_frame(void)
     if ((n = fr_count()) == s_fr_shown)
         return;
     s_fr_shown = n;
+    {   /* Still our row? SetLabel copies into [[item+8]+2*8] (column 2); a list rebuilt
+         * by another screen (Back to the menus) leaves s_fr_item freed, and the copy then
+         * writes "Online: N" over whatever owns that memory now. */
+        uint32_t lab = online_ram(s_fr_item) ? MEM32(s_fr_item + 8u) : 0, dst = online_ram(lab) ? MEM32(lab + 16u) : 0;
+        static const char want[] = "Online:";
+        int i;
+        for (i = 0; online_ram(dst) && i < 7 && MEM16(dst + 2u * (uint32_t)i) == (uint8_t)want[i]; i++)
+            ;
+        if (i < 7) {
+            s_fr_item = 0;
+            return;
+        }
+    }
     {
         uint32_t r[8] = { g_eax, g_ecx, g_edx, g_ebx, g_esp, g_ebp, g_esi, g_edi }, txt;
         txt = (r[4] - 0x400u) & ~0xFu;

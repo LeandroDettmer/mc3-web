@@ -1211,6 +1211,10 @@
     // Any other uncaught error kills its game thread (2026-11-10: Firefox's writeBuffer TypeError only showed as
     // 'No picture after 90 s'). After the specific ones, which name the cause when their line comes first.
     [/worker sent an error!/, 'A game thread crashed', 'The game cannot go on. Reload the page; the log says where.'],
+    // The guest's own fixed heap (xboxrecomp xbox_HeapAlloc), not the device: an iPhone got 'Out of memory on this
+    // device' for a 610 MB request in the Online menu (2026-11-10). '[HEAP] impossible' (more than the whole heap) comes first.
+    [/\[HEAP\] impossible request/, 'Game bug: impossible memory request', 'The game asked for an impossible amount of memory (a game bug), not more than this device has. Restart; the log names the caller.'],
+    [/xbox_HeapAlloc: out of memory/, 'The game\'s memory is full', 'The game used up the Xbox\'s own memory (a game or port bug), not this device\'s. Restart.'],
     [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory on this device', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
   ];
   function out(text) {
@@ -1503,6 +1507,7 @@
     // the game's disc reads take the cache choice from OPFS (web/disc_cache.js use()): written before it starts
     const start = async () => {
       await pipeSeed(app);
+      await webkitMemory();
       const s = document.createElement('script');
       try { s.src = cfg?.moduleUrl ? await moduleBlob(app) : app + '.js'; }
       catch (e) { runStatus(`Cannot load ${app}.js from ${cfg.moduleUrl}: ${e.message || e}`, true); return; }
@@ -1524,6 +1529,27 @@
   function resumeFresh() {
     const r = store.get('resume', null);
     return r && Date.now() - r.t < RESUME_MS && RESUME_CITIES[r.city] && r.m?.length === 12 ? r : null;
+  }
+  // WebKit (iPhone, iPad, Safari) frees the last run's wasm memory only at a garbage collection: after a reload
+  // (Restart, 2026-11-10) an iPhone refused every size down to 512 MB, 4 times in 40 s. So web/pre.js's first WebKit
+  // size (2 GB fixed) is made here: refused, the page makes garbage (JSC collects on allocation pressure) and tries
+  // again each second for 20 s, then hands it over (Module.wasmMemory; pre.js keeps its ladder for the rest).
+  async function webkitMemory() {
+    const ua = navigator.userAgent;
+    if (!(/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+      || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua)))) return;
+    for (let i = 0; i < 20; i++) {
+      try {
+        Module.wasmMemory = new WebAssembly.Memory({ initial: 2048 * 16, maximum: 2048 * 16, shared: true });
+        delete Module.mc3Pool;   // as pre.js does for WebKit: pool 40
+        out('[WEB] memory: 2048 MB to start, 2048 MB at most (WebKit: fixed, pool 40' + (i ? ', after ' + i + ' s' : '') + ')');
+        return;
+      } catch (e) {
+        if (!i) out('[WEB] memory: 2048 MB refused (' + (e?.message || e) + '); waiting up to 20 s for the last run\'s memory to be freed');
+      }
+      for (let j = 0; j < 16; j++) new ArrayBuffer(4 << 20);
+      await new Promise(r => setTimeout(r, 1000));
+    }
   }
   function restartGame(how) {
     try { sessionStorage.setItem('mc3.restart', JSON.stringify(how)); } catch {}
