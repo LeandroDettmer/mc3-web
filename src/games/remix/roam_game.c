@@ -157,6 +157,7 @@ void sub_002CBC40(void);                        /* car builder: build a race car
 void sub_002CB2C0(void);                        /* car builder dtor, thiscall */
 void sub_001240F0(void);                        /* a car's profile flags, thiscall */
 void sub_000F2C00(void);                        /* car model: preset paint into +0x1228 when +0x1270, thiscall */
+void sub_00092EF0(void);                        /* a drawable in/out of the draw list, thiscall (bool), ret 4 */
 void xbox_gil_atomic(int d);                    /* xboxrecomp kernel_bridge.c: no other guest thread inside */
 
 static int s_roam_fake = -1, s_roam_slots, s_roam_swap_on = -1;
@@ -501,10 +502,15 @@ static void roam_cfg_check(int k, const roam_peer *pp)
     s_roam_gen[k] = pp->cfg_gen;
     s_roam_said[k] &= ~(uint32_t)ROAM_SAY_BADREC;
     s_roam_want[k] = !roam_cfg_same(blob, s_roam_cfgb[k]);
-    fprintf(stderr, "[ROAM] slot %d: %s's car record %u: %s (car %d), slot built with %s (car %d): %s\n", k,
-            pp->name, (unsigned)pp->cfg_gen, roam_cfg_name(blob), (int)roam_cfg_car(blob),
+    for (len = 0xA; len < (int)ROAM_CFG_SIZE && blob[len] == s_roam_cfgb[k][len]; len++)
+        ;                                       /* the first byte that differs, for the log */
+    fprintf(stderr, "[ROAM] slot %d: %s's car record %u: %s (car %d), slot built with %s (car %d): %s",
+            k, pp->name, (unsigned)pp->cfg_gen, roam_cfg_name(blob), (int)roam_cfg_car(blob),
             roam_cfg_name(s_roam_cfgb[k]) ? roam_cfg_name(s_roam_cfgb[k]) : "?", (int)s_roam_car[k],
             s_roam_want[k] ? "differs, swap queued" : "the same, no swap");
+    if (s_roam_want[k])
+        fprintf(stderr, " (first at +0x%X: %02X, built %02X)", (unsigned)len, blob[len], s_roam_cfgb[k][len]);
+    fprintf(stderr, "\n");
 }
 
 /* The car cache slot holding car (key byte 0, as the player builder asks):
@@ -1208,12 +1214,31 @@ static void roam_trace(uint32_t slot, uint32_t veh, uint32_t c, const float m[12
             ctl ? (int8_t)ctl[7] / 127.0f : 0.0f, inputs);
 }
 
-/* A car's "drawn" flag, which also gates its minimap blip and HUD icons. */
+/* A car's "drawn" flag, which also gates its minimap blip and HUD icons, and
+ * the car in or out of the game's draw list (node [veh+0xC]+8, sub_00092EF0:
+ * idempotent both ways, as sub_000FFB40 takes a quitting peer's car out).
+ * The flag alone did not hide a parked slot: the cruise's rules update
+ * (sub_001D8F20 -> sub_001D86A0) sets it to 1 for every racer's car each
+ * frame, and moving [veh+0x1C] out of the physics level (be33760) left the
+ * car drawn on its start-grid spot (the render object keeps its own place,
+ * +0xC4): the spare slots stood there as nameless copies of our car
+ * (2026-11-10, owner). The slot report logs both places and the list. */
 static void roam_show(uint32_t veh, int on)
 {
-    uint32_t o = MEM32(veh + 0xCu);
-    if (online_ram(o))
-        MEM8(o + 0x12Du) = (uint8_t)on;
+    uint32_t o = MEM32(veh + 0xCu), a = (uint32_t)on;
+    if (!online_ram(o))
+        return;
+    MEM8(o + 0x12Du) = (uint8_t)on;
+    roam_call(sub_00092EF0, o + 8u, (g_esp - 0x400u) & ~0xFu, 1, &a);
+}
+
+/* The car's drawable is in the draw list (sub_00092EF0's own test). */
+static int roam_listed(uint32_t veh)
+{
+    uint32_t o = MEM32(veh + 0xCu), n, l;
+    if (!online_ram(o) || !online_ram(l = MEM32((n = o + 8u) + 0x10u)))
+        return -1;
+    return MEM32(n + 4u) || MEM32(n + 8u) || MEM32(l + 0x1Cu) == n;
 }
 
 /* A remote car's tyres (2026-11-10: a peer's Jetta drawn without tyres after

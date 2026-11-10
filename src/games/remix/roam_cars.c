@@ -79,7 +79,6 @@ extern uint32_t g_xbox_contig_size;             /* kernel.h: the contiguous wind
 #define ROAM_CARS_RESERVE (6u << 20)    /* heap bytes kept free (at least; heap / 8 if more) */
 #define ROAM_CAR_COST0 (512u << 10)     /* a car's heap cost before one was measured */
 
-void sub_00092EF0(void);                        /* a drawable in/out of the draw list, thiscall (bool), ret 4 */
 void sub_003308C0(void);                        /* the vehicle registry, cdecl; eax */
 
 static const struct { uint8_t arr, k; } s_roam_reg_lists[] = {   /* array field, bytes per capacity */
@@ -290,16 +289,19 @@ static void roam_car_line(const char *what, int k, uint32_t id, int driven, int 
 {
     uint32_t mtx = online_ram(veh) ? MEM32(veh + 0x1Cu) : 0, r = online_ram(veh) ? MEM32(veh + 0xCu) : 0;
     const float *me = s_roam_nhist ? s_roam_hist[(s_roam_nhist - 1) % ROAM_HIST].m : NULL;
-    float x = online_ram(mtx) ? MEMF(mtx + 0x34u) : 0.0f, y = online_ram(mtx) ? MEMF(mtx + 0x38u) : 0.0f,
-          z = online_ram(mtx) ? MEMF(mtx + 0x3Cu) : 0.0f;
-    int drawn = online_ram(r) ? MEM8(r + 0x12Du) : -1, far = me && fabsf(x - me[9]) + fabsf(z - me[11]) > 1000.0f;
+    float x = online_ram(mtx) ? MEMF(mtx + 0x34u) : 0.0f, z = online_ram(mtx) ? MEMF(mtx + 0x3Cu) : 0.0f;
+    int drawn = online_ram(r) ? MEM8(r + 0x12Du) : -1, listed = online_ram(veh) ? roam_listed(veh) : -1;
+    float rx = online_ram(r) ? MEMF(r + 0xC4u) : 0.0f, rz = online_ram(r) ? MEMF(r + 0xCCu) : 0.0f;
     char peer[16];
     if (id)
         snprintf(peer, sizeof peer, "%08X", (unsigned)id);
     else
         snprintf(peer, sizeof peer, "none");
-    fprintf(stderr, "[ROAM] report %s %d: peer %s, %s, drawn %d, phys %d, at %.0f %.0f %.0f\n", what, k, peer,
-            driven ? (live ? "driven" : "driven, NOT LIVE (never posed)") : drawn == 0 && far ? "parked" : "NOT PARKED", drawn, phys, x, y, z);
+    /* "parked" = out of the draw list (the drawn flag is the rules' each frame, sub_001D86A0) */
+    fprintf(stderr, "[ROAM] report %s %d: peer %s, %s, drawn %d, in draw list %d, phys %d, at %.0f %.0f, render object "
+                    "at %.0f %.0f (%.0f m from us)\n", what, k, peer,
+            driven ? (live ? "driven" : "driven, NOT LIVE (never posed)") : listed == 0 ? "parked" : "NOT PARKED", drawn,
+            listed, phys, x, z, rx, rz, me ? sqrtf((rx - me[9]) * (rx - me[9]) + (rz - me[11]) * (rz - me[11])) : -1.0f);
 }
 
 static void roam_slots_report(const char *when)
