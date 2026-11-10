@@ -1605,6 +1605,7 @@
     if (l !== lan) return;   // a link closed for a newer one
     $('lan-status').textContent = l.state === 'online' ? 'Connected to the server.'
       : l.state === 'connecting' ? 'Connecting to the server…'
+      : l.refused === 'tabs' ? 'Too many tabs of this game are open. Close one, then reload this page.'
       : 'Online play is not available on this server right now.';
     renderOnline();
     racesShow(l);

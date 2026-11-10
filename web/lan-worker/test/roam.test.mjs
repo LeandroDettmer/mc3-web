@@ -1,7 +1,7 @@
 // The free-roam hub (src/roam.js): the tests of web/server/crates/roam/src/lib.rs, ported. node --test test/
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Hub, crc32, decode, encodePeers, ROAM_PORT, MSG_BYE, MSG_PEERS, MSG_FAR, ST_ROAM } from '../src/roam.js';
+import { Hub, crc32, decode, encodePeers, ROAM_PORT, MSG_BYE, MSG_PEERS, MSG_FAR, ST_ROAM, ST_MENUS, ST_LOADING } from '../src/roam.js';
 import { vipAt } from '../../races-worker/src/net.js';
 import { dgram, hello, snap } from './wire.mjs';
 
@@ -132,4 +132,85 @@ test('rooms (MC3: cities): linked and far-listed within a room only; no room = 0
   h.tick(2500);
   same(h.linksOf(vip(0), ROAM_PORT), []);
   same(h.linksOf(vip(3), ROAM_PORT), [[vip(1), ROAM_PORT], [vip(2), ROAM_PORT]]);
+});
+
+// Worker-only hygiene (head of src/roam.js)
+const listed = (h, i, j) => h.linksOf(vip(i), ROAM_PORT).some(([v]) => v === vip(j));
+const join2 = (h, status, now = 0) => {
+  for (const i of [0, 1]) {
+    h.frame(vip(i), ROAM_PORT, hello(100 + i, 'P' + i, 3, 0, i ? status : ST_ROAM), now);
+    h.frame(vip(i), ROAM_PORT, snap(100 + i, [10 * i, 0, 0], [0, 0, 0], i ? status : ST_ROAM), now);
+  }
+};
+
+test('hygiene: a player in LOADING / MENUS for 60 s without another SNAP drops out of every list until a SNAP of another status', () => {
+  const h = new Hub();
+  join2(h, ST_LOADING);
+  h.tick(1000);
+  assert.ok(listed(h, 0, 1) && listed(h, 1, 0), 'loading: still listed (a garage trip, a cold-cache load)');
+  // its core re-sends the same LOADING SNAP every 2 s, and says HELLO every second: not a sign of life
+  let now = 1000;
+  for (; now <= 62_000; now += 1000) {
+    h.frame(vip(1), ROAM_PORT, hello(101, 'P1', 3, 0, ST_LOADING), now);
+    h.frame(vip(0), ROAM_PORT, hello(100, 'P0', 3), now);
+    h.frame(vip(0), ROAM_PORT, snap(100, [0, 0, 0], [0, 0, 0]), now);
+    if (now % 2000 === 0) h.frame(vip(1), ROAM_PORT, snap(101, [10, 0, 0], [0, 0, 0], ST_LOADING), now);
+  }
+  const out = h.tick(now);
+  assert.ok(!listed(h, 0, 1) && !listed(h, 1, 0));
+  assert.ok(out.filter(([, , d]) => d[5] === MSG_FAR).every(([, , d]) => d[16] === 0), 'not in a far list either');
+  // it finishes loading: the first cruise frame's SNAP while ROAM lists it again at the next tick
+  h.frame(vip(1), ROAM_PORT, snap(101, [10, 0, 0], [0, 0, 0], ST_ROAM), now + 100);
+  h.tick(now + 600);
+  assert.ok(listed(h, 0, 1) && listed(h, 1, 0));
+});
+
+test('hygiene: a garage visit (SHOP) is never idle; LOADING counts from the last SNAP of another status', () => {
+  const h = new Hub();
+  join2(h, 4 /* ST_SHOP */);
+  let now = 0;
+  for (; now <= 300_000; now += 2000) {   // 5 minutes in the garage
+    h.frame(vip(0), ROAM_PORT, snap(100, [0, 0, 0], [0, 0, 0]), now);
+    h.frame(vip(1), ROAM_PORT, snap(101, [10, 0, 0], [0, 0, 0], 4), now);
+  }
+  h.tick(now);
+  assert.ok(listed(h, 0, 1));
+  h.frame(vip(1), ROAM_PORT, snap(101, [10, 0, 0], [0, 0, 0], ST_LOADING), now);   // the cruise load starts
+  h.frame(vip(0), ROAM_PORT, snap(100, [0, 0, 0], [0, 0, 0]), now + 30_000);
+  h.frame(vip(1), ROAM_PORT, snap(101, [10, 0, 0], [0, 0, 0], ST_LOADING), now + 30_000);
+  h.tick(now + 30_000);
+  assert.ok(listed(h, 0, 1), '30 s of loading: still there');
+});
+
+test('hygiene: a browser that joins over flap_n times a minute starts unlisted (in LOADING) until a ROAM SNAP', () => {
+  const h = new Hub();
+  h.frame(vip(0), ROAM_PORT, hello(100, 'P0', 3), 0);
+  h.frame(vip(0), ROAM_PORT, snap(100, [0, 0, 0], [0, 0, 0]), 0);
+  let now = 0;
+  for (let i = 0; i < h.opts.flap_n + 2; i++) {   // join, BYE, join ...
+    now += 1000;
+    h.leave(vip(1));
+    h.frame(vip(1), ROAM_PORT, hello(101, 'P1', 3, 0, ST_LOADING), now);
+    h.frame(vip(1), ROAM_PORT, snap(101, [10, 0, 0], [0, 0, 0], ST_LOADING), now);
+  }
+  h.frame(vip(0), ROAM_PORT, snap(100, [0, 0, 0], [0, 0, 0]), now);
+  h.tick(now);
+  assert.ok(!listed(h, 0, 1), 'flapping in a load: out at once');
+  h.frame(vip(1), ROAM_PORT, snap(101, [10, 0, 0], [0, 0, 0], ST_ROAM), now + 100);
+  h.tick(now + 600);
+  assert.ok(listed(h, 0, 1), 'driving again: in');
+  // the count ages out: a join a minute later is a first one
+  h.leave(vip(1));
+  now += 2 * h.opts.flap_ms;
+  h.tick(now);
+  h.frame(vip(1), ROAM_PORT, hello(101, 'P1', 3, 0, ST_LOADING), now);
+  assert.ok(h.players.get(vip(1) * 65536 + ROAM_PORT).act === now);
+});
+
+test('hygiene: a browser holds at most per_vip endpoints (ports are not many players)', () => {
+  const h = new Hub();
+  for (let port = 1; port <= 50; port++) h.frame(vip(0), port, hello(1000 + port, 'B' + port, 3), 0);
+  assert.equal(h.count, h.opts.per_vip);
+  h.frame(vip(1), ROAM_PORT, hello(7, 'Ok', 3), 0);
+  assert.equal(h.count, h.opts.per_vip + 1);
 });

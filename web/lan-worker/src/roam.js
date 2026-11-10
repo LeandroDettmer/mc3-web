@@ -5,6 +5,11 @@
 //
 // - player -> hub: HELLO every second (id, status, name, links wanted: its K), SNAP twice a second (place, velocity),
 //   BYE when it stops.
+// Worker-only hygiene (the Rust hub has none): a player that stays in MENUS/LOADING for idle_ms without a SNAP of any
+// other status (ROAM, SHOP, EVENT, PAUSED) is left out of every list, its own included, until one arrives; a browser
+// that joins (or restarts its endpoint) more than flap_n times in flap_ms starts that way; a browser holds at most
+// per_vip endpoints. Nothing is hidden that is really playing: roam_core.c sends a SNAP every 2 s from the garage, and
+// the first cruise frame after a load sends one with status ROAM at once (roam_game.c roam_away hides those cars anyway).
 // - hub -> player: every tick a PEERS list { virtual address, port, id } of the players linked to it; every far_ms
 //   (2 s) a FAR list of the others it is not linked with, nearest first: { id, status, place, orientation, name }
 //   (map markers; a core without FAR, type 9, drops it as an unknown type).
@@ -14,13 +19,14 @@ export const ROAM_PORT = 47210;
 const MAGIC = [0x4D, 0x43, 0x33, 0x52];   // "MC3R"
 const HDR = 16, CRC = 4;
 export const MSG_HELLO = 1, MSG_PEERS = 2, MSG_SNAP = 3, MSG_BYE = 8, MSG_FAR = 9;
-export const HF_CREW = 0x0200, ST_ROAM = 2;
+export const HF_CREW = 0x0200, ST_MENUS = 0, ST_LOADING = 1, ST_ROAM = 2;
 const LIST_MAX = 96;
 export const FAR_MAX = 20;   // 50 bytes each at worst: one datagram under 1200 bytes
 
 export const OPTIONS = {
   default_k: 32, degree: 64, tick_ms: 500, stale_ms: 60_000, gone_ms: 10_000, soon_ms: 1000, look_ms: 4000,
   view_m: 150, away_m: 100, hold_ms: 5000, keep: 0.5, max_players: 64 * 250, far_ms: 2000,
+  idle_ms: 60_000, flap_ms: 60_000, flap_n: 4, per_vip: 2,
 };
 
 const CRC_TABLE = Uint32Array.from({ length: 256 }, (_, n) => {
@@ -120,7 +126,8 @@ const key = (vip, port) => vip * 65536 + port;
 export class Hub {
   constructor(opts = {}) {
     this.opts = { ...OPTIONS, ...opts };
-    this.players = new Map();   // key(vip, port) -> {vip, port, id, name, status, k, pos: {at, v, t}|null, last, links: Map key -> since}
+    this.players = new Map();   // key(vip, port) -> {vip, port, id, name, status, k, pos: {at, v, t}|null, last, act, links: Map key -> since}
+    this.flaps = new Map();     // vip -> {n, at}: joins of that browser in the window
     this.id = 0x48554231;
     this.seq = 0;
   }
@@ -137,17 +144,30 @@ export class Hub {
         // the same player at another address (the page reconnected, web/lan.js): its old endpoint goes
         for (const [k2, q] of this.players) if (q.id === m.sender) this.players.delete(k2);
         if (this.players.size >= this.opts.max_players) return;
+        let n = 0;
+        for (const q of this.players.values()) if (q.vip === src) n++;
+        if (n >= this.opts.per_vip) return;   // one browser, one or two endpoints: ports are not a way to many players
       }
       const k = Math.min(m.links === 0 ? this.opts.default_k : m.links, this.opts.degree);
-      if (!p) this.players.set(kk, p = { vip: src, port: sport, id: m.sender, name: '', room: m.room, status: m.status, k, pos: null, last: now, links: new Map() });
-      if (p.id !== m.sender) { p.id = m.sender; p.pos = null; p.links.clear(); }   // a restart at the same endpoint
+      if (!p) this.players.set(kk, p = { vip: src, port: sport, id: m.sender, name: '', room: m.room, status: m.status, k, pos: null, last: now, act: this.joined(src, now), links: new Map() });
+      if (p.id !== m.sender) { p.id = m.sender; p.pos = null; p.links.clear(); p.act = this.joined(src, now); }   // a restart at the same endpoint
       p.name = m.name; p.room = m.room; p.status = m.status; p.k = k; p.last = now;
     } else if (m.k === 'snap') {
-      if (p && p.id === m.sender) { p.status = m.status; p.pos = { at: m.p, v: m.v, t: now }; p.q = m.q; p.last = now; }
+      if (p && p.id === m.sender) { p.status = m.status; p.pos = { at: m.p, v: m.v, t: now }; p.q = m.q; p.last = now; if (m.status !== ST_MENUS && m.status !== ST_LOADING) p.act = now; }
     } else if (m.k === 'bye') {
       if (p && p.id === m.sender) this.players.delete(kk);
     }
   }
+
+  /** A join of browser `vip`: the start of its "active" clock (see the head); never, when it joins too often. */
+  joined(vip, now) {
+    let f = this.flaps.get(vip);
+    if (!f || since(now, f.at) > this.opts.flap_ms) this.flaps.set(vip, f = { n: 0, at: now });
+    return ++f.n > this.opts.flap_n ? -Infinity : now;
+  }
+
+  /** In the menus or a load for idle_ms without being seen in any other state: not listed (see the head). */
+  idle(p, now) { return (p.status === ST_MENUS || p.status === ST_LOADING) && since(now, p.act) >= this.opts.idle_ms; }
 
   /** Every endpoint of a browser that left the switch. */
   leave(vip) { for (const [k, p] of this.players) if (p.vip === vip) this.players.delete(k); }
@@ -157,11 +177,12 @@ export class Hub {
   tick(now) {
     const o = this.opts;
     for (const [k, p] of this.players) if (since(now, p.last) >= o.gone_ms) this.players.delete(k);
+    for (const [v, f] of this.flaps) if (since(now, f.at) > o.flap_ms) this.flaps.delete(v);
     const keys = [...this.players.keys()], ps = keys.map(k => this.players.get(k));
     const places = ps.map(p => {
       if (!p.pos) return null;
       const { at, v, t } = p.pos;
-      if (since(now, t) >= o.stale_ms) return null;
+      if (since(now, t) >= o.stale_ms || this.idle(p, now)) return null;
       const roam = p.status === ST_ROAM, age = since(now, t) / 1000;
       const go = s => roam ? [at[0] + v[0] * s, at[1] + v[1] * s, at[2] + v[2] * s] : at;
       const soon = go(age + o.soon_ms / 1000), later = go(age + o.look_ms / 1000);

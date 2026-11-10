@@ -15,6 +15,7 @@
 //   l.rooms [{id, name, host, hostVip, city, mode, n, max, locked}], l.roomsSeen (the list has come),
 //   l.room (the race we are in, or null), l.members [{vip, vipStr, name, host}], l.left {room, why} (last left),
 //   l.error {op, code} (last refusal; cleared by the next request)
+//   l.refused 'tabs' when the switch closed this link for a third page of the browser (4002); the link stays offline
 //   link.create({name, pass, city, mode, max}) / link.join(id, pass) / link.leave()
 //   link.signal(to, kind, data) / link.onsignal = m => ...   // step 2 (WebRTC), relayed inside the race only
 //   link.onMsg(m => ...) / link.sendMsg(m) // every JSON control message in / one out (docs/races-protocol.md)
@@ -22,7 +23,7 @@
 window.mc3Lan = function (name, lanUrl) {
   var url = lanUrl || (location.protocol == 'https:' ? 'wss://' : 'ws://') + location.host + '/lan';
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
-               players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null };
+               players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null };
   var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, rejoin = null, pass = '', auto = false;
   // The keep-alive: the Cloudflare switch's runtime answers this exact text itself (setWebSocketAutoResponse,
   // web/races-worker/src/index.js BEAT), so an idle page never wakes its Durable Object. web/server ignores it: until
@@ -82,7 +83,15 @@ window.mc3Lan = function (name, lanUrl) {
       else if (m.t == 'signal') { if (link.onsignal) link.onsignal(m); }
       msgFns.forEach(function (f) { try { f(m); } catch (e) { console.error(e); } });
     };
-    ws.onclose = function (e) { if (e && e.code == 4001) want = false; lost(me); };   // 4001: this browser's newer page took our place
+    // 4001: this browser's newer page took our place; 4002: a third page of this browser did (link.refused = 'tabs'): both
+    // stay offline until the page is opened again, else the tabs would evict one another in a loop. 4004: reconnecting
+    // too fast, so wait the longest backoff. Anything else (4003 no hello, 1006 a refused upgrade, ...): back off and retry.
+    ws.onclose = function (e) {
+      var code = e && e.code;
+      if (code == 4001 || code == 4002) { want = false; link.refused = code == 4002 ? 'tabs' : null; }
+      else if (code == 4004) tries = 4;
+      lost(me);
+    };
   }
   function lost(me) {
     if (me !== ws) return;

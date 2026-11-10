@@ -30,6 +30,19 @@
 // and cut to NICK characters on hello, and unique among the live clients (any case; 'Player', the empty name's
 // fallback, excepted): a hello with a held nick gets {"t":"error","op":"hello","code":"nick-taken"} and keeps its old name.
 //
+// Abuse guards (GUARD below; all in memory or in the sockets' attachments, nothing stored, no IP ever logged; no timer
+// and no alarm of their own: they run on the wakes the object has anyway, so a silent socket costs nothing):
+//  - per IP: at most GUARD.perIp live sockets from one CF-Connecting-IP (IPv6: its /64); one more upgrade -> HTTP 429.
+//    The DO reads the address Cloudflare's edge put on the request (a client cannot set it); `ip` is in the attachment.
+//  - reconnect churn: more than GUARD.churnMax upgrades a minute from one IP, or hellos a minute of one browser (cid),
+//    and it is refused for GUARD.coolMs: 429 + Retry-After at the upgrade; a cid's socket is closed 4004 'slow down'.
+//  - per browser: a cid (hello) may hold GUARD.perCid sockets (a second tab, or a ghost of a dropped link); a newer one
+//    closes the OLDEST with 4002 'too many tabs' (lan.js does not reconnect on it).
+//  - hello deadline: a socket with no hello within GUARD.helloMs is closed 4003 'no hello' (swept on the next wake, at
+//    most once a second; a socket that never sends a thing is also swept by the next upgrade or message of anyone).
+// Close codes: 1008 rate limit, 1009 frame size, 4000 idle (or the page's own 'no answer'), 4001 a newer page of this
+// browser took the place (Rust switch), 4002/4003/4004 above.
+//
 // vars: ALLOW_ORIGINS "https://a.example,https://b.example" (scheme://host, comma-separated, any case); empty = any.
 
 import { Lobby, clean } from '../../races-worker/src/index.js';
@@ -45,6 +58,11 @@ export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, b
 // Over budget: dropped silently; empty for FLOOD_MS in a row: closed with 1008 (lan.js reconnects with backoff).
 export const CTL = { perS: 20, burst: 200 }, FLOOD_MS = 10e3;
 export const NICK = 15, PLAYERS_MAX = 200, WHO_MS = 2000;   // the page's name field is 15 long
+// shortcut: the churn counters live in memory (lost when the object hibernates: needs 10 s without a message, so a
+// reconnect storm never loses them); the cap per IP, counted from the live sockets, is what is left if it did.
+export const GUARD = { perCid: 2, perIp: 8, helloMs: 10e3, churnMax: 20, churnMs: 60e3, coolMs: 60e3 };
+export const CLOSE = { tabs: 4002, hello: 4003, churn: 4004 };
+const ipKey = ip => ip.includes(':') ? ip.split(':').slice(0, 4).join(':') : ip;   // IPv6: a /64 is one household
 const SAVE_MS = 30e3;   // a frame-only client's `last` reaches its attachment this often (idle expiry after a wake)
 
 export const isVip = v => (v & MASK) >>> 0 === NET && (v & 255) >= 2 && (v & 255) < 252;
@@ -61,6 +79,45 @@ export class Switch extends Lobby {
     this.hub = new Hub(env?.ROAM_K ? { default_k: Number(env.ROAM_K) } : {}); // links for a HELLO asking none
     this.ticked = 0;
     this.whoAt = 0; this.whoLast = ''; this.whoTimer = 0;
+    this.churn = new Map();   // 'ip' | 'c:<cid>' -> {n, at, until}
+    this.helloAt = 0;
+  }
+
+  /** One more connect or hello of `key`: true while it is cooling down (over GUARD.churnMax in churnMs: refused for coolMs). */
+  hot(key, now) {
+    let k = this.churn.get(key);
+    if (k && now < k.until) return true;
+    if (!k || now - k.at > GUARD.churnMs) this.churn.set(key, k = { n: 0, at: now, until: 0 });
+    if (++k.n <= GUARD.churnMax) return false;
+    k.until = now + GUARD.coolMs;
+    return true;
+  }
+
+  /** May this upgrade proceed? false: answer 429. Counts the attempt (churn) and the sockets of the same IP. */
+  admit(ip, now = Date.now()) {
+    this.helloSweep(now);   // a bot's silent sockets go before they are counted
+    if (!ip) return true;
+    const key = ipKey(ip);
+    if (this.hot(key, now)) return false;
+    let n = 0;
+    for (const q of this.clients.values()) if (q.a.ip && ipKey(q.a.ip) === key) n++;
+    return n < GUARD.perIp;
+  }
+
+  /** Closes the sockets with no hello after GUARD.helloMs, forgets cooled churn entries; at most once a second. */
+  helloSweep(now) {
+    if (now - this.helloAt < 1000 && now >= this.helloAt) return;
+    this.helloAt = now;
+    for (const c of [...this.clients.values()]) if (!c.a.hi && now - c.a.at > GUARD.helloMs) this.kick(c, CLOSE.hello, 'no hello');
+    for (const [k, v] of this.churn) if (now - v.at > GUARD.churnMs && now >= v.until) this.churn.delete(k);
+  }
+
+  kick(c, code, why) { try { c.ws.close(code, why); } catch {} this.drop(c); }
+
+  /** The browser `c.a.cid` holds more than GUARD.perCid sockets: the oldest others go. */
+  capCid(c) {
+    const old = [...this.clients.values()].filter(q => q !== c && q.a.cid === c.a.cid).sort((x, y) => (x.a.at || 0) - (y.a.at || 0));
+    while (old.length >= GUARD.perCid) this.kick(old.shift(), CLOSE.tabs, 'too many tabs');
   }
 
   /** GET /lan/stats: counts only (no names, no vips): connected sockets, free roam by room id, race rooms. */
@@ -106,9 +163,10 @@ export class Switch extends Lobby {
     this.lazySweep();
     if (new URL(req.url).pathname === '/lan/stats') return Response.json(this.stats());
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('websocket only', { status: 426 });
-    const want = Number(new URL(req.url).searchParams.get('vip')) >>> 0;
+    const want = Number(new URL(req.url).searchParams.get('vip')) >>> 0, ip = req.headers.get('CF-Connecting-IP') || '';
+    if (!this.admit(ip)) return new Response('too many connections', { status: 429, headers: { 'Retry-After': String(GUARD.coolMs / 1000) } });
     const [client, server] = Object.values(new WebSocketPair());
-    if (!this.connect(server, req.headers.get('CF-Connecting-IP') || '', Date.now(), want)) return new Response('LAN full', { status: 503 });
+    if (!this.connect(server, ip, Date.now(), want)) return new Response('LAN full', { status: 503 });
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -122,7 +180,7 @@ export class Switch extends Lobby {
       this.next = (start + 1) % ADDRS;
     }
     this.ctx.acceptWebSocket(ws);
-    const a = { vip, name: 'Player', ip, sub: false, room: null, last: now, hi: false, lan: false };
+    const a = { vip, name: 'Player', ip, sub: false, room: null, last: now, at: now, hi: false, lan: false };
     ws.serializeAttachment(a);
     const c = { ws, a };
     this.clients.set(vip, c);
@@ -134,6 +192,7 @@ export class Switch extends Lobby {
 
   async webSocketMessage(ws, data, now = Date.now()) {
     this.lazySweep(now);
+    this.helloSweep(now);
     const c = this.byWs(ws);
     if (c) {
       if (typeof data !== 'string') this.frame(c, new Uint8Array(data), now);
@@ -184,7 +243,11 @@ export class Switch extends Lobby {
     try { m = JSON.parse(text); } catch { return false; }
     if (m?.t === 'hello') {
       const name = clean(m.name, NICK, 'Player');
-      if (typeof m.cid === 'string' && /^[\w-]{8,40}$/.test(m.cid)) c.a.cid = m.cid;
+      if (typeof m.cid === 'string' && /^[\w-]{8,40}$/.test(m.cid) && m.cid !== c.a.cid) {   // a new socket's first hello
+        if (this.hot('c:' + m.cid, now)) { this.kick(c, CLOSE.churn, 'slow down'); return true; }
+        c.a.cid = m.cid;
+        this.capCid(c);
+      }
       if (this.nickTaken(c, name)) this.err(c, 'hello', 'nick-taken');   // the old name stays
       else c.a.name = name;   // the same browser (cid) may hold its nick on two sockets: a second tab, a ghost (the idle sweep drops it)
       c.a.hi = true; c.a.lan = on(m.lan);

@@ -98,6 +98,9 @@ over 16 KiB of JSON).
   no room, and nobody in a room. A room is its own LAN. So a page that never uses
   the list works as before.
 
+Player invites (host invites a player from the page's list; planned, not implemented):
+[invites.md](invites.md).
+
 ## Routing (step 1, the switch)
 
 - A **broadcast** (destination 255.255.255.255) reaches the other clients with
@@ -108,6 +111,28 @@ over 16 KiB of JSON).
   47210 (crates/roam `ROAM_PORT`) and the hub at 10.77.0.253 route as before,
   whatever the rooms.
 - `peers` (the server-wide player list, crates/lan) is unchanged.
+
+## Abuse guards (the Worker switch, web/lan-worker/src/switch.js `GUARD`)
+
+All in memory or in the sockets' attachments; no IP is stored beyond the attachment or logged;
+no new timer or alarm (they run on the wakes the object has anyway).
+
+| Guard | Rule | Result |
+|---|---|---|
+| sockets per IP | at most 8 live sockets from one `CF-Connecting-IP` (IPv6: its /64) | upgrade refused: HTTP 429, `Retry-After: 60` |
+| reconnect churn, IP | more than 20 upgrades a minute | 429 for 60 s |
+| reconnect churn, browser | more than 20 `hello`s with one `cid` a minute | socket closed `4004 slow down`, cooled 60 s |
+| sockets per browser | a `cid` holds 2 sockets; a third closes the oldest | `4002 too many tabs` |
+| hello deadline | no `hello` within 10 s of connecting | `4003 no hello` (at the next wake, at most once a second) |
+
+Close codes the page sees: `1008` rate limit, `1009` frame size, `4000` idle, `4001` a newer page
+of this browser took the place (Rust switch), `4002`, `4003`, `4004` above. web/lan.js: 4001 and
+4002 leave the link offline (`link.refused = 'tabs'` for 4002; the start page says to close a
+tab), 4004 waits the longest backoff, anything else (4003, a 429 seen as 1006) backs off 1-15 s
+and retries. The free-roam hub (web/lan-worker/src/roam.js) also keeps, in the Worker only, a
+player in MENUS/LOADING for 60 s without a SNAP of another status (ROAM, SHOP, EVENT, PAUSED) out
+of every PEERS and FAR list until one arrives; a browser joining more than 4 times a minute
+starts that way; one browser holds at most 2 hub endpoints.
 
 ## Step 2: WebRTC inside a room (web/rtc.js)
 

@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
-import { Switch, originOk, isVip, BROADCAST, HDR, MAX_DATA, CTL } from '../src/switch.js';
+import { Switch, originOk, isVip, BROADCAST, HDR, MAX_DATA, CTL, GUARD, CLOSE } from '../src/switch.js';
 import { vipAt, vipStr, ADDRS, MASK, NET } from '../../races-worker/src/net.js';
 import { HUB, ROAM_PORT } from '../src/roam.js';
 import { hello, snap } from './wire.mjs';
@@ -295,7 +295,7 @@ test('players: pushed to subscribers on change, at most every WHO_MS; modes, cit
   await a.say({ t: 'ping', id: 3 }, now += 2000);
   assert.equal(last(a.ws.texts(), 'players').online, 2);
   // the cap: 250 online, 200 listed
-  for (let i = 0; i < 248; i++) peer();
+  for (let i = 0; i < 248; i++) await named('p' + i);   // (no hello within helloMs would be kicked)
   await a.say({ t: 'ping', id: 4 }, now += 2000);
   got = last(a.ws.texts(), 'players');
   assert.equal(got.online, 250);
@@ -348,4 +348,88 @@ test('nicks: the same browser (cid) may hold its nick on another socket (a secon
   assert.equal(sw.clients.get(fresh.vip).a.name, 'ann');
   assert.equal(sw.clients.has(ghost.vip), true, 'the older socket (maybe the game tab) stays');
   clearTimeout(sw.whoTimer);
+});
+
+test('guard: sockets per IP (IPv6 by /64), 429 beyond; other IPs and a freed slot are fine', async () => {
+  const { sw, peer } = setup();
+  const mine = Array.from({ length: GUARD.perIp }, () => peer(0, '9.9.9.9'));
+  assert.equal(sw.admit('9.9.9.9'), false);
+  assert.equal(sw.admit('9.9.9.8'), true);
+  sw.drop(sw.clients.get(mine[0].vip));
+  assert.equal(sw.admit('9.9.9.9', Date.now() + 1), true);
+  for (let i = 0; i < GUARD.perIp; i++) peer(0, '2001:db8:1:2:' + i + '::1');
+  assert.equal(sw.admit('2001:db8:1:2:ffff::1'), false, 'same /64');
+  assert.equal(sw.admit('2001:db8:1:3::1'), true);
+  assert.equal(sw.admit(''), true, 'no address (local run): no per-IP guard');
+  clearTimeout(sw.whoTimer);
+});
+
+test('guard: reconnect churn from one IP cools down 60 s, then lets it in', () => {
+  const { sw } = setup();
+  let t = 5e6;
+  for (let i = 0; i < GUARD.churnMax; i++) assert.equal(sw.admit('7.7.7.7', t += 100), true);
+  assert.equal(sw.admit('7.7.7.7', t += 100), false);
+  assert.equal(sw.admit('7.7.7.7', t + GUARD.coolMs - 500), false, 'still cooling');
+  assert.equal(sw.admit('7.7.7.6', t), true, 'another IP is not touched');
+  assert.equal(sw.admit('7.7.7.7', t + GUARD.coolMs + 200), true);
+  sw.helloSweep(t + 10 * GUARD.churnMs);
+  assert.equal(sw.churn.size, 0, 'cooled entries are forgotten');
+});
+
+test('guard: a third socket of one browser (cid) closes the oldest 4002; two are fine; no loop through the same cid', async () => {
+  const { sw, peer } = setup();
+  const cid = 'abcdefgh1234', t = Date.now();
+  const mk = async (name, at) => { const p = peer(); sw.clients.get(p.vip).a.at = at; await p.say({ t: 'hello', name, lan: 1, cid }); return p; };
+  const a = await mk('A1', t - 3000), b = await mk('A2', t - 2000);
+  assert.equal(a.ws.closed, null);
+  assert.equal(b.ws.closed, null);
+  const c = await mk('A3', t - 1000);
+  assert.deepEqual(a.ws.closed, [CLOSE.tabs, 'too many tabs']);
+  assert.equal(b.ws.closed, null);
+  assert.equal(c.ws.closed, null);
+  assert.ok(!sw.clients.has(a.vip) && sw.clients.has(b.vip) && sw.clients.has(c.vip));
+  await b.say({ t: 'hello', name: 'A2b', lan: 1, cid });   // a rename on a held cid evicts nobody
+  assert.equal(c.ws.closed, null);
+  const other = peer();   // another browser: untouched
+  await other.say({ t: 'hello', name: 'Zed', lan: 1, cid: 'zzzzzzzz9999' });
+  assert.equal(other.ws.closed, null);
+  clearTimeout(sw.whoTimer);
+});
+
+test('guard: one cid saying hello over GUARD.churnMax times a minute: 4004, then cooled', async () => {
+  const { sw, peer } = setup();
+  let t = Date.now();
+  for (let i = 0; i < GUARD.churnMax; i++) { const p = peer(); await p.say({ t: 'hello', name: 'n' + i, cid: 'churnchurn99' }, t += 10); assert.equal(p.ws.closed?.[0] === CLOSE.churn, false); sw.drop(sw.clients.get(p.vip)); }
+  const p = peer();
+  await p.say({ t: 'hello', name: 'again', cid: 'churnchurn99' }, t += 10);
+  assert.deepEqual(p.ws.closed, [CLOSE.churn, 'slow down']);
+  assert.ok(!sw.clients.has(p.vip));
+  const q = peer();   // the cool-down holds for that cid only
+  await q.say({ t: 'hello', name: 'other', cid: 'otherotherot' }, t += 10);
+  assert.equal(q.ws.closed, null);
+  clearTimeout(sw.whoTimer);
+});
+
+test('guard: no hello within helloMs closes 4003 at the next wake; a hello in time keeps the socket', async () => {
+  const { sw, peer, named } = setup();
+  const t = Date.now();
+  const mute = peer(), good = await named('Ann');
+  await good.say({ t: 'ping', id: 1 }, t + GUARD.helloMs - 500);
+  assert.equal(mute.ws.closed, null, 'not yet');
+  await good.say({ t: 'ping', id: 2 }, t + GUARD.helloMs + 1500);
+  assert.deepEqual(mute.ws.closed, [CLOSE.hello, 'no hello']);
+  assert.equal(good.ws.closed, null);
+  assert.ok(!sw.clients.has(mute.vip) && sw.clients.has(good.vip));
+  const late = peer();   // its first message is the hello, but too late
+  await late.say({ t: 'hello', name: 'Late', lan: 1 }, t + 5 * GUARD.helloMs);
+  assert.deepEqual(late.ws.closed, [CLOSE.hello, 'no hello']);
+  clearTimeout(sw.whoTimer);
+});
+
+test('guard: the upgrade of a refused IP gets 429 with Retry-After (fetch)', async () => {
+  const { sw, peer } = setup();
+  for (let i = 0; i < GUARD.perIp; i++) peer(0, '5.5.5.5');
+  const res = await sw.fetch(new Request('https://lan.example/lan', { headers: { Upgrade: 'websocket', 'CF-Connecting-IP': '5.5.5.5' } }));
+  assert.equal(res.status, 429);
+  assert.equal(res.headers.get('Retry-After'), '60');
 });
