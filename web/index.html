@@ -1207,6 +1207,9 @@
     // an iPhone under memory pressure (2026-11-09: closing the other apps let the game run). Before 'Out of memory':
     // its text matches that too. Our own '[WEB] opfs: ...' lines name it without being fatal.
     [/worker sent an error!.*UnknownError/, 'Low on memory', 'The device is low on memory: close other apps and reload.'],
+    // Any other uncaught error kills its game thread (2026-11-10: Firefox's writeBuffer TypeError only showed as
+    // 'No picture after 90 s'). After the specific ones, which name the cause when their line comes first.
+    [/worker sent an error!/, 'A game thread crashed', 'The game cannot go on. Reload the page; the log says where.'],
     [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory on this device', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
   ];
   function out(text) {
@@ -1215,7 +1218,9 @@
     // '[WEB] memory:' lines are the memory ladder's own (a refused size is retried smaller, web/pre.js): not fatal
     // the worker refused WebGL 2 (not through the page thread): the next start draws through the page (play())
     if (/\[GL\] WebGL2 context on #canvas failed \(-?\d+\)$/.test(String(text).trim())) store.set('glProxy', true);
-    if (!failBox && !/^\[WEB\] memory:/.test(text)) for (const [re, title, help] of FATAL) if (re.test(text)) { failShow(title, help + ' (' + String(text).trim() + ')'); break; }
+    // '[WEB] opfs:' lines are not fatal either (saves fall back to memory, web/wasmfs_fetch.js), but WebKit's
+    // UnknownError text says "(e.g. out of memory)": 10 iPhones got the 'Out of memory' box at boot (2026-11-10)
+    if (!failBox && !/^\[WEB\] (memory|opfs):/.test(text)) for (const [re, title, help] of FATAL) if (re.test(text)) { failShow(title, help + ' (' + String(text).trim() + ')'); break; }
   }
   // A failure over the picture (2026-11-09: a TV showed a silent black screen and has no console): what
   // happened, why, and the log's last 20 lines. The first failure only; a click closes it.
