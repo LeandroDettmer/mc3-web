@@ -74,6 +74,13 @@ every 2 s): `{"t":"players","online":n,"freeRoam":{...},"races":{...},"modes":{"
 `mode` is `roam` (in Free Roam; the hub knows it), `race` (in a race room) or `menu` (everybody else; the page
 shows it as Career). The page's `where` is not in the push nor in GET `/lan/stats`.
 
+TURN credentials (Worker only): `GET /lan/ice` -> `{"iceServers":[{urls:[stun...]},{urls:[turn...],username,credential}]}`, Cloudflare
+Realtime TURN, ttl 6 h, for the page's RTCPeerConnection (races, Free Roam P2P). Handled in the Worker's fetch (never wakes the
+Durable Object). Origin must be in ALLOW_ORIGINS (no Origin: 403), CORS for it, `Cache-Control: private, no-store`. One generated set
+is shared by everybody for 10 min (edge cache, per data center). Any API failure or missing secret: 200 with STUN only
+`{"iceServers":[{"urls":"stun:stun.cloudflare.com:3478"}]}` (not cached). Secrets: `TURN_KEY_ID`, `TURN_KEY_API_TOKEN`
+(`wrangler secret put`). No per-IP limit in the Worker.
+
 Activity (private, Worker only): `GET /lan/activity` with `Authorization: Bearer <ADMIN_KEY>` (the Worker secret;
 `?key=` also works but lands in logs, prefer the header). Without or with a wrong key, or with no secret set: 404.
 No CORS, never cached. Answer: `{"online":n,"activities":{"roam","race","career","arcade","menu","loading","page":n},"cities":{"<room id>":n},"list":[{"name","activity","city?"}]}`.

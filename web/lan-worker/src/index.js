@@ -2,6 +2,7 @@
 // Only classes and the handler are exported here: workerd takes every named export of the entry for an entrypoint.
 //
 //   GET /lan/stats -> {online, freeRoam: {total, rooms: {<room id>: n}}, races: {rooms}}, CORS for ALLOW_ORIGINS; no origin = same-origin, allowed
+//   GET /lan/ice -> {iceServers} Cloudflare Realtime TURN credentials (6 h), cached 10 min; Origin required; STUN-only on failure. Secrets TURN_KEY_ID, TURN_KEY_API_TOKEN
 //   GET /lan/activity -> what each player does (private: Authorization: Bearer <ADMIN_KEY>, or ?key=; 404 without it; no CORS, never cached)
 //   GET /lan[?vip=n] (WebSocket upgrade, Origin in ALLOW_ORIGINS) -> the Durable Object "Switch" (one for the server)
 //
@@ -45,6 +46,29 @@ export default {
         }
       }
       return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', 'Access-Control-Allow-Origin': allowed.length && origin ? origin : '*', Vary: 'Origin' } });
+    }
+    if (url.pathname === '/lan/ice' && req.method === 'GET') {
+      const origin = req.headers.get('Origin');
+      if (!origin || !originOk(allowed, origin)) return new Response('origin not allowed', { status: 403 });
+      const head = { 'Content-Type': 'application/json', 'Cache-Control': 'private, no-store', 'Access-Control-Allow-Origin': origin, Vary: 'Origin' };
+      // One generated set serves everybody for 10 min (the credentials live 6 h): Cloudflare is called once per data center per window.
+      const cache = typeof caches !== 'undefined' ? caches.default : null, key = new Request(url.origin + url.pathname);
+      let body = null;
+      const hit = cache && await cache.match(key);
+      if (hit) body = await hit.text();
+      else if (env.TURN_KEY_ID && env.TURN_KEY_API_TOKEN) {
+        try {
+          const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${encodeURIComponent(env.TURN_KEY_ID)}/credentials/generate-ice-servers`, {
+            method: 'POST', headers: { Authorization: `Bearer ${env.TURN_KEY_API_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ ttl: 21600 }),
+          });
+          const j = r.ok ? await r.json() : null;
+          if (Array.isArray(j?.iceServers) && j.iceServers.length) {
+            body = JSON.stringify({ iceServers: j.iceServers });
+            ctx?.waitUntil(cache?.put(key, new Response(body, { headers: { 'Cache-Control': 'public, max-age=600' } })));
+          }
+        } catch {}
+      }
+      return new Response(body ?? JSON.stringify({ iceServers: [{ urls: 'stun:stun.cloudflare.com:3478' }] }), { headers: head });
     }
     if (url.pathname === '/lan/activity' && req.method === 'GET') {
       const bearer = /^Bearer (.+)$/.exec(req.headers.get('Authorization') || '')?.[1];
