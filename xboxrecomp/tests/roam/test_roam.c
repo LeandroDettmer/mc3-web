@@ -81,6 +81,20 @@ static void t_wire(void){
         CHECK(fs.nfar == 0, "far from a player ignored");
         rc_receive(&fs, ROAM_HUB_VIP, ROAM_PORT, b, n, 2000);
         CHECK(fs.nfar == 2 && fs.far_us == 2000 && fs.far[1].id == 103, "far from the hub kept");
+        /* in parts (flags part | parts << 8), the nearest (0) last: part 0 makes the list, nearest part first */
+        rc_msg pm = m; uint8_t pb[RC_MAX_DGRAM]; int pn;
+        pm.h.seq = 7; pm.h.flags = 1 | 2 << 8; pm.u.far.n = 1; pm.u.far.e[0].id = 200;
+        pn = rc_encode(&pm, pb, sizeof pb);
+        rc_receive(&fs, ROAM_HUB_VIP, ROAM_PORT, pb, pn, 3000);
+        CHECK(fs.nfar == 2 && fs.far_us == 2000, "far part 1 waits for part 0");
+        pm.h.flags = 0 | 2 << 8; pm.u.far.n = 2; pm.u.far.e[0].id = 100; pm.u.far.e[1].id = 101;
+        pn = rc_encode(&pm, pb, sizeof pb);
+        rc_receive(&fs, ROAM_HUB_VIP, ROAM_PORT, pb, pn, 3100);
+        CHECK(fs.nfar == 3 && fs.far_us == 3100 && fs.far[0].id == 100 && fs.far[1].id == 101 && fs.far[2].id == 200, "far parts merged");
+        pm.h.seq = 8;   /* part 1 of seq 8 lost: part 0 alone */
+        pn = rc_encode(&pm, pb, sizeof pb);
+        rc_receive(&fs, ROAM_HUB_VIP, ROAM_PORT, pb, pn, 4000);
+        CHECK(fs.nfar == 2 && fs.far[1].id == 101, "far lost part left out");
     }
     m.u.far.e[0].p[1] = 30000.f; n = rc_encode(&m, b, sizeof b);
     CHECK(rc_decode(b, n, &d) == RC_E_RANGE, "far range");

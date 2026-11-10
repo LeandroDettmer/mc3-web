@@ -27,7 +27,11 @@
  *   FAR     (hub -> player, MC3 only) n u8, then n x { id u32, status u8,
  *           p f32 x3, q i16 x4 (as in a SNAP), name (len u8 + bytes) }: the
  *           players beyond our links, nearest first; a core without it drops
- *           it as RC_E_TYPE
+ *           it as RC_E_TYPE.  At most RC_FAR_PART a datagram: a longer list
+ *           comes in parts of one seq, flags = part | parts << 8 (0: one part),
+ *           the nearest part (0) last; the core takes the list when part 0
+ *           comes (a core before 18 keeps each datagram as the whole list: the
+ *           last one, the nearest RC_FAR_PART)
  *   GAME    (player -> player, MC3 only, core 17) len u8 (1 .. RC_GAME_MAX),
  *           then that many bytes: opaque to the core, the game layer's
  *           (roam_send_msg / roam_recv_msg); taken from established peers
@@ -46,7 +50,7 @@
 #include "roam_api.h"
 
 #define RC_PROTO_VER     1
-#define RC_CORE_VER      17
+#define RC_CORE_VER      18
 #define RC_MAGIC0        0x4D       /* "MC3R" */
 #define RC_MAGIC1        0x43
 #define RC_MAGIC2        0x33
@@ -71,6 +75,8 @@
 #define RC_CFG_MAXFRAG   3
 #define RC_GAME_MAX      ROAM_MSG_MAX
 #define RC_INBOX         8          /* GAME messages waiting for the game at most */
+#define RC_FAR_PART      20         /* FAR entries per datagram at most (50 bytes each at worst) */
+#define RC_FAR_PARTS     ((ROAM_FAR_MAX + RC_FAR_PART - 1) / RC_FAR_PART)
 
 enum { RC_MSG_HELLO = 1, RC_MSG_PEERS = 2, RC_MSG_SNAP = 3, RC_MSG_CFG = 4, RC_MSG_CFG_REQ = 5,
        RC_MSG_PING = 6, RC_MSG_PONG = 7, RC_MSG_BYE = 8, RC_MSG_FAR = 9, RC_MSG_GAME = 10 };
@@ -125,7 +131,7 @@ typedef struct {
         struct { uint16_t cfg_rev; uint8_t have_mask; } cfgreq;
         struct { uint32_t t0, t1, t2; } ping;
         struct { uint8_t reason; } bye;
-        struct { uint8_t n; roam_far_peer e[ROAM_FAR_MAX]; } far;   /* dist unused on the wire */
+        struct { uint8_t n; roam_far_peer e[RC_FAR_PART]; } far;   /* dist unused on the wire */
         struct { uint8_t len; uint8_t data[RC_GAME_MAX]; } game;
     } u;
 } rc_msg;
@@ -237,6 +243,8 @@ typedef struct {
     int64_t   hub_since, hub_heard_us, hub_hello_tx, hub_snap_tx;  int hub_was;
     uint32_t  hub_lists, rx_unlisted;
     roam_far_peer far[ROAM_FAR_MAX];  int nfar;  int64_t far_us;   /* the hub's last FAR list, when */
+    roam_far_peer far_in[ROAM_FAR_MAX];  uint8_t far_cnt[RC_FAR_PARTS];   /* its parts coming in, at part * RC_FAR_PART */
+    uint32_t  far_got;  uint16_t far_seq;                               /* which parts came, of which seq */
     struct { uint32_t from; uint8_t len; uint8_t d[RC_GAME_MAX]; } inbox[RC_INBOX];   /* GAME messages, oldest first */
     int       ninbox;  uint32_t rx_game_drop;
 } rc_session;

@@ -79,9 +79,9 @@ typedef struct roam_peer {
     uint32_t cfg_gen;              /* changes with each new car-look record (roam_peer_cfg); 0: none yet */
 } roam_peer;
 
-/* A player beyond our links, as the hub's FAR list gives it (every ~2 s): a
+/* A player beyond our links, as the hub's FAR list gives it (every ~1 s): a
  * map marker only, no car.  Place and orientation as of its last SNAP to the hub. */
-#define ROAM_FAR_MAX     20
+#define ROAM_FAR_MAX     256        /* players of a FAR list (a city) kept at most */
 typedef struct roam_far_peer {
     uint32_t id;
     char     name[ROAM_NAME_MAX + 1];

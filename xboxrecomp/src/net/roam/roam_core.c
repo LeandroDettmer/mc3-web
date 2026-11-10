@@ -233,7 +233,7 @@ int rc_encode(const rc_msg *m, uint8_t *out, int cap){
     case RC_MSG_PONG: rc_put32(&w, m->u.ping.t0); rc_put32(&w, m->u.ping.t1); rc_put32(&w, m->u.ping.t2); break;
     case RC_MSG_BYE: rc_put8(&w, m->u.bye.reason); break;
     case RC_MSG_FAR:
-        if (m->u.far.n > ROAM_FAR_MAX) return -1;
+        if (m->u.far.n > RC_FAR_PART) return -1;
         rc_put8(&w, m->u.far.n);
         for (int i = 0; i < m->u.far.n; i++){
             const roam_far_peer *e = &m->u.far.e[i];
@@ -337,7 +337,7 @@ int rc_decode(const uint8_t *buf, int len, rc_msg *m){
     case RC_MSG_BYE: m->u.bye.reason = (uint8_t)rc_get8(&r); break;
     case RC_MSG_FAR:
         m->u.far.n = (uint8_t)rc_get8(&r);
-        if (m->u.far.n > ROAM_FAR_MAX) return RC_E_FIELD;
+        if (m->u.far.n > RC_FAR_PART) return RC_E_FIELD;
         for (int i = 0; i < m->u.far.n; i++){
             roam_far_peer *e = &m->u.far.e[i];
             e->id = rc_get32(&r); e->status = (uint8_t)rc_get8(&r);
@@ -707,7 +707,22 @@ void rc_receive(rc_session *s, uint32_t ip, uint16_t port, const uint8_t *buf, i
     if (s->conf.hub_ip && ip == s->conf.hub_ip && port == s->conf.hub_port){
         /* the players beyond our links: map markers only */
         if (m.h.type == RC_MSG_FAR){
-            s->nfar = m.u.far.n; memcpy(s->far, m.u.far.e, sizeof *s->far * (size_t)s->nfar); s->far_us = now;
+            /* in parts (flags part | parts << 8; an older hub: 0, one part), the nearest (0) last: each kept at
+             * part * RC_FAR_PART; part 0 makes the list of the parts of its seq that came (a lost one is left out) */
+            int part = m.h.flags & 0xFF, parts = m.h.flags >> 8;
+            if (parts < 1) parts = 1;
+            if (part >= parts || parts > RC_FAR_PARTS) return;
+            if (m.h.seq != s->far_seq){ s->far_seq = m.h.seq; s->far_got = 0; }
+            memcpy(s->far_in + part * RC_FAR_PART, m.u.far.e, sizeof *s->far * m.u.far.n);
+            s->far_cnt[part] = m.u.far.n; s->far_got |= 1u << part;
+            if (part) return;
+            s->nfar = 0;
+            for (int k = 0; k < parts; k++)
+                if (s->far_got >> k & 1){
+                    memcpy(s->far + s->nfar, s->far_in + k * RC_FAR_PART, sizeof *s->far * s->far_cnt[k]);
+                    s->nfar += s->far_cnt[k];
+                }
+            s->far_got = 0; s->far_us = now;
             return;
         }
         /* the hub's list of the players near us: each one a candidate, kept while listed */
@@ -947,7 +962,7 @@ void rc_set_room(rc_session *s, uint32_t room){
         if (s->peer[i].state == RC_PS_EST){ rc_msg m; fill_hello(s, &m, &s->peer[i]); tx(s, &s->peer[i], &m); }
         drop_peer(s, i, "other room");
     }
-    s->nfar = 0;
+    s->nfar = 0; s->far_got = 0;
     s->hub_hello_tx = INT64_MIN / 4;
 }
 void rc_bump_epoch(rc_session *s){ s->epoch++; s->nlast = 0; s->hub_snap_tx = INT64_MIN / 4; }
