@@ -14,7 +14,7 @@ the recompilation toolkit's internals. The newest section's date is the release 
 - **Game:** Midnight Club 3: DUB Edition Remix runs in the browser, with sound, music, movies, saves and keyboard or controller.
 - **Online:** Free Roam: cruise a city with other players, who show as cars with name tags and as blips on the map.
 - **Online:** Online Races: make or join a race room from the page (invite link, optional password); the game's System Link sees only that room.
-- **Online:** The Online menu is the first item of the main menu, with $2,000,000 and every car and part unlocked. Nothing is saved while you are online.
+- **Online:** Online is the first item of the main menu. Online play keeps its own profile, starting with $2,000,000; your career save is not touched.
 - **Online:** The page shows who is playing now and lists the players.
 - **Online:** Nicknames are unique among the players online; the page asks for one before Play.
 - **Free Roam:** Race from a start point on the map against the AI, then go back to your spot in the cruise.
