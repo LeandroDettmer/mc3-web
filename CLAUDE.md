@@ -331,7 +331,13 @@ generated files when the lift inputs did not change.
   for the game's delete; roam_slot_phys) ([[veh+0xC]+0x12D] = 0, the car's drawn flag: the minimap pins far blips
   to its rim, sub_000B95B0, and skips undrawn cars); minimap blips come
   free (sub_000BF850 walks the player manager, position [veh+0x1C]+0x34). Each slot's race-setup entry has its own CarCfg (O4, copied
-  with operator= sub_00272010). Re-entering Free Roam resets the 1 + N
+  with operator= sub_00272010). A car in the sea: the vehicle update
+  (vtable 0x454F40 +8, sub_000FFD90) opens the no-Resume pause menu
+  (screen 2) for any player car whose reset flag (sub_000A5890) is set
+  outside a network race, so a peer falling in the sea gave everyone that
+  menu (2026-11-10); in the Free Roam cruise the sub_000A5890 override
+  answers "no reset" there for every car but ours ('[ROAM] car ... in the
+  water'). Re-entering Free Roam resets the 1 + N
   count we left in the race setup. Nick from MC3_PLAYER_NAME. Cars are built at load; mid-cruise a slot
   whose peer has another CarCfg is rebuilt (roam_swap, 2026-11-09,
   untested: async read via the car cache sub_00105CA0 as the garage does,

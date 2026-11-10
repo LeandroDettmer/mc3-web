@@ -3685,6 +3685,37 @@ static void online_strings(void)
 #include "roam_tags.c"                          /* free roam: players' names over their cars (page overlay) */
 #include "roam_challenge.c"                     /* free roam: 1v1 street challenge in the cruise (feature 2) */
 
+/* A car's "needs a reset" flag ([ecx+0xC] bit 0, ecx = [[veh+8]+0xC]; a
+ * leaf, thiscall, ret). The vehicle update (vtable 0x454F40 +8,
+ * sub_000FFD90) tests it at 0x000FFEE7: set -- the car fell into the sea --
+ * and the car a player's (veh+0x5E = 0), the race not a network one
+ * (+0x108 = 0), that racer not done, it sets the FE's +0xE9, requests state
+ * 1 and opens the pause menu for player [veh+0x5D] (sub_00154640): screen 2,
+ * the one without Resume (Restart Cruise / View Replay / Options / Change
+ * Vehicle / Go to Menus). In Free Roam the remote slots are player cars in a
+ * cruise that is not a network race, so a peer driving into the sea gave
+ * everyone near the menu over their own cruise (2026-11-10; the flash
+ * pause_x.xbck read after '[roam] ... left', no RACE OVER line). There, only
+ * our own car (player 0's) answers the test; any other reads "no reset" (its
+ * pose is the peer's, whose own game resets it). */
+void sub_000A5890(void)
+{
+    uint32_t flag = MEM8(g_ecx + 0xCu) & 1u, p0, veh0;
+    if (flag && MEM32(g_esp) == 0x000FFEECu && roam_free_cruise()) {
+        p0 = MEM32(MEM32(ROAM_PM_VA) + 8u);
+        veh0 = online_ram(p0) ? MEM32(p0 + 0x14u) : 0;
+        if (g_esi != veh0) {
+            static unsigned said;
+            if (said++ < 10u)
+                fprintf(stderr, "[ROAM] car %08X (player slot %u) in the water: the game's pause menu for it kept "
+                                "shut\n", (unsigned)g_esi, (unsigned)MEM8(g_esi + 0x5Du));
+            flag = 0;
+        }
+    }
+    g_eax = (g_eax & ~0xFFu) | flag;
+    g_esp += 4u;
+}
+
 /* The HUD map's points of interest into the map server's list (vtable
  * 0x450A00): in the Online session every frame (roam_map.c). */
 extern void sub_000BF060_gen(void);
