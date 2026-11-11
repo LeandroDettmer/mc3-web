@@ -1083,7 +1083,7 @@
   }
   // a phone: the share sheet (Save to Files, Mail, AirDrop); an iPhone's Safari may only open a blob download
   function saveFile(blob, name) {
-    const file = window.MC3Touch?.isPhone() && typeof File == 'function' ? new File([blob], name, { type: blob.type }) : null;
+    const file = window.MC3Touch?.isPhone() && typeof File == 'function' ? new File([blob], name, { type: blob.type || 'application/octet-stream' }) : null;
     if (file && navigator.canShare?.({ files: [file] }))
       navigator.share({ files: [file] }).catch(e => { if (e.name !== 'AbortError') download(blob, name); });
     else download(blob, name);
