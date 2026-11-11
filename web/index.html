@@ -1234,7 +1234,8 @@
     if (/\[GL\] WebGL2 context on #canvas failed \(-?\d+\)$/.test(String(text).trim())) store.set('glProxy', true);
     // '[WEB] opfs:' lines are not fatal either (saves fall back to memory, web/wasmfs_fetch.js), but WebKit's
     // UnknownError text says "(e.g. out of memory)": 10 iPhones got the 'Out of memory' box at boot (2026-11-10)
-    if (!failBox && !/^\[WEB\] (memory|opfs):/.test(text)) for (const [re, title, help] of FATAL) if (re.test(text)) { failShow(title, help + ' (' + String(text).trim() + ')'); break; }
+    // So does '[WEB] disc cache unavailable (UnknownError ...)': 3 iPhones, 2026-11-11 (the disc is read from the server instead)
+    if (!failBox && !/^\[WEB\] (memory:|opfs:|disc cache unavailable)/.test(text)) for (const [re, title, help] of FATAL) if (re.test(text)) { failShow(title, help + ' (' + String(text).trim() + ')'); break; }
   }
   // A failure over the picture (2026-11-09: a TV showed a silent black screen and has no console): what
   // happened, why, and the log's last 20 lines. The first failure only; a click closes it.
