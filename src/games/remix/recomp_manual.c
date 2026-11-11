@@ -3992,6 +3992,7 @@ void sub_0013BA60(void)
         sub_0013BA60_gen();
         return;
     }
+    MEM32(s) = 0;                                /* San Diego only for now (owner, 2026-11-11): the city row stays on it */
     fr_cruise(s);                                /* every settings handler ends here (+0xDC): last word before Go */
     if (online_ram(g_ecx) && MEM32(g_ecx + 0x1FCu) == 0x1Au)
         MEM32(g_ecx + 0x1FCu) = 0x1Bu;           /* Go asks for the options screen (0x1A); ask for what its OK asks for */
@@ -4016,6 +4017,7 @@ void sub_0013AEF0(void)
 {
     uint32_t s = MEM32(g_esp + 4u);
     if (fr_setup() && online_ram(s)) {
+        MEM32(s) = 0;                            /* San Diego only (the city row calls this cycler too) */
         MEM32(s + 0x18u) = 0;
         MEM8(s + 0x48u) = 0;
         MEM32(g_esp + 8u) = 0;
