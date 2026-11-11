@@ -423,3 +423,23 @@ and accepts by flashing back. Too fast or no course near: a short note, only on
 that press. The headlights themselves are not shared (52-byte roam state): the ASK
 message is the signal. White near a player is the challenge's alone (while held
 too), so the same press never also starts the AI race of a start point nearby.
+
+The race's own start grid (2026-11-11, untested in game; supersedes the start line
+above): the course no longer joins the event mid-race at the checkpoint nearest the
+players (its start line was the gate before, not a checkpoint, no flare there, and the
+cars faced a straight line to checkpoint 0, a median 322 m away, more than 30 deg off
+the road in 41 of 529 races). Now it runs from checkpoint 0 like the game's race (cut
+at ~2 km / 6 checkpoints as before), and the cars stand on the race's grid: the .rac's
+`PlayerPosDir x y z dx dy dz` (just before numCheckpoints in 1567 of 1576 files; the
+player slot was there after all) for the challenger, the first `Opponent { ... PosDir
+x y z dx dy dz }` for the challenged (3.5 m to the +(up x dir) side in 241 of 270
+files; none, or farther than 8 m: 3.5 m to that side). Only events whose .rac has
+PlayerPosDir count. dir is the direction of travel (it points at checkpoint 0 in 739
+of 787 files; the loader `sub_001D4F20` stores the heading atan2(-dx, -dz)), so it is
+written as the car matrix's forward row (+0x28). The grid may be up to 1.5 km away
+(the event's start beacon distance); the cars are teleported there. ASK v3: the same
+bytes as v2 (96-byte limit: two PosDirs would not fit at 6 checkpoints), the start line
+being PlayerPosDir's position; the challenged reads the event's .rac itself for both
+slots and headings (a v2 build drops v3 and the other way round). Start beacons only
+(no .rac): as before, 2.5 m to each side of the challenger facing the first beacon.
+'[CHALLENGE] grid: <event>: ... challenger (x, y, z) heading N deg, challenged ...'.

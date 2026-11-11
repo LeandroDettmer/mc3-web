@@ -19,9 +19,9 @@
  *    ASK message is the signal.  Driving more than RCH_AWAY m away, a timeout
  *    or a busy B declines (NO).
  *  - A gets ACCEPT and sends GO (milliseconds left to the start) during the
- *    RCH_COUNT_S s countdown: both cars are put on the start grid (the
- *    course's start line, side by side RCH_GRID_W m off its middle, facing the
- *    first checkpoint: challenger left, challenged right) and held there; the
+ *    RCH_COUNT_S s countdown: both cars are put on the event's own start grid
+ *    (the challenger on the .rac's PlayerPosDir, the challenged on its first
+ *    Opponent's PosDir, each facing the .rac's direction) and held there; the
  *    game's own 3-2-1-GO (HUD message queue + countdown sound) where the HUD
  *    has it, else in the prompt box.
  *  - The race: the game's own checkpoints (below, "Native checkpoints"): the
@@ -46,14 +46,22 @@
  * sub_001D4F20 tries each section keyword with sub_0020F3C0 and else skips a
  * token (vt+4); "numcheckpoints" N (vt+0x10) then N x "checkpoint" x y z
  * (vt+0x24) f f f f [Arrow f i] [Type Normal|Different] [RespawnAllowed i],
- * sub_001CDC80).  The course starts at the event's checkpoint nearest to the
- * players when it is nearer than the first, and runs until RCH_COURSE_M m
+ * sub_001CDC80).  Only events whose .rac has "PlayerPosDir" x y z dx dy dz
+ * (just before numcheckpoints in 1567 of 1576 files) count.  The course runs
+ * from the event's checkpoint 0, as the game's race does, until RCH_COURSE_M m
  * (straight lines) or RCH_CP_MAX checkpoints.  Only if no file reads: a chain
  * of the city's race start beacons ahead of the challenger (on roads too).
  *
  * Each checkpoint keeps the .rac's four sizes (after x y z: +0x10C, +0x110
- * radius, +0x108 height, +0); the start line is the event's checkpoint (or
- * start beacon) before the course's first, at most RCH_GRID_M m away.
+ * radius, +0x108 height, +0).  The start grid is the race's own: the player
+ * slot at PlayerPosDir, the opponent slot at the first "Opponent { ... PosDir
+ * x y z dx dy dz }" (3.5 m to the +(up x dir) side in 241 of 270 files; one
+ * farther than RCH_OPP_M from the player slot, or none: RCH_OPP_W m to that
+ * side).  dir is the direction of travel (the loader sub_001D4F20 stores the
+ * heading atan2(-dx, -dz); dir points at checkpoint 0 in 739 of 787 files),
+ * so it is our car matrix's forward row (+0x28, as rch_grid_pose writes it).
+ * Start beacons only: both slots RCH_GRID_W m to each side of where the
+ * challenger stood, facing the first beacon.
  *
  * Native checkpoints (both racers, each in its own world): the Free Roam
  * cruise's race object [[0x533E24]+4] (vtable 0x46B608) is an mcRaceBase with
@@ -80,10 +88,12 @@
  * cruise), so ours draw them in its colours (map tune [0x507508] +0x350 next,
  * +0x360 the one after, +0x370 finish).
  *
- * Messages (roam_send_msg, peer to peer, ROAM_MSG_MAX bytes): 'C', version 2,
- * op, arg, race id u32, then by op: ASK (arg = n) start line (x, y, z) f32,
- * n x (x, y, z) f32, city u8, event u16 (0xFFFF none; the peer reads its .rac
- * for the sizes); ACCEPT; NO (arg = reason); GO u16 ms to the start; PROG
+ * Messages (roam_send_msg, peer to peer, ROAM_MSG_MAX bytes): 'C', version 3,
+ * op, arg, race id u32, then by op: ASK (arg = n) start line (x, y, z) f32
+ * (PlayerPosDir's position), n x (x, y, z) f32, city u8, event u16 (0xFFFF
+ * none; the peer reads its .rac for the sizes and both grid slots, the
+ * headings with them; a .rac whose PlayerPosDir is not the start line sent:
+ * the start beacons' grid); ACCEPT; NO (arg = reason); GO u16 ms to the start; PROG
  * (arg = checkpoints passed) finished u8, 3 pad, finish ms u32.  Anything
  * else, or another race id, is dropped (an ASK while busy is answered NO
  * busy).
@@ -109,8 +119,9 @@
 #define RCH_EVENT_M    1500.0f          /* m: an event's start this near gives its course */
 #define RCH_RAC_MAX    96               /* checkpoints read from a .rac at most */
 #define RCH_TOKENS     8000             /* tokens skipped at most looking for numcheckpoints */
-#define RCH_GRID_M     300.0f           /* m: a start line farther from us than this: another course */
-#define RCH_GRID_W     2.5f             /* m: each grid slot off the start line's middle */
+#define RCH_GRID_W     2.5f             /* m: start beacons only: each grid slot off the start line's middle */
+#define RCH_OPP_W      3.5f             /* m: the opponent slot beside PlayerPosDir when the .rac has none */
+#define RCH_OPP_M      8.0f             /* m: a first Opponent farther from PlayerPosDir is not beside it */
 #define RCH_DIMS       4                /* sizes a checkpoint keeps (see above) */
 
 #define RCH_RACEP_VA   0x00533E24u      /* [+4] = the race object */
@@ -157,7 +168,8 @@ static struct {
     char name[ROAM_NAME_MAX + 1];
     float cp[RCH_CP_MAX][3];
     float dims[RCH_CP_MAX][RCH_DIMS];
-    float grid[3];                              /* the start line */
+    float grid[3];                              /* the start line (PlayerPosDir, or where the challenger stood) */
+    float slot[2][3], sdir[2][2];               /* grid slots (0 challenger, 1 challenged): position, forward x/z */
     unsigned ev_city, ev_index;                 /* the event the course is from (ev_index 0xFFFF none) */
     int ncp;
     float km;
@@ -218,17 +230,51 @@ static void rch_fmt_time(char *out, size_t n, double s)
 
 /* ---- the course ---- */
 
-/* The checkpoints of race r from its .rac (the race loader's way): x y z and the RCH_DIMS sizes; their count. */
-static int rch_load_rac(const roam_race *r, float (*cp)[3 + RCH_DIMS], int max, uint32_t esp)
+/* A race's .rac as read: checkpoints (x y z + the RCH_DIMS sizes), PlayerPosDir and the first Opponent's PosDir
+ * (x y z dx dy dz; has_* 0 none). */
+typedef struct {
+    uint16_t index; uint8_t city; int n;
+    float cp[RCH_RAC_MAX][3 + RCH_DIMS];
+    int has_ppd, has_opd;
+    float ppd[6], opd[6];
+} rch_rac;
+
+/* Reads "x y z dx dy dz" (two vectors, tokenizer vt+0x24) into pd; 1 when sane (dir not vertical). */
+static int rch_posdir(uint32_t tok, uint32_t vt, uint32_t base, uint32_t vec, float pd[6])
+{
+    uint32_t a[1], h, i;
+    for (h = 0; h < 2; h++) {
+        MEMF(vec) = MEMF(vec + 4u) = MEMF(vec + 8u) = 0.0f;
+        a[0] = vec;
+        roam_call(recomp_lookup(MEM32(vt + 0x24u)), tok, base, 1, a);
+        for (i = 0; i < 3; i++)
+            pd[3 * h + i] = MEMF(vec + 4u * i);
+    }
+    for (i = 0; i < 6; i++)
+        if (!isfinite(pd[i]) || fabsf(pd[i]) > 20000.0f)
+            return 0;
+    return pd[3] * pd[3] + pd[5] * pd[5] > 0.01f;
+}
+
+/* Race r's .rac (the race loader's way) into out: checkpoints, PlayerPosDir, the first Opponent's PosDir. */
+static void rch_load_rac(const roam_race *r, rch_rac *out, uint32_t esp)
 {
     uint32_t base = (esp - 0x1000u) & ~0xFu, dir = base, tok = base + 0x40u, buf = base + 0x100u, vec = base + 0x180u,
-             ename = base + 0x200u;
+             ename = base + 0x200u, s_ppd = base + 0x300u, s_pd = base + 0x320u;
     uint32_t fs = MEM32(RCH_FS_VA), tbl = MEM32(RCH_CITY_VA), cname, stream, vt, a[5], i;
-    int n = 0, want, k, t;
+    int n = 0, want, k, t, max = RCH_RAC_MAX;
+    float (*cp)[3 + RCH_DIMS] = out->cp;
     char dname[64];
-    const char *pre = "tune/race/";
+    const char *pre = "tune/race/", *kw_ppd = "PlayerPosDir", *kw_pd = "PosDir";
+    out->n = out->has_ppd = out->has_opd = 0;
+    for (i = 0; kw_ppd[i]; i++)
+        MEM8(s_ppd + i) = (uint8_t)kw_ppd[i];
+    MEM8(s_ppd + i) = 0;
+    for (i = 0; kw_pd[i]; i++)
+        MEM8(s_pd + i) = (uint8_t)kw_pd[i];
+    MEM8(s_pd + i) = 0;
     if (!online_ram(fs) || !online_ram(MEM32(fs)) || !online_ram(tbl) || !online_ram(cname = MEM32(tbl + r->city * 0x50u)))
-        return 0;
+        return;
     for (i = 0; pre[i]; i++)
         MEM8(dir + i) = (uint8_t)pre[i];
     for (k = 0; MEM8(cname + k) && i < 0x3Fu; k++, i++)
@@ -244,7 +290,7 @@ static int rch_load_rac(const roam_race *r, float (*cp)[3 + RCH_DIMS], int max, 
     stream = roam_call(recomp_lookup(MEM32(MEM32(fs) + 0x20u)), fs, base, 5, a);
     if (!online_ram(stream)) {
         fprintf(stderr, "[CHALLENGE] course: %s/%s.rac did not open\n", dname, r->name);
-        return 0;
+        return;
     }
     for (i = 0; i < 0xA0u; i += 4)
         MEM32(tok + i) = 0;
@@ -256,6 +302,11 @@ static int rch_load_rac(const roam_race *r, float (*cp)[3 + RCH_DIMS], int max, 
         a[0] = RCH_S_NUMCP; a[1] = 1;
         if (roam_call(sub_0020F3C0, tok, base, 2, a) & 0xFFu)
             break;
+        a[0] = s_ppd; a[1] = 1;                 /* the player's grid slot, just before numcheckpoints */
+        if (roam_call(sub_0020F3C0, tok, base, 2, a) & 0xFFu) {
+            out->has_ppd = rch_posdir(tok, vt, base, vec, out->ppd);
+            continue;
+        }
         a[0] = buf; a[1] = 0x80u;
         if (!roam_call(recomp_lookup(MEM32(vt + 4u)), tok, base, 2, a))
             break;                              /* the end of the file */
@@ -305,55 +356,76 @@ static int rch_load_rac(const roam_race *r, float (*cp)[3 + RCH_DIMS], int max, 
                 roam_call(recomp_lookup(MEM32(vt + 4u)), tok, base, 2, a);
             }
         }
-        fprintf(stderr, "[CHALLENGE] course: %s/%s.rac: %d of %d checkpoints read\n", dname, r->name, n, want);
+        for (t = 0; t < RCH_TOKENS; t++) {      /* the first PosDir after them: Opponent 0's grid slot */
+            a[0] = s_pd; a[1] = 1;
+            if (roam_call(sub_0020F3C0, tok, base, 2, a) & 0xFFu) {
+                out->has_opd = rch_posdir(tok, vt, base, vec, out->opd);
+                break;
+            }
+            a[0] = buf; a[1] = 0x80u;
+            if (!roam_call(recomp_lookup(MEM32(vt + 4u)), tok, base, 2, a))
+                break;
+        }
+        fprintf(stderr, "[CHALLENGE] course: %s/%s.rac: %d of %d checkpoints read; PlayerPosDir %s, opponent PosDir %s\n",
+                dname, r->name, n, want, out->has_ppd ? "yes" : "no", out->has_opd ? "yes" : "no");
     } else
         fprintf(stderr, "[CHALLENGE] course: %s/%s.rac has no numcheckpoints\n", dname, r->name);
     roam_call(sub_001A2630, stream, base, 0, NULL);
-    return n;
+    out->n = n;
 }
 
-/* s_rch.cp from the checkpoints all[0..n) (a loop when circuit) from `start`, the start line the one before (or
- * the event's start beacon); its count. */
-static int rch_take(const float (*all)[3 + RCH_DIMS], int n, int circuit, const float me[3], int start,
-                    const float beacon[3])
+/* s_rch.cp from the race's checkpoints from its first, as the game's race runs, the start line its PlayerPosDir;
+ * its count. */
+static int rch_take(const rch_rac *rac)
 {
-    int i, k;
+    int i;
     float sum = 0.0f;
-    const float *prev = start > 0 ? all[start - 1] : circuit ? all[n - 1] : beacon ? beacon : me;
-    memcpy(s_rch.grid, prev, sizeof s_rch.grid);
+    const float *prev = rac->ppd;
+    memcpy(s_rch.grid, rac->ppd, sizeof s_rch.grid);
     s_rch.ncp = 0;
-    for (k = 0; s_rch.ncp < RCH_CP_MAX && sum < RCH_COURSE_M; k++) {
-        i = start + k;
-        if (i >= n) {
-            if (!circuit || k >= n)
-                break;
-            i -= n;
-        }
-        sum += rch_hd(all[i], prev);
-        prev = all[i];
-        memcpy(s_rch.cp[s_rch.ncp], all[i], sizeof s_rch.cp[0]);
-        memcpy(s_rch.dims[s_rch.ncp++], &all[i][3], sizeof s_rch.dims[0]);
+    for (i = 0; i < rac->n && s_rch.ncp < RCH_CP_MAX && sum < RCH_COURSE_M; i++) {
+        sum += rch_hd(rac->cp[i], prev);
+        prev = rac->cp[i];
+        memcpy(s_rch.cp[s_rch.ncp], rac->cp[i], sizeof s_rch.cp[0]);
+        memcpy(s_rch.dims[s_rch.ncp++], &rac->cp[i][3], sizeof s_rch.dims[0]);
     }
     s_rch.km = sum / 1000.0f;
     return s_rch.ncp;
 }
 
-/* The course joins the event where it passes nearest to us (the next checkpoint when we stand at it); a sprint
- * with fewer than 2 checkpoints left from there runs from its first. */
-static int rch_trim(const float (*all)[3 + RCH_DIMS], int n, int circuit, const float me[3], const float beacon[3])
+/* Both grid slots: the race's own (rac's PlayerPosDir at s_rch.grid: the player slot there, the opponent's at its
+ * first Opponent PosDir, else RCH_OPP_W m to the +(up x dir) side, as the game's opponent 0 stands), else the
+ * start beacons' (RCH_GRID_W m to each side of s_rch.grid facing the first checkpoint, the challenger at -). */
+static void rch_slots(const rch_rac *rac)
 {
-    int start = 0, i;
-    float d, best = 1e30f;
-    for (i = 0; i < n; i++)
-        if ((d = rch_hd(all[i], me)) < best) {
-            best = d;
-            start = i;
+    float f[2], l;
+    int k;
+    if (rac && rac->has_ppd && rch_hd(rac->ppd, s_rch.grid) < 1.0f && fabsf(rac->ppd[1] - s_rch.grid[1]) < 1.0f) {
+        const float *o = rac->has_opd && rch_hd(rac->opd, rac->ppd) < RCH_OPP_M ? rac->opd : NULL;
+        for (k = 0; k < 2; k++) {
+            const float *pd = k && o ? o : rac->ppd;
+            l = sqrtf(pd[3] * pd[3] + pd[5] * pd[5]);
+            s_rch.sdir[k][0] = pd[3] / l;
+            s_rch.sdir[k][1] = pd[5] / l;
+            memcpy(s_rch.slot[k], pd, sizeof s_rch.slot[0]);
         }
-    if (best < 80.0f)
-        start++;
-    if (rch_take(all, n, circuit, me, circuit ? start % n : start, beacon) >= 2)
-        return s_rch.ncp;
-    return rch_take(all, n, circuit, me, 0, beacon);
+        if (!o) {
+            s_rch.slot[1][0] += RCH_OPP_W * s_rch.sdir[0][1];    /* up x dir = (dz, 0, -dx) */
+            s_rch.slot[1][2] -= RCH_OPP_W * s_rch.sdir[0][0];
+        }
+        return;
+    }
+    f[0] = s_rch.cp[0][0] - s_rch.grid[0];
+    f[1] = s_rch.cp[0][2] - s_rch.grid[2];
+    if ((l = sqrtf(f[0] * f[0] + f[1] * f[1])) < 1.0f)
+        f[0] = 0.0f, f[1] = 1.0f, l = 1.0f;
+    for (k = 0; k < 2; k++) {
+        s_rch.sdir[k][0] = f[0] / l;
+        s_rch.sdir[k][1] = f[1] / l;
+        s_rch.slot[k][0] = s_rch.grid[0] + (k ? RCH_GRID_W : -RCH_GRID_W) * f[1] / l;
+        s_rch.slot[k][1] = s_rch.grid[1];
+        s_rch.slot[k][2] = s_rch.grid[2] - (k ? RCH_GRID_W : -RCH_GRID_W) * f[0] / l;
+    }
 }
 
 /* Only if no .rac reads: the city's race start beacons chained ahead (fwd) of us, 250-700 m a leg. */
@@ -400,8 +472,7 @@ static int rch_beacons(unsigned city, const float me[3], const float fwd[3])
     return s_rch.ncp;
 }
 
-/* Race r's checkpoints from its .rac, read once (4 races kept). */
-typedef struct { uint16_t index; uint8_t city; int n; float cp[RCH_RAC_MAX][3 + RCH_DIMS]; } rch_rac;
+/* Race r's .rac, read once (4 races kept). */
 static rch_rac *rch_cache(const roam_race *r, uint32_t esp)
 {
     static rch_rac cache[4];
@@ -413,14 +484,14 @@ static rch_rac *rch_cache(const roam_race *r, uint32_t esp)
         c = ncache < 4 ? ncache++ : (int)(roam_now() * 7.0) % 4;
         cache[c].index = (uint16_t)r->index;
         cache[c].city = (uint8_t)r->city;
-        cache[c].n = rch_load_rac(r, cache[c].cp, RCH_RAC_MAX, esp);
+        rch_load_rac(r, &cache[c], esp);
     }
     return &cache[c];
 }
 
 /* The challenged side: the sizes of the received course from the event's .rac (each checkpoint within 3 m of
- * one of the event's), else the defaults. */
-static void rch_dims_from(unsigned city, unsigned index, uint32_t esp)
+ * one of the event's), else the defaults; the .rac read (NULL none). */
+static const rch_rac *rch_dims_from(unsigned city, unsigned index, uint32_t esp)
 {
     const roam_race *r = NULL;
     const rch_rac *rac = NULL;
@@ -441,6 +512,7 @@ static void rch_dims_from(unsigned city, unsigned index, uint32_t esp)
             }
     fprintf(stderr, "[CHALLENGE] course sizes: %d of %d checkpoints from %s\n", got, s_rch.ncp,
             r ? r->name : "no race file (defaults)");
+    return rac;
 }
 
 /* The course for a race from where we stand; its checkpoint count (2 at least), 0 none. */
@@ -467,23 +539,24 @@ static int rch_course(unsigned city, const float me[3], const float fwd[3], uint
     for (i = 0; i < nc; i++) {
         r = cand[i];
         rac = rch_cache(r, esp);
-        if (rac->n >= 2 &&
-            (n = rch_trim((const float (*)[3 + RCH_DIMS])rac->cp, rac->n, r->kind == RR_CIRCUIT, me, r->pos)) >= 2) {
-            if (rch_hd(s_rch.grid, me) > RCH_GRID_M) {
-                fprintf(stderr, "[CHALLENGE] course: %s: start line %.0f m away, too far\n", r->name,
-                        rch_hd(s_rch.grid, me));
-                continue;
-            }
+        if (!rac->has_ppd) {
+            fprintf(stderr, "[CHALLENGE] course: %s: no PlayerPosDir in its .rac\n", r->name);
+            continue;
+        }
+        if (rac->n >= 2 && (n = rch_take(rac)) >= 2) {
             s_rch.ev_city = r->city;
             s_rch.ev_index = r->index;
-            fprintf(stderr, "[CHALLENGE] course: %s (%s, start %.0f m away): %d checkpoints, %.1f km, start line %.0f m "
-                    "from us\n", r->name, roam_races_kind_name(r->kind), cd[i], n, s_rch.km, rch_hd(s_rch.grid, me));
+            rch_slots(rac);
+            fprintf(stderr, "[CHALLENGE] course: %s (%s, start %.0f m away): %d checkpoints from the first, %.1f km, "
+                    "grid %.0f m from us\n", r->name, roam_races_kind_name(r->kind), cd[i], n, s_rch.km,
+                    rch_hd(s_rch.grid, me));
             return n;
         }
     }
     s_rch.ev_city = city;
     s_rch.ev_index = 0xFFFFu;
     if ((n = rch_beacons(city, me, fwd)) >= 2) {
+        rch_slots(NULL);
         fprintf(stderr, "[CHALLENGE] course: no race file near (%d tried): %d start beacons ahead, %.1f km\n", nc, n,
                 s_rch.km);
         return n;
@@ -504,7 +577,7 @@ static void rch_send(uint32_t to, uint32_t race, int op, int arg, double now)
     float f;
     double left;
     memset(b, 0, sizeof b);
-    b[0] = 'C'; b[1] = 2; b[2] = (uint8_t)op; b[3] = (uint8_t)arg;
+    b[0] = 'C'; b[1] = 3; b[2] = (uint8_t)op; b[3] = (uint8_t)arg;
     rch_put32(b + 4, race);
     if (op == RCH_OP_ASK) {
         b[3] = (uint8_t)s_rch.ncp;
@@ -594,7 +667,7 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
     const roam_peer *pp;
     int n, op, k, i, ok;
     while ((n = roam_recv_msg(&from, b, sizeof b)) > 0) {
-        if (n < 8 || b[0] != 'C' || b[1] != 2)
+        if (n < 8 || b[0] != 'C' || b[1] != 3)  /* v3: the grid from the event's .rac; v2 builds are dropped */
             continue;
         op = b[2];
         race = rch_get32(b + 4);
@@ -632,7 +705,7 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
             s_rch.ncp = b[3];
             s_rch.ev_city = b[20 + 12 * b[3]];
             s_rch.ev_index = (unsigned)b[21 + 12 * b[3]] | (unsigned)b[22 + 12 * b[3]] << 8;
-            rch_dims_from(s_rch.ev_city, s_rch.ev_index, esp);
+            rch_slots(rch_dims_from(s_rch.ev_city, s_rch.ev_index, esp));
             s_rch.km = rch_hd(s_rch.cp[0], s_rch.grid);
             for (k = 1; k < s_rch.ncp; k++)
                 s_rch.km += rch_hd(s_rch.cp[k], s_rch.cp[k - 1]);
@@ -865,32 +938,31 @@ static void rch_nat_pass(int k, double el, uint32_t top)
     rch_audio(0x15, top);
 }
 
-/* Our grid slot on the start line: challenger left, challenged right, facing the first checkpoint; the car's own
- * matrix turned there (its handedness kept). */
+/* Our grid slot (rch_slots: challenger slot 0, challenged slot 1), forward (+0x28, the direction of travel) along
+ * its dir; the car's own matrix turned there (its handedness kept). */
 static void rch_grid_pose(uint32_t mtx, float m[12])
 {
-    float f[2] = { s_rch.cp[0][0] - s_rch.grid[0], s_rch.cp[0][2] - s_rch.grid[2] }, l, s, side;
+    const float *f = s_rch.sdir[s_rch.host ? 0 : 1], *at = s_rch.slot[s_rch.host ? 0 : 1];
+    float s;
     int k;
     for (k = 0; k < 12; k++)
         m[k] = MEMF(mtx + 0x10u + 4u * k);
-    l = sqrtf(f[0] * f[0] + f[1] * f[1]);
-    if (l < 1.0f) {
-        f[0] = m[6];
-        f[1] = m[8];
-        l = sqrtf(f[0] * f[0] + f[1] * f[1]);
-        if (l < 1e-3f)
-            f[0] = 0.0f, f[1] = 1.0f, l = 1.0f;
-    }
-    f[0] /= l;
-    f[1] /= l;
     s = m[0] * m[8] - m[2] * m[6] >= 0.0f ? 1.0f : -1.0f;  /* right = s * (up x forward) */
-    side = s_rch.host ? -RCH_GRID_W : RCH_GRID_W;
     m[0] = s * f[1]; m[1] = 0.0f; m[2] = -s * f[0];
     m[3] = 0.0f;     m[4] = 1.0f; m[5] = 0.0f;
     m[6] = f[0];     m[7] = 0.0f; m[8] = f[1];
-    m[9] = s_rch.grid[0] + side * f[1];
-    m[10] = s_rch.grid[1] + 0.5f;
-    m[11] = s_rch.grid[2] - side * f[0];
+    m[9] = at[0];
+    m[10] = at[1] + 0.5f;
+    m[11] = at[2];
+}
+
+static const char *rch_ev_name(void)            /* the course's event, for the log */
+{
+    int i;
+    for (i = 0; s_rch.ev_index != 0xFFFFu && i < roam_races_count(); i++)
+        if (roam_races_get(i)->city == s_rch.ev_city && roam_races_get(i)->index == s_rch.ev_index)
+            return roam_races_get(i)->name;
+    return "start beacons";
 }
 
 /* ---- the frame ---- */
@@ -1049,8 +1121,12 @@ static int rch_player(uint32_t p)
             s_rch.said = 4;
             s_rch.native = rch_nat_on(top);
             rch_audio(0xC, top);                /* the countdown sound */
-            fprintf(stderr, "[CHALLENGE] grid: %s slot at (%.1f, %.1f, %.1f), %.0f m from where we stood; %s "
-                    "checkpoints\n", s_rch.host ? "left" : "right", s_rch.hold[9], s_rch.hold[10], s_rch.hold[11],
+            fprintf(stderr, "[CHALLENGE] grid: %s: we are the %s; challenger (%.1f, %.1f, %.1f) heading %.0f deg, "
+                    "challenged (%.1f, %.1f, %.1f) heading %.0f deg (the game's atan2(-dx, -dz)); %.0f m from where "
+                    "we stood; %s checkpoints\n", rch_ev_name(), s_rch.host ? "challenger" : "challenged",
+                    s_rch.slot[0][0], s_rch.slot[0][1], s_rch.slot[0][2],
+                    atan2f(-s_rch.sdir[0][0], -s_rch.sdir[0][1]) * 57.29578f, s_rch.slot[1][0], s_rch.slot[1][1],
+                    s_rch.slot[1][2], atan2f(-s_rch.sdir[1][0], -s_rch.sdir[1][1]) * 57.29578f,
                     rch_hd(&s_rch.hold[9], me), s_rch.native ? "the game's" : "page");
         }
         if (s_rch.host && now - s_rch.tx >= RCH_RESEND) {

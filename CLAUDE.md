@@ -439,9 +439,12 @@ generated files when the lift inputs did not change.
   sprint/circuit's own checkpoints, read from its .rac at challenge time
   (tune/race/<city>/<event>.rac through the game's file system and text
   tokenizer: position + 4 sizes), ~2 km, at most 6. Rework (2026-11-10,
-  untested in game): both cars go to a start grid (the event's checkpoint
-  before the course, side by side 2.5 m off it, facing the first
-  checkpoint; challenger left) and are held there for the 3 s countdown;
+  untested in game): both cars go to the race's own start grid (2026-11-11,
+  untested: the .rac's PlayerPosDir for the challenger, its first Opponent
+  PosDir for the challenged, facing the .rac's dir; the course runs from
+  checkpoint 0; ASK v3, the challenged reads the .rac itself; start beacons
+  only: 2.5 m to each side of the challenger) and are held there for the 3 s
+  countdown;
   the checkpoints are the game's own: the Free Roam cruise's race object
   [[0x533E24]+4] (vt 0x46B608) is an mcRaceBase with none, and its per-player
   draw (vt+0x110 sub_001CF3B0, from the player render sub_002BE8E0) runs the
@@ -456,7 +459,7 @@ generated files when the lift inputs did not change.
   in the map tune's colours. Page marker roam_cp_box only as fallback.
   Prompt box (web/pre.js): left, above the minimap; '\x01' first = big and
   centred (countdown, GO, 2 s of result). Messages: roam core GAME record
-  (type 10, core 17, peer to peer, the hubs untouched; challenge v2).
+  (type 10, core 17, peer to peer, the hubs untouched; challenge v3).
   '[CHALLENGE]' lines; MC3_ROAM_CHALLENGE=0 off, =2 no HUD/audio calls,
   =3 no native checkpoints.
   Many cars (2026-11-09, untested in game; src/games/remix/roam_cars.c,
