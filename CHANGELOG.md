@@ -58,3 +58,4 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** no more freeze when another player's car changes while you cruise.
 - **Free Roam:** cars of nearby players come straight from their browser (P2P, with Cloudflare's TURN behind strict routers): smoother, and the server only relays what cannot connect. Settings: "Direct connections (P2P) in Free Roam".
 - **Free Roam:** every player in your city is on the map now, not only the 20 nearest; each city has a server of its own.
+- **Free Roam:** San Diego only for now, so everyone meets in the same city.
