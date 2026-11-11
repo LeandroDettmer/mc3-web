@@ -545,7 +545,7 @@
     { key: 'MC3_TOUCH_OPACITY', label: 'Touch controls opacity', help: 'How much of the game shows through them.',
       opts: [['', '45% (default)'], ['0.25', '25%'], ['0.6', '60%'], ['0.8', '80%'], ['1', '100%']] },
     { group: 'Performance' },
-    { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL. Firefox always uses WebGL (its WebGPU shows a black screen).',
+    { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL. Firefox always uses WebGL (its WebGPU shows a black screen). Auto also uses WebGL on GPUs whose WebGPU froze the game (Mali, Adreno 600 and older, Intel HD/UHD 4xx-6xx) and on a device where WebGPU froze or failed before; WebGPU here forces it (and forgets the failure).',
       opts: [['', 'Auto (default)'], ['webgpu', 'WebGPU'], ['webgl', 'WebGL']] },
     { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60. Auto: on, off (30 fps) on phones.',
       opts: [['', 'Auto (default)'], ['1', 'On'], ['0', 'Off']] },
@@ -1245,7 +1245,7 @@
   let logText = [], logDirty = false, failBox = null, logN = 0;   // logN: lines ever logged (keepTail writes on change)
   // Log lines that mean the game cannot go on: the box below says so over the picture.
   const FATAL = [
-    [/\[WGPU\] device lost/, 'Graphics device lost', 'The game cannot draw any more. Reload the page; if it happens again, add ?RECOMP_GPU=webgl to the address.'],
+    [/\[WGPU\] device lost/, 'Graphics device lost', 'The game cannot draw any more. Restart: from now on this device starts on WebGL (Settings, Renderer: WebGPU tries WebGPU again).'],
     [/\[GL\] WebGL context lost/, 'Graphics context lost', 'The game cannot draw any more. Reload the page; close other tabs and apps (often memory).'],
     [/\[GL\] WebGL2 context on #canvas failed|\[GL\] (window|context):/, 'No graphics', 'This browser gave the game no WebGL 2 context. Reload the page: the next start draws through the page thread (slower).'],
     // WebKit's DOMException UnknownError ("unknown transient reason (e.g. out of memory)") killing a game thread:
@@ -1291,6 +1291,7 @@
     // Restart (2026-11-10): the page again with the intro skipped and Play pressed (restartGame); after a lost
     // WebGPU device on WebGL; 'Back to Free Roam' also drives back to where the Online cruise was (resumeEnv)
     const bar = document.createElement('p'), lost = /\[WGPU\] device lost/.test(why);
+    if (lost) store.set('gpuWebgl', 'WebGPU lost its device');   // every later start too (gpuChoice)
     const btn = (label, how) => {
       const b = document.createElement('button');
       b.type = 'button'; b.className = 'btn'; b.textContent = label;
@@ -1375,6 +1376,9 @@
         + `${lastLine(/\[WGPU\] watchdog/) || 'no WebGPU watchdog line'}; last disc line: ${lastLine(/\[WEB\] (disc|readahead|prefetch)/) || 'none'}`;
       out('[WEB] freeze: ' + why);
       logQuiet('freeze', why);
+      // every frame still on the GPU (onSubmittedWorkDone late; 89 logs, 2026-11-11, mostly after a burst of new
+      // pipelines on Mali/Adreno/older Intel): the next start on this device uses WebGL (gpuChoice)
+      if (/GPU (\d+) of \1 frames in flight/.test(why)) store.set('gpuWebgl', 'the game froze with the GPU behind');
     }, 1000);
     // Hitch: the frame counter still for HITCH_MS or more, then moving again (a player joining Free Roam froze
     // everyone briefly, 2026-11-10). Logged with the nearest car-build / disc lines; the first one of a second or
@@ -1450,13 +1454,23 @@
   // 2026-11-08), else WebGL; the row or ?RECOMP_GPU=webgl forces WebGL.
   // Firefox: WebGL even when WebGPU is picked. Its WebGPU drew every frame into the game worker's canvas with no error
   // and the page stayed black (#1, 2026-11-10: frame counter moving, music playing).
+  // Auto also picks WebGL (2026-11-11 triage, 89 freeze logs with every frame on the GPU, mostly right after new
+  // pipelines): on GPU families where WebGPU froze the game for many (Mali: 48 of 75 logs froze; Adreno 6xx 13 of
+  // 20; Intel gen 7-9 15 of 22), and on a device where WebGPU froze that way or lost its device before (store
+  // gpuWebgl, set by watchFrames and failShow). The row's WebGPU forces it and forgets the failure.
+  let gpuNote = '';   // said to the player in the running status
   async function gpuChoice(env) {
     if (env.RECOMP_GPU === 'webgl') return 'webgl';
     if (/Firefox\//.test(navigator.userAgent)) { out('[WEB] graphics: Firefox shows no WebGPU picture from the game\'s worker: WebGL'); return 'webgl'; }
-    try {
-      const a = navigator.gpu && await navigator.gpu.requestAdapter(), i = a?.info || {};
-      if (a) { gpuInfo = 'WebGPU adapter ' + ([i.vendor, i.architecture, i.device, i.description].filter(Boolean).join(' ') || '(no info)'); return 'webgpu'; }
-    } catch {}
+    let a = null, i = {};
+    try { a = navigator.gpu && await navigator.gpu.requestAdapter(); i = a?.info || {}; } catch {}
+    if (!a) return 'webgl';
+    gpuInfo = 'WebGPU adapter ' + ([i.vendor, i.architecture, i.device, i.description].filter(Boolean).join(' ') || '(no info)');
+    if (env.RECOMP_GPU === 'webgpu') { store.set('gpuWebgl', ''); return 'webgpu'; }
+    const was = store.get('gpuWebgl', ''), weak = /^(arm |qualcomm adreno-[1-6]|intel gen-[7-9]$)/.test(`${i.vendor} ${i.architecture}`);
+    if (!was && !weak) return 'webgpu';
+    gpuNote = ` Drawing with WebGL: ${was ? was + ' on this device before' : 'WebGPU froze the game on this kind of GPU'} (Settings, Renderer: WebGPU tries it).`;
+    out('[WEB] graphics:' + gpuNote);
     return 'webgl';
   }
   // Sound on phones (2026-11-09). iOS Safari lets an AudioContext run only if it is made or
@@ -1537,7 +1551,7 @@
       onRuntimeInitialized: () => {
         booted = true; tRuntime = performance.now();
         window.applyPad?.();
-        runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.`);
+        runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.${gpuNote}`);
         // No picture 90 s after the runtime is up (not after Play: a slow link's module and disc download is not a hang);
         // the log's last lines say why (a TV has no console to look at)
         setTimeout(() => { if (!(window.Module?.mc3Frames?.() > 0)) failShow('No picture after 90 s', `the game has not drawn a frame yet (${since(tPlay)} since Play, ${since(tRuntime)} since the runtime started)`); }, 90000);
