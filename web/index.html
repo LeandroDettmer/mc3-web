@@ -386,12 +386,12 @@
           <h3>Profiles in this browser</h3>
           <div class="row">
             <button type="button" class="btn" id="saves-refresh">Refresh</button>
-            <label class="btn file-btn">Import Xbox save<input type="file" id="import" accept=".mc3,.gsx"></label>
+            <label class="btn file-btn">Import save<input type="file" id="import" accept=".mc3,.gsx"></label>
           </div>
         </div>
         <ul class="profiles" id="profiles" aria-label="Profiles in this browser"></ul>
         <p class="msg" id="saves-msg" role="status"></p>
-        <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>. Import takes a profile's <code>.mc3</code> from an Xbox and signs it for the port; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
+        <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>. Import takes a profile's <code>.mc3</code> downloaded from this site (another browser or device) or from an Xbox, and signs it for the port; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
       </div>
 
       <div class="pane" role="tabpanel" data-pane="online" hidden>
@@ -1081,6 +1081,13 @@
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000);
   }
+  // a phone: the share sheet (Save to Files, Mail, AirDrop); an iPhone's Safari may only open a blob download
+  function saveFile(blob, name) {
+    const file = window.MC3Touch?.isPhone() && typeof File == 'function' ? new File([blob], name, { type: blob.type }) : null;
+    if (file && navigator.canShare?.({ files: [file] }))
+      navigator.share({ files: [file] }).catch(e => { if (e.name !== 'AbortError') download(blob, name); });
+    else download(blob, name);
+  }
   async function listSaves() {
     const ul = $('profiles');
     ul.textContent = '';
@@ -1114,7 +1121,7 @@
       dl.type = del.type = 'button';
       dl.className = 'btn'; dl.textContent = 'Download';
       dl.setAttribute('aria-label', 'Download ' + r.name);
-      dl.onclick = () => download(r.mc3.file, r.mc3.n);
+      dl.onclick = () => saveFile(r.mc3.file, r.mc3.n);
       del.className = 'btn danger'; del.textContent = 'Delete';
       del.setAttribute('aria-label', 'Delete ' + r.name);
       del.onclick = async () => {
@@ -1186,7 +1193,7 @@
       : `Online profile: $${r.money.toLocaleString('en-US')}, ${r.cars} car${r.cars === 1 ? '' : 's'} · saved ${new Date(file.lastModified).toLocaleString()}`;
   }
   async function oprofExport() {
-    try { download(await (await oprofFile(false)).getFile(), 'mc3-online-profile.bin'); oprofMsg(''); }
+    try { saveFile(await (await oprofFile(false)).getFile(), 'mc3-online-profile.bin'); oprofMsg(''); }
     catch { oprofMsg('No online profile in this browser yet.', true); }
   }
   async function oprofImport(file) {
@@ -1828,12 +1835,7 @@
   // The log as Save log hands it out: a test deploy's password (the /k/<key>/ of its URLs) masked.
   const logDump = (lines = logText) => (lines.join('\n') + '\n').replace(/\/k\/[^/\s"']+/g, '/k/***');
   $('log-save').onclick = () => {
-    const name = 'mcdub3-web-log.txt', blob = new Blob([logDump()], { type: 'text/plain' });
-    // a phone: the share sheet (Save to Files, Mail, AirDrop); an iPhone's Safari may only open a blob download
-    const file = MC3Touch.isPhone() && typeof File == 'function' ? new File([blob], name, { type: 'text/plain' }) : null;
-    if (file && navigator.canShare?.({ files: [file] }))
-      navigator.share({ files: [file] }).catch(e => { if (e.name !== 'AbortError') download(blob, name); });
-    else download(blob, name);
+    saveFile(new Blob([logDump()], { type: 'text/plain' }), 'mcdub3-web-log.txt');
   };
   // Header: release date and Changelog popup, both from CHANGELOG.md (sections "## yyyy-mm-dd (commit)", lines "- **Area:** text").
   // Fetched once; without the file (dev server) the date stays hidden and the popup says so.
