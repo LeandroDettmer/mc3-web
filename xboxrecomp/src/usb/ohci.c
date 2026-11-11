@@ -1225,13 +1225,27 @@ static DWORD WINAPI ohci_thread(LPVOID unused)
                         hc->index, hcca, hc->reg[0x20 / 4]);
                 fflush(stderr);
             }
-            hc->reg[HcFmNumber / 4] =
-                (hc->reg[HcFmNumber / 4] + OHCI_TICK_MS) & 0xFFFFu;
+            uint32_t fm_old = hc->reg[HcFmNumber / 4];
+
+            hc->reg[HcFmNumber / 4] = (fm_old + OHCI_TICK_MS) & 0xFFFFu;
             /* HccaFrameNumber is 16 bits at +0x80 with a pad above it that the
              * controller zeroes, so a dword write is what hardware does. */
             if (hcca)
                 wr32(hcca + 0x80, hc->reg[HcFmNumber / 4]);
             hc->reg[HcInterruptStatus / 4] |= INTR_SF;
+            /* FrameNumberOverflow when bit 15 toggles (OHCI 1.0a 7.1.4). XPP's
+             * ISR (Remix sub_00446259) keeps the frame's high half from it
+             * ([hc+0x418]); never raised, its 32-bit frame (sub_004462EF) fell
+             * back 65536 frames each wrap (~65 s), and an ED pause stamped
+             * just before one (sub_00444BB8: frame + 1) waited a whole wrap to
+             * be served while stamps taken after the wrap (the same DPC's
+             * other lists) were served at once: a cancel held that long, and
+             * a likely way into one that finds no TDs and walks the dummy
+             * tail TD forever
+             * (sub_00446674 -> sub_004464D4, lock held by the DPC; browser
+             * freezes at race loads, 2026-11-11). */
+            if ((fm_old ^ hc->reg[HcFmNumber / 4]) & 0x8000u)
+                hc->reg[HcInterruptStatus / 4] |= INTR_FNO;
         }
 
         /* Be the bus master. ControlListEnable in HcControl says the driver

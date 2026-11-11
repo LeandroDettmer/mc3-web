@@ -156,6 +156,11 @@ static void dsp_ack_frame(MCPXAPUState *d)
     }
 }
 
+void mcpx_apu_dsp_ack(MCPXAPUState *d)
+{
+    dsp_ack_frame(d);
+}
+
 void mcpx_apu_dsp_init(MCPXAPUState *d)
 {
     /* Allocate minimal DSP state for GP and EP.

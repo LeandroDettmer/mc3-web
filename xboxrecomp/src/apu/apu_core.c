@@ -583,6 +583,14 @@ static void *mcpx_apu_frame_thread(void *arg)
                 d->in_trap = true;
                 s_thr_traps++;
             }
+            /* The GP DSP answers DirectSound's commands whatever the front
+             * end does: its doorbell (apu_dsp_ack_add) was cleared only by
+             * se_frame, so a command sent while the FE sat trapped (DSOUND
+             * spins on it, Remix sub_003C3D23) waited for the driver's trap
+             * handler, and was never acked if that handler could not run
+             * meanwhile. Halted is the driver's own stop: left as it was. */
+            if (fectl & NV_PAPU_FECTL_FEMETHMODE_TRAPPED)
+                mcpx_apu_dsp_ack(d);
             qemu_cond_timedwait(&d->cond, &d->lock, 1);
             s_thr_trap_us += qemu_clock_get_us(QEMU_CLOCK_REALTIME) - t0;
             continue;
