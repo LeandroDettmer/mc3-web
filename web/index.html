@@ -1345,6 +1345,9 @@
     // more in Free Roam also sends the log (tag hitch, once a session).
     const HITCH_MS = 250;
     let hf, ht = 0, hlast = 0, hsent = false;
+    // No rAF runs while hidden: without this the first frame back counted the hidden time (the 18-46 s "hitches" in
+    // the D5JVHR / 9553BJ logs, frames and PGRAPH traps running meanwhile).
+    document.addEventListener('visibilitychange', () => { ht = 0; });
     (function tick(now) {
       const f = window.Module?.mc3Frames?.();
       if (document.visibilityState !== 'visible' || !(f > 0)) ht = 0;

@@ -765,6 +765,41 @@ static int roam_rebuild(uint32_t p, int k, const uint8_t blob[ROAM_CFG_SIZE])
     return online_ram(veh);
 }
 
+/* MC3_ROAM_SWAPTEST=S (test hook, with MC3_ROAM_FAKE): every S seconds the
+ * next fake slot is rebuilt mid-cruise with the next car of a list, as a
+ * peer's car change does: swaps of driven, drawn cars in one browser. */
+static void roam_swaptest(int k)
+{
+    static const char *const cars[] = { "vp_d_f355_98", "vp_d_yukon_05", "vp_supra_98", "vp_jetta_03",
+                                        "vp_clk_gtr_03", "vp_murcielago_04", "vp_golfr32_04", "vp_eclipse_04" };
+    static double next;
+    static int every = -1, n;
+    uint32_t top = (g_esp - 0x400u) & ~0xFu, a = top;
+    const char *name;
+    int32_t car;
+    double now = roam_now();
+    if (every < 0) {
+        const char *e = getenv("MC3_ROAM_SWAPTEST");
+        every = e ? atoi(e) : 0;
+        next = now + every;
+    }
+    if (every <= 0 || now < next || k != 1 + n % s_roam_slots)
+        return;
+    next = now + every;
+    name = cars[n++ % (int)(sizeof cars / sizeof *cars)];
+    memcpy((char *)XBOX_PTR(top), name, strlen(name) + 1);
+    if ((car = (int32_t)roam_call(sub_0026A6A0, 0, top, 1, &a)) < 0)
+        return;
+    memcpy(s_swap.blob, s_roam_cfgb[k], ROAM_CFG_SIZE);
+    memset(s_swap.blob + ROAM_CFG_NAME, 0, ROAM_CFG_SIZE - ROAM_CFG_NAME);
+    memcpy(s_swap.blob + ROAM_CFG_NAME, name, strlen(name));
+    memcpy(s_swap.blob + ROAM_CFG_CAR, &car, 4);
+    s_swap.slot = k;
+    s_swap.car = car;
+    s_swap.t0 = now;
+    fprintf(stderr, "[ROAM] slot %d: building %s (car %d) for MC3_ROAM_SWAPTEST\n", k, name, (int)car);
+}
+
 /* Slot k's part of the swap, in its player's update: start one when its
  * peer's CarCfg differs and none is in flight, else finish ours once the
  * model is read. 1 when the car was rebuilt (player +0x14 is new). */
@@ -776,6 +811,8 @@ static int roam_swap(uint32_t p, int k)
         const char *e = getenv("MC3_ROAM_SWAP");
         s_roam_swap_on = !(e && e[0] == '0');
     }
+    if (s_roam_fake && !s_swap.slot)
+        roam_swaptest(k);
     if (!s_roam_want[k] || s_roam_fake) {
         if (s_swap.slot != k)
             return 0;
