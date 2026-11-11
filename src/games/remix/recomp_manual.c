@@ -3446,7 +3446,7 @@ static void roam_begin(uint32_t cfg);           /* free roam on + our car (O4), 
  * menu's own Request(0x12) item does from here (sub_0018C5C0). The Start
  * screen's +0x1E0 byte picks 0x4B36C4 (table 0x4B25AC: 0,1,2,3,4,5,10,15;
  * 0 at boot): a stand-in screen gives index 0 and the old value is put
- * back, so it stays the game's. MC3_FR_DIRECT=0: the screens as before. */
+ * back, so it stays the game's. MC3_FR_DIRECT=1 only (hung the game, 2026-11-11). */
 static uint32_t roam_call(recomp_func_t fn, uint32_t ecx, uint32_t top, int n, const uint32_t *args);
 static void fr_cruise(uint32_t s);
 void sub_0013AB20(void);
@@ -3459,7 +3459,8 @@ static int fr_direct(void)
     const char *e = getenv("MC3_FR_DIRECT");
     uint32_t s = MEM32(0x0053F2E8u), top = (g_esp - 0x800u) & ~0xFu, obj = top + 0x100u, a[2];
     uint8_t keep = MEM8(0x004B36C4u);
-    if ((e && e[0] == '0') || !online_ram(s) || !online_ram(MEM32(0x0053F2E4u)) || !online_ram(MEM32(0x00557ED0u)))
+    /* off unless MC3_FR_DIRECT=1: picking Online hung the game on the owner's PC (2026-11-11, 5428501) */
+    if (!e || e[0] != '1' || !online_ram(s) || !online_ram(MEM32(0x0053F2E4u)) || !online_ram(MEM32(0x00557ED0u)))
         return 0;
     MEM32(0x0050F14Cu) = 0;                      /* not a System Link game */
     roam_call(sub_0013AB20, 0, top, 0, NULL);
@@ -3475,7 +3476,7 @@ static int fr_direct(void)
     roam_call(sub_00184FD0, obj, top, 0, NULL);
     MEM8(0x004B36C4u) = keep;
     fprintf(stderr, "[ONLINE] Free Roam: straight into the San Diego cruise (event %d, %.24s), no setup or Start"
-            " screen (MC3_FR_DIRECT=0 for them)\n", (int32_t)a[1], (const char *)XBOX_PTR(s + 0x68u));
+            " screen (MC3_FR_DIRECT=1 opt-in)\n", (int32_t)a[1], (const char *)XBOX_PTR(s + 0x68u));
     return 1;
 }
 #endif
