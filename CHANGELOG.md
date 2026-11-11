@@ -71,3 +71,4 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Stability:** iPhones and iPads start with less memory, which should stop many tabs from closing on their own.
 - **Graphics:** phones whose GPU froze the game with WebGPU (Mali, older Adreno) draw with WebGL, and any device where WebGPU froze or was lost uses WebGL from its next start.
 - **Loading:** the background download now also fills cars, the city map and the career's movies, so fewer stalls in career and Free Roam.
+- **Page:** a "Report a bug" button opens a bug report on GitHub with the details filled in.
