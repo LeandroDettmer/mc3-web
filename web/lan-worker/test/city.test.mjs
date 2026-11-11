@@ -316,3 +316,54 @@ test('web/lan.js: the HELLO picks the city socket, frames and signals go over it
   link.roamSend(hi(0));
   assert.equal(tickets(), 0);
 });
+
+test("activity: hub 'city' for a city object's player, 'switch' for the fallback hub's (the split the owner looks for)", async () => {
+  const { sw, page, enter, roam } = world();
+  const now = Date.now(), a = page('Ann'), b = page('Bob');
+  enter(a, 0, now);
+  await roam(a, 1, 0, [0, 0, 0], now);
+  await settle();
+  await sw.webSocketMessage(b.ws, Uint8Array.from(udp(b.vip, HUB, [...hello(2, 'Bob', 7, 0)])).buffer, now);
+  const act = sw.activity();
+  assert.deepEqual(act.list.map(e => [e.city, e.hub]), [[0, 'city'], [0, 'switch']], 'Ann (city socket), Bob (fallback)');
+  assert.ok(!('hub' in sw.players().list[0]), 'private');
+});
+
+test('web/lan.js: a ticket unanswered for 10 s is asked again; a socket that never opened is retried after 5 s, at most 60 s', async () => {
+  const sockets = [], clock = { t: 1e9 };
+  class WS {
+    constructor(url) { this.url = url; this.readyState = 0; this.sent = []; sockets.push(this); }
+    send(d) { this.sent.push(d); }
+    close() { this.readyState = 3; }
+    open() { this.readyState = 1; this.onopen?.(); }
+    msg(m) { this.onmessage?.({ data: JSON.stringify(m) }); }
+    shut() { this.readyState = 3; this.onclose?.({ code: 1006 }); }
+  }
+  const win = { location: { protocol: 'https:', host: 'play.example', href: 'https://play.example/' }, localStorage: { getItem: () => 'cid-12345678', setItem() {} } };
+  const g = { window: win, WebSocket: WS, location: win.location, localStorage: win.localStorage, URL, JSON, Math, Date: { now: () => clock.t }, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {}, console };
+  vm.runInNewContext(await readFile(new URL('../../lan.js', import.meta.url), 'utf8'), g);
+  const link = win.mc3Lan('Ann', 'wss://lan.example/lan'), main = sockets[0], vip = vipAt(0);
+  main.open();
+  main.msg({ t: 'welcome', vip, vipStr: '10.77.0.2', mac: '', roamCity: 1 });
+  const hi = () => link.roamSend(Uint8Array.from(udp(vip, HUB, [...hello(9, 'Ann', 7, 0)])));
+  const tickets = () => main.sent.filter(s => s === '{"t":"ticket"}').length;
+  hi();
+  assert.equal(tickets(), 1);
+  clock.t += 9999; hi();
+  assert.equal(tickets(), 1, 'still waiting for the answer');
+  clock.t += 2; hi();
+  assert.equal(tickets(), 2, 'no answer in 10 s: asked again (it used to wait forever, on the switch hub)');
+  // never opened: 5 s, 10, 20, 40, 60, 60
+  for (const wait of [5000, 10000, 20000, 40000, 60000, 60000]) {
+    main.msg({ t: 'ticket', vip, exp: 1, sig: 's' });
+    sockets.at(-1).shut();
+    const n = tickets();
+    clock.t += wait - 1; hi();
+    assert.equal(tickets(), n, `backing off ${wait} ms`);
+    clock.t += 1; hi();
+    assert.equal(tickets(), n + 1, `retried after ${wait} ms`);
+  }
+  main.msg({ t: 'ticket', vip, exp: 1, sig: 's' });
+  sockets.at(-1).open();
+  assert.equal(link.city, 0, 'on the city socket in the end');
+});

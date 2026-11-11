@@ -30,12 +30,14 @@
 // The game's HELLO to the hub (10.77.0.253:47210) names its room (MC3: the city): a new one closes the old socket, asks
 // the switch {"t":"ticket"} and opens wss .../lan/roam?city=N&vip&exp&sig; its BYE closes it. Until the socket is open,
 // and whenever it is not (refused, a server without it), the frames go through the switch as before. A socket that never
-// opened is tried again after 30 s, 60, 120 ... (5 min at most), one that closed after opening after 1 s, at the next HELLO.
+// opened is tried again after 5 s, 10, 20, 40, then every 60 s, one that closed after opening after 1 s, at the next HELLO;
+// a ticket unanswered for 10 s is asked again. Soon, because the switch's hub and the city's never share players: a
+// page left on the switch meets nobody of its city who is on the city socket (2026-11-11: a San Diego player unseen).
 window.mc3Lan = function (name, lanUrl) {
   var url = lanUrl || (location.protocol == 'https:' ? 'wss://' : 'ws://') + location.host + '/lan';
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
                players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null, city: null };
-  var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, cityOn = false, city = null;   // city: {n, ws, asked, open, fails, retryAt}
+  var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, TICKET_WAIT = 10000, cityOn = false, city = null;   // city: {n, ws, asked, askedAt, open, fails, retryAt}
   var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, rejoin = null, pass = '', auto = false;
   // The keep-alive: the Cloudflare switch's runtime answers this exact text itself (setWebSocketAutoResponse,
   // web/races-worker/src/index.js BEAT), so an idle page never wakes its Durable Object. web/server ignores it: until
@@ -140,14 +142,15 @@ window.mc3Lan = function (name, lanUrl) {
   function cityFail(c, wasOpen) {
     if (c.ws) { c.ws.onclose = c.ws.onmessage = null; try { c.ws.close(); } catch (_) {} }
     c.ws = null; c.asked = false; c.open = false;
-    c.retryAt = Date.now() + (wasOpen ? 1000 : Math.min(300000, 30000 << Math.min(c.fails++, 4)));
+    c.retryAt = Date.now() + (wasOpen ? 1000 : Math.min(60000, 5000 << Math.min(c.fails++, 4)));
     if (link.city != null) { link.city = null; changed(); }
   }
   function cityWant(n) {
     if (!cityOn || !up() || !(n < CITIES)) return;
-    if (city && city.n == n) { if (city.ws || city.asked || Date.now() < city.retryAt) return; }
-    else { cityClose(); city = { n: n, ws: null, asked: false, open: false, fails: 0, retryAt: 0 }; }
-    city.asked = true;
+    var t = Date.now();
+    if (city && city.n == n) { if (city.ws || (city.asked && t - city.askedAt < TICKET_WAIT) || t < city.retryAt) return; }
+    else { cityClose(); city = { n: n, ws: null, asked: false, askedAt: 0, open: false, fails: 0, retryAt: 0 }; }
+    city.asked = true; city.askedAt = t;
     ws.send(JSON.stringify({ t: 'ticket' }));
   }
   function cityOpen(t) {

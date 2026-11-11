@@ -359,7 +359,7 @@ test('where: private. The push stays coarse; activity() has the detail; validate
   assert.equal(act.online, 6);
   assert.deepEqual(act.activities, { roam: 1, race: 2, career: 1, arcade: 0, menu: 0, loading: 1, page: 1 });
   assert.deepEqual(act.cities, { 1: 1 });
-  assert.deepEqual(act.list.find(p => p.name === 'Di'), { name: 'Di', activity: 'roam', city: 1, roam: 'drive' }, "the fallback hub's own status");
+  assert.deepEqual(act.list.find(p => p.name === 'Di'), { name: 'Di', activity: 'roam', city: 1, hub: 'switch', roam: 'drive' }, "the fallback hub's own status");
   assert.deepEqual(act.roamStatus, { menus: 0, loading: 0, drive: 1, race: 0, garage: 0, paused: 0 });
   assert.deepEqual(act.list.find(p => p.name === 'Bob'), { name: 'Bob', activity: 'loading' });
   // the choice survives the attachment (a hibernation wake rebuilds the clients from it)

@@ -43,9 +43,11 @@
 // else ignored, no reply); no 'where' yet (an old page, a new socket) counts as 'menu'. The page sends it only on change
 // (at most every 5 s) and after each hello of a (re)connect: ~10 incoming messages per session, 1/20 request each.
 // activity() (GET /lan/activity, src/index.js, behind ADMIN_KEY) gives the counts per activity and per free-roam city and
-// the list {name, activity, city?, roam?}; a free-roam player or one in a race room is 'roam' / 'race' (the switch knows it).
+// the list {name, activity, city?, roam?, hub?}; a free-roam player or one in a race room is 'roam' / 'race' (the switch knows it).
 // A free-roam entry also has `roam`: 'drive'|'garage'|'race'|'paused'|'menus'|'loading' (the hub's in-game status, which the
 // city objects report as [vip, room, status]; up to CITY.reportMs late), and the response `roamStatus` counts them.
+// `hub`: 'city' (a city object's hub) or 'switch' (this object's fallback hub); players of one city on different hubs
+// never see each other (web/lan.js keeps retrying its city socket, so 'switch' lasts seconds on a current page).
 // Private like the rest: the players push and /lan/stats do not carry it.
 // logActivity() prints one console.log line (wrangler tail) when that changed, at most every ACTIVITY_LOG_MS. Nicks are cleaned
 // and cut to NICK characters on hello, and unique among the live clients (any case; 'Player', the empty name's
@@ -243,15 +245,17 @@ export class Switch extends Lobby {
 
   /** GET /lan/activity (private): what every client does: {online, activities: {<activity>: n}, cities: {<room id>: n},
    *  roamStatus: {<status>: n} (free roam players by in-game status), list: [{name, activity, city?, roam?}]}; `roam` =
-   *  'drive'|'garage'|'race'|'paused'|'menus'|'loading', absent while unknown (a city object that reports no status). */
+   *  'drive'|'garage'|'race'|'paused'|'menus'|'loading', absent while unknown (a city object that reports no status);
+   *  `hub` = 'city' (its city object's hub) | 'switch' (this object's fallback hub): the two never see each other. */
   activity() {
-    const st = new Map(), roam = this.roamers(Date.now(), st), activities = {}, cities = {}, roamStatus = {};
+    const st = new Map(), roam = this.roamers(Date.now(), st), activities = {}, cities = {}, roamStatus = {}, inCity = new Set();
+    for (const r of this.cities.values()) for (const v of r.vips.keys()) inCity.add(v);   // roamers() dropped the stale reports
     for (const m of ['roam', 'race', ...WHERE]) activities[m] = 0;
     for (const s of ROAM_STATUS) roamStatus[s] = 0;
     const list = [...this.clients.values()].map(({ a }) => {
       const e = { name: String(a.name).slice(0, NICK), activity: WHERE.includes(a.w) ? a.w : 'menu' };
       if (roam.has(a.vip)) {
-        e.activity = 'roam'; e.city = roam.get(a.vip); cities[e.city] = (cities[e.city] || 0) + 1;
+        e.activity = 'roam'; e.city = roam.get(a.vip); e.hub = inCity.has(a.vip) ? 'city' : 'switch'; cities[e.city] = (cities[e.city] || 0) + 1;
         const s = ROAM_STATUS[st.get(a.vip)];
         if (s) { e.roam = s; roamStatus[s]++; }
       }
