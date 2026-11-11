@@ -41,6 +41,7 @@
 
 void xbox_sdl_keyboard_handle(const SDL_Event *e);   /* input/sdl_keyboard.c */
 int xbox_gil_sample(uint32_t *tid, uint32_t *esp, int *is_main);   /* kernel/kernel_bridge.c */
+void xbox_guest_threads_dump(void);                                 /* kernel/kernel_bridge.c */
 
 WgCtl    wg_ctl;
 uint32_t wg_frame;
@@ -563,6 +564,10 @@ static void wq_watchdog(int st)
             __atomic_load_n(&wg_ctl.frames_submitted, __ATOMIC_SEQ_CST)
                 - __atomic_load_n(&wg_ctl.frames_done, __ATOMIC_SEQ_CST),
             wg_ctl.max_in_flight, st >= 0 && st <= 4 ? dev[st] : "?", lock);
+    /* And every guest thread's kernel call: which wait, on what, from where
+     * (2026-11-11: a freeze after a music track change with the lock free
+     * named no thread). */
+    xbox_guest_threads_dump();
 }
 
 /* RECOMP_WGPU_STATS=1: one line a second. */

@@ -1121,6 +1121,12 @@ static DWORD WINAPI bridge_thread_main(LPVOID param)
     fflush(stderr);
     /* The routine returned instead of calling PsTerminateSystemThread; the
      * stack is still ours to give back. */
+#if defined(__EMSCRIPTEN__)
+    {
+        extern void xbox_kcall_forget(void);   /* below: the hang table's slot */
+        xbox_kcall_forget();
+    }
+#endif
     guest_thread_forget();
     xbox_FreeThreadStack(g_thread_stack_top);
     g_thread_stack_top = 0;
@@ -10719,7 +10725,167 @@ static void kernel_thunk_dispatch(void)
     kmw_add(ord, ret, (uint64_t)((t1.QuadPart - t0.QuadPart) * 1000000 / f.QuadPart));
 }
 
+#if defined(__EMSCRIPTEN__)
+/* Every thread's kernel call in progress, for the WebGPU watchdog's hang
+ * line (xbox_guest_threads_dump). 2026-11-11: the Remix froze right after
+ * a new music track's WMA decoder was made ('[WMA] create #3', then no
+ * frame, the guest lock free): every guest thread was blocked somewhere and
+ * nothing said where. Per thread: the ordinal, the guest return address,
+ * three arguments, the guest esp (its stack stands still while it waits)
+ * and the kernel call count at entry; state 1 = inside the call, 2 = the
+ * call is done and the thread waits for the guest lock back. A slot is
+ * claimed at a thread's first kernel call and given back at
+ * PsTerminateSystemThread (or when the routine returns). A few stores a
+ * call; nested calls (kernel -> guest callback -> kernel) restore the
+ * outer one's entry. */
+#define KCALL_SLOTS 64
+typedef struct {
+    volatile uint32_t tid, ord, ret, a0, a1, a2, esp, state, main;
+    volatile long long n0;
+} KcallSlot;
+static KcallSlot s_kcall[KCALL_SLOTS];
+static RECOMP_TLS int t_kcall = -1;
+
+static int kcall_enter(KcallSlot *save)
+{
+    int k = t_kcall;
+    KcallSlot *s;
+    uint32_t ord;
+    if (k < 0) {
+        uint32_t tid = (uint32_t)GetCurrentThreadId(), zero;
+        for (k = 0; k < KCALL_SLOTS; k++) {
+            zero = 0;
+            if (__atomic_compare_exchange_n(&s_kcall[k].tid, &zero, tid, 0,
+                                            __ATOMIC_SEQ_CST, __ATOMIC_SEQ_CST))
+                break;
+        }
+        t_kcall = k;                        /* KCALL_SLOTS: table full, not tracked */
+    }
+    if (k >= KCALL_SLOTS)
+        return -1;
+    s = &s_kcall[k];
+    *save = *s;
+    ord = (g_kernel_dispatch_slot >= 0 && g_kernel_dispatch_slot < XBOX_KERNEL_THUNK_TABLE_SIZE)
+        ? g_slot_ordinals[g_kernel_dispatch_slot] : 0;
+    if (ord == 258) {                       /* PsTerminateSystemThread: never returns */
+        t_kcall = -1;
+        s->ord = 0;
+        __atomic_store_n(&s->tid, 0, __ATOMIC_SEQ_CST);
+        return -1;
+    }
+    s->ret = g_esp ? BRIDGE_MEM32(g_esp) : 0;
+    s->a0 = g_esp ? BRIDGE_MEM32(g_esp + 4) : 0;
+    s->a1 = g_esp ? BRIDGE_MEM32(g_esp + 8) : 0;
+    s->a2 = g_esp ? BRIDGE_MEM32(g_esp + 12) : 0;
+    s->esp = g_esp;
+    s->main = (uint32_t)t_gil_main;
+    s->n0 = g_kernel_call_count;
+    s->state = 1;
+    __atomic_store_n(&s->ord, ord, __ATOMIC_SEQ_CST);
+    return k;
+}
+
+static void kcall_leave(int k, const KcallSlot *save)
+{
+    KcallSlot *s;
+    if (k < 0 || t_kcall != k)
+        return;
+    s = &s_kcall[k];
+    s->ret = save->ret; s->a0 = save->a0; s->a1 = save->a1; s->a2 = save->a2;
+    s->esp = save->esp; s->n0 = save->n0; s->state = save->state;
+    __atomic_store_n(&s->ord, save->ord, __ATOMIC_SEQ_CST);
+}
+
+void xbox_kcall_forget(void)
+{
+    if (t_kcall >= 0 && t_kcall < KCALL_SLOTS) {
+        s_kcall[t_kcall].ord = 0;
+        __atomic_store_n(&s_kcall[t_kcall].tid, 0, __ATOMIC_SEQ_CST);
+    }
+    t_kcall = -1;
+}
+
+/* One line per thread known to the table: where it is in the kernel (or
+ * "no kernel call": in guest code or waiting for the guest lock there),
+ * with the waited object's state for the waits that name one and the
+ * thread's guest return addresses (innermost first). Called by the WebGPU
+ * watchdog (wgpu_queue.c) with each no-frame line. A racy read: a thread
+ * may move on while it is printed. */
+void xbox_guest_threads_dump(void)
+{
+    long long now = g_kernel_call_count;
+    int i;
+    for (i = 0; i < KCALL_SLOTS; i++) {
+        KcallSlot *s = &s_kcall[i];
+        uint32_t tid = s->tid, ord = s->ord, esp = s->esp, a0 = s->a0, a, v, found = 0;
+        char obj[96] = "", calls[120] = "";
+        const char *what;
+        int n = 0;
+        if (!tid)
+            continue;
+        if (!ord) {
+            fprintf(stderr, "[WGPU]   thread %u%s: no kernel call (guest code, or waiting for the guest lock)\n",
+                    tid, s->main ? " (main)" : "");
+            continue;
+        }
+        switch (ord) {
+        case 99:  what = "KeDelayExecutionThread"; break;
+        case 158: what = "KeWaitForMultipleObjects"; break;
+        case 159: what = "KeWaitForSingleObject"; break;
+        case 233: what = "NtWaitForSingleObject"; break;
+        case 234: what = "NtWaitForSingleObjectEx"; break;
+        case 235: what = "NtWaitForMultipleObjectsEx"; break;
+        case 277: what = "RtlEnterCriticalSection"; break;
+        default:  what = "";
+        }
+        /* A dispatcher object (KEVENT, KSEMAPHORE, ...): type and signal
+         * state; a critical section: its lock count and owner. */
+        if ((ord == 159 || ord == 277) && a0 >= 0x10000u && a0 < 0xF0000000u) {
+            if (ord == 159)
+                snprintf(obj, sizeof obj, "; object type %u signal %d",
+                         BRIDGE_MEM8(a0), (int)BRIDGE_MEM32(a0 + 4));
+            else
+                snprintf(obj, sizeof obj, "; section lock count %d owner %08X",
+                         (int)BRIDGE_MEM32(a0 + 0x10), BRIDGE_MEM32(a0 + 0x18));
+        }
+        for (a = esp & ~3u; esp >= 0x10000u && a < esp + 0x1000u && found < 8 && n < (int)sizeof calls - 10; a += 4) {
+            const uint8_t *c;
+            v = BRIDGE_MEM32(a);
+            if (v < 0x10006u || v >= 0x00800000u)
+                continue;
+            c = (const uint8_t *)XBOX_GUEST_ADDR(v);
+            if (c[-5] == 0xE8 || (c[-2] == 0xFF && (c[-1] & 0x38) == 0x10) ||
+                (c[-3] == 0xFF && (c[-2] & 0x38) == 0x10) || (c[-6] == 0xFF && (c[-5] & 0x38) == 0x10)) {
+                n += snprintf(calls + n, sizeof calls - (size_t)n, " %06X", v);
+                found++;
+            }
+        }
+        fprintf(stderr, "[WGPU]   thread %u%s: %s kernel ordinal %u %s(%08X %08X %08X) from %08X, "
+                "entered %lld kernel calls ago%s; esp %08X, calls%s\n",
+                tid, s->main ? " (main)" : "", s->state == 2 ? "done with" : "in", ord, what,
+                a0, s->a1, s->a2, s->ret, now - s->n0, obj, esp, calls);
+    }
+}
+
+#define KCALL_DONE() do { if (t_kcall >= 0 && t_kcall < KCALL_SLOTS) s_kcall[t_kcall].state = 2; } while (0)
+#else
+#define KCALL_DONE() ((void)0)
+#endif
+
+static void kernel_thunk_dispatch_gil(void);
 static void kernel_thunk_dispatch_inner(void)
+{
+#if defined(__EMSCRIPTEN__)
+    KcallSlot save;
+    int k = kcall_enter(&save);
+    kernel_thunk_dispatch_gil();
+    kcall_leave(k, &save);
+#else
+    kernel_thunk_dispatch_gil();
+#endif
+}
+
+static void kernel_thunk_dispatch_gil(void)
 {
     if (kernel_call_keeps_gil(g_kernel_dispatch_slot)) {
         kernel_thunk_dispatch_body();
@@ -10739,6 +10905,7 @@ static void kernel_thunk_dispatch_inner(void)
     xbox_kernel_busy(1);
     kernel_thunk_dispatch_body();
     xbox_kernel_busy(-1);
+    KCALL_DONE();
     xbox_gil_resume(gil);
 }
 
