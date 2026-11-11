@@ -294,9 +294,11 @@ static void rmap_far(uint32_t map, uint32_t top)
     static double said_t = -1e9;
     static struct { float p[3], q[4]; int far; } dot[ROAM_K_MAX + ROAM_FAR_MAX];
     static roam_far_peer far[ROAM_FAR_MAX];     /* the whole city: 16 KB, off the stack */
+    static roam_peer live[ROAM_K_MAX];
+    const roam_peer *seen;
     uint32_t g = MEM32(RMAP_G_VA), vt, xf, buf, col, args[5], mat, saved;
     float rot[9], s, si;
-    int n = 0, nf, nnear = 0, i, k;
+    int n = 0, nf, nnear = 0, nseen, i, k;
     if (!rmap_on() || !roam_running() || !online_ram(map) || !online_ram(g) || !online_ram(vt = MEM32(map)))
         return;
 #ifdef __EMSCRIPTEN__
@@ -306,13 +308,19 @@ static void rmap_far(uint32_t map, uint32_t top)
         s_rmap_big.seq++;
     }
 #endif
-    if (s_roam_seen && roam_now() - s_roam_seen_t < 0.5)
-        for (i = 0; i < s_roam_nseen; i++)
-            if (rmap_shown(s_roam_seen[i].status)) {
-                memcpy(dot[n].p, s_roam_seen[i].p, sizeof dot[n].p);
-                memcpy(dot[n].q, s_roam_seen[i].q, sizeof dot[n].q);
-                dot[n++].far = s_roam_seen[i].status != RC_ST_ROAM;   /* away: dimmed */
-            }
+    /* roam_net's list while it runs; when it does not (no slot-0 update: the game paused, an AI race, the first
+     * cruise frames) our own: roam_far leaves out every peer with snapshots, so a stale list hid them all */
+    if (s_roam_seen && roam_now() - s_roam_seen_t < 0.5) {
+        seen = s_roam_seen;
+        nseen = s_roam_nseen;
+    } else
+        nseen = roam_peers(seen = live, ROAM_K_MAX);
+    for (i = 0; i < nseen; i++)
+        if (rmap_shown(seen[i].status)) {
+            memcpy(dot[n].p, seen[i].p, sizeof dot[n].p);
+            memcpy(dot[n].q, seen[i].q, sizeof dot[n].q);
+            dot[n++].far = seen[i].status != RC_ST_ROAM;   /* away: dimmed */
+        }
     nnear = n;
     nf = roam_far(far, ROAM_FAR_MAX);
     /* the full map: every one; the minimap (it pins far points to its rim): the RMAP_MINI_FAR_N nearest (the list
@@ -331,7 +339,7 @@ static void rmap_far(uint32_t map, uint32_t top)
         said_far = n - nnear;
         said_t = roam_now();
         fprintf(stderr, "[roam] map: %d linked + %d far player(s) drawn as blips (%s; %d peers, hub far list %d)\n",
-                nnear, n - nnear, vt == RMAP_FULLMAP_VT ? "full map" : "minimap", s_roam_nseen, nf);
+                nnear, n - nnear, vt == RMAP_FULLMAP_VT ? "full map" : "minimap", nseen, nf);
     }
     if (!n)
         return;
