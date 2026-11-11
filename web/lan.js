@@ -27,6 +27,7 @@
 //   link.roamSend(frame)             // a free-roam frame (net.js, rtc.js): the city socket when open, else the switch
 //   link.roamMsg(m)                  // a free-roam signal (rtc.js): the same way
 //   l.city                           // the city whose socket is open, or null (free roam through the switch)
+//   l.roamDown                       // ms timestamp the free-roam link has been lost since (3 s grace), 0 = fine (pre.js notice)
 // The game's HELLO to the hub (10.77.0.253:47210) names its room (MC3: the city): a new one closes the old socket, asks
 // the switch {"t":"ticket"} and opens wss .../lan/roam?city=N&vip&exp&sig; its BYE closes it. Until the socket is open,
 // and whenever it is not (refused, a server without it), the frames go through the switch as before. A socket that never
@@ -36,7 +37,7 @@
 window.mc3Lan = function (name, lanUrl) {
   var url = lanUrl || (location.protocol == 'https:' ? 'wss://' : 'ws://') + location.host + '/lan';
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
-               players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null, city: null };
+               players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null, city: null, roamDown: 0 };
   var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, TICKET_WAIT = 10000, cityOn = false, city = null;   // city: {n, ws, asked, askedAt, open, fails, retryAt}
   var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, rejoin = null, pass = '', auto = false;
   // The keep-alive: the Cloudflare switch's runtime answers this exact text itself (setWebSocketAutoResponse,
@@ -178,11 +179,22 @@ window.mc3Lan = function (name, lanUrl) {
   link.roamSend = function (f) {
     if (f.length >= 22 && f[8] == 10 && f[9] == 77 && f[10] == 0 && f[11] == 253 && ((f[14] << 8) | f[15]) == ROAM_PORT &&
         f[16] == 0x4D && f[17] == 0x43 && f[18] == 0x33 && f[19] == 0x52) {
-      if (f[21] == 1 && f.length >= 44) cityWant((f[40] | f[41] << 8 | f[42] << 16 | f[43] << 24) >>> 0);   // HELLO: room u32 LE at datagram +24
-      else if (f[21] == 8) { var ok = roamOut(f); cityClose(); return ok; }   // BYE: the game left free roam
+      if (f[21] == 1 && f.length >= 44) { roaming = true; cityWant((f[40] | f[41] << 8 | f[42] << 16 | f[43] << 24) >>> 0); }   // HELLO: room u32 LE at datagram +24
+      else if (f[21] == 8) { roaming = false; var ok = roamOut(f); cityClose(); watch(); return ok; }   // BYE: the game left free roam
     }
     return roamOut(f);
   };
+  // link.roamDown: ms timestamp since when Free Roam (a HELLO sent, no BYE yet) has lost its link for 3 s running, else 0:
+  // the switch socket is not up, or city objects are on and the city socket is not open (so also a page left on the
+  // switch's fallback hub). web/pre.js shows the notice from it, web/net.js logs it; it clears as soon as both are open.
+  var roaming = false, badSince = 0, WATCH_GRACE = 3000;
+  function watch() {
+    var bad = roaming && (!up() || (cityOn && !cityUp())), t = Date.now();
+    if (!bad) badSince = 0; else if (!badSince) badSince = t;
+    var d = bad && t - badSince >= WATCH_GRACE ? badSince : 0;
+    if (d != link.roamDown) { link.roamDown = d; changed(); }
+  }
+  var watchT = setInterval(watch, 1000);
   function roamOut(f) {
     if (cityUp()) { city.ws.send(f); link.sent++; return true; }
     return link.send(f);
@@ -217,6 +229,6 @@ window.mc3Lan = function (name, lanUrl) {
   link.join = function (id, p) { pass = p || ''; auto = false; return ctl({ t: 'join', room: id, pass: pass }); };
   link.leave = function () { rejoin = null; return ctl({ t: 'leave' }); };
   link.signal = function (to, kind, data) { return ctl({ t: 'signal', to: to, kind: kind, data: data }); };
-  link.close = function () { want = false; clearTimeout(retry); cityClose(); if (ws) ws.close(1000, 'closed'); else if (link.state != 'offline') { link.state = 'offline'; changed(); } };
+  link.close = function () { want = false; clearTimeout(retry); clearInterval(watchT); roaming = false; watch(); cityClose(); if (ws) ws.close(1000, 'closed'); else if (link.state != 'offline') { link.state = 'offline'; changed(); } };
   return link;
 };

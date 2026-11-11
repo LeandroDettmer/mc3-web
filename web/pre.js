@@ -445,3 +445,36 @@ Module['mc3TouchPad'] = function (words) {
   }
   requestAnimationFrame(frame);
 })();
+
+// Free Roam link notice: web/lan.js sets Module.mc3Lan.roamDown while Free Roam has lost its link to the other players
+// (switch socket down, or the city socket not open): 'connecting...' at once, after 30 s a reload button. Top centre of
+// the page's game box; clicks pass through except the button. Main thread only.
+(function () {
+  if (typeof document != 'object') return;
+  var canvas = Module['canvas'], el = null, txt = null, btn = null, mode = 0;
+  if (!canvas) return;
+  setInterval(function () {
+    var lan = Module['mc3Lan'], d = lan && lan.roamDown || 0;
+    if (!d || !canvas.parentNode) { if (el) el.style.display = 'none'; mode = 0; return; }
+    if (!el) {
+      el = document.createElement('div');
+      el.style.cssText = 'position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:6;pointer-events:none;' +
+        'box-sizing:border-box;max-width:92%;padding:.5em .9em;border-radius:8px;background:rgba(0,0,0,.78);' +
+        'border:1px solid #ffd24a;color:#fff;text-shadow:0 1px 2px #000;font:700 15px Arial,sans-serif;text-align:center;display:none';
+      txt = document.createElement('span');
+      btn = document.createElement('button');
+      btn.textContent = 'Reload';
+      btn.style.cssText = 'pointer-events:auto;margin-left:.8em;padding:.2em .8em;font:inherit;cursor:pointer';
+      btn.onclick = function () { location.reload(); };
+      el.append(txt, btn);
+      canvas.parentNode.append(el);
+    }
+    var m = Date.now() - d >= 30000 ? 2 : 1;
+    if (m !== mode) {
+      mode = m;
+      txt.textContent = m == 2 ? 'Free Roam: no connection to the other players — reload the page' : 'Free Roam: connection lost — reconnecting…';
+      btn.style.display = m == 2 ? '' : 'none';
+    }
+    el.style.display = '';
+  }, 500);
+})();

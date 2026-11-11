@@ -322,7 +322,7 @@ generated files when the lift inputs did not change.
   by the game's HELLO room, closed by its BYE) carrying that city's hub, relay
   frames and roam signals; the Switch keeps lobby, races, players list (city
   reports) and its own hub as fallback; '[net] free roam: own socket to city N
-  open'. Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
+  open'; a lost link (switch or city socket not open for 3 s after a HELLO) shows a notice over the picture (lan.js roamDown, pre.js; reload button after 30 s; '[net] free roam: link lost'). Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
   pairs without a P2P channel (the larger share while K > roamMax). Game side
   src/games/remix/roam_game.c: the Online cruise's race setup [0x53F2E0]
   gets 1 + N entries (copies of entry 0, +0x10/+0x14/+0x18 = -1, net flag
