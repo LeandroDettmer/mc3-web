@@ -125,8 +125,10 @@ Module['mc3Activity'] = function () {
 // Main menu "Online (N)": the players in Free Roam now (the switch's players push, Module.mc3Lan.players.freeRoam.total,
 // web/lan.js) into src/games/remix/recomp_manual.c's mc3_online_count_box once a second; -1 unknown (offline, or
 // web/server's switch without the push): the item reads plain "Online". The game reads it at each build of the menu.
-if (typeof setInterval == 'function') setInterval(function () {
-  if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _mc3_online_count_box != 'function') return;
+// Page thread only, and the export checked first: Emscripten rewrites every HEAPU8 use into (growMemViews(), HEAPU8),
+// which read wasmMemory.buffer before the memory was set (a pool worker, 2026-11-11: "The game could not start").
+if (!ENVIRONMENT_IS_PTHREAD && typeof setInterval == 'function') setInterval(function () {
+  if (typeof _mc3_online_count_box != 'function' || typeof wasmMemory == 'undefined' || !wasmMemory) return;
   var p = Module['mc3Lan'] && Module['mc3Lan'].players, n = p && p.freeRoam ? Number(p.freeRoam.total) : NaN;
   Atomics.store(new Int32Array(HEAPU8.buffer), _mc3_online_count_box() >>> 2, Number.isFinite(n) && n >= 0 ? Math.min(n, 9999) | 0 : -1);
 }, 1000);
