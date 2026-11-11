@@ -60,10 +60,14 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** every player in your city is on the map now, not only the 20 nearest; each city has a server of its own.
 - **Free Roam:** San Diego only for now, so everyone meets in the same city.
 
-## 2026-11-11 (8c2f6d7)
+## 2026-11-11 (ff449cd)
 
 - **Free Roam:** street races start with a headlight flash: flash (White, Q) near a player to challenge, flash back to accept; nothing pops up just for being near someone. On phones the White button is now Flash.
 - **Free Roam:** street races start on the race's own start grid, side by side and facing the road, and run from its first checkpoint.
 - **Free Roam:** players in the same city no longer miss each other after a server hiccup: the page keeps reconnecting to the city.
 - **Free Roam:** a notice shows when the connection to the other players is lost, and offers a reload if it does not come back.
-- **Saves:** "Import save" takes a career profile downloaded from this site (another browser or device) as well as an Xbox one; on phones, Download opens the share sheet (Save to Files, AirDrop, Mail).
+- **Saves:** your Remix career profiles now show in Saves with a Download button, and "Import save" takes a profile downloaded from this site (another browser or device); on phones, Download opens the share sheet (Save to Files, AirDrop, Mail).
+- **Stability:** fixed two causes of the game freezing for good (a controller timing bug and a sound chip wait, e.g. when the music changes).
+- **Stability:** iPhones and iPads start with less memory, which should stop many tabs from closing on their own.
+- **Graphics:** phones whose GPU froze the game with WebGPU (Mali, older Adreno) draw with WebGL, and any device where WebGPU froze or was lost uses WebGL from its next start.
+- **Loading:** the background download now also fills cars, the city map and the career's movies, so fewer stalls in career and Free Roam.
