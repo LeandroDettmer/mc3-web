@@ -112,6 +112,19 @@ Nothing here has been sent yet.
    (ISR + DPC) again in the same lock hold. Any host where the timer
    thread waits for the lock; a no-op when it is on time.
 
+5h. **OHCI never raises FrameNumberOverflow** (`usb/ohci.c`, frame tick).
+   XPP keeps a 32-bit frame from it (high half updated in its ISR on FNO);
+   without it the frame went back 65536 each wrap, so an ED pause stamped
+   just before a wrap waited ~65 s. Fix: set FNO when HcFmNumber bit 15
+   toggles. Any XDK title using XInput.
+
+5i. **DSP doorbell not acked while the APU front end is trapped**
+   (`apu/apu_core.c`, `apu_dsp.c`). `apu_dsp_ack_add` words were cleared
+   in `se_frame` only, which does not run while FECTL is trapped; a
+   DirectSound command sent then waited for the driver's trap handler (the
+   GP acks on hardware whatever the FE does). Fix: ack the doorbells in the
+   trapped wait too.
+
 ## Issues to report (no patch from us yet)
 
 | # | Problem | Goes to | Evidence / our workaround |
