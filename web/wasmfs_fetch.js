@@ -23,9 +23,11 @@
  * block fetched on demand stalls the game thread that asked, and a car
  * model read in free roam stalls the whole guest). In order (prefetchJobs):
  * assets_x.dat_2 (cars), the streamed sound banks (music mx.xwb first),
- * the Flash screens smallest first (pause, garage, rewards, menus, then the
- * showroom's per-car screens and the loading screens), the rest of
- * assets_x*; at most PREFETCH_BUDGET_MB still to fetch and what the browser
+ * resources/ smallest first (car builds .xbpf, hudmap), banks.dat, the Flash
+ * screens smallest first (pause, garage, rewards, menus, then the showroom's
+ * per-car screens and the loading screens), the rest of assets_x*, then the
+ * movies video/Story, Tutorial, Reward, TokyoTut (not the boot ones: rockstar,
+ * sdlogo, mc3intro: the whole disc but those, ~4.4 GiB); at most PREFETCH_BUDGET_MB still to fetch and what the browser
  * says it has room for. It starts PREFETCH_DELAY_MS after the first disc
  * file, fetches up to PREFETCH_RUN missing blocks in one request (a small
  * file whole) and only when the game has had no read of its own on the
@@ -95,7 +97,7 @@ addToLibrary({
     const open = new Map();         // cache key -> Promise<cache file | null>, least recently used first
     let cacheDir = null, cacheOn = null, cacheOff = false, failures = 0;
     const BANKS = ['mx', 'RaceStarters', 'Engine_Revs', 'dx', 'City_Walla'].map(n => `audio/xstreams/${n.toLowerCase()}.xwb`);
-    const PREFETCH_DELAY_MS = 15000, IDLE_MS = 300, PREFETCH_BUDGET_MB = 2560;
+    const PREFETCH_DELAY_MS = 15000, IDLE_MS = 300, PREFETCH_BUDGET_MB = 4608;
     const READAHEAD = 2, GAME_STALL_MS = 4000, PREFETCH_RUN = 16, SMALL = 2 * BLOCK;
     let netReads = 0, lastNet = 0, prefetching = false;   // the game's own reads on the network, when the last ended
     const bgRuns = new Set();       // the background fill's requests in progress (fetchRun)
@@ -283,11 +285,16 @@ addToLibrary({
     function prefetchJobs(m) {
       const all = [...m.values()], lc = f => f.p.toLowerCase();
       const byPath = new Map(all.map(f => [lc(f), f]));
+      const dir = d => all.filter(f => lc(f).startsWith(d)).sort((a, b) => a.s - b.s);
       return [
         byPath.get('assets_x.dat_2'),
         ...BANKS.map(p => byPath.get(p)),
-        ...all.filter(f => lc(f).startsWith('flash/')).sort((a, b) => a.s - b.s),
+        ...dir('resources/'),
+        byPath.get('banks.dat'),
+        ...dir('flash/'),
         ...all.filter(f => /^assets_x\.dat(_\d+)?$/.test(lc(f)) && lc(f) !== 'assets_x.dat_2'),
+        // movies (boot ones, rockstar / sdlogo / mc3intro, are not in these folders)
+        ...['video/story/', 'video/tutorial/', 'video/reward/', 'video/tokyotut/'].flatMap(dir),
       ].filter(Boolean);
     }
     // Bytes of fi not in the cache, from its block map read without opening the file (an open one's map if it is).
@@ -325,7 +332,7 @@ addToLibrary({
       }
       const t0 = performance.now();
       err(`[WEB] prefetch: ${mib(left)} MiB in ${jobs.length} files to fetch in the background, of ${mib(total)} MiB`
-        + ` (cars, sound banks, Flash screens, city); budget ${PREFETCH_BUDGET_MB} MiB${room}`
+        + ` (cars, sound banks, resources, banks.dat, Flash screens, city, movies); budget ${PREFETCH_BUDGET_MB} MiB${room}`
         + (skipped ? `, ${mib(skipped)} MiB left out` : ''));
       if (!left) return;
       const idle = async () => {
