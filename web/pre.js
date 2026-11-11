@@ -20,15 +20,17 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
 // backing-store.cc): a growing memory may never grow there, so the game must fit its initial size (a TCL Google TV
 // refused every size from 448 MB up and gave 256/512, 2026-11-09).
 // WebKit (iPhone, iPad, Safari) sets aside a shared memory's whole maximum (256 MB with a 2 GB maximum was
-// refused on an iPhone) and ran fine with a fixed 2 GB and 40 pool workers before 981d032: that baseline first,
-// fixed sizes only (maximum = initial), pool kept at 40 even in the light profile.
+// refused on an iPhone): fixed sizes only (maximum = initial), pool kept at 40 even in the light profile. A Mac's
+// Safari starts at 2 GB; iOS/iPadOS (the low profile, or the iPad's desktop user agent) at 1 GB: with a fixed 2 GB,
+// 61 iPhones were killed silently in the menus (previous-crash logs, 2026-11-11; the game's peak is ~400 MB).
 // Every refused size is logged; when nothing is given a page error says so (index.html failShow shows it).
 if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMemory']) (function () {
   var low = !!Module['mc3MemMB'], refused = [], i, ua = navigator.userAgent, log = Module['print'] || console.log;
-  var webkit = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
-    || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua));
+  var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  var webkit = ios || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua));
   if (webkit) delete Module['mc3Pool'];
-  var tries = webkit ? [[2048, 2048], [1536, 1536], [1024, 1024], [768, 768], [512, 512]]
+  var tries = webkit && (low || ios) ? [[1024, 1024], [768, 768], [512, 512]]
+    : webkit ? [[2048, 2048], [1536, 1536], [1024, 1024], [768, 768], [512, 512]]
     : low ? [[1024, 1024], [768, 768], [640, 640], [512, 512], [448, 448], [416, 416], [384, 384], [352, 352],
         [320, 320], [512, 768], [448, 768], [512, 1024], [448, 1024], [288, 288], [256, 512], [256, 1024]]
     : [[2048, 2048], [1024, 2048], [512, 2048], [256, 2048], [512, 1024], [256, 1024], [512, 512], [256, 512]];

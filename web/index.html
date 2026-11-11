@@ -1243,6 +1243,7 @@
   // line cost the page's main thread in log bursts).
   const log = $('log'), MAX_LINES = 4000;
   let logText = [], logDirty = false, failBox = null, logN = 0;   // logN: lines ever logged (keepTail writes on change)
+  let roamT = -1e9;   // performance.now() of the last Free Roam status line (watchFrames' hitch)
   // Log lines that mean the game cannot go on: the box below says so over the picture.
   const FATAL = [
     [/\[WGPU\] device lost/, 'Graphics device lost', 'The game cannot draw any more. Restart: from now on this device starts on WebGL (Settings, Renderer: WebGPU tries WebGPU again).'],
@@ -1263,10 +1264,14 @@
   ];
   function out(text) {
     logN++; logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
+    if (/^\s*\[roam\] status /.test(text)) roamT = performance.now();
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
     // '[WEB] memory:' lines are the memory ladder's own (a refused size is retried smaller, web/pre.js): not fatal
     // the worker refused WebGL 2 (not through the page thread): the next start draws through the page (play())
     if (/\[GL\] WebGL2 context on #canvas failed \(-?\d+\)$/.test(String(text).trim())) store.set('glProxy', true);
+    // Firefox cannot hand the canvas to the worker once something called captureStream on it (an add-on; 13 logs of
+    // one device, 2026-11-11: 'Cannot transfer OffscreenCanvas bound to element using captureStream'): the next start draws through the page thread, as after a refused context
+    if (/Cannot transfer OffscreenCanvas/.test(text)) store.set('glProxy', true);
     // '[WEB] opfs:' lines are not fatal either (saves fall back to memory, web/wasmfs_fetch.js), but WebKit's
     // UnknownError text says "(e.g. out of memory)": 10 iPhones got the 'Out of memory' box at boot (2026-11-10)
     // So does '[WEB] disc cache unavailable (UnknownError ...)': 3 iPhones, 2026-11-11 (the disc is read from the server instead)
@@ -1385,6 +1390,8 @@
     // more in Free Roam also sends the log (tag hitch, once a session).
     const HITCH_MS = 250;
     let hf, ht = 0, hlast = 0, hsent = false;
+    // Not sent when the stall began within 5 s of a Free Roam status change (out(): roamT): the cruise's own load
+    // stall at race flow phase 3 -> 4 was 89 of 132 hitch logs (2026-11-11). The log line stays.
     // No rAF runs while hidden: without this the first frame back counted the hidden time (the 18-46 s "hitches" in
     // the D5JVHR / 9553BJ logs, frames and PGRAPH traps running meanwhile).
     document.addEventListener('visibilitychange', () => { ht = 0; });
@@ -1397,9 +1404,9 @@
           hlast = now;
           const why = `${Math.round(gap)} ms without a frame; last car build: `
             + `${lastLine(/\[ROAM\] (slot \d+: (building|.*swapped)|cars: car \d+ built)/) || 'none'}; `
-            + `last disc wait: ${lastLine(/\[WEB\] disc (wait|read)/) || 'none'}`;
+            + `last disc wait: ${lastLine(/^\s*\[WEB\] disc (wait|read)/) || 'none'}`;
           out('[WEB] hitch: ' + why);
-          if (gap >= 1000 && !hsent && lastLine(/\[roam\] status/)) { hsent = true; logQuiet('hitch', why); }
+          if (gap >= 1000 && !hsent && lastLine(/\[roam\] status/) && now - gap - roamT > 5000) { hsent = true; logQuiet('hitch', why); }
         }
         ht = now;
       }
@@ -1415,6 +1422,9 @@
     try { let id = sessionStorage.getItem('mc3.tab'); if (!id) sessionStorage.setItem('mc3.tab', id = Math.random().toString(36).slice(2)); return id; }
     catch { return ''; }
   })();
+  const TAIL_CTX = [/\[WEB\] low-memory profile/, /\[WEB\] memory: /, /\[WEB\] memory in use/, /\[WEB\] out of memory/,
+    /\[WEB\] failure:/, /\[WEB\] (error|freeze|hitch):/, /\[WGPU\] (watchdog|device lost)/, /\[GL\] .*(lost|refused|failed)/,
+    /\[WEB\] graphics:/, /\[(GUEST|HEAP)\]/, /\[ROAM\] (heap|cars heap)/, /\[roam\] status/, /\[WEB\] tab (hidden|visible)/];
   const tailClear = () => { try { for (const k of ['crashTail', 'crashBeat', 'crashTab']) localStorage.removeItem('mc3.' + k); } catch {} };
   function keepTail() {
     let n = -1;
@@ -1424,12 +1434,17 @@
         localStorage.setItem('mc3.crashTab', tabId);
         if (n === logN) return;
         n = logN;
+        // the deciding lines first, whatever the tail still holds: 175 silent kills on 2026-11-11 said nothing
+        const ctx = TAIL_CTX.map(lastLine).filter(Boolean);
         localStorage.setItem('mc3.crashTail', logHeader('previous-crash', 'the tab ended without a clean exit (killed, crashed or out of memory)')
+          + (ctx.length ? '--- last lines of note ---\n' + ctx.join('\n') + '\n--- log tail ---\n' : '')
           + logDump(logText.slice(-4000)).slice(-TAIL_CHARS));
       } catch {}   // storage full or blocked: nothing kept
     };
     write();
     setInterval(write, 5000);
+    // iOS/Android kill a hidden tab to free memory: the tail says whether it was hidden, and since when (since Play)
+    document.addEventListener('visibilitychange', () => { if (playing) { out(`[WEB] tab ${document.visibilityState} at ${since(tPlay)} since Play`); write(); } });
     addEventListener('pagehide', () => { if (playing) tailClear(); });
   }
   function sendPreviousCrash() {

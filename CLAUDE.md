@@ -229,7 +229,9 @@ generated files when the lift inputs did not change.
   CMakeLists.txt): 2 GB up front on a PC (never grows, as before), else
   1 GB / 512 MB / 256 MB and grows, then smaller maximums; WebKit (iPhone,
   iPad, Safari) sets aside the whole maximum (256 MB with a 2 GB maximum
-  was refused on an iPhone): fixed 1024 / 768 / 512 MB, maximum = initial;
+  was refused on an iPhone): fixed 1024 / 768 / 512 MB, maximum = initial
+  (iOS/iPadOS always; a Mac's Safari 2048 first; 2048 on iPhones was 61
+  silent kills in menus, 2026-11-11);
   '[WEB] memory: ...' at start. Estimated need ~350-450 MB (guest RAM 64
   at wasm 0, contiguous 64/128, NV2A 16, MCPX 8, ~25-30 thread stacks x 4
   MB, WebGPU arena 32, renderer caches). Pool PTHREAD_POOL_SIZE =
@@ -247,7 +249,11 @@ generated files when the lift inputs did not change.
   without a new frame, tab visible) and killed tab (log tail + heartbeat
   in localStorage every 5 s, cleared on pagehide, sent on the next visit)
   goes to config.json logUrl as POST ?tag=fatal|error|freeze|
-  previous-crash, headed by build, UA, GPU, memory, online state, times;
+  previous-crash, headed by build, UA, GPU, memory, online state, times
+  (previous-crash also lists the last memory/failure/watchdog/roam lines
+  and '[WEB] tab hidden|visible' first; a hitch within 5 s of a Free Roam
+  status change is not sent; Firefox's captureStream transfer refusal sets
+  mc3.glProxy);
   the log Worker (.deploy/worker.js, local) keys it logs/<day>-<tag>-
   <code>.txt and takes 10 an hour per address.
   TCL Google TV (Chrome for Android TV, 32-bit, 2026-11-09, fix untested
