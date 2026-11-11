@@ -1718,9 +1718,12 @@
       lan?.rtc?.close?.();
       lan?.close(); lan = mc3Lan($('name').value.trim(), cfg?.lanUrl); lan.where?.(whereNow()); lan.on(lanShow);
       const rtc = window.mc3Rtc?.(lan, cfg?.iceServers);
-      if (rtc) {   // Free Roam P2P: the setting, 6 channels in low-memory mode (12), outcomes in the log
+      if (rtc) {   // Free Roam P2P: the setting, one channel per hub link (the game's MC3_ROAM_CARS), outcomes in the log
         rtc.roamP2P = roamP2P();
-        rtc.roamMax = lowMem({ ...settings, ...Object.fromEntries(new URLSearchParams(location.search)) }) ? 6 : 12;
+        // as many channels as the game has links (roam_cars.c roam_cars_total: 32 with 128 MB, 12 with 64, 7 in
+        // low-memory mode): a link without a channel went through the switch at 20 Hz (the relay was most of the cost)
+        const e = buildEnv(null), cars = parseInt(e.MC3_ROAM_CARS, 10);
+        rtc.roamMax = cars > 0 ? cars : e.RECOMP_RAM_MB === '128' ? 32 : 12;
         rtc.log = out;
         rtc.on(raceShow);
       }
