@@ -3408,7 +3408,8 @@ void sub_0018C580(void) { online_leave(); sub_0018C580_gen(); }    /* Tokyo */
 /* Main menu "Online": native -> the original networking screen 0x1E (FE ->
  * sub_00154B30(0x1E)). Browser: straight into Free Roam (the screen's
  * Internet_Play pick below, sub_00180160, which ends in Arcade's own main
- * menu callback sub_0018C530: same functor type as this one); held White
+ * menu callback sub_0018C530: same functor type as this one; in the
+ * browser it loads the cruise at once, fr_direct); held White
  * (Q/Shift, a shoulder button) while picking it opens screen 0x1E as
  * before, for Online Races (LAN_Play, System Link). */
 #ifdef __EMSCRIPTEN__
@@ -3432,6 +3433,52 @@ void sub_0018C5A0(void)
  * "Online Races" (LAN_Play, sub_001801C0) stays the game's System Link, no session. */
 extern void sub_00180160_gen(void);
 static void roam_begin(uint32_t cfg);           /* free roam on + our car (O4), roam_game.c */
+#ifdef __EMSCRIPTEN__
+/* Browser: Free Roam loads at once, no setup (0x19) or Start (0x1B)
+ * screen. What those screens do, in their order: Arcade's main menu item
+ * (sub_0018C530 without its Go(0x19): [0x50F14C] = 0, sub_0013AB20 copies
+ * the car picked (0x53F2FC/FE, the online profile's, online_car_restore)
+ * into the settings [0x53F2E8], sub_0013A590), the setup's builder override
+ * (San Diego, Cruise, 1 player; fr_cruise), its Go (sub_0013B110: event
+ * index by name sub_0026B010, SetEvent sub_0026B8E0 on the settings), then
+ * the Start screen's A (sub_00185780 -> sub_00184FD0 when [0x50F14C] == 0:
+ * checks, [0x53F2E4] = copy of the settings, Request(6)), as the main
+ * menu's own Request(0x12) item does from here (sub_0018C5C0). The Start
+ * screen's +0x1E0 byte picks 0x4B36C4 (table 0x4B25AC: 0,1,2,3,4,5,10,15;
+ * 0 at boot): a stand-in screen gives index 0 and the old value is put
+ * back, so it stays the game's. MC3_FR_DIRECT=0: the screens as before. */
+static uint32_t roam_call(recomp_func_t fn, uint32_t ecx, uint32_t top, int n, const uint32_t *args);
+static void fr_cruise(uint32_t s);
+void sub_0013AB20(void);
+void sub_0013A590(void);
+void sub_0026B010(void);
+void sub_0026B8E0(void);
+void sub_00184FD0(void);
+static int fr_direct(void)
+{
+    const char *e = getenv("MC3_FR_DIRECT");
+    uint32_t s = MEM32(0x0053F2E8u), top = (g_esp - 0x800u) & ~0xFu, obj = top + 0x100u, a[2];
+    uint8_t keep = MEM8(0x004B36C4u);
+    if ((e && e[0] == '0') || !online_ram(s) || !online_ram(MEM32(0x0053F2E4u)) || !online_ram(MEM32(0x00557ED0u)))
+        return 0;
+    MEM32(0x0050F14Cu) = 0;                      /* not a System Link game */
+    roam_call(sub_0013AB20, 0, top, 0, NULL);
+    roam_call(sub_0013A590, 0, top, 0, NULL);
+    MEM32(s) = 0;                                /* San Diego */
+    fr_cruise(s);
+    a[0] = 0;
+    a[1] = roam_call(sub_0026B010, s, top, 0, NULL);
+    roam_call(sub_0026B8E0, s, top, 2, a);
+    MEM32(s + 0x4Cu) = 1;
+    MEM32(s + 0x40u) = 0;                        /* no AI racers */
+    MEM8(obj + 0x1E0u) = 0;
+    roam_call(sub_00184FD0, obj, top, 0, NULL);
+    MEM8(0x004B36C4u) = keep;
+    fprintf(stderr, "[ONLINE] Free Roam: straight into the San Diego cruise (event %d, %.24s), no setup or Start"
+            " screen (MC3_FR_DIRECT=0 for them)\n", (int32_t)a[1], (const char *)XBOX_PTR(s + 0x68u));
+    return 1;
+}
+#endif
 void sub_00180160(void)
 {
     uint32_t cfg = 0x00541700u;
@@ -3441,6 +3488,10 @@ void sub_00180160(void)
         cfg = online_car_cfg(s_on_car);
 #endif
     roam_begin(cfg);
+#ifdef __EMSCRIPTEN__
+    if (fr_direct())
+        return;
+#endif
     sub_0018C530_gen();
 }
 

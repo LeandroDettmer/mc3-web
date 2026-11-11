@@ -867,7 +867,15 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   mc3_online_count_box each second, -1 = plain 'Online'; set at each menu
   build through the SetLabel override, not live), and picking it runs
   sub_00180160 straight (no screen 0x1E); held White (Q/Shift) while
-  picking it opens screen 0x1E for Online Races. The Online session: money ([[0x557F0C]+0xC]+0xACC) 2,000,000, also at each
+  picking it opens screen 0x1E for Online Races. Since 2026-11-11
+  (untested in game) the browser's sub_00180160 also skips Arcade's setup
+  (0x19) and Start (0x1B) screens (fr_direct): sub_0013AB20 (the profile's
+  car into the settings [0x53F2E8]) + sub_0013A590, San Diego Cruise,
+  event by name sub_0026B010 + SetEvent, then the Start screen's own
+  sub_00184FD0 (stand-in screen, +0x1E0 = 0; 0x4B36C4 put back): copy
+  into [0x53F2E4] and Request(6), as the main menu's Request(0x12) item
+  does; '[ONLINE] Free Roam: straight into ...'; MC3_FR_DIRECT=0 brings
+  the screens back. The Online session: money ([[0x557F0C]+0xC]+0xACC) 2,000,000, also at each
   garage entry (state 5, sub_00021A60); no saves (the writer is
   sub_00022040 -> sub_000193F0; sub_0001A1F0 *reads* the old .mc3 format);
   Career/Tokyo/Arcade (sub_0018C560/580/530) end it and put money and the
