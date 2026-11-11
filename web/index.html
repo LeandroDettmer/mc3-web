@@ -1482,7 +1482,7 @@
     if (!a) return 'webgl';
     gpuInfo = 'WebGPU adapter ' + ([i.vendor, i.architecture, i.device, i.description].filter(Boolean).join(' ') || '(no info)');
     if (env.RECOMP_GPU === 'webgpu') { store.set('gpuWebgl', ''); return 'webgpu'; }
-    const was = store.get('gpuWebgl', ''), weak = /^(arm |qualcomm adreno-[1-6]|intel gen-[7-9]$)/.test(`${i.vendor} ${i.architecture}`);
+    const was = store.get('gpuWebgl', ''), weak = /^(arm |qualcomm adreno-[1-6])/.test(`${i.vendor} ${i.architecture}`);
     if (!was && !weak) return 'webgpu';
     gpuNote = ` Drawing with WebGL: ${was ? was + ' on this device before' : 'WebGPU froze the game on this kind of GPU'} (Settings, Renderer: WebGPU tries it).`;
     out('[WEB] graphics:' + gpuNote);
