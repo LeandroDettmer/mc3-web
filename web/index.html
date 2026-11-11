@@ -1444,11 +1444,15 @@
           + logDump(logText.slice(-4000)).slice(-TAIL_CHARS));
       } catch {}   // storage full or blocked: nothing kept
     };
+    // a closing tab fires pagehide and then visibilitychange (hidden): that write came after the clear and every closed
+    // tab was sent as a previous-crash (2026-11-11: 33 in the first hour of 60059b1). Nothing is written once gone.
+    let gone = false;
     write();
-    setInterval(write, 5000);
+    setInterval(() => { if (!gone) write(); }, 5000);
     // iOS/Android kill a hidden tab to free memory: the tail says whether it was hidden, and since when (since Play)
-    document.addEventListener('visibilitychange', () => { if (playing) { out(`[WEB] tab ${document.visibilityState} at ${since(tPlay)} since Play`); write(); } });
-    addEventListener('pagehide', () => { if (playing) tailClear(); });
+    document.addEventListener('visibilitychange', () => { if (playing && !gone) { out(`[WEB] tab ${document.visibilityState} at ${since(tPlay)} since Play`); write(); } });
+    addEventListener('pagehide', () => { gone = true; if (playing) tailClear(); });
+    addEventListener('pageshow', e => { if (e.persisted) gone = false; });   // back from the back/forward cache
   }
   function sendPreviousCrash() {
     let tail, beat, tab;
@@ -1618,17 +1622,18 @@
   // size (2 GB fixed) is made here: refused, the page makes garbage (JSC collects on allocation pressure) and tries
   // again each second for 20 s, then hands it over (Module.wasmMemory; pre.js keeps its ladder for the rest).
   async function webkitMemory() {
-    const ua = navigator.userAgent;
-    if (!(/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
-      || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua)))) return;
+    const ua = navigator.userAgent, ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+    if (!(ios || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua)))) return;
+    // iOS/iPadOS: pre.js's first size there, 1 GB (this made every iPhone 2 GB, past pre.js's fix 60059b1)
+    const mb = ios || Module.mc3MemMB ? 1024 : 2048;
     for (let i = 0; i < 20; i++) {
       try {
-        Module.wasmMemory = new WebAssembly.Memory({ initial: 2048 * 16, maximum: 2048 * 16, shared: true });
+        Module.wasmMemory = new WebAssembly.Memory({ initial: mb * 16, maximum: mb * 16, shared: true });
         delete Module.mc3Pool;   // as pre.js does for WebKit: pool 40
-        out('[WEB] memory: 2048 MB to start, 2048 MB at most (WebKit: fixed, pool 40' + (i ? ', after ' + i + ' s' : '') + ')');
+        out(`[WEB] memory: ${mb} MB to start, ${mb} MB at most (WebKit: fixed, pool 40` + (i ? ', after ' + i + ' s' : '') + ')');
         return;
       } catch (e) {
-        if (!i) out('[WEB] memory: 2048 MB refused (' + (e?.message || e) + '); waiting up to 20 s for the last run\'s memory to be freed');
+        if (!i) out(`[WEB] memory: ${mb} MB refused (` + (e?.message || e) + '); waiting up to 20 s for the last run\'s memory to be freed');
       }
       for (let j = 0; j < 16; j++) new ArrayBuffer(4 << 20);
       await new Promise(r => setTimeout(r, 1000));
