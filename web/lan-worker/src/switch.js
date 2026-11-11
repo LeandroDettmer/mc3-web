@@ -43,7 +43,10 @@
 // else ignored, no reply); no 'where' yet (an old page, a new socket) counts as 'menu'. The page sends it only on change
 // (at most every 5 s) and after each hello of a (re)connect: ~10 incoming messages per session, 1/20 request each.
 // activity() (GET /lan/activity, src/index.js, behind ADMIN_KEY) gives the counts per activity and per free-roam city and
-// the list {name, activity, city?}; a free-roam player or one in a race room is 'roam' / 'race' (the switch knows it).
+// the list {name, activity, city?, roam?}; a free-roam player or one in a race room is 'roam' / 'race' (the switch knows it).
+// A free-roam entry also has `roam`: 'drive'|'garage'|'race'|'paused'|'menus'|'loading' (the hub's in-game status, which the
+// city objects report as [vip, room, status]; up to CITY.reportMs late), and the response `roamStatus` counts them.
+// Private like the rest: the players push and /lan/stats do not carry it.
 // logActivity() prints one console.log line (wrangler tail) when that changed, at most every ACTIVITY_LOG_MS. Nicks are cleaned
 // and cut to NICK characters on hello, and unique among the live clients (any case; 'Player', the empty name's
 // fallback, excepted): a hello with a held nick gets {"t":"error","op":"hello","code":"nick-taken"} and keeps its old name.
@@ -65,7 +68,7 @@
 
 import { Lobby, clean } from '../../races-worker/src/index.js';
 import { vipAt, vipStr, macStr, NET, MASK, ADDRS, LIMITS } from '../../races-worker/src/net.js';
-import { Hub, HUB, ROAM_PORT } from './roam.js';
+import { Hub, HUB, ROAM_PORT, ROAM_STATUS } from './roam.js';
 
 // The one switch object's name (src/index.js). A new name starts a fresh object on the deploy's code: a live object
 // keeps its old code until it restarts, which a busy one may not do for long (2026-11-10: 'switch' -> 'switch-2', then 'switch-3' with the city objects; its
@@ -140,25 +143,30 @@ export class Switch extends Lobby {
   cityOn() { return !!(this.env?.ROAM && this.env?.ROAM_SECRET); }
 
   /** vip -> free-roam room: the city objects' players and this object's own hub's (pages on the fallback path). */
+  // `st`, when given, is filled vip -> in-game status code (roam_api.h; absent for an old city report without one).
   // shortcut: rebuilt per call (players push, stats, activity); a few thousand entries at most.
-  roamers(now = Date.now()) {
+  roamers(now = Date.now(), st = null) {
     const m = new Map();
     for (const [city, r] of this.cities) {
       if (now - r.at > CITY_TTL) { this.cities.delete(city); continue; }
-      for (const [v, room] of r.vips) m.set(v, room);
+      for (const [v, room] of r.vips) { m.set(v, room); if (st && r.st.has(v)) st.set(v, r.st.get(v)); }
     }
-    for (const p of this.hub.players.values()) if (!m.has(p.vip)) m.set(p.vip, p.room >>> 0);
+    for (const p of this.hub.players.values()) if (!m.has(p.vip)) { m.set(p.vip, p.room >>> 0); st?.set(p.vip, p.status); }
     return m;
   }
 
-  /** POST /lan/city from a city object: {city, players: [[vip, room], ...]} (src/city.js report). */
+  /** POST /lan/city from a city object: {city, players: [[vip, room, status], ...]} (src/city.js report; status optional). */
   // shortcut: in memory, lost if this object hibernates; the next report (CITY.keepMs at most) brings it back.
   cityReport(m, now = Date.now()) {
     const city = Number(m?.city);
     if (!cityOk(city) || !Array.isArray(m.players)) return false;
-    const vips = new Map();
-    for (const e of m.players.slice(0, 1 << 14)) if (Array.isArray(e) && isVip(e[0] >>> 0)) vips.set(e[0] >>> 0, e[1] >>> 0);
-    if (vips.size) this.cities.set(city, { at: now, vips }); else this.cities.delete(city);
+    const vips = new Map(), st = new Map();
+    for (const e of m.players.slice(0, 1 << 14)) {
+      if (!Array.isArray(e) || !isVip(e[0] >>> 0)) continue;
+      vips.set(e[0] >>> 0, e[1] >>> 0);
+      if (Number.isInteger(e[2])) st.set(e[0] >>> 0, e[2]);
+    }
+    if (vips.size) this.cities.set(city, { at: now, vips, st }); else this.cities.delete(city);
     this.who(now);
     return true;
   }
@@ -233,18 +241,25 @@ export class Switch extends Lobby {
     return { t: 'players', ...this.stats(), modes, list, more: all.length - list.length };
   }
 
-  /** GET /lan/activity (private): what every client does: {online, activities: {<activity>: n}, cities: {<room id>: n}, list: [{name, activity, city?}]}. */
+  /** GET /lan/activity (private): what every client does: {online, activities: {<activity>: n}, cities: {<room id>: n},
+   *  roamStatus: {<status>: n} (free roam players by in-game status), list: [{name, activity, city?, roam?}]}; `roam` =
+   *  'drive'|'garage'|'race'|'paused'|'menus'|'loading', absent while unknown (a city object that reports no status). */
   activity() {
-    const roam = this.roamers(), activities = {}, cities = {};
+    const st = new Map(), roam = this.roamers(Date.now(), st), activities = {}, cities = {}, roamStatus = {};
     for (const m of ['roam', 'race', ...WHERE]) activities[m] = 0;
+    for (const s of ROAM_STATUS) roamStatus[s] = 0;
     const list = [...this.clients.values()].map(({ a }) => {
       const e = { name: String(a.name).slice(0, NICK), activity: WHERE.includes(a.w) ? a.w : 'menu' };
-      if (roam.has(a.vip)) { e.activity = 'roam'; e.city = roam.get(a.vip); cities[e.city] = (cities[e.city] || 0) + 1; }
+      if (roam.has(a.vip)) {
+        e.activity = 'roam'; e.city = roam.get(a.vip); cities[e.city] = (cities[e.city] || 0) + 1;
+        const s = ROAM_STATUS[st.get(a.vip)];
+        if (s) { e.roam = s; roamStatus[s]++; }
+      }
       else if (a.room) e.activity = 'race';
       activities[e.activity]++;
       return e;
     });
-    return { online: list.length, activities, cities, list };
+    return { online: list.length, activities, cities, roamStatus, list };
   }
 
   /** One console.log line (wrangler tail) with the counts when they changed, at most every ACTIVITY_LOG_MS; called on each 'where'. */

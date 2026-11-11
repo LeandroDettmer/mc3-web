@@ -13,8 +13,9 @@
 // here (elsewhere: dropped, as another LAN). Same rate limits as the Switch (RATE, CTL; over budget for FLOOD_MS: 1008).
 // The hub ticks from the incoming messages (every player sends a HELLO a second), and from an alarm every CITY_ALARM_MS
 // while a socket is open, which also closes the sockets silent for CITY_IDLE_MS (4000) and keeps the report alive.
-// Report: the players (vip, room) to the Switch's POST /lan/city (src/switch.js cityReport), for its players list and
-// /lan/stats; on change at most every CITY.reportMs, else every CITY.keepMs while any are here, and at once when the
+// Report: the players (vip, room, status: the hub's in-game status code, roam_api.h; the Switch's private GET
+// /lan/activity names it, a flip shows within CITY.reportMs) to the Switch's POST /lan/city (src/switch.js cityReport),
+// for its players list and /lan/stats; on change at most every CITY.reportMs, else every CITY.keepMs while any are here, and at once when the
 // last socket goes. Memory only: after an eviction the hub refills from the next HELLOs, the sockets from their
 // attachments.
 import { Hub, HUB, ROAM_PORT } from './roam.js';
@@ -184,8 +185,8 @@ export class RoamCity {
   /** The players (vip, room) to the Switch (see the head). Returns the call when one was made (tests). */
   report(now = Date.now(), force = false) {
     const vips = new Map();
-    for (const p of this.hub.players.values()) if (!vips.has(p.vip)) vips.set(p.vip, p.room >>> 0);
-    const players = [...vips].sort((x, y) => x[0] - y[0]), body = JSON.stringify({ city: this.city, players });
+    for (const p of this.hub.players.values()) if (!vips.has(p.vip)) vips.set(p.vip, [p.room >>> 0, p.status]);
+    const players = [...vips].map(([v, [room, st]]) => [v, room, st]).sort((x, y) => x[0] - y[0]), body = JSON.stringify({ city: this.city, players });
     const since = now - this.sent.at;
     if (!force && (body === this.sent.body ? !players.length || since < CITY.keepMs : since < CITY.reportMs)) return null;
     if (force && body === this.sent.body) return null;

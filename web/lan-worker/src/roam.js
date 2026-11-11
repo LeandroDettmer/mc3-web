@@ -24,6 +24,8 @@ const MAGIC = [0x4D, 0x43, 0x33, 0x52];   // "MC3R"
 const HDR = 16, CRC = 4;
 export const MSG_HELLO = 1, MSG_PEERS = 2, MSG_SNAP = 3, MSG_BYE = 8, MSG_FAR = 9;
 export const HF_CREW = 0x0200, ST_MENUS = 0, ST_LOADING = 1, ST_ROAM = 2;
+// roam_api.h's other status codes (3 EVENT = an AI race from a start point, 4 SHOP = the garage, 5 PAUSED) as GET /lan/activity names them
+export const ROAM_STATUS = ['menus', 'loading', 'drive', 'race', 'garage', 'paused'];
 const LIST_MAX = 96;
 export const FAR_PART = 20;   // entries per FAR datagram: 50 bytes each at worst, one datagram under 1200 bytes
 export const FAR_MAX = 256;   // entries per FAR list (a city), over ceil(n / FAR_PART) datagrams

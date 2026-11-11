@@ -155,14 +155,14 @@ test('city change: the old city drops the player, the new one takes it; reports 
   enter(a, 0); enter(b, 0);
   await roam(a, 1, 0, [0, 0, 0], now); await roam(b, 2, 0, [1, 0, 0], now);
   await settle();
-  assert.deepEqual(calls.at(-1), { city: 0, players: [[a.vip, 0]] }, 'the first change at once; the next waits CITY.reportMs');
+  assert.deepEqual(calls.at(-1), { city: 0, players: [[a.vip, 0, 2]] }, 'the first change at once; the next waits CITY.reportMs');
   const t1 = now + CITY.reportMs;
   await roam(a, 1, 0, [0, 0, 0], now + 5000); await roam(b, 2, 0, [1, 0, 0], now + 5000);   // within reportMs: no report
   await settle();
-  assert.deepEqual(calls.at(-1), { city: 0, players: [[a.vip, 0]] });
+  assert.deepEqual(calls.at(-1), { city: 0, players: [[a.vip, 0, 2]] });
   await roam(b, 2, 0, [1, 0, 0], t1);   // the next message after reportMs reports
   await settle();
-  assert.deepEqual(calls.at(-1), { city: 0, players: [[a.vip, 0], [b.vip, 0]].sort((x, y) => x[0] - y[0]) });
+  assert.deepEqual(calls.at(-1), { city: 0, players: [[a.vip, 0, 2], [b.vip, 0, 2]].sort((x, y) => x[0] - y[0]) });
   assert.deepEqual(sw.stats().freeRoam, { total: 2, rooms: { 0: 2 } });
   // Ann drives to Atlanta: lan.js closes city 0's socket and opens city 1's
   city(0).webSocketClose(a.cs.ws);
@@ -202,6 +202,18 @@ test('counts: reports from several cities add up with the fallback hub, once per
   assert.deepEqual(sw.stats().freeRoam.rooms[0], 1, 'a page gone from the switch no longer counts');
   assert.deepEqual(sw.stats(now + CITY_TTL + 5000).freeRoam.rooms, { 0: 1, 1: 1 }, 'reports older than CITY_TTL drop; the own hub keeps its players');
   assert.equal((await sw.fetch(new Request('https://switch/lan/city', { method: 'POST', body: 'junk' }))).status, 400);
+});
+
+test('activity: roam status per player from city reports (3-element entries), unknown from old 2-element ones, public push unchanged', async () => {
+  const { sw, page } = world();
+  const now = Date.now();
+  const ps = Array.from({ length: 4 }, (_, i) => page('P' + i));
+  assert.ok(sw.cityReport({ city: 0, players: [[ps[0].vip, 0, 2], [ps[1].vip, 0, 4], [ps[2].vip, 0, 3], [ps[3].vip, 0]] }, now));
+  const act = sw.activity();
+  assert.deepEqual(act.roamStatus, { menus: 0, loading: 0, drive: 1, race: 1, garage: 1, paused: 0 });
+  assert.deepEqual(act.list.map(e => e.roam), ['drive', 'garage', 'race', undefined]);
+  assert.equal(act.activities.roam, 4);
+  assert.ok(!('roam' in sw.players().list[0]) && !('roamStatus' in sw.stats()) && !('roamStatus' in sw.players()));
 });
 
 test('city: idle sockets close at the alarm; reports keep alive every keepMs, none while nothing changed and empty', async () => {
