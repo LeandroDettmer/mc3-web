@@ -60,7 +60,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** every player in your city is on the map now, not only the 20 nearest; each city has a server of its own.
 - **Free Roam:** San Diego only for now, so everyone meets in the same city.
 
-## 2026-11-11 (d98b356)
+## 2026-11-11 (8c2f6d7)
 
 - **Free Roam:** street races start with a headlight flash: flash (White, Q) near a player to challenge, flash back to accept; nothing pops up just for being near someone. On phones the White button is now Flash.
 - **Free Roam:** street races start on the race's own start grid, side by side and facing the road, and run from its first checkpoint.
