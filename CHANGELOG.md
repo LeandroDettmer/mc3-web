@@ -55,3 +55,6 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Firefox:** the game shows a picture again instead of a black screen (it now draws with WebGL there).
 - **Free Roam:** no more red Eclipses driving around the city: the cruise had AI racers since the options screen was skipped.
 - **Free Roam:** the minimap and the full map show every player of your city, not just the 20 nearest, and their places update every second.
+- **Free Roam:** no more freeze when another player's car changes while you cruise.
+- **Free Roam:** cars of nearby players come straight from their browser (P2P, with Cloudflare's TURN behind strict routers): smoother, and the server only relays what cannot connect. Settings: "Direct connections (P2P) in Free Roam".
+- **Free Roam:** every player in your city is on the map now, not only the 20 nearest; each city has a server of its own.

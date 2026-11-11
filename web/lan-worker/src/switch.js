@@ -68,9 +68,9 @@ import { vipAt, vipStr, macStr, NET, MASK, ADDRS, LIMITS } from '../../races-wor
 import { Hub, HUB, ROAM_PORT } from './roam.js';
 
 // The one switch object's name (src/index.js). A new name starts a fresh object on the deploy's code: a live object
-// keeps its old code until it restarts, which a busy one may not do for long (2026-11-10: 'switch' -> 'switch-2'; its
+// keeps its old code until it restarts, which a busy one may not do for long (2026-11-10: 'switch' -> 'switch-2', then 'switch-3' with the city objects; its
 // sockets stay there until their pages reload).
-export const SWITCH_NAME = 'switch-2';
+export const SWITCH_NAME = 'switch-3';
 // Free roam per city (src/city.js): the game's room ids are city indexes below 14 (src/games/remix/roam_game.c).
 export const CITIES = 14, cityOk = n => Number.isInteger(n) && n >= 0 && n < CITIES, cityName = n => `city-${n}`;
 export const TICKET_MS = 60e3, CITY = { reportMs: 10e3, keepMs: 60e3 }, CITY_TTL = 3 * CITY.keepMs;
