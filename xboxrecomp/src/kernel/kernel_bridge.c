@@ -624,8 +624,10 @@ int xbox_thread_holds_dispatch(void);     /* kernel_hal.c */
  * ones do: a wait that has to block still lets the others run) and it is not
  * pre-empted. For game code a title runs where the game never ran it, against
  * globals another thread uses between kernel calls (MC3 Remix: a car's
- * resource page-in mid-cruise, roam_game.c). A wait on another guest thread
- * outside those bridges would hold the lock: keep the stretch short. */
+ * resource page-in mid-cruise, roam_game.c). The kernel waits that block
+ * (a timed Sleep, Ke/Nt waits: kernel_call_blocks) let the lock go as
+ * outside one. A wait on another guest thread without a kernel call would
+ * hold the lock: keep the stretch short. */
 static RECOMP_TLS int t_gil_atomic;
 void xbox_gil_atomic(int d) { t_gil_atomic += d; t_gil_nopreempt += d; }
 
@@ -10538,6 +10540,34 @@ static int kernel_call_tries_first(int slot)
         || ord == 221 || ord == 294;         /* NtReleaseMutant, RtlLeaveCriticalSection */
 }
 
+/* Inside an atomic stretch (xbox_gil_atomic): a call that blocks on the Xbox
+ * -- a timed Sleep, a Ke/Nt wait (234 and 277 try first themselves) -- lets
+ * the lock go, as outside one. Kept, the lock was held against whatever the
+ * sleeper polls for: MC3 Remix's mid-cruise car build polls with XAPI Sleep
+ * (return 0x1730F), and a PGRAPH NOP trap raised meanwhile waits for an ISR
+ * that runs on the timer thread under this lock -- Free Roam froze for good
+ * on a car swap (logs D5JVHR, S3DSK4, 2026-11-10). */
+static int kernel_call_blocks(int slot)
+{
+    static int said;
+    ULONG ord;
+    int blocks;
+    if (slot < 0 || slot >= XBOX_KERNEL_THUNK_TABLE_SIZE)
+        return 0;
+    ord = g_slot_ordinals[slot];
+    if (ord == 99) {
+        uint32_t iv = STACK_ARG(2);
+        blocks = !iv || ((PLARGE_INTEGER)XBOX_TO_NATIVE(iv))->QuadPart != 0;
+    } else
+        blocks = ord == 158 || ord == 159 || ord == 233 || ord == 235;
+    if (blocks && said < 3) {
+        said++;
+        fprintf(stderr, "[GIL] a wait (kernel ordinal %u, from %08X) inside an atomic stretch lets the lock go "
+                "(first 3 logged)\n", (unsigned)ord, BRIDGE_MEM32(g_esp));
+    }
+    return blocks;
+}
+
 /* In a bridge reached with the guest lock kept: about to block, so let
  * everyone else run until it is back. -1 when the lock was not kept. */
 static int bridge_block_begin(void)
@@ -10695,7 +10725,8 @@ static void kernel_thunk_dispatch_inner(void)
         kernel_thunk_dispatch_body();
         return;
     }
-    if (t_gil_atomic > 0 || kernel_call_tries_first(g_kernel_dispatch_slot)) {
+    if ((t_gil_atomic > 0 && !kernel_call_blocks(g_kernel_dispatch_slot))
+            || kernel_call_tries_first(g_kernel_dispatch_slot)) {
         xbox_kernel_busy(1);
         t_kernel_gil_kept = 1;
         kernel_thunk_dispatch_body();

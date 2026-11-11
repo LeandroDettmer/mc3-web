@@ -27,6 +27,7 @@
 #include "wgpu_int.h"
 #include "wgpu_stats.h"
 #include "../nv2a_gl/nv2a_gl.h"
+#include "../kernel/xbox_guest_ptr.h"
 
 #include <SDL.h>
 #include <emscripten.h>
@@ -532,10 +533,28 @@ static void wq_watchdog(int st)
         return;
     stalled_at = s_frame_ns;
     next_s *= 2;
-    char lock[64] = "free";
-    if (xbox_gil_sample(&tid, &esp, &is_main))
-        snprintf(lock, sizeof lock, "held by thread %u (%s), guest esp 0x%08X", tid,
-                 is_main ? "main" : "worker", esp);
+    char lock[256] = "free";
+    if (xbox_gil_sample(&tid, &esp, &is_main)) {
+        /* The holder's return addresses above esp (a value just after a call
+         * in the image: E8 rel32, or FF /2 of 2, 3 or 6 bytes), innermost
+         * first: where it waits (2026-11-10: a Free Roam car swap hung with
+         * only "guest esp" to go by). */
+        int n = snprintf(lock, sizeof lock, "held by thread %u (%s), guest esp 0x%08X, calls", tid,
+                         is_main ? "main" : "worker", esp);
+        uint32_t a, v, found = 0;
+        for (a = esp & ~3u; esp >= 0x10000u && a < esp + 0x1000u && found < 12 && n < (int)sizeof lock - 10; a += 4) {
+            const uint8_t *c;
+            v = *(const uint32_t *)xbox_ptr(a);
+            if (v < 0x10006u || v >= 0x00800000u)
+                continue;
+            c = (const uint8_t *)xbox_ptr(v);
+            if (c[-5] == 0xE8 || (c[-2] == 0xFF && (c[-1] & 0x38) == 0x10) ||
+                (c[-3] == 0xFF && (c[-2] & 0x38) == 0x10) || (c[-6] == 0xFF && (c[-5] & 0x38) == 0x10)) {
+                n += snprintf(lock + n, sizeof lock - (size_t)n, " %06X", v);
+                found++;
+            }
+        }
+    }
     fprintf(stderr, "[WGPU] watchdog: no frame for %u s (frame %u; ring %u bytes, %d flip(s) queued, "
             "executor %s; GPU %d of %u frames in flight; device %s; guest lock %s)\n",
             (unsigned)gap, wg_frame, (unsigned)(__atomic_load_n(&s_q_head, __ATOMIC_SEQ_CST) - s_q_tail),
