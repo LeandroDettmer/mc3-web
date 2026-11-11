@@ -748,6 +748,10 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   with a format stamp (Xbox 0x02F59447) and ends with HMAC-SHA1 of the
   rest under the kernel's XboxSignatureKey-derived key; the port's keys are
   zero, so its key is all zeros and a real Xbox's profile reads "damaged".
+  The Remix writes <name>.mc3Remix instead (same folder scheme; web page
+  lists, downloads and imports it, 2026-11-11; its size/stamp are not
+  proven, the writer sub_000193F0 streams more than 99,162 bytes, so the
+  page checks the layout only; tools/save_import.py is DUB-only, .mc3).
   `make import-save FILE=` (tools/save_import.py: .gsx = gzip + 128-byte
   GSXM header + FATX memory unit with 16 KB clusters; folders; .mc3; .max)
   re-signs and installs, backing up first; verified in game. PS2 saves

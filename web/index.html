@@ -386,12 +386,12 @@
           <h3>Profiles in this browser</h3>
           <div class="row">
             <button type="button" class="btn" id="saves-refresh">Refresh</button>
-            <label class="btn file-btn">Import save<input type="file" id="import" accept=".mc3,.gsx"></label>
+            <label class="btn file-btn">Import save<input type="file" id="import" accept=".mc3,.mc3Remix,.gsx"></label>
           </div>
         </div>
         <ul class="profiles" id="profiles" aria-label="Profiles in this browser"></ul>
         <p class="msg" id="saves-msg" role="status"></p>
-        <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>. Import takes a profile's <code>.mc3</code> downloaded from this site (another browser or device) or from an Xbox, and signs it for the port; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
+        <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>. Download saves a profile (the Remix's is <code>.mc3Remix</code>, the DUB Edition's <code>.mc3</code>). Import takes one downloaded from this site (another browser or device) or, for the DUB Edition, from an Xbox, and signs it for the port; a file of the other game is refused; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
       </div>
 
       <div class="pane" role="tabpanel" data-pane="online" hidden>
@@ -1102,10 +1102,10 @@
         let mc3 = null, name = null;
         for await (const [n, f] of h.entries()) {
           if (f.kind !== 'file') continue;
-          if (/\.mc3$/i.test(n)) mc3 = { n, file: await f.getFile() };
+          if (/\.mc3(remix)?$/i.test(n)) mc3 = { n, file: await f.getFile() };
           else if (n === 'SaveMeta.xbx') name = metaName(await (await f.getFile()).arrayBuffer());
         }
-        if (mc3) rows.push({ folder, h, mc3, name: name || mc3.n.replace(/\.mc3$/i, '') });
+        if (mc3) rows.push({ folder, h, mc3, name: name || mc3.n.replace(/\.mc3(remix)?$/i, '') });
       }
     } catch (e) { savesMsg('Could not read the saves: ' + e.message, true); }
     if (!rows.length) { empty('No profiles yet. Create one in the game: it is saved in this browser.'); return; }
@@ -1135,10 +1135,39 @@
     }
   }
   const hex = buf => [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+  // Remix profile (UDATA/54540079/<12 hex>/<name>.mc3Remix): size and stamp are not proven (the writer sub_000193F0 streams
+  // 4 + 0x18340 + 1 + 1 + 0x61A8 + 1 + 2 + 1 + 0x4074 bytes plus a signature, not 99,162), so only the layout is checked:
+  // big enough, last 20 bytes = HMAC-SHA1 of the rest under the port's zero key (re-signed: unchanged when already valid). An Xbox's own Remix profile is only a guess.
+  async function importRemix(file, data) {
+    if (data.length < 4096) { savesMsg(`${file.name}: ${data.length} bytes, too small for a Remix profile.`, true); return; }
+    if (hex(data.subarray(0, 4)) === '4d43334f') { savesMsg(`${file.name}: not a Remix profile (an online profile .bin goes in the Online profile box).`, true); return; }
+    const body = data.subarray(0, data.length - SIG_LEN);
+    const key = await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
+    const out = new Uint8Array(data);
+    out.set(new Uint8Array(await crypto.subtle.sign('HMAC', key, body)), data.length - SIG_LEN);
+    const name = file.name.replace(/\.mc3remix$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
+    const folder = hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(name))).slice(0, 12).toUpperCase();
+    try {
+      const dir = await titleDir(true);
+      let exists = true;
+      try { await dir.getDirectoryHandle(folder); } catch { exists = false; }
+      if (exists && !confirm(`A profile “${name}” is already in this browser. Replace it?`)) return;
+      const d = await dir.getDirectoryHandle(folder, { create: true });
+      for (const [n, bytes] of [[name + '.mc3Remix', out], ['SaveMeta.xbx', metaBytes(name)]]) {
+        const w = await (await d.getFileHandle(n, { create: true })).createWritable();
+        await w.write(bytes); await w.close();
+      }
+      savesMsg(`Imported ${name} (signed for the port).`);
+    } catch (e) { savesMsg('Could not write the save: ' + e.message, true); }
+    listSaves();
+  }
   async function importSave(file) {
     if (/\.gsx$/i.test(file.name)) { savesMsg('Memory-unit images (.gsx) are not read here yet: run make import-save FILE=… or import the profile\'s .mc3.', true); return; }
     if (!opfs) { savesMsg('No private storage in this browser here: nowhere to put the save.', true); return; }
     const data = new Uint8Array(await file.arrayBuffer());
+    const remixFile = /\.mc3remix$/i.test(file.name), game = BUILT_GAME || 'remix';
+    if (remixFile !== (game === 'remix')) { savesMsg(`${file.name}: a ${remixFile ? 'Remix (.mc3Remix)' : 'DUB Edition (.mc3)'} profile; this page runs the ${GAME_NAMES[game]}${game === 'remix' ? ' (.mc3Remix)' : ' (.mc3)'}.`, true); return; }
+    if (remixFile) { await importRemix(file, data); return; }
     const stamp = data.length >= 4 ? new DataView(data.buffer).getUint32(0, true) : 0;
     if (stamp !== XBOX_STAMP) { savesMsg(`${file.name}: not an Xbox MC3 profile (format 0x${stamp.toString(16).toUpperCase().padStart(8, '0')}; PS2 profiles can't be used).`, true); return; }
     if (data.length !== MC3_SIZE) { savesMsg(`${file.name}: ${data.length} bytes, an Xbox profile has ${MC3_SIZE}.`, true); return; }
