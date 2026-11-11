@@ -7,12 +7,17 @@
  * rmap_car_mat/rmap_f2u, tags_proj's camera, s_roam_seen).
  *
  * Flow (both players in the Free Roam cruise, driving):
- *  - A is within RCH_NEAR m of B and slower than RCH_SLOW: the prompt box says
- *    "Challenge <B>"; White (Q) builds a course and sends ASK (race id, course)
- *    to B every RCH_RESEND s.
- *  - B sees "<A> challenges you" with the course on its maps; White accepts
- *    (B slower than RCH_SLOW, A too) within RCH_ASK_S s.  Driving more than
- *    RCH_AWAY m away, a timeout or a busy B declines (NO).
+ *  - The trigger is a headlight flash: White (Q; the touch pad's Flash), the
+ *    game's own headlight toggle.  Nothing shows for merely being near someone.
+ *    A flashes within RCH_NEAR m of B, both slower than RCH_SLOW: A builds a
+ *    course and sends ASK (race id, course) to B every RCH_RESEND s.  Too fast
+ *    or no course near: a short note, only then.  White near a player (held
+ *    too) is the challenge's alone, never the AI race prompt's.
+ *  - B sees "<A> flashed their lights at you!" with the course on its maps;
+ *    flashing back (White) accepts (B slower than RCH_SLOW, A too) within
+ *    RCH_ASK_S s.  The headlights are not shared (52-byte roam state): the
+ *    ASK message is the signal.  Driving more than RCH_AWAY m away, a timeout
+ *    or a busy B declines (NO).
  *  - A gets ACCEPT and sends GO (milliseconds left to the start) during the
  *    RCH_COUNT_S s countdown: both cars are put on the start grid (the
  *    course's start line, side by side RCH_GRID_W m off its middle, facing the
@@ -958,35 +963,36 @@ static int rch_player(uint32_t p)
                 nd = d;
                 near = &s_roam_seen[i];
             }
-        if (!near || speed > RCH_SLOW)
-            return 0;                           /* nothing for us: the AI race prompt may show */
-        if (rch_speed(near->v) > RCH_SLOW) {
-            snprintf(text, sizeof text, "Street race\nChallenge %s\nBoth slow down to challenge", near->name);
-            rra_prompt(text);
+        if (!near || !white)
+            return 0;                           /* no flash near anyone: the AI race prompt may show */
+        if (!press) {                           /* White still held after a flash near someone: not the AI race's */
+            rra_prompt("");
             return 1;
         }
-        if (press) {
-            if (!rch_course(MEM32(setup), me, fwd, g_esp)) {
-                rch_note("Street race\nNo race course near here\nTry closer to a race start", now);
-                rra_prompt(s_rch.note);
-                return 1;
-            }
-            s_rch.st = RCH_ASKING;
-            s_rch.peer = near->id;
-            s_rch.host = 1;
-            s_rch.race = (uint32_t)rand() ^ (uint32_t)(now * 1e6) ^ near->id;
-            if (!s_rch.race)
-                s_rch.race = 1;
-            snprintf(s_rch.name, sizeof s_rch.name, "%s", near->name);
-            s_rch.t0 = s_rch.heard = now;
-            s_rch.tx = 0;
-            s_rch.away = 0;
-            fprintf(stderr, "[CHALLENGE] we challenge %s (race %08X, %d checkpoints, %.1f km)\n", s_rch.name,
-                    (unsigned)s_rch.race, s_rch.ncp, s_rch.km);
+        if (speed > RCH_SLOW || rch_speed(near->v) > RCH_SLOW) {
+            snprintf(text, sizeof text, "Street race\nToo fast to challenge %s\nBoth slow down, then flash again",
+                     near->name);
+            rch_note(text, now);
+            rra_prompt(s_rch.note);
             return 1;
         }
-        snprintf(text, sizeof text, "Street race\nChallenge %s\nPress White [Q] to challenge", near->name);
-        rra_prompt(text);
+        if (!rch_course(MEM32(setup), me, fwd, g_esp)) {
+            rch_note("Street race\nNo race course near here\nTry closer to a race start", now);
+            rra_prompt(s_rch.note);
+            return 1;
+        }
+        s_rch.st = RCH_ASKING;
+        s_rch.peer = near->id;
+        s_rch.host = 1;
+        s_rch.race = (uint32_t)rand() ^ (uint32_t)(now * 1e6) ^ near->id;
+        if (!s_rch.race)
+            s_rch.race = 1;
+        snprintf(s_rch.name, sizeof s_rch.name, "%s", near->name);
+        s_rch.t0 = s_rch.heard = now;
+        s_rch.tx = 0;
+        s_rch.away = 0;
+        fprintf(stderr, "[CHALLENGE] we flash %s: challenge (race %08X, %d checkpoints, %.1f km)\n", s_rch.name,
+                (unsigned)s_rch.race, s_rch.ncp, s_rch.km);
         return 1;
     case RCH_ASKING:
     case RCH_ASKED:
@@ -1014,16 +1020,16 @@ static int rch_player(uint32_t p)
         }
         k = (int)(RCH_ASK_S - (now - s_rch.t0) + 0.99);
         if (s_rch.st == RCH_ASKING)
-            snprintf(text, sizeof text, "Challenge sent to %s\n%d checkpoints \xC2\xB7 %.1f km\nWaiting for an answer \xC2\xB7 %d s",
+            snprintf(text, sizeof text, "You flashed %s\n%d checkpoints \xC2\xB7 %.1f km\nWaiting for a flash back \xC2\xB7 %d s",
                      s_rch.name, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
         else if (s_rch.st == RCH_ACCEPTED)
             snprintf(text, sizeof text, "Race vs %s\n%d checkpoints \xC2\xB7 %.1f km\nGet ready", s_rch.name, s_rch.ncp,
                      s_rch.km);
         else if (speed > RCH_SLOW || (pp && rch_speed(pp->v) > RCH_SLOW))
-            snprintf(text, sizeof text, "%s challenges you!\n%d checkpoints \xC2\xB7 %.1f km\nBoth slow down to accept \xC2\xB7 %d s",
+            snprintf(text, sizeof text, "%s flashed their lights at you!\n%d checkpoints \xC2\xB7 %.1f km\nBoth slow down, then flash back \xC2\xB7 %d s",
                      s_rch.name, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
         else {
-            snprintf(text, sizeof text, "%s challenges you!\n%d checkpoints \xC2\xB7 %.1f km\nPress White [Q] to accept \xC2\xB7 %d s",
+            snprintf(text, sizeof text, "%s flashed their lights at you!\n%d checkpoints \xC2\xB7 %.1f km\nFlash back (White [Q]) to accept \xC2\xB7 %d s",
                      s_rch.name, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
             if (press) {
                 s_rch.st = RCH_ACCEPTED;

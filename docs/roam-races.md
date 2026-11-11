@@ -413,3 +413,13 @@ checkpoints only for race types it knows (`sub_000C2CE0`, `sub_0026D780`), so th
 cruise gets ours; the .rac's player start slot was not found (only the opponents'
 `posdir`, `sub_001D3AE0`); a race-native 2-player load (System Link style) would
 bring the finish UI and results but needs synchronised loads and slot rework.
+
+Headlight flash trigger (2026-11-11, untested in game): no prompt shows just for
+being near a player. The challenge starts when a player flashes the headlights
+(White, the game's own headlight toggle; Q on the keyboard, the touch pad's Flash
+button with a high-beam icon) within 30 m of another player, both under 12 m/s; the
+other sees "<A> flashed their lights at you! ... Flash back (White [Q]) to accept"
+and accepts by flashing back. Too fast or no course near: a short note, only on
+that press. The headlights themselves are not shared (52-byte roam state): the ASK
+message is the signal. White near a player is the challenge's alone (while held
+too), so the same press never also starts the AI race of a start point nearby.

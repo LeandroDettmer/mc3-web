@@ -10,7 +10,7 @@
 //   left half   thumb stick where the thumb lands: the left stick (steer, menus)
 //   d-pad       upper left (I J K L on the keyboard: map, music, hydraulics)
 //   right       Gas (right trigger), Brake (left trigger), A B X Y above them (Y: look back)
-//   top         White, Back, Start, Black; L3 (special move) beside the d-pad
+//   top         Flash (White: headlights, street challenge), Back, Start, Black; L3 (special move) beside the d-pad
 // A finger slides from one button to another without letting go (Gas to Brake, A to X).
 (() => {
   'use strict';
@@ -27,13 +27,18 @@
   const CONTROLS = [
     ['gas', 'Gas', 'a', AN.RT], ['brake', 'Brake', 'a', AN.LT],
     ['fa', 'A', 'a', AN.A], ['fb', 'B', 'a', AN.B], ['fx', 'X', 'a', AN.X], ['fy', 'Y', 'a', AN.Y],
-    ['white', 'White', 'a', AN.WHITE], ['black', 'Black', 'a', AN.BLACK],
+    ['white', 'Flash', 'a', AN.WHITE], ['black', 'Black', 'a', AN.BLACK],
     ['back', 'Back', 'b', BIT.back], ['start', 'Start', 'b', BIT.start],
     ['du', '▲', 'b', BIT.up], ['dd', '▼', 'b', BIT.down], ['dl', '◀', 'b', BIT.left], ['dr', '▶', 'b', BIT.right],
     ['ls', 'L3', 'b', BIT.ls],
   ];
   const TITLES = { fa: 'A: handbrake, select', fb: 'B: two wheels', fx: 'X: nitrous', fy: 'Y: look back',
-                   white: 'White: headlights, accept race', black: 'Black: camera', ls: 'Left stick click: special move' };
+                   white: 'Flash (White): headlights; flash a player near you to challenge, flash back to accept',
+                   black: 'Black: camera', ls: 'Left stick click: special move' };
+  // the dashboard's high-beam symbol (a lamp, horizontal rays) on the White button
+  const HIGH_BEAM = '<svg viewBox="0 0 24 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" '
+    + 'stroke-linecap="round"><path d="M13 2c5 0 9 2.5 9 6s-4 6-9 6z" fill="currentColor"/>'
+    + '<path d="M2 3h8M2 6.3h8M2 9.7h8M2 13h8"/></svg>';
 
   const CSS = `
   .tc { grid-row: -2 / -1; grid-column: 1; position: relative; pointer-events: none; touch-action: none;
@@ -55,7 +60,8 @@
   .tc-fx { right: calc(var(--r) + var(--u) * 2.3 - var(--s) / 2); bottom: calc(var(--b) + var(--u) * 3.3 - var(--s) / 2); }
   .tc-fb { right: calc(var(--r) + var(--u) * .5 - var(--s) / 2); bottom: calc(var(--b) + var(--u) * 3.3 - var(--s) / 2); }
   .tc-white, .tc-black, .tc-back, .tc-start { top: var(--t); width: calc(var(--u) * 1.4); height: calc(var(--u) * .7); }
-  .tc-white { left: var(--l); }
+  .tc-white { left: var(--l); gap: .3em; }
+  .tc-white svg { width: 1.4em; height: .95em; flex: none; }
   .tc-black { right: var(--r); }
   .tc-back { left: calc(50% - var(--u) * 1.5); }
   .tc-start { left: calc(50% + var(--u) * .1); }
@@ -104,6 +110,7 @@
       el.className = 'tc-b tc-' + id;
       el.dataset.c = id;
       el.textContent = label;
+      if (id === 'white') el.insertAdjacentHTML('afterbegin', HIGH_BEAM);
       if (TITLES[id]) el.title = TITLES[id];
       root.append(el);
       els.set(id, { el, kind, value });

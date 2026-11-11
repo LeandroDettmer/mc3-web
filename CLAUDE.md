@@ -431,9 +431,11 @@ generated files when the lift inputs did not change.
   and holds it 1.5 s, re-placed if it falls. '[RACE]' lines;
   MC3_ROAM_RACE=0 off, =2 Request(6) alone.
   Street challenge (feature 2, 2026-11-09, untested in game;
-  src/games/remix/roam_challenge.c, docs/roam-races.md F2): within 30 m of a
-  player, both under 12 m/s, White challenges; the other accepts with White
-  in 10 s; the course is the nearest
+  src/games/remix/roam_challenge.c, docs/roam-races.md F2): a headlight flash
+  (White = the game's headlight toggle; touch button 'Flash') within 30 m of a
+  player, both under 12 m/s, challenges; no prompt for merely being near
+  (2026-11-11, untested); the other accepts by flashing back within 10 s;
+  White near a player never also starts the AI race; the course is the nearest
   sprint/circuit's own checkpoints, read from its .rac at challenge time
   (tune/race/<city>/<event>.rac through the game's file system and text
   tokenizer: position + 4 sizes), ~2 km, at most 6. Rework (2026-11-10,
