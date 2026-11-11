@@ -234,12 +234,7 @@ addToLibrary({
         var m = e.error && e.error.message || String(e.error);
         W.once('e:' + m, 'WebGPU error: ' + m);
       });
-      dev.lost.then((i) => {
-        if (W.dev !== dev) return;
-        W.dev = null;
-        W.log('device lost: ' + i.reason + ' ' + i.message + '; reload with ?RECOMP_GPU=webgl');
-        W.setState(W.DEV_LOST);
-      });
+      dev.lost.then((i) => W.lost(dev, i.reason + ' ' + i.message));
       var ctx = canvas.getContext('webgpu');
       if (!ctx) { dev.destroy(); throw new Error("getContext('webgpu') failed on the OffscreenCanvas"); }
       var fmt = navigator.gpu.getPreferredCanvasFormat();
@@ -262,6 +257,17 @@ addToLibrary({
       W.log('adapter ' + ([ai.vendor, ai.architecture, ai.description].filter(Boolean).join(' ') || '?')
             + ', features ' + (want.join(' ') || 'none') + ', device ready, canvas ' + fmt);
       W.setState(W.DEV_READY);
+    },
+
+    // No more drawing on this device: frames are dropped and the render thread consumes the ring
+    // without drawing (wq_turn), so the game runs on; the page's '[WGPU] device lost' box offers a
+    // restart, and its next start on this device uses WebGL (index.html gpuChoice).
+    lost(dev, why) {
+      var W = WGPU;
+      if (W.dev !== dev) return;
+      W.dev = null;
+      W.log('device lost: ' + why);
+      W.setState(W.DEV_LOST);
     },
 
     newWin(t) {
@@ -931,7 +937,11 @@ addToLibrary({
       }
       W.uused = 0;
 
-      var enc = dev.createCommandEncoder();
+      // Safari throws InvalidStateError here once its device is gone, before (or without) dev.lost
+      // resolving: uncaught, it killed the render thread (6 Macs, 2026-11-11)
+      var enc;
+      try { enc = dev.createCommandEncoder(); }
+      catch (e) { W.lost(dev, 'createCommandEncoder failed: ' + (e && e.message || e)); return; }
       WGPU_GT.begin(dev);   // M4 GPU timing
       try {
         while (p + 4 <= end) {
