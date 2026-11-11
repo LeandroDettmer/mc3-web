@@ -60,9 +60,10 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** every player in your city is on the map now, not only the 20 nearest; each city has a server of its own.
 - **Free Roam:** San Diego only for now, so everyone meets in the same city.
 
-## 2026-11-11 (e614844)
+## 2026-11-11 (d98b356)
 
 - **Free Roam:** street races start with a headlight flash: flash (White, Q) near a player to challenge, flash back to accept; nothing pops up just for being near someone. On phones the White button is now Flash.
 - **Free Roam:** street races start on the race's own start grid, side by side and facing the road, and run from its first checkpoint.
 - **Free Roam:** players in the same city no longer miss each other after a server hiccup: the page keeps reconnecting to the city.
 - **Free Roam:** a notice shows when the connection to the other players is lost, and offers a reload if it does not come back.
+- **Saves:** "Import save" takes a career profile downloaded from this site (another browser or device) as well as an Xbox one; on phones, Download opens the share sheet (Save to Files, AirDrop, Mail).
