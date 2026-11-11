@@ -868,8 +868,14 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   build through the SetLabel override, not live), and picking it runs
   sub_00180160 straight (no screen 0x1E); held White (Q/Shift) while
   picking it opens screen 0x1E for Online Races. Since 2026-11-11
-  (untested in game) the browser's sub_00180160 also skips Arcade's setup
-  (0x19) and Start (0x1B) screens (fr_direct): sub_0013AB20 (the profile's
+  (agent-run in Chrome: cruise loaded, car drove, White opened 0x1E) the
+  browser's sub_00180160 also skips Arcade's setup
+  (0x19, shown a frame at most) and Start (0x1B) screens (fr_direct). The
+  callback still Goes to 0x19 (sub_0018C530_gen): a main-menu item callback
+  that changes no screen hangs the game (main thread looping in the menu's
+  Flash event dispatch sub_00201990 under sub_0018CC90, guest lock held, no
+  frame; 5428501). The steps run at the next state pass (sub_00020EC0,
+  fr_direct_pass, state 7 only): sub_0013AB20 (the profile's
   car into the settings [0x53F2E8]) + sub_0013A590, San Diego Cruise,
   event by name sub_0026B010 + SetEvent, then the Start screen's own
   sub_00184FD0 (stand-in screen, +0x1E0 = 0; 0x4B36C4 put back): copy

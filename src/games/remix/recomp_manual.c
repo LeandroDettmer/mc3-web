@@ -2410,11 +2410,17 @@ EMSCRIPTEN_KEEPALIVE uintptr_t mc3_activity_box(void) { return (uintptr_t)&s_act
 #endif
 static void online_garage_left(void);           /* the Online profile is saved (below) */
 static void roam_cars_pass(uint32_t obj, int after); /* free roam: standalone cars (roam_cars.c) */
+#ifdef __EMSCRIPTEN__
+static void fr_direct_pass(uint32_t obj);       /* Online: the deferred cruise load (below) */
+#endif
 extern void sub_00020EC0_gen(void);
 void sub_00020EC0(void)
 {
     uint32_t obj = g_ecx, before = MEM32(obj + 4);
     s_state_obj = obj;
+#ifdef __EMSCRIPTEN__
+    fr_direct_pass(obj);                        /* Online's Request(6), outside the menu's Flash dispatch */
+#endif
     roam_cars_pass(obj, 0);                     /* standalone cars out before a cruise teardown (roam_cars.c) */
     sub_00020EC0_gen();
     roam_cars_pass(obj, 1);
@@ -3446,7 +3452,14 @@ static void roam_begin(uint32_t cfg);           /* free roam on + our car (O4), 
  * menu's own Request(0x12) item does from here (sub_0018C5C0). The Start
  * screen's +0x1E0 byte picks 0x4B36C4 (table 0x4B25AC: 0,1,2,3,4,5,10,15;
  * 0 at boot): a stand-in screen gives index 0 and the old value is put
- * back, so it stays the game's. MC3_FR_DIRECT=1 only (hung the game, 2026-11-11). */
+ * back, so it stays the game's. MC3_FR_DIRECT=0 brings the screens back.
+ * The A callback still goes to screen 0x19 (sub_0018C530_gen) and these
+ * steps run at the next state pass (sub_00020EC0), so the setup screen shows
+ * for a frame at most. A callback that changed no screen (5428501) hung the
+ * game (2026-11-11): the main menu's Flash event dispatch (sub_00201990
+ * under sub_0018CC90 -> sub_00160B90 -> sub_002071C0) never ended, main
+ * thread holding the guest lock, no frame, Request(6) never applied; it hung
+ * the same with these steps deferred and no Go. */
 static uint32_t roam_call(recomp_func_t fn, uint32_t ecx, uint32_t top, int n, const uint32_t *args);
 static void fr_cruise(uint32_t s);
 void sub_0013AB20(void);
@@ -3454,14 +3467,23 @@ void sub_0013A590(void);
 void sub_0026B010(void);
 void sub_0026B8E0(void);
 void sub_00184FD0(void);
-static int fr_direct(void)
+static int s_fr_pending;                         /* Online picked: load at the next state pass */
+static void fr_direct(void)
 {
     const char *e = getenv("MC3_FR_DIRECT");
+    s_fr_pending = !(e && e[0] == '0');
+}
+static void fr_direct_pass(uint32_t sm)
+{
     uint32_t s = MEM32(0x0053F2E8u), top = (g_esp - 0x800u) & ~0xFu, obj = top + 0x100u, a[2];
     uint8_t keep = MEM8(0x004B36C4u);
-    /* off unless MC3_FR_DIRECT=1: picking Online hung the game on the owner's PC (2026-11-11, 5428501) */
-    if (!e || e[0] != '1' || !online_ram(s) || !online_ram(MEM32(0x0053F2E4u)) || !online_ram(MEM32(0x00557ED0u)))
-        return 0;
+    if (!s_fr_pending)
+        return;
+    s_fr_pending = 0;
+    if (MEM32(sm + 4u) != 7u || !online_ram(s) || !online_ram(MEM32(0x0053F2E4u))) {
+        fprintf(stderr, "[ONLINE] Free Roam: direct load dropped (state %u)\n", MEM32(sm + 4u));
+        return;
+    }
     MEM32(0x0050F14Cu) = 0;                      /* not a System Link game */
     roam_call(sub_0013AB20, 0, top, 0, NULL);
     roam_call(sub_0013A590, 0, top, 0, NULL);
@@ -3476,8 +3498,7 @@ static int fr_direct(void)
     roam_call(sub_00184FD0, obj, top, 0, NULL);
     MEM8(0x004B36C4u) = keep;
     fprintf(stderr, "[ONLINE] Free Roam: straight into the San Diego cruise (event %d, %.24s), no setup or Start"
-            " screen (MC3_FR_DIRECT=1 opt-in)\n", (int32_t)a[1], (const char *)XBOX_PTR(s + 0x68u));
-    return 1;
+            " screen, at the state pass (MC3_FR_DIRECT=0 off)\n", (int32_t)a[1], (const char *)XBOX_PTR(s + 0x68u));
 }
 #endif
 void sub_00180160(void)
@@ -3490,10 +3511,9 @@ void sub_00180160(void)
 #endif
     roam_begin(cfg);
 #ifdef __EMSCRIPTEN__
-    if (fr_direct())
-        return;
+    fr_direct();                                 /* the cruise load at the next state pass */
 #endif
-    sub_0018C530_gen();
+    sub_0018C530_gen();                          /* Go(0x19) still: without a screen change the menu's dispatch never ends */
 }
 
 /* The main menu's builder copies each label's text into its item when it
