@@ -283,6 +283,21 @@ static int rmap_shown(uint8_t st)
     return st < RC_ST__N;
 }
 
+/* Peer id has a car drawn in our world: its slot's (roam_game.c) or its standalone car (roam_cars.c), driven.
+ * None in our AI race (a race load has no slots), for a peer the heap had no room for (64 MB profile: slots
+ * only), or one away: its blip is then dimmed like a far player's, not the bright one of a car on the road. */
+static int rmap_has_car(uint32_t id)
+{
+    int k;
+    for (k = 1; k <= s_roam_slots; k++)
+        if (s_roam_peer[k].id == id)
+            return s_roam_peer[k].here && !s_roam_peer[k].away;
+    for (k = 0; k < s_ncar; k++)
+        if (s_car[k].id == id && s_car[k].veh)
+            return s_car[k].here && !s_car[k].away;
+    return 0;
+}
+
 /* After sub_000BF850 (map, the game's player blips); top: the caller's esp at the call (scratch goes below it).
  * Every linked peer (roam_net's list: slots, standalone cars, peers still without a car) gets the near
  * players' blip, every FAR one the dimmed one. The game's own loop skips most of them (standalone cars are
@@ -319,7 +334,7 @@ static void rmap_far(uint32_t map, uint32_t top)
         if (rmap_shown(seen[i].status)) {
             memcpy(dot[n].p, seen[i].p, sizeof dot[n].p);
             memcpy(dot[n].q, seen[i].q, sizeof dot[n].q);
-            dot[n++].far = seen[i].status != RC_ST_ROAM;   /* away: dimmed */
+            dot[n++].far = seen[i].status != RC_ST_ROAM || !rmap_has_car(seen[i].id);   /* away or no car: dimmed */
         }
     nnear = n;
     nf = roam_far(far, ROAM_FAR_MAX);
@@ -338,8 +353,11 @@ static void rmap_far(uint32_t map, uint32_t top)
         said_near = nnear;
         said_far = n - nnear;
         said_t = roam_now();
-        fprintf(stderr, "[roam] map: %d linked + %d far player(s) drawn as blips (%s; %d peers, hub far list %d)\n",
-                nnear, n - nnear, vt == RMAP_FULLMAP_VT ? "full map" : "minimap", nseen, nf);
+        for (i = k = 0; i < nnear; i++)
+            k += dot[i].far;
+        fprintf(stderr, "[roam] map: %d linked (%d dimmed: away or no car) + %d far player(s) drawn as blips (%s; %d "
+                        "peers, hub far list %d)\n",
+                nnear, k, n - nnear, vt == RMAP_FULLMAP_VT ? "full map" : "minimap", nseen, nf);
     }
     if (!n)
         return;
