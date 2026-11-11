@@ -310,18 +310,37 @@ static int wma_packet(uint32_t va, uint32_t *done, uint32_t *max, int *peak)
 static void wma_call(uint32_t addr, int method, void (*fn)(void))
 {
     static long calls[11], dcalls[11];
+    static int after_create;                /* method calls still to log after a create */
     uint32_t a0, a1, a2;
     long n;
-    /* Creation is rare and the question is often whether it happens at
-     * all: logged (first 4) with or without the trace. */
-    if (!wma_trace_on() && (method != 10 || calls[10] >= 4)) {
+    int follow = 0;
+    /* Creation is rare (one per music track) and the question is often
+     * whether it happens at all: always logged, with or without the trace.
+     * So are the first 3 method calls after each, entered and returned
+     * (2026-11-11: the game froze right after a track's create #3; an
+     * "entered" line with no return names a hang inside the decoder). */
+#ifdef __EMSCRIPTEN__
+    enum { web = 1 };
+#else
+    enum { web = 0 };                       /* native: first 4 creates, no follow-up */
+#endif
+    if (web && method < 10 && after_create > 0) {
+        after_create--;
+        follow = 1;
+    }
+    if (!wma_trace_on() && (method != 10 || (!web && calls[10] >= 4)) && !follow) {
         mc3_difftest_call(addr, fn, &dcalls[method]);
         return;
     }
     a0 = MEM32(g_esp + 4); a1 = MEM32(g_esp + 8); a2 = MEM32(g_esp + 12);
     n = ++calls[method];
+    if (follow)
+        fprintf(stderr, "[WMA] method #%ld [vtable +0x%02X] entered (%08X, %08X, %08X)\n",
+                n, method * 4, a0, a1, a2);
     mc3_difftest_call(addr, fn, &dcalls[method]);
-    if (n <= 12 || n % 500 == 0) {
+    if (web && method == 10)
+        after_create = 3;
+    if (n <= 12 || n % 500 == 0 || (web && method == 10) || follow) {
         uint32_t d, m;
         int pk;
         fprintf(stderr, "[WMA] %s #%ld (%08X, %08X, %08X) -> %08X",
