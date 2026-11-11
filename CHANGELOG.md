@@ -60,7 +60,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** every player in your city is on the map now, not only the 20 nearest; each city has a server of its own.
 - **Free Roam:** San Diego only for now, so everyone meets in the same city.
 
-## 2026-11-11 (ff449cd)
+## 2026-11-11 (44bf50f)
 
 - **Free Roam:** street races start with a headlight flash: flash (White, Q) near a player to challenge, flash back to accept; nothing pops up just for being near someone. On phones the White button is now Flash.
 - **Free Roam:** street races start on the race's own start grid, side by side and facing the road, and run from its first checkpoint.
@@ -72,3 +72,6 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Graphics:** phones whose GPU froze the game with WebGPU (Mali, older Adreno) draw with WebGL, and any device where WebGPU froze or was lost uses WebGL from its next start.
 - **Loading:** the background download now also fills cars, the city map and the career's movies, so fewer stalls in career and Free Roam.
 - **Page:** a "Report a bug" button opens a bug report on GitHub with the details filled in.
+- **Online:** the main menu's Online item shows how many players are in Free Roam, and goes straight into Free Roam (hold White / Q while picking it for Online Races).
+- **Free Roam:** other players' cars show their tyres, not just the rims.
+- **Free Roam:** the map shows every player in the city, also while paused (some were missing).
