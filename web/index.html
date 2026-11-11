@@ -1141,10 +1141,9 @@
   async function importRemix(file, data) {
     if (data.length < 4096) { savesMsg(`${file.name}: ${data.length} bytes, too small for a Remix profile.`, true); return; }
     if (hex(data.subarray(0, 4)) === '4d43334f') { savesMsg(`${file.name}: not a Remix profile (an online profile .bin goes in the Online profile box).`, true); return; }
-    const body = data.subarray(0, data.length - SIG_LEN);
-    const key = await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
-    const out = new Uint8Array(data);
-    out.set(new Uint8Array(await crypto.subtle.sign('HMAC', key, body)), data.length - SIG_LEN);
+    // Kept byte for byte: the Remix's signature layout is not known (its writer sub_000193F0 is not DUB's), and a
+    // profile downloaded from this site is already signed for the port. An Xbox-original one may read "damaged".
+    const out = data;
     const name = file.name.replace(/\.mc3remix$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
     const folder = hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(name))).slice(0, 12).toUpperCase();
     try {
@@ -1157,7 +1156,7 @@
         const w = await (await d.getFileHandle(n, { create: true })).createWritable();
         await w.write(bytes); await w.close();
       }
-      savesMsg(`Imported ${name} (signed for the port).`);
+      savesMsg(`Imported ${name} (kept as it is).`);
     } catch (e) { savesMsg('Could not write the save: ' + e.message, true); }
     listSaves();
   }
