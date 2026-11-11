@@ -5,17 +5,17 @@
 //   GET /lan/ice -> {iceServers} Cloudflare Realtime TURN credentials (6 h), cached 10 min; Origin required; STUN-only on failure. Secrets TURN_KEY_ID, TURN_KEY_API_TOKEN
 //   GET /lan/activity -> what each player does (private: Authorization: Bearer <ADMIN_KEY>, or ?key=; 404 without it; no CORS, never cached)
 //   GET /lan[?vip=n] (WebSocket upgrade, Origin in ALLOW_ORIGINS) -> the Durable Object "Switch" (one for the server)
+//   GET /lan/roam?city=N&vip&exp&sig (WebSocket upgrade, Origin, a ticket from the Switch) -> the Durable Object
+//       "RoamCity" named city-N (src/city.js: free roam, one object per city); 404 without the ROAM binding or ROAM_SECRET
 //
 // secret: ADMIN_KEY (wrangler secret put ADMIN_KEY); unset = /lan/activity is always 404.
+// secret: ROAM_SECRET (a long random string): signs the city-socket tickets; unset = no city objects, free roam stays on
+// the Switch alone as before.
 // vars: ALLOW_ORIGINS "https://a.example,https://b.example" (scheme://host, comma-separated, any case); empty = any.
-import { originOk } from './switch.js';
+import { originOk, SWITCH_NAME, cityOk, cityName, ticketOk } from './switch.js';
 
 export { Switch } from './switch.js';
-
-// The one switch object's name. A new name starts a fresh object on the deploy's code: a live object keeps its old code
-// until it restarts, which a busy one may not do for long (2026-11-10: 'switch' -> 'switch-2'; its sockets stay there
-// until their pages reload).
-const SWITCH_NAME = 'switch-2';
+export { RoamCity } from './city.js';
 
 // Constant-time compare: both sides hashed to 32 bytes first, so neither the length nor the first wrong byte shows in the time.
 async function keyOk(given, want) {
@@ -75,6 +75,14 @@ export default {
       if (!await keyOk(bearer ?? url.searchParams.get('key'), env.ADMIN_KEY)) return new Response('not found', { status: 404 });
       const res = await env.SWITCH.get(env.SWITCH.idFromName(SWITCH_NAME)).fetch(req);
       return new Response(res.body, { status: res.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } });
+    }
+    if (url.pathname === '/lan/roam') {
+      if (!originOk(allowed, req.headers.get('Origin'))) return new Response('origin not allowed', { status: 403 });
+      if (req.headers.get('Upgrade') !== 'websocket') return new Response('websocket only', { status: 426 });
+      if (!env.ROAM || !env.ROAM_SECRET) return new Response('not found', { status: 404 });
+      const q = url.searchParams, city = Number(q.get('city'));
+      if (!cityOk(city) || !await ticketOk(env.ROAM_SECRET, Number(q.get('vip')) >>> 0, Number(q.get('exp')), q.get('sig'))) return new Response('bad ticket', { status: 403 });
+      return env.ROAM.get(env.ROAM.idFromName(cityName(city))).fetch(req);
     }
     if (url.pathname !== '/lan') return new Response('not found', { status: 404 });
     if (!originOk(allowed, req.headers.get('Origin'))) return new Response('origin not allowed', { status: 403 });

@@ -11,11 +11,18 @@ preview_urls = false
 routes = [{ pattern = "lan.example.com", custom_domain = true }]
 
 [durable_objects]
-bindings = [{ name = "SWITCH", class_name = "Switch" }]
+# ROAM: free roam, one RoamCity object per city (src/city.js, objects city-0 .. city-13). Needs the secret ROAM_SECRET
+# too (`npx wrangler secret put ROAM_SECRET`, any long random string: it signs the city-socket tickets); without either,
+# free roam stays on the Switch alone.
+bindings = [{ name = "SWITCH", class_name = "Switch" }, { name = "ROAM", class_name = "RoamCity" }]
 
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["Switch"]   # SQLite-backed DO: available on the free plan; Switch keeps no storage beyond its alarm
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RoamCity"]   # keeps no storage beyond its alarm either
 
 [vars]
 # the page's origins, exact scheme://host (any case), comma-separated; anything else gets 403; empty = any

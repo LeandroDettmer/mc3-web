@@ -22,10 +22,20 @@
 //   link.signal(to, kind, data) / link.onsignal = m => ...   // step 2 (WebRTC), relayed inside the race only
 //   link.onMsg(m => ...) / link.sendMsg(m) // every JSON control message in / one out (docs/races-protocol.md)
 //   link.rtc                         // set by mc3Rtc (web/rtc.js): net.js sends System Link's frames through it
+// Free roam per city (web/lan-worker/src/city.js): when the switch's welcome says roamCity, free roam's frames and
+// signals go over a second socket, straight to the city's own object:
+//   link.roamSend(frame)             // a free-roam frame (net.js, rtc.js): the city socket when open, else the switch
+//   link.roamMsg(m)                  // a free-roam signal (rtc.js): the same way
+//   l.city                           // the city whose socket is open, or null (free roam through the switch)
+// The game's HELLO to the hub (10.77.0.253:47210) names its room (MC3: the city): a new one closes the old socket, asks
+// the switch {"t":"ticket"} and opens wss .../lan/roam?city=N&vip&exp&sig; its BYE closes it. Until the socket is open,
+// and whenever it is not (refused, a server without it), the frames go through the switch as before. A socket that never
+// opened is tried again after 30 s, 60, 120 ... (5 min at most), one that closed after opening after 1 s, at the next HELLO.
 window.mc3Lan = function (name, lanUrl) {
   var url = lanUrl || (location.protocol == 'https:' ? 'wss://' : 'ws://') + location.host + '/lan';
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
-               players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null };
+               players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null, city: null };
+  var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, cityOn = false, city = null;   // city: {n, ws, asked, open, fails, retryAt}
   var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, rejoin = null, pass = '', auto = false;
   // The keep-alive: the Cloudflare switch's runtime answers this exact text itself (setWebSocketAutoResponse,
   // web/races-worker/src/index.js BEAT), so an idle page never wakes its Durable Object. web/server ignores it: until
@@ -78,7 +88,8 @@ window.mc3Lan = function (name, lanUrl) {
       if (e.data === BEAT) { beats = true; return; }
       var m;
       try { m = JSON.parse(e.data); } catch (_) { return; }
-      if (m.t == 'welcome') { tries = 0; link.vip = m.vip >>> 0; link.vipStr = m.vipStr; link.mac = m.mac; link.state = 'online'; changed(); }
+      if (m.t == 'welcome') { tries = 0; link.vip = m.vip >>> 0; link.vipStr = m.vipStr; link.mac = m.mac; link.state = 'online'; cityOn = m.roamCity == 1; changed(); }
+      else if (m.t == 'ticket') cityOpen(m);
       else if (m.t == 'pong') pongs = true;
       else if (m.t == 'peers') { link.peers = m.peers || []; changed(); }
       else if (m.t == 'roam') { link.roam = m.players || []; changed(); }
@@ -91,6 +102,7 @@ window.mc3Lan = function (name, lanUrl) {
         changed();
       }
       else if (m.t == 'left') { if (link.room && link.room.id == m.room) { link.room = null; link.members = []; } if (rejoin && rejoin.id == m.room) rejoin = null; link.left = m; changed(); }
+      else if (m.t == 'error' && m.op == 'ticket') { if (city) cityFail(city, false); }
       else if (m.t == 'error') { if (auto && m.op == 'join') { auto = false; rejoin = null; } else link.error = m; changed(); }   // a rejoin refused (the room went meanwhile): quietly in none
       else if (m.t == 'signal') { if (link.onsignal) link.onsignal(m); }
       msgFns.forEach(function (f) { try { f(m); } catch (e) { console.error(e); } });
@@ -109,6 +121,7 @@ window.mc3Lan = function (name, lanUrl) {
     if (me !== ws) return;
     ws = null;
     clearInterval(beat);
+    cityClose();   // the next vip may differ: a new ticket at the next HELLO
     link.state = 'offline'; link.room = null; link.members = []; link.peers = []; link.players = null;
     changed();   // 'offline' first: web/rtc.js drops its channels, net.js tells the game the link is down
     if (!want) return;
@@ -116,6 +129,66 @@ window.mc3Lan = function (name, lanUrl) {
     link.state = 'connecting'; changed();
     retry = setTimeout(connect, d);
   }
+  // --- free roam's city socket (see the head) ---
+  function cityUp() { return !!(city && city.open && city.ws && city.ws.readyState == 1); }
+  function cityClose() {
+    var c = city;
+    city = null;
+    if (c && c.ws) { c.ws.onclose = c.ws.onmessage = null; try { c.ws.close(1000, 'left'); } catch (_) {} }
+    if (link.city != null) { link.city = null; changed(); }
+  }
+  function cityFail(c, wasOpen) {
+    if (c.ws) { c.ws.onclose = c.ws.onmessage = null; try { c.ws.close(); } catch (_) {} }
+    c.ws = null; c.asked = false; c.open = false;
+    c.retryAt = Date.now() + (wasOpen ? 1000 : Math.min(300000, 30000 << Math.min(c.fails++, 4)));
+    if (link.city != null) { link.city = null; changed(); }
+  }
+  function cityWant(n) {
+    if (!cityOn || !up() || !(n < CITIES)) return;
+    if (city && city.n == n) { if (city.ws || city.asked || Date.now() < city.retryAt) return; }
+    else { cityClose(); city = { n: n, ws: null, asked: false, open: false, fails: 0, retryAt: 0 }; }
+    city.asked = true;
+    ws.send(JSON.stringify({ t: 'ticket' }));
+  }
+  function cityOpen(t) {
+    var c = city;
+    if (!c || !c.asked || c.ws) return;
+    c.asked = false;
+    try {
+      var u = new URL(url, location.href);
+      u.pathname = u.pathname.replace(/\/$/, '') + '/roam';
+      u.search = '?city=' + c.n + '&vip=' + (t.vip >>> 0) + '&exp=' + Number(t.exp) + '&sig=' + encodeURIComponent(t.sig);
+      c.ws = new WebSocket(u.href);
+    } catch (e) { cityFail(c, false); return; }
+    var s = c.ws;
+    s.binaryType = 'arraybuffer';
+    s.onopen = function () { if (city !== c) return; c.open = true; c.fails = 0; link.city = c.n; changed(); };
+    s.onmessage = function (e) {
+      if (typeof e.data != 'string') { link.recv++; if (link.onframe) link.onframe(new Uint8Array(e.data)); return; }
+      var m;
+      try { m = JSON.parse(e.data); } catch (_) { return; }
+      msgFns.forEach(function (f) { try { f(m); } catch (err) { console.error(err); } });   // free-roam signals: web/rtc.js
+    };
+    s.onclose = function () { if (city === c) cityFail(c, c.open); };
+  }
+  // A free-roam frame (16-byte header, net.js): its HELLO / BYE to the hub steer the city socket.
+  link.roamSend = function (f) {
+    if (f.length >= 22 && f[8] == 10 && f[9] == 77 && f[10] == 0 && f[11] == 253 && ((f[14] << 8) | f[15]) == ROAM_PORT &&
+        f[16] == 0x4D && f[17] == 0x43 && f[18] == 0x33 && f[19] == 0x52) {
+      if (f[21] == 1 && f.length >= 44) cityWant((f[40] | f[41] << 8 | f[42] << 16 | f[43] << 24) >>> 0);   // HELLO: room u32 LE at datagram +24
+      else if (f[21] == 8) { var ok = roamOut(f); cityClose(); return ok; }   // BYE: the game left free roam
+    }
+    return roamOut(f);
+  };
+  function roamOut(f) {
+    if (cityUp()) { city.ws.send(f); link.sent++; return true; }
+    return link.send(f);
+  }
+  link.roamMsg = function (m) {
+    if (cityUp()) { city.ws.send(JSON.stringify(m)); return true; }
+    return link.sendMsg(m);
+  };
+
   connect();
   link.on = function (f) { fns.push(f); f(link); };
   link.send = function (frame) {
@@ -141,6 +214,6 @@ window.mc3Lan = function (name, lanUrl) {
   link.join = function (id, p) { pass = p || ''; auto = false; return ctl({ t: 'join', room: id, pass: pass }); };
   link.leave = function () { rejoin = null; return ctl({ t: 'leave' }); };
   link.signal = function (to, kind, data) { return ctl({ t: 'signal', to: to, kind: kind, data: data }); };
-  link.close = function () { want = false; clearTimeout(retry); if (ws) ws.close(1000, 'closed'); else if (link.state != 'offline') { link.state = 'offline'; changed(); } };
+  link.close = function () { want = false; clearTimeout(retry); cityClose(); if (ws) ws.close(1000, 'closed'); else if (link.state != 'offline') { link.state = 'offline'; changed(); } };
   return link;
 };

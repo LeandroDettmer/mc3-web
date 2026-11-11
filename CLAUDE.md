@@ -315,7 +315,15 @@ generated files when the lift inputs did not change.
   roam destinations (= nearest), signals "roam":1 relayed by the Worker switch
   within a city; frames to a peer with an open channel go over it, the hub's and
   the rest via the switch; ICE from the switch's /lan/ice (TURN), page setting
-  MC3_ROAM_P2P (shares IPs), '[rtc] free roam ...' lines. Game side
+  MC3_ROAM_P2P (shares IPs), '[rtc] free roam ...' lines. One Durable Object
+  per city (2026-11-10, untested in a browser; web/lan-worker/src/city.js): with
+  the ROAM binding + ROAM_SECRET the page opens a second socket per city
+  (wss .../lan/roam?city=N + a ticket from the switch, web/lan.js roamSend, picked
+  by the game's HELLO room, closed by its BYE) carrying that city's hub, relay
+  frames and roam signals; the Switch keeps lobby, races, players list (city
+  reports) and its own hub as fallback; '[net] free roam: own socket to city N
+  open'. Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
+  pairs without a P2P channel (the larger share while K > roamMax). Game side
   src/games/remix/roam_game.c: the Online cruise's race setup [0x53F2E0]
   gets 1 + N entries (copies of entry 0, +0x10/+0x14/+0x18 = -1, net flag
   0), so the game builds N extra player cars at load (N = peers at load

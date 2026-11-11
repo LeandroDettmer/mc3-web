@@ -16,10 +16,14 @@
       W_TX_HEAD = 8, W_TX_TAIL = 9, W_RX_HEAD = 10, W_RX_TAIL = 11, W_TX_BELL = 12, W_STATE = 13, W_VIP = 14,
       W_PEERS = 15, W_TX_DROP = 16, W_RX_DROP = 17, W_C_TX_FULL = 18, W_C_RX_LOST = 19, W_RX_BELL = 20;
   var STATES = { connecting: 1, online: 2, offline: 3 };
-  var link = null, boxes = [], said = '', saidVip = '';
+  var link = null, boxes = [], said = '', saidVip = '', saidCity = null;
 
   // The link reconnects by itself (web/lan.js): the same object, so the mailboxes stay attached; said once for both.
   function say(l) {
+    if ((l.city == null ? null : l.city) !== saidCity) {
+      err('[net] free roam: ' + (l.city != null ? 'own socket to city ' + l.city + ' open' : 'through the switch') + (saidCity != null ? ' (was city ' + saidCity + ')' : ''));
+      saidCity = l.city == null ? null : l.city;
+    }
     var s = l.state == 'online' ? 'up' : l.state == 'offline' ? 'down' : '';
     if (!s || s == said) return;
     if (said) err('[net] switch link ' + s + ' (vip ' + (l.vipStr || 'none') + (s == 'up' && saidVip && saidVip != l.vipStr ? ', was ' + saidVip : '') + ')');
@@ -53,9 +57,10 @@
           fv.setUint16(12, ports & 0xFFFF);
           fv.setUint16(14, ports >>> 16);
           f.set(u8.subarray(o + SLOT_HDR, o + SLOT_HDR + len), SLOT_HDR);
-          // peer to peer where it can (web/rtc.js): System Link inside a race room, free roam to the nearest players
+          // peer to peer where it can (web/rtc.js): System Link inside a race room, free roam to the nearest players;
+          // free roam's other frames over the city's own socket when there is one (web/lan.js roamSend)
           var rtc = link && link.rtc;
-          if (!link || !(rtc ? (roam ? rtc.roamSend(f) : rtc.send(f)) : link.send(f))) Atomics.add(h, W_TX_DROP, 1);
+          if (!link || !(rtc ? (roam ? rtc.roamSend(f) : rtc.send(f)) : roam && link.roamSend ? link.roamSend(f) : link.send(f))) Atomics.add(h, W_TX_DROP, 1);
         }
         tail = (tail + 1) | 0;
         Atomics.store(h, W_TX_TAIL, tail);

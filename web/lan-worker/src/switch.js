@@ -10,6 +10,14 @@
 // on reconnect, a per-sender token bucket; and the free-roam hub (src/roam.js) at 10.77.0.253:47210. Beyond crates/lan:
 // {"t":"signal",...,"roam":1} between two free-roam players of one city (signal() below; web/rtc.js free roam).
 //
+// Free roam per city (src/city.js, 2026-11-10): with the ROAM binding and the ROAM_SECRET secret set, the welcome says
+// roamCity: 1 and a page in free roam asks {"t":"ticket"} -> {"t":"ticket", vip, exp, sig} (HMAC of its vip, TICKET_MS),
+// then opens a second socket wss .../lan/roam?city=N&vip&exp&sig straight to that city's RoamCity object, which carries
+// its hub, its relay frames and its roam signalling from then on. This object keeps the lobby, races, the players list
+// and its own hub as the fallback (old pages, a city socket that failed). The city objects report their players to
+// POST /lan/city (internal: the Worker routes no such path) when they change, at most every CITY.reportMs, and every
+// CITY.keepMs while any are there; a report older than CITY_TTL is dropped (its object died).
+//
 // Frames (big-endian): [0] kind, [1..3] 0, [4..7] source vip (rewritten to the sender's), [8..11] destination vip
 // (0xFFFFFFFF broadcast), [12..13] source port, [14..15] destination port, [16..] datagram (<= 1472 bytes).
 //
@@ -59,6 +67,33 @@ import { Lobby, clean } from '../../races-worker/src/index.js';
 import { vipAt, vipStr, macStr, NET, MASK, ADDRS, LIMITS } from '../../races-worker/src/net.js';
 import { Hub, HUB, ROAM_PORT } from './roam.js';
 
+// The one switch object's name (src/index.js). A new name starts a fresh object on the deploy's code: a live object
+// keeps its old code until it restarts, which a busy one may not do for long (2026-11-10: 'switch' -> 'switch-2'; its
+// sockets stay there until their pages reload).
+export const SWITCH_NAME = 'switch-2';
+// Free roam per city (src/city.js): the game's room ids are city indexes below 14 (src/games/remix/roam_game.c).
+export const CITIES = 14, cityOk = n => Number.isInteger(n) && n >= 0 && n < CITIES, cityName = n => `city-${n}`;
+export const TICKET_MS = 60e3, CITY = { reportMs: 10e3, keepMs: 60e3 }, CITY_TTL = 3 * CITY.keepMs;
+
+const enc = new TextEncoder();
+async function hmac(secret, msg) {
+  const k = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return [...new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(msg)))].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+/** A city-socket ticket for `vip`: {vip, exp, sig}, good for TICKET_MS. */
+export async function ticket(secret, vip, now = Date.now()) {
+  const exp = now + TICKET_MS;
+  return { vip, exp, sig: await hmac(secret, `${vip}.${exp}`) };
+}
+/** Is (vip, exp, sig) a live ticket of this secret? Constant time over the signature. */
+export async function ticketOk(secret, vip, exp, sig, now = Date.now()) {
+  if (!secret || !isVip(vip) || !(exp > now) || exp - now > TICKET_MS || typeof sig !== 'string' || sig.length !== 64) return false;
+  const want = await hmac(secret, `${vip}.${exp}`);
+  let d = 0;
+  for (let i = 0; i < 64; i++) d |= want.charCodeAt(i) ^ sig.charCodeAt(i);
+  return d === 0;
+}
+
 export const BROADCAST = 0xFFFFFFFF, HDR = 16, MAX_DATA = 1472, MAX_FRAME = HDR + MAX_DATA;
 export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, burstBytes: 2 << 20 };   // crates/lan Limits
 // Measured legit peaks (client code, 2026-11-09): binary per client ~700 frames/s worst case = free roam's 20 Hz SNAP to
@@ -98,6 +133,43 @@ export class Switch extends Lobby {
     this.whoAt = 0; this.whoLast = ''; this.whoTimer = 0;
     this.churn = new Map();   // 'ip' | 'c:<cid>' -> {n, at, until}
     this.helloAt = 0;
+    this.cities = new Map();  // city -> {at, vips: Map vip -> room}: the city objects' reports (POST /lan/city)
+  }
+
+  /** Are the city objects there (the ROAM binding and its ticket secret)? */
+  cityOn() { return !!(this.env?.ROAM && this.env?.ROAM_SECRET); }
+
+  /** vip -> free-roam room: the city objects' players and this object's own hub's (pages on the fallback path). */
+  // shortcut: rebuilt per call (players push, stats, activity); a few thousand entries at most.
+  roamers(now = Date.now()) {
+    const m = new Map();
+    for (const [city, r] of this.cities) {
+      if (now - r.at > CITY_TTL) { this.cities.delete(city); continue; }
+      for (const [v, room] of r.vips) m.set(v, room);
+    }
+    for (const p of this.hub.players.values()) if (!m.has(p.vip)) m.set(p.vip, p.room >>> 0);
+    return m;
+  }
+
+  /** POST /lan/city from a city object: {city, players: [[vip, room], ...]} (src/city.js report). */
+  // shortcut: in memory, lost if this object hibernates; the next report (CITY.keepMs at most) brings it back.
+  cityReport(m, now = Date.now()) {
+    const city = Number(m?.city);
+    if (!cityOk(city) || !Array.isArray(m.players)) return false;
+    const vips = new Map();
+    for (const e of m.players.slice(0, 1 << 14)) if (Array.isArray(e) && isVip(e[0] >>> 0)) vips.set(e[0] >>> 0, e[1] >>> 0);
+    if (vips.size) this.cities.set(city, { at: now, vips }); else this.cities.delete(city);
+    this.who(now);
+    return true;
+  }
+
+  /** {"t":"ticket"}: a ticket for this page's city socket, or {"t":"error","op":"ticket","code":"off"}. Its free roam
+   *  leaves this hub now (it moves; a refused or failed move comes back with its next HELLO, a second later). */
+  async ticket(c, now) {
+    if (!this.cityOn()) return this.err(c, 'ticket', 'off');
+    this.hub.leave(c.a.vip);
+    const t = await ticket(this.env.ROAM_SECRET, c.a.vip, now);
+    if (this.clients.get(c.a.vip) === c) this.raw(c, JSON.stringify({ t: 'ticket', ...t }));
   }
 
   /** One more connect or hello of `key`: true while it is cooling down (over GUARD.churnMax in churnMs: refused for coolMs). */
@@ -138,14 +210,16 @@ export class Switch extends Lobby {
   }
 
   /** GET /lan/stats: counts only (no names, no vips): connected sockets, free roam by room id, race rooms. */
-  stats() {
-    return { online: this.clients.size, freeRoam: this.hub.stats(), races: { rooms: this.rooms().length } };
+  stats(now = Date.now()) {
+    const rooms = {};
+    let total = 0;
+    for (const [v, r] of this.roamers(now)) if (this.clients.has(v)) { rooms[r] = (rooms[r] || 0) + 1; total++; }
+    return { online: this.clients.size, freeRoam: { total, rooms }, races: { rooms: this.rooms().length } };
   }
 
   /** {"t":"players"} (see the head of this file): the stats, every client's mode, the first PLAYERS_MAX names. */
   players() {
-    const roam = new Map(), races = new Map(), modes = { roam: 0, race: 0, menu: 0 }, rank = { roam: 0, race: 1, menu: 2 };
-    for (const p of this.hub.players.values()) if (!roam.has(p.vip)) roam.set(p.vip, p.room >>> 0);
+    const roam = this.roamers(), races = new Map(), modes = { roam: 0, race: 0, menu: 0 }, rank = { roam: 0, race: 1, menu: 2 };
     for (const h of this.rooms()) races.set(h.a.host.id, h.a.host.name);
     const all = [...this.clients.values()].map(({ a }) => {
       const e = { name: String(a.name).slice(0, NICK), mode: 'menu' };
@@ -161,9 +235,8 @@ export class Switch extends Lobby {
 
   /** GET /lan/activity (private): what every client does: {online, activities: {<activity>: n}, cities: {<room id>: n}, list: [{name, activity, city?}]}. */
   activity() {
-    const roam = new Map(), activities = {}, cities = {};
+    const roam = this.roamers(), activities = {}, cities = {};
     for (const m of ['roam', 'race', ...WHERE]) activities[m] = 0;
-    for (const p of this.hub.players.values()) if (!roam.has(p.vip)) roam.set(p.vip, p.room >>> 0);
     const list = [...this.clients.values()].map(({ a }) => {
       const e = { name: String(a.name).slice(0, NICK), activity: WHERE.includes(a.w) ? a.w : 'menu' };
       if (roam.has(a.vip)) { e.activity = 'roam'; e.city = roam.get(a.vip); cities[e.city] = (cities[e.city] || 0) + 1; }
@@ -205,6 +278,11 @@ export class Switch extends Lobby {
     const path = new URL(req.url).pathname;
     if (path === '/lan/stats') return Response.json(this.stats());
     if (path === '/lan/activity') return Response.json(this.activity());
+    if (path === '/lan/city' && req.method === 'POST') {   // internal: only the city objects reach it (src/index.js routes no such path)
+      let m = null;
+      try { m = await req.json(); } catch {}
+      return new Response(null, { status: this.cityReport(m) ? 204 : 400 });
+    }
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('websocket only', { status: 426 });
     const want = Number(new URL(req.url).searchParams.get('vip')) >>> 0, ip = req.headers.get('CF-Connecting-IP') || '';
     if (!this.admit(ip)) return new Response('too many connections', { status: 429, headers: { 'Retry-After': String(GUARD.coolMs / 1000) } });
@@ -228,7 +306,7 @@ export class Switch extends Lobby {
     const c = { ws, a };
     this.clients.set(vip, c);
     this.wsc.set(ws, c);
-    this.send(vip, { t: 'welcome', vip, vipStr: vipStr(vip), mask: MASK >>> 0, mac: macStr(vip) });
+    this.send(vip, { t: 'welcome', vip, vipStr: vipStr(vip), mask: MASK >>> 0, mac: macStr(vip), ...(this.cityOn() ? { roamCity: 1 } : {}) });
     this.who(now);
     return true;
   }
@@ -240,6 +318,7 @@ export class Switch extends Lobby {
     if (c) {
       if (typeof data !== 'string') this.frame(c, new Uint8Array(data), now);
       else if (this.ctlLimited(c, now)) { /* dropped */ }
+      else if (data.length <= 64 && /^\{\s*"t"\s*:\s*"ticket"\s*\}$/.test(data)) await this.ticket(c, now);
       else if (!this.control(c, data, now)) await super.webSocketMessage(ws, data, now);
     }
     if (this.hub.count) {

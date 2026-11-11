@@ -26,7 +26,8 @@
 // with an open free-roam channel goes over it, anything else to the switch. Once a second (tick) the page closes
 // channels idle for ROAM.idleMs and offers up to ROAM.perTick new ones to the busiest destinations of the last second
 // (at least ROAM.minFrames: a peer that gets only HELLOs stays on the switch) while it holds fewer than roamMax.
-// Signals carry "roam":1 (the switch relays them between two players of the same free-roam city). A pair that does
+// Signals carry "roam":1 (the switch relays them between two players of the same free-roam city; with a city socket
+// open, web/lan.js roamMsg, the city's own object does). Relayed frames take link.roamSend (the city socket or the switch). A pair that does
 // not open in ROAM.openMs (ICE failed even through TURN, or no TURN) stays on the switch; the offerer tries again after 30, 60, 120 ... s (at most 5 min).
 (function (root) {
   var BCAST = 0xFFFFFFFF, KIND = 3, HDR = 16, MAX = 1472, ROAM_PORT = 47210, RETRIES = 3, HUB = 0x0A4D00FD;
@@ -104,7 +105,7 @@
     }
     function signal(to, kind, data, roam) {
       var m = { t: 'signal', to: to, kind: kind, data: data };
-      if (roam) m.roam = 1;
+      if (roam) { m.roam = 1; if (link.roamMsg) return link.roamMsg(m); }   // the city's own socket when open (web/lan.js)
       link.sendMsg(m);
     }
 
@@ -237,14 +238,15 @@
     };
     rtc.roamSend = function (f) {
       var dst = new DataView(f.buffer, f.byteOffset, f.length).getUint32(8);
-      if (dst == HUB || dst == BCAST) return link.send(f);
+      var out = link.roamSend || link.send;   // the city's own socket when open (web/lan.js), else the switch
+      if (dst == HUB || dst == BCAST) return out(f);
       touch(dst).tx++;
       var p = rtc.roamP2P && fr.peers[dst];
       if (openP(p) && p.dc.bufferedAmount < ROAM.queue) {
         try { p.dc.send(f); rtc.roamSent++; return true; } catch (_) {}   // just closed: the switch
       }
       rtc.roamRelay++;
-      return link.send(f);
+      return out(f);
     };
     // Once a second: idle channels go, the busiest new destinations get an offer, a stats line each minute on change.
     function tick() {
