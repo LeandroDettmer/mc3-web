@@ -72,6 +72,6 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Graphics:** phones whose GPU froze the game with WebGPU (Mali, older Adreno) draw with WebGL, and any device where WebGPU froze or was lost uses WebGL from its next start.
 - **Loading:** the background download now also fills cars, the city map and the career's movies, so fewer stalls in career and Free Roam.
 - **Page:** a "Report a bug" button opens a bug report on GitHub with the details filled in.
-- **Online:** the main menu's Online item shows how many players are in Free Roam and loads the San Diego cruise at once, in your profile's car (hold White / Q while picking it for Online Races).
+- **Online:** the main menu's Online item shows how many players are in Free Roam and goes straight into Free Roam (hold White / Q while picking it for Online Races).
 - **Free Roam:** other players' cars show their tyres, not just the rims.
 - **Free Roam:** the map shows every player in the city, also while paused (some were missing).
