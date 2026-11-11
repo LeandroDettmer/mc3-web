@@ -29,13 +29,16 @@ player object: builder ctor sub_002CB270(name, 0, slot, CarCfg*, flag, pad)
   (0x000FE09C) applies +0x1228 and clears +0x1270: a car built after the
   physics step was drawn first and kept its own colour. roam_car_build calls
   sub_000F2C00 on the model after the build. Still a bare Jetta after that
-  (2026-11-10): the step sizes the tyres from the rim geometry
-  [[veh+0xC]+0x18]+0x3818/+0x381C (sub_000F11E0, -0.3 m when missing) and
-  clears 0x80 either way, so one arming at the build can be spent too early.
-  roam_tyres (roam_game.c) re-arms 0x80 before each update of every remote
-  car (slots and standalone) until a step ran after a check that saw the rim
-  geometry; '[ROAM] tyres: slot|car N sized after S s (radius ...)' once per
-  build. No such line for a car: its update never reached the step;
+  (2026-11-10): the step (0x00100654) sizes the tyres, sub_00121970 on
+  [veh+0x50] with (CarCfg, holder [[veh+0xC]+0x2F0]), from the rim geometry
+  [[holder+0x1800]+0x18]+0x3818/+0x381C (sub_000F11E0, -0.3 m when missing).
+  Re-arming 0x80 each frame did not help (2026-11-11, every peer's car still
+  bare): the update never reaches the step for a network player's car
+  (0x00100645 -> return at 0x001007E8; or the 0x001005E7 path). roam_tyres
+  (roam_game.c) now calls sub_00121970 itself, once per vehicle (slots and
+  standalone), as soon as the rim geometry is loaded; '[ROAM] tyres:
+  slot|car N sized after S s (radius ...)' once per build, or '... no rim
+  geometry after 10 s';
 - vt+0x20 sub_002CB2D0: car cache acquire sub_00105B80 -> builder+0x4C
   (cache [0x50A08C], 16 slots, refcounted per car index: same model shared);
 - vt+4 sub_002CBDE0: vehicle new 0x6C (vtable 0x454F40, ctor sub_000FF160),

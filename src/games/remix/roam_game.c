@@ -165,6 +165,7 @@ void sub_002CB2C0(void);                        /* car builder dtor, thiscall */
 void sub_001240F0(void);                        /* a car's profile flags, thiscall */
 void sub_000F2C00(void);                        /* car model: preset paint into +0x1228 when +0x1270, thiscall */
 void sub_00092EF0(void);                        /* a drawable in/out of the draw list, thiscall (bool), ret 4 */
+void sub_00121970(void);                        /* drawn tyres sized, thiscall wheels (CarCfg, rim holder), ret 8 */
 void sub_001B4600(void);                        /* heap ctor, thiscall: links it into the heap list [0x52B478] */
 void sub_001B3DF0(void);                        /* heap init, thiscall (base, size, free lists, flag), ret 0x10 */
 void xbox_gil_atomic(int d);                    /* xboxrecomp kernel_bridge.c: no other guest thread inside */
@@ -1414,47 +1415,55 @@ static int roam_listed(uint32_t veh)
 }
 
 /* A remote car's tyres (2026-11-10: a peer's Jetta drawn without tyres after
- * 39336b5). The drawn tyres are sized only in the vehicle update's wheel step
- * (0x00100654, while the CarCfg [veh+0x64] has dirty bit 0x80; the step
- * clears it): sub_00121970 into the wheels [veh+0x50] (+0x54 front, +0x58
- * rear), from the rim geometry of the car's model, [[render [veh+0xC]]+0x18]
- * +0x3818 / +0x381C (sub_000F11E0; missing, it reads a -0.3 m rim). Arming
- * the bit at the build is not enough: anything that runs the step first (the
- * rim not there yet, the bit cleared on a shared or rewritten CarCfg) leaves
- * the car bare for good. So, before each update of the car until it is done:
- * the bit set again, and the car counted done once a step ran (bit found
- * clear) after a check that saw the rim geometry. One log line per car. */
+ * 39336b5; 2026-11-11: still rims only on every peer's car). The drawn tyres
+ * are sized only in the vehicle update's wheel step (0x00100654, while the
+ * CarCfg [veh+0x64] has dirty bit 0x80): sub_00121970 on the wheels
+ * [veh+0x50] (+0x54 front, +0x58 rear) with (CarCfg, rim holder
+ * [[veh+0xC]+0x2F0]); sub_000F11E0 reads the rim geometry at
+ * [[holder+0x1800]+0x18]+0x3818 / +0x381C (missing: a -0.3 m rim). A remote
+ * car never gets there: the update returns first for a network player's car
+ * ([veh+0x48] set, player [veh+0x5D] +0xF4 == 3 and +0xF8 == 0): 0x00100645
+ * jumps to the return at 0x001007E8, or, with the session's +0x10 < 0, the
+ * 0x001005E7 path sets 0x80 again and returns. Re-arming the bit (be2029f)
+ * therefore sized nothing. So the sizing is called here, once per vehicle,
+ * as soon as the rim geometry is loaded; the bit stays armed for a car whose
+ * update does reach the step. One log line per car. */
 typedef struct {
     uint32_t veh;                               /* the vehicle this state is for (a rebuild starts over) */
-    uint8_t done, armed;                        /* armed: set by us with the rim geometry there */
+    uint8_t done, said;                         /* said: "no rim geometry" logged */
     double t0;
 } roam_tyre;
 
 static void roam_tyres(roam_tyre *t, uint32_t veh, const char *who, int idx)
 {
-    uint32_t cfg = MEM32(veh + 0x64u), r = MEM32(veh + 0xCu), res, w;
-    int rim;
+    uint32_t cfg = MEM32(veh + 0x64u), r = MEM32(veh + 0xCu), w = MEM32(veh + 0x50u), h, g = 0, a[2];
     if (t->veh != veh) {
         memset(t, 0, sizeof *t);
         t->veh = veh;
         t->t0 = roam_now();
     }
-    if (t->done || !online_ram(cfg))
+    if (t->done || !online_ram(cfg) || !online_ram(r) || !online_ram(w) || !online_ram(MEM32(w + 0x54u)) ||
+        !online_ram(MEM32(w + 0x58u)))
         return;
-    res = online_ram(r) ? MEM32(r + 0x18u) : 0;
-    rim = online_ram(res) && online_ram(MEM32(res + 0x3818u)) && online_ram(MEM32(res + 0x381Cu));
-    if (t->armed && !(MEM32(cfg + 8u) & 0x80u)) {
-        t->done = 1;
-        w = MEM32(veh + 0x50u);
-        fprintf(stderr, "[ROAM] tyres: %s %d sized after %.1f s (radius front %.3f rear %.3f, rim %.3f)\n", who, idx,
-                roam_now() - t->t0,
-                online_ram(w) && online_ram(MEM32(w + 0x54u)) ? MEMF(MEM32(w + 0x54u) + 4u) : -1.0f,
-                online_ram(w) && online_ram(MEM32(w + 0x58u)) ? MEMF(MEM32(w + 0x58u) + 4u) : -1.0f,
-                MEMF(MEM32(res + 0x3818u) + 0x14u));
-        return;
-    }
     MEM32(cfg + 8u) |= 0x80u;
-    t->armed = (uint8_t)rim;
+    h = MEM32(r + 0x2F0u);
+    if (online_ram(h) && online_ram(MEM32(h + 0x1800u)))
+        g = MEM32(MEM32(h + 0x1800u) + 0x18u);
+    if (!online_ram(g) || !online_ram(MEM32(g + 0x3818u)) || !online_ram(MEM32(g + 0x381Cu))) {
+        if (!t->said && roam_now() - t->t0 > 10.0) {
+            t->said = 1;
+            fprintf(stderr, "[ROAM] tyres: %s %d no rim geometry after 10 s (holder 0x%08X)\n", who, idx,
+                    (unsigned)h);
+        }
+        return;                                 /* not loaded yet: next frame */
+    }
+    a[0] = cfg;
+    a[1] = h;
+    roam_call(sub_00121970, w, (g_esp - 0x400u) & ~0xFu, 2, a);
+    t->done = 1;
+    fprintf(stderr, "[ROAM] tyres: %s %d sized after %.1f s (radius front %.3f rear %.3f, rim %.3f)\n", who, idx,
+            roam_now() - t->t0, MEMF(MEM32(w + 0x54u) + 4u), MEMF(MEM32(w + 0x58u) + 4u),
+            MEMF(MEM32(g + 0x3818u) + 0x14u));
 }
 
 /* Free Roam starts every player on the same spot: the city cruise's start
