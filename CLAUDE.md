@@ -862,7 +862,12 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   Internet_Play ('Free Roam', callback override sub_00180160) runs Arcade's
   path (sub_0018C530_gen -> screen 0x19, Cruise) in an Online session and
   LAN_Play ('Online Races', sub_001801C0) is the game's System Link,
-  untouched. The Online session: money ([[0x557F0C]+0xC]+0xACC) 2,000,000, also at each
+  untouched. Browser only (2026-11-11, untested in game): the item reads
+  'Online (N)', N = the switch's players push freeRoam.total (web/pre.js ->
+  mc3_online_count_box each second, -1 = plain 'Online'; set at each menu
+  build through the SetLabel override, not live), and picking it runs
+  sub_00180160 straight (no screen 0x1E); held White (Q/Shift) while
+  picking it opens screen 0x1E for Online Races. The Online session: money ([[0x557F0C]+0xC]+0xACC) 2,000,000, also at each
   garage entry (state 5, sub_00021A60); no saves (the writer is
   sub_00022040 -> sub_000193F0; sub_0001A1F0 *reads* the old .mc3 format);
   Career/Tokyo/Arcade (sub_0018C560/580/530) end it and put money and the

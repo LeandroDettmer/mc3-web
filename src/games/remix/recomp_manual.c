@@ -3405,9 +3405,29 @@ extern void sub_0018C560_gen(void);
 void sub_0018C560(void) { online_leave(); sub_0018C560_gen(); }    /* Career */
 extern void sub_0018C580_gen(void);
 void sub_0018C580(void) { online_leave(); sub_0018C580_gen(); }    /* Tokyo */
-/* Main menu "Online" -> the original networking screen 0x1E (FE -> sub_00154B30(0x1E)). */
+/* Main menu "Online": native -> the original networking screen 0x1E (FE ->
+ * sub_00154B30(0x1E)). Browser: straight into Free Roam (the screen's
+ * Internet_Play pick below, sub_00180160, which ends in Arcade's own main
+ * menu callback sub_0018C530: same functor type as this one); held White
+ * (Q/Shift, a shoulder button) while picking it opens screen 0x1E as
+ * before, for Online Races (LAN_Play, System Link). */
+#ifdef __EMSCRIPTEN__
+#include "input/xinput_xbox.h"
+#endif
 extern void sub_0018C5A0_gen(void);
-void sub_0018C5A0(void) { sub_0018C5A0_gen(); }
+void sub_00180160(void);
+void sub_0018C5A0(void)
+{
+#ifdef __EMSCRIPTEN__
+    XBOX_INPUT_STATE st;
+    if (!(xbox_InputGetState(0, &st) == 0 && st.Gamepad.bAnalogButtons[XBOX_BUTTON_WHITE] > XBOX_ANALOG_BUTTON_THRESHOLD)) {
+        fprintf(stderr, "[ONLINE] main menu Online: straight into Free Roam (hold White for Online Races)\n");
+        sub_00180160();
+        return;
+    }
+#endif
+    sub_0018C5A0_gen();
+}
 /* Screen 0x1E "Free Roam" (Internet_Play, callback sub_00180160): Arcade's way + the Online session.
  * "Online Races" (LAN_Play, sub_001801C0) stays the game's System Link, no session. */
 extern void sub_00180160_gen(void);
@@ -3479,7 +3499,53 @@ static void main_menu_online_first(void)
     g_eax = r[0]; g_ecx = r[1]; g_edx = r[2]; g_ebx = r[3];
     g_esp = r[4]; g_ebp = r[5]; g_esi = r[6]; g_edi = r[7];
 }
-void sub_0018C770(void) { online_strings(); sub_0018C770_gen(); main_menu_online_first(); }  /* mcMenuModeSelect build */
+/* "Online (N)": N players in Free Roam now, from the page's players push
+ * (web/pre.js writes freeRoam.total into mc3_online_count_box once a second;
+ * -1 unknown: plain "Online"). The builder's SetLabel (sub_00348D70 override
+ * below) gets a copy of CM_Networking's text with " (N)" for that item, so
+ * the count is the one at each build of the menu: the item's text is copied
+ * once (wcsncpy, n = [[list+0x244] + 12*col + 4]); a label that would not
+ * fit stays "Online". */
+static int s_mm_build;                           /* inside the main menu's builder */
+static uint32_t str_table(uint32_t *n, uint32_t *buckets);
+static uint32_t str_text(uint32_t n, uint32_t buckets, const char *key);
+#ifdef __EMSCRIPTEN__
+static int32_t s_on_count = -1;
+EMSCRIPTEN_KEEPALIVE uintptr_t mc3_online_count_box(void) { return (uintptr_t)&s_on_count; }
+#endif
+static void main_menu_count_label(uint32_t esp)  /* SetLabel, thiscall (item, column, text), esp at its return */
+{
+#ifdef __EMSCRIPTEN__
+    uint32_t n, b, t, cols, col = MEM32(esp + 8u), max, buf = (esp - 0x400u) & ~0xFu, i;
+    int32_t c = __atomic_load_n(&s_on_count, __ATOMIC_RELAXED);
+    char num[16];
+    unsigned nl;
+    if (!s_mm_build || c < 0 || !str_table(&n, &b) || !(t = str_text(n, b, "CM_Networking")) ||
+        MEM32(esp + 0xCu) != t || col > 7u || !online_ram(g_ecx) || !online_ram(cols = MEM32(g_ecx + 0x244u)))
+        return;
+    max = MEM32(cols + 12u * col + 4u);
+    nl = (unsigned)snprintf(num, sizeof num, " (%d)", (int)c);
+    for (i = 0; i < 32u && MEM16(t + 2u * i); i++)
+        MEM16(buf + 2u * i) = MEM16(t + 2u * i);
+    if (i + nl > max || i == 32u)
+        return;
+    for (unsigned k = 0; k < nl; k++)
+        MEM16(buf + 2u * (i + k)) = (uint8_t)num[k];
+    MEM16(buf + 2u * (i + nl)) = 0;
+    MEM32(esp + 0xCu) = buf;
+#else
+    (void)esp;
+#endif
+}
+/* mcMenuModeSelect build */
+void sub_0018C770(void)
+{
+    online_strings();
+    s_mm_build = 1;
+    sub_0018C770_gen();
+    s_mm_build = 0;
+    main_menu_online_first();
+}
 
 extern void sub_00021A60_gen(void);
 static void roam_garage(void);                  /* free roam: status garage (roam_game.c) */
@@ -4025,6 +4091,7 @@ extern void sub_00348D70_gen(void);
 void sub_00348D70(void)
 {
     rra_label(g_esp);                            /* AI race: "Go to Menus" reads "Back to Free Roam" (roam_race_ai.c) */
+    main_menu_count_label(g_esp);                /* main menu: "Online (N)" */
     sub_00348D70_gen();
 }
 

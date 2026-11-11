@@ -122,6 +122,15 @@ Module['mc3Activity'] = function () {
   return Atomics.load(new Int32Array(HEAPU8.buffer), _mc3_activity_box() >>> 2);
 };
 
+// Main menu "Online (N)": the players in Free Roam now (the switch's players push, Module.mc3Lan.players.freeRoam.total,
+// web/lan.js) into src/games/remix/recomp_manual.c's mc3_online_count_box once a second; -1 unknown (offline, or
+// web/server's switch without the push): the item reads plain "Online". The game reads it at each build of the menu.
+if (typeof setInterval == 'function') setInterval(function () {
+  if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _mc3_online_count_box != 'function') return;
+  var p = Module['mc3Lan'] && Module['mc3Lan'].players, n = p && p.freeRoam ? Number(p.freeRoam.total) : NaN;
+  Atomics.store(new Int32Array(HEAPU8.buffer), _mc3_online_count_box() >>> 2, Number.isFinite(n) && n >= 0 ? Math.min(n, 9999) | 0 : -1);
+}, 1000);
+
 // Touch controls (web/touch.js): their virtual pad's 14 words into xboxrecomp/src/input/touch_pad_web.c's box, which
 // the runtime merges into pad 1. False until the runtime is up (the caller sends again).
 Module['mc3TouchPad'] = function (words) {
