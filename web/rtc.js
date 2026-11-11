@@ -29,9 +29,15 @@
 // Signals carry "roam":1 (the switch relays them between two players of the same free-roam city; with a city socket
 // open, web/lan.js roamMsg, the city's own object does). Relayed frames take link.roamSend (the city socket or the switch). A pair that does
 // not open in ROAM.openMs (ICE failed even through TURN, or no TURN) stays on the switch; the offerer tries again after 30, 60, 120 ... s (at most 5 min).
+// Cost caps: at most ROAM.relayMax channels may run through a TURN relay (selected ICE pair 'relay', checked when the
+// channel opens and when ICE reconnects); a relayed channel beyond that, the least busy, closes and its peer goes
+// through the server, retried with the same backoff (both ends refuse it meanwhile). Through the server, a SNAP to a
+// peer outside the ROAM.near busiest (= nearest) is thinned to 1 in ROAM.thin (20 Hz -> 5 Hz); HELLO, BYE, FAR and
+// anything to the hub never are.
 (function (root) {
   var BCAST = 0xFFFFFFFF, KIND = 3, HDR = 16, MAX = 1472, ROAM_PORT = 47210, RETRIES = 3, HUB = 0x0A4D00FD;
-  var ROAM = { max: 12, idleMs: 10000, openMs: 15000, perTick: 2, tickMs: 1000, minFrames: 2, backoffMs: 30000, backoffMaxMs: 300000, statsMs: 60000, queue: 65536 };
+  var ROAM = { max: 12, idleMs: 10000, openMs: 15000, perTick: 2, tickMs: 1000, minFrames: 2, backoffMs: 30000, backoffMaxMs: 300000, statsMs: 60000, queue: 65536,
+    relayMax: 8, near: 8, thin: 4 };
   var STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
   function vs(v) { return [v >>> 24, v >>> 16 & 255, v >>> 8 & 255, v & 255].join('.'); }
 
@@ -55,10 +61,10 @@
 
   function mc3Rtc(link, iceServers) {
     var cfg = { iceServers: iceServers && iceServers.length ? iceServers : STUN };
-    var rtc = { members: [], sent: 0, recv: 0, roamP2P: true, roamMax: ROAM.max, roamSent: 0, roamRecv: 0, roamRelay: 0, log: null };
+    var rtc = { members: [], sent: 0, recv: 0, roamP2P: true, roamMax: ROAM.max, roamSent: 0, roamRecv: 0, roamRelay: 0, roamThinned: 0, log: null };
     var room = { peers: {}, roam: false }, fr = { peers: {}, roam: true }, peers = room.peers;
     var tries = {}, timers = {}, fns = [], vips = [];
-    var act = {}, bad = {}, refused = false, statsAt = Date.now(), statsLast = '';
+    var act = {}, bad = {}, near = {}, nearN = 0, refused = false, statsAt = Date.now(), statsLast = '';
     function changed() { fns.forEach(function (f) { try { f(rtc); } catch (e) { console.error(e); } }); }
     function say(s) { try { (rtc.log || console.log)(s); } catch (_) {} }
     function openP(p) { return !!p && p.dc.readyState == 'open' && p.pc.connectionState != 'disconnected'; }
@@ -90,7 +96,7 @@
         iceSaid = true;
       });
     }
-    // What an open pair goes through: 'direct (P2P)' or 'P2P through a TURN relay' (the selected candidate pair).
+    // Whether an open pair goes through a TURN relay (the selected candidate pair); false when unknown.
     function via(pc) {
       var p = pc.getStats ? pc.getStats() : Promise.reject();
       return p.then(function (st) {
@@ -100,8 +106,8 @@
           else if (!pair && s.type == 'candidate-pair' && (s.selected || (s.nominated && s.state == 'succeeded'))) pair = s;
         });
         var l = pair && st.get(pair.localCandidateId), r = pair && st.get(pair.remoteCandidateId);
-        return (l && l.candidateType == 'relay') || (r && r.candidateType == 'relay') ? 'P2P through a TURN relay' : 'direct (P2P)';
-      }).catch(function () { return 'direct (P2P)'; });
+        return !!((l && l.candidateType == 'relay') || (r && r.candidateType == 'relay'));
+      }).catch(function () { return false; });
     }
     function signal(to, kind, data, roam) {
       var m = { t: 'signal', to: to, kind: kind, data: data };
@@ -125,16 +131,41 @@
       timers[v] = setTimeout(function () { delete timers[v]; if (vips.indexOf(v) >= 0 && !peers[v]) offer(v, room); }, 5000 * tries[v]);
     }
     // Free roam: one line per pair outcome; the offerer waits longer after each failure.
+    function backoff(v) {
+      var b = bad[v] = bad[v] || { n: 0, until: 0 };
+      b.n++;
+      var wait = Math.min(ROAM.backoffMaxMs, ROAM.backoffMs * Math.pow(2, Math.min(b.n - 1, 4)));
+      b.until = Date.now() + wait;
+      return Math.round(wait / 1000);
+    }
     function roamFail(v, why) {
       var p = fr.peers[v];
       if (!p) return;
       drop(v, fr);
       if (!p.offerer) { say('[rtc] free roam ' + vs(v) + ': no direct path (' + why + '), via the server'); return; }
-      var b = bad[v] = bad[v] || { n: 0, until: 0 };
-      b.n++;
-      var wait = Math.min(ROAM.backoffMaxMs, ROAM.backoffMs * Math.pow(2, Math.min(b.n - 1, 4)));
-      b.until = Date.now() + wait;
-      say('[rtc] free roam ' + vs(v) + ': no direct path (' + why + '), via the server; next try in ' + Math.round(wait / 1000) + ' s');
+      say('[rtc] free roam ' + vs(v) + ': no direct path (' + why + '), via the server; next try in ' + backoff(v) + ' s');
+    }
+    function rate(v) { return act[v] ? act[v].last | 0 : 0; }
+    function relayed() { return Object.keys(fr.peers).map(Number).filter(function (v) { return fr.peers[v].relay && openP(fr.peers[v]); }); }
+    // At most ROAM.relayMax relayed channels: the busiest stay, the rest close (both ends back off); false if v closed.
+    function capRelay(v) {
+      var r = relayed().sort(function (a, b) { return rate(b) - rate(a) || a - b; });
+      r.slice(ROAM.relayMax).forEach(function (w) {
+        drop(w, fr);
+        say('[rtc] free roam ' + vs(w) + ': via TURN beyond the ' + ROAM.relayMax + ' allowed, closed; via the server, next try in ' + backoff(w) + ' s');
+      });
+      var i = r.indexOf(v);
+      return i >= 0 && i < ROAM.relayMax;
+    }
+    // Direct or TURN, logged once and again only on a change (ICE reconnected on another pair).
+    function roamVia(v, p) {
+      via(p.pc).then(function (relay) {
+        if (fr.peers[v] !== p || (p.checked && p.relay == relay)) return;
+        p.checked = true; p.relay = relay;
+        if (relay && !capRelay(v)) return;
+        delete bad[v];
+        say('[rtc] free roam ' + vs(v) + ': ' + (relay ? 'via TURN (' + relayed().length + ' of ' + ROAM.relayMax + ')' : 'direct (P2P)'));
+      });
     }
     function lost(v, T, why) { if (T.roam) roamFail(v, why); else { drop(v, T); retry(v); } }
     function make(v, T) {
@@ -147,8 +178,8 @@
       dc.onopen = function () {
         clearTimeout(p.deadline);
         p.open = true;
-        if (T.roam) { delete bad[v]; touch(v); via(pc).then(function (w) { say('[rtc] free roam ' + vs(v) + ': ' + w); }); }
-        else { tries[v] = 0; changed(); via(pc).then(function (w) { say('[rtc] race room ' + vs(v) + ': ' + w); }); }
+        if (T.roam) { touch(v); roamVia(v, p); }
+        else { tries[v] = 0; changed(); via(pc).then(function (w) { say('[rtc] race room ' + vs(v) + ': ' + (w ? 'P2P through a TURN relay' : 'direct (P2P)')); }); }
       };
       dc.onclose = function () {
         if (T.peers[v] !== p) return;
@@ -157,7 +188,11 @@
       };
       dc.onmessage = function (e) { if (T.roam) rxRoam(v, e.data); else rx(v, e.data); };
       pc.onicecandidate = function (e) { signal(v, 'ice', e.candidate ? e.candidate.toJSON() : null, T.roam); };
-      pc.onconnectionstatechange = function () { if (pc.connectionState == 'failed' && T.peers[v] === p) lost(v, T, 'ICE failed'); };
+      pc.onconnectionstatechange = function () {
+        if (T.peers[v] !== p) return;
+        if (pc.connectionState == 'failed') lost(v, T, 'ICE failed');
+        else if (pc.connectionState == 'connected' && T.roam && p.checked) roamVia(v, p);   // back after a drop: maybe another pair
+      };
       if (T.roam) p.deadline = setTimeout(function () { if (fr.peers[v] === p && dc.readyState != 'open') roamFail(v, 'not open in ' + ROAM.openMs / 1000 + ' s'); }, ROAM.openMs);
       return p;
     }
@@ -178,7 +213,8 @@
       var v = m.from >>> 0, d = m.data, T = m.roam ? fr : room, p = T.peers[v];
       if (m.kind == 'offer' && v < link.vip && d && typeof d.sdp == 'string') {
         // free roam: only while on, and within roamMax (a full page leaves the offerer on the switch)
-        if (T.roam && (!rtc.roamP2P || refused || (!p && Object.keys(fr.peers).length >= rtc.roamMax))) return;
+        // or one closed here as a TURN channel beyond the cap, until its backoff ends
+        if (T.roam && (!rtc.roamP2P || refused || (bad[v] && Date.now() < bad[v].until) || (!p && Object.keys(fr.peers).length >= rtc.roamMax))) return;
         p = make(v, T);
         if (T.roam) touch(v);
         remote(p, 'offer', d.sdp).then(function () { return p.pc.createAnswer(); })
@@ -221,7 +257,7 @@
       touch(v);
       if (link.onframe) link.onframe(f);
     }
-    function touch(v) { var a = act[v] || (act[v] = { tx: 0, at: 0 }); a.at = Date.now(); return a; }
+    function touch(v) { var a = act[v] || (act[v] = { tx: 0, last: 0, skip: 0, at: 0 }); a.at = Date.now(); return a; }
 
     rtc.send = function (f) {
       var fv = new DataView(f.buffer, f.byteOffset, f.length), dst = fv.getUint32(8), ok = false;
@@ -245,9 +281,17 @@
       if (openP(p) && p.dc.bufferedAmount < ROAM.queue) {
         try { p.dc.send(f); rtc.roamSent++; return true; } catch (_) {}   // just closed: the switch
       }
+      if (thin(dst, f)) { rtc.roamThinned++; return true; }
       rtc.roamRelay++;
       return out(f);
     };
+    // Through the server: a SNAP (roam datagram 'MC3R', type 3 at +5) to a peer outside the ROAM.near busiest goes
+    // 1 in ROAM.thin. Until ROAM.near peers are ranked, every peer is near.
+    function thin(dst, f) {
+      if (f.length < HDR + 6 || f[HDR] != 0x4D || f[HDR + 1] != 0x43 || f[HDR + 2] != 0x33 || f[HDR + 3] != 0x52 || f[HDR + 5] != 3) return false;
+      if (nearN < ROAM.near || near[dst]) return false;
+      return act[dst].skip++ % ROAM.thin != 0;
+    }
     // Once a second: idle channels go, the busiest new destinations get an offer, a stats line each minute on change.
     function tick() {
       var now = Date.now(), on = rtc.roamP2P && !refused && link.state == 'online' && link.vip > 0;
@@ -267,16 +311,24 @@
           return v <= link.vip || (bad[v] && now < bad[v].until);   // the lower vip offers; a failed pair waits
         }).forEach(function (v) { offer(v, fr); });
       }
-      Object.keys(act).forEach(function (k) { act[k].tx = 0; });
+      // the last second's frames rank the peers: the ROAM.near busiest are the near ones (not thinned)
+      Object.keys(act).forEach(function (k) { act[k].last = act[k].tx; act[k].tx = 0; });
+      var ranked = Object.keys(act).filter(function (k) { return act[k].last > 0; })
+        .sort(function (a, b) { return act[b].last - act[a].last || a - b; }).slice(0, ROAM.near);
+      near = {}; nearN = ranked.length;
+      ranked.forEach(function (k) { near[k] = 1; });
       if (now - statsAt >= ROAM.statsMs) {
         statsAt = now;
-        var n = Object.keys(fr.peers).filter(function (k) { return openP(fr.peers[k]); }).length;
-        var line = '[rtc] free roam: ' + n + ' direct of ' + Object.keys(act).length + ' peers; frames P2P sent ' + rtc.roamSent +
-          ', received ' + rtc.roamRecv + ', via the server ' + rtc.roamRelay;
+        var open = Object.keys(fr.peers).filter(function (k) { return openP(fr.peers[k]); });
+        var m = relayed().length, srv = Object.keys(act).filter(function (k) { return act[k].last > 0 && open.indexOf(k) < 0; });
+        var t = nearN < ROAM.near ? 0 : srv.filter(function (k) { return !near[k]; }).length;
+        var line = '[rtc] free roam: ' + (open.length - m) + ' direct, ' + m + ' via TURN, ' + srv.length + ' via the server (thinned ' + t +
+          '); frames P2P sent ' + rtc.roamSent + ', received ' + rtc.roamRecv + ', via the server ' + rtc.roamRelay + ', thinned out ' + rtc.roamThinned;
         if (line != statsLast && (rtc.roamSent || rtc.roamRelay)) { statsLast = line; say(line); }
       }
     }
     var ticker = setInterval(tick, ROAM.tickMs);
+    rtc.tick = tick;   // tests
     iceFetch();
     rtc.mode = function (v) { return isOpen(v >>> 0) ? 'direct' : 'relay'; };
     rtc.roamMode = function (v) { return openP(fr.peers[v >>> 0]) ? 'direct' : 'relay'; };

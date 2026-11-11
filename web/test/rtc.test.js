@@ -40,15 +40,97 @@ console.log('pick: ok');
   setTimeout(() => { assert.deepStrictEqual(logs, ['[rtc] ICE servers from the switch: STUN + TURN']); r.close(); console.log('ice: ok'); });
 }
 
-if (!process.env.NDC) { console.log('loopback: skipped (set NDC)'); return; }
-const poly = require(require.resolve('node-datachannel/polyfill', { paths: [process.env.NDC] }));
-globalThis.RTCPeerConnection = poly.RTCPeerConnection;
-
 function frame(src, dst, sport, dport, text) {
   const d = Buffer.from(text), f = new Uint8Array(16 + d.length), v = new DataView(f.buffer);
   f[0] = 3; v.setUint32(4, src); v.setUint32(8, dst); v.setUint16(12, sport); v.setUint16(14, dport); f.set(d, 16);
   return f;
 }
+// a roam core datagram after the switch header: 'MC3R', version 1, type (1 HELLO, 3 SNAP, 8 BYE)
+function roamFrame(dst, type) {
+  const f = frame(100, dst, ROAM, ROAM, 'MC3R\x01\x00........');
+  f[16 + 5] = type;
+  return f;
+}
+
+// --- free roam cost caps with fake peer connections: at most ROAM.relayMax channels through TURN (the busiest stay),
+// the rest through the server; there SNAPs to a peer outside the ROAM.near busiest go 1 in ROAM.thin.
+function capTests() {
+  const R = mc3Rtc.ROAM, saved = { perTick: R.perTick, statsMs: R.statsMs }, pcs = [];
+  class FakePC {
+    constructor() { this.connectionState = 'new'; this.signalingState = 'stable'; pcs.push(this); }
+    createDataChannel() { return this.dc = { readyState: 'connecting', bufferedAmount: 0, sent: 0, send() { this.sent++; }, close() {} }; }
+    createOffer() { return Promise.resolve({ type: 'offer', sdp: 'o' }); }
+    createAnswer() { return Promise.resolve({ type: 'answer', sdp: 'a' }); }
+    setLocalDescription(d) { this.localDescription = d; return Promise.resolve(); }
+    setRemoteDescription() { return Promise.resolve(); }
+    addIceCandidate() { return Promise.resolve(); }
+    getStats() {   // every pair relayed: the selected pair's local candidate is a TURN one
+      return Promise.resolve(new Map([['T', { type: 'transport', selectedCandidatePairId: 'P' }],
+        ['P', { type: 'candidate-pair', localCandidateId: 'L', remoteCandidateId: 'Q' }], ['L', { candidateType: 'relay' }], ['Q', { candidateType: 'host' }]]));
+    }
+    close() { this.closed = true; }
+  }
+  const pc0 = globalThis.RTCPeerConnection;
+  globalThis.RTCPeerConnection = FakePC;
+  R.perTick = 32;
+  const out = [], logs = [], msg = [];
+  const l = { vip: 100, state: 'online', onMsg: f => msg.push(f), on() {}, sendMsg() {}, send: f => { out.push(new DataView(f.buffer).getUint32(8) + ':' + f[21]); return true; } };
+  const r = mc3Rtc(l);
+  r.log = s => logs.push(s);
+  r.roamMax = 32;
+  const peers = Array.from({ length: 12 }, (_, i) => 101 + i);   // 101 the busiest ... 112 the least busy
+  const second = () => { peers.forEach((v, i) => { for (let n = 0; n < 30 - i; n++) r.roamSend(roamFrame(v, 3)); }); r.tick(); };
+  const settle = () => new Promise(res => setTimeout(res, 0));
+  const open = pc => { pc.dc.readyState = 'open'; pc.connectionState = 'connected'; pc.dc.onopen(); };
+  second();                                  // ranks the peers, offers to all 12
+  assert.strictEqual(pcs.length, 12, 'one offer per peer');
+  pcs.forEach(open);
+  return settle().then(() => {
+    const direct = peers.filter(v => r.roamMode(v) == 'direct');
+    assert.deepStrictEqual(direct, peers.slice(0, 8), 'the 8 busiest keep their TURN channel');
+    assert.strictEqual(logs.filter(s => s.includes('via TURN beyond the 8 allowed')).length, 4, logs.join('|'));
+    assert.ok(logs.includes('[rtc] free roam 0.0.0.108: via TURN (8 of 8)'), logs.join('|'));
+    second();                                // capped peers back off: no new offer
+    assert.strictEqual(pcs.length, 12, 'no retry while backing off');
+    // a lower vip offers; its TURN channel is the least busy: closed, and its next offer refused
+    const offer = () => msg.forEach(f => f({ t: 'signal', from: 50, kind: 'offer', data: { sdp: 'o' }, roam: 1 }));
+    offer();
+    return settle().then(() => { open(pcs[12]); return settle(); }).then(() => {
+      assert.strictEqual(r.roamMode(50), 'relay', 'answerer side capped too');
+      offer();
+      assert.strictEqual(pcs.length, 13, 'offer refused while backing off');
+      // thinning through the server: SNAPs to a far peer 1 in 4; HELLO, BYE, the hub's and near peers' never
+      out.length = 0;
+      for (let n = 0; n < 8; n++) r.roamSend(roamFrame(112, 3));
+      assert.strictEqual(out.length, 2, 'far SNAP: 1 in 4');
+      out.length = 0;
+      for (let n = 0; n < 4; n++) { r.roamSend(roamFrame(112, 1)); r.roamSend(roamFrame(112, 8)); r.roamSend(roamFrame(0x0A4D00FD, 3)); }
+      assert.strictEqual(out.length, 12, 'HELLO, BYE, hub: all');
+      r.roamP2P = false;                     // a near peer through the server: not thinned
+      out.length = 0;
+      for (let n = 0; n < 8; n++) r.roamSend(roamFrame(101, 3));
+      assert.strictEqual(out.length, 8, 'near SNAP through the server: all');
+      r.roamP2P = true;
+      R.statsMs = 0;
+      r.tick();                              // forget the extra frames above, then one plain second
+      logs.length = 0; second();
+      assert.ok(/\[rtc\] free roam: 0 direct, 8 via TURN, 4 via the server \(thinned 4\); .*thinned out \d+/.test(logs.join('|')), logs.join('|'));
+      r.close();
+      Object.assign(R, saved);
+      globalThis.RTCPeerConnection = pc0;
+      console.log('relay cap + thinning: ok');
+    });
+  });
+}
+
+capTests().then(() => {
+  if (!process.env.NDC) { console.log('loopback: skipped (set NDC)'); return; }
+  loopback();
+}).catch(e => { console.error(e); process.exit(1); });
+
+function loopback() {
+const poly = require(require.resolve('node-datachannel/polyfill', { paths: [process.env.NDC] }));
+globalThis.RTCPeerConnection = poly.RTCPeerConnection;
 // the switch: frames (source rewritten to the sender, as crates/lan does), signals except C's, room messages
 const sw = { links: {}, frames: 0, bcasts: 0 }, got = [];
 function page(vip) {
@@ -148,4 +230,5 @@ function roamLoop() {
       }, 300);
     }, 200);
   })();
+}
 }
