@@ -283,7 +283,10 @@
   <header class="panel top">
     <h1>Midnight Club <span>3</span></h1>
     <p class="hint">Fan project<span id="released" hidden></span></p>
-    <button type="button" class="btn" id="changelog-btn" aria-haspopup="dialog" aria-controls="changelog-dlg">Changelog</button>
+    <span style="display:flex; gap:8px; flex-wrap:wrap">
+      <button type="button" class="btn" id="changelog-btn" aria-haspopup="dialog" aria-controls="changelog-dlg">Changelog</button>
+      <a class="btn" id="bug-btn" href="https://github.com/LeandroDettmer/mc3-web/issues/new" target="_blank" rel="noopener">Report a bug</a>
+    </span>
   </header>
   <dialog id="changelog-dlg" aria-label="Changelog">
     <div class="dlg-head"><strong>Changelog</strong><button type="button" class="btn" id="changelog-close" aria-label="Close">Close</button></div>
@@ -1915,6 +1918,12 @@
     $('released').textContent = 'Released ' + dayText(rel[0].date);
     $('released').hidden = false;
   }).catch(() => { changelogP = null; });
+  // the new issue comes with a template and this browser's details; the log is the player's to attach (Save log)
+  $('bug-btn').onclick = () => {
+    const body = `**What happened**\n\n\n**Steps to reproduce**\n1. \n\n**Where** (menus, career, Free Roam, race, garage):\n\n`
+      + `**Log**: while the game runs, press "Save log" in the bar above it and drag the file here.\n\n---\nBrowser: ${navigator.userAgent}\nPage: ${location.origin}`;
+    $('bug-btn').href = 'https://github.com/LeandroDettmer/mc3-web/issues/new?body=' + encodeURIComponent(body);
+  };
   $('changelog-btn').onclick = () => {
     const body = $('changelog-body');
     $('changelog-dlg').showModal();
