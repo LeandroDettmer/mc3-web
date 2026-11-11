@@ -59,3 +59,8 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** cars of nearby players come straight from their browser (P2P, with Cloudflare's TURN behind strict routers): smoother, and the server only relays what cannot connect. Settings: "Direct connections (P2P) in Free Roam".
 - **Free Roam:** every player in your city is on the map now, not only the 20 nearest; each city has a server of its own.
 - **Free Roam:** San Diego only for now, so everyone meets in the same city.
+
+## 2026-11-11 (64cb724)
+
+- **Free Roam:** street races start with a headlight flash: flash (White, Q) near a player to challenge, flash back to accept; nothing pops up just for being near someone. On phones the White button is now Flash.
+- **Free Roam:** street races start on the race's own start grid, side by side and facing the road, and run from its first checkpoint.
