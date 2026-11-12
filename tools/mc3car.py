@@ -82,7 +82,10 @@ sub_000E7790: fixes the prim array, then sets +4 = the vertex declaration
 for the 8-byte format at +8 (sub_000DDC50), so 0x00805EC1 is a stale
 handle. Format 0x59 = RAGE grcFvf position | normal | diffuse | texture0,
 stride 0x1C, 0x00044A02 the channel formats: the vertex's 4th dword is
-the diffuse colour (RGB ~0x80, alpha 0..14 = a zone index by position).
+the diffuse colour: alpha 0..14 = a damage zone by position, B G R - 0x80 =
+the vertex's dent vector z y x (mostly inward: 350Z median cos with -normal
+0.5; one value per position, else a hit tears the mesh apart).
+__licenseplate__ (the game's plate texture) is bottom-up: v grows upward.
 The fixup runs once PER TABLE SLOT with no done-guard, so a Mesh (or its Group array or VB,
 which it rebases too) reached from two slots is rebased twice: garbage prim counts, a huge draw
 (the garage froze). Stock cars share none (check); every slot gets its own Mesh header, Group
@@ -817,12 +820,14 @@ def build(spec_path):
     ax, shift = np.array(sp['axes'], np.float64), np.array(sp['offset'], np.float64)
     rules = [(re.compile(r[0]), r[1], r[2] if len(r) > 2 else None) for r in sp['materials']]
     src = [m for m in read_glb(sp['glb']) if not re.search(sp['drop'], m['name']) and len(m['tris'])]
+    plate = {i for i, mt in enumerate(materials(Chunk(os.path.join(tpl, tname + '.xbck')))) if any(n == '__licenseplate__' for n, _ in mt['texs'])}
     for m in src:
         m['pos'] = m['pos'] * ax + shift; m['nrm'] = m['nrm'] * ax
         if np.prod(ax) < 0: m['tris'] = m['tris'][:, ::-1]   # a mirror turns the winding
         m['to'], m['cell'] = next((t, cell) for rx, t, cell in rules if rx.search('%s|%s|%s' % (m['name'], m['mat'], m['tex'])))
         lo = np.floor(m['uv'].min(0))
         if np.all(m['uv'].max(0) - lo <= 1): m['uv'] = m['uv'] - lo   # mesh within one tile: bring it to 0..1
+        if m['to'] in plate: m['uv'][:, 1] = 1 - m['uv'][:, 1]   # glTF v runs down, the game's plate texture up
     # atlas: each cell holds the part of its source the meshes use
     A, grid = sp['atlas']['size'], sp['atlas']['grid']; cs = A // grid
     atlas = Image.new('RGBA', (A, A), (128, 128, 128, 255))
@@ -900,21 +905,24 @@ def build(spec_path):
         for t in sorted(c.find_vt(VT_TABLE)):
             n = c.u('2H', t + 4)[1]; pm, pn, pb = c.u('3I', t + 8)
             slots += [(pm + 4 * i, c.u32(pm + 4 * i), c.cstr(c.u32(pn + 4 * i)), c.u32(pb + 4 * i)) for i in range(n)]
-        if not zoned:   # diffuse (zone in alpha): the template body's nearest vertex of the same material, in box units
-            tm = [decode_mesh(c, mp) for _, mp, name, _ in slots if mp and re.search(sp['zone_from'], name)]
-            tv = np.concatenate([m['vtx'] for m in tm]); tmat = np.full(len(tv), -1); b = 0
-            for m in tm:
-                for g in m['groups']:
-                    for s in g['strips']: tmat[b + s.astype(np.int64)] = g['mat']
-                b += len(m['vtx'])
+        if not zoned:   # diffuse = dent vector + zone (docstring), by position only so a hit keeps seams shut:
+            # zone and dent length of the template body's nearest vertex in box units, direction = -(our normal
+            # averaged over every vertex at that position); the template's directions fit its own surface only
+            tv = np.concatenate([decode_mesh(c, mp)['vtx'] for _, mp, name, _ in slots if mp and re.search(sp['zone_from'], name)])
             tq = (tv['pos'].astype(np.float64) - tv['pos'].min(0)) / (tv['pos'].max(0) - tv['pos'].min(0))
-            for meshes in built:
-                for m in meshes:
-                    q = (m['pos'] - lo) / (hi - lo); col = tv['col'][_nearest(q, tq)]
-                    for mi in np.unique(m['vmat']):
-                        sel, ts = m['vmat'] == mi, tmat == mi
-                        if ts.any(): col[sel] = tv['col'][ts][_nearest(q[sel], tq[ts])]
-                    m['vtx']['col'] = col
+            tcol = tv['col'].astype(np.int64)
+            tlen = np.linalg.norm(np.stack([(tcol >> s & 255) - 128 for s in (16, 8, 0)], 1), axis=1)
+            ms = [m for meshes in built for m in meshes]
+            ap = np.concatenate([m['pos'] for m in ms]); an = np.concatenate([m['nrm'] for m in ms])
+            an = an / np.maximum(np.linalg.norm(an, axis=1, keepdims=True), 1e-9)
+            _, key = np.unique(np.round(ap / 1e-5).astype(np.int64), axis=0, return_inverse=True); key = key.ravel()
+            ns = np.zeros((key.max() + 1, 3)); np.add.at(ns, key, an)
+            ns /= np.maximum(np.linalg.norm(ns, axis=1, keepdims=True), 1e-9)
+            near = _nearest((ap - lo) / (hi - lo), tq)
+            byte = np.clip(np.round(128 - ns[key] * tlen[near][:, None]), 0, 255).astype(np.int64)
+            col = (byte[:, 0] << 16 | byte[:, 1] << 8 | byte[:, 2] | tcol[near] & 0xFF000000).astype(np.uint32)
+            b = 0
+            for m in ms: m['vtx']['col'] = col[b:b + len(m['pos'])]; b += len(m['pos'])
             zoned = True
         targets = {}
         for rx, op, v in sp['bones']:
