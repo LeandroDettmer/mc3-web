@@ -1162,8 +1162,8 @@ static void roam_pool_frame(void)
     int i, k;
     roam_flow_watch();
     roam_career_live();
-    if (!s_roam_cruise || !s_roam_nhist || !online_ram(MEM32(ROAM_PM_VA)))
-        return;
+    if (!s_roam_cruise || s_roam_race || !s_roam_nhist || !online_ram(MEM32(ROAM_PM_VA)))
+        return;                                 /* a race (s_roam_race): no remote cars, no queue */
     now = roam_now();
     if (s_rep_at && now >= s_rep_at) {
         roam_pool_report(s_rep_n == 2 ? "load + 0.5 s" : "load + 5 s");

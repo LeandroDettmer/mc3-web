@@ -225,12 +225,12 @@ static void roam_car_line(const char *what, int k, uint32_t id, int driven, int 
 
 static int roam_free_cruise(void)
 {
-    return s_online && MEM32(0x0050F14Cu) == 0 && s_roam_cruise && online_ram(MEM32(ROAM_PM_VA));
+    return s_online && MEM32(0x0050F14Cu) == 0 && s_roam_cruise && !s_roam_race && online_ram(MEM32(ROAM_PM_VA));
 }
 
 static int roam_career_cruise(void)             /* the career's cruise with Online career (roam_game.c) */
 {
-    return s_career_roam && s_roam_cruise && online_ram(MEM32(ROAM_PM_VA));
+    return s_career_roam && s_roam_cruise && !s_roam_race && online_ram(MEM32(ROAM_PM_VA));
 }
 
 static void roam_racers_log(void)

@@ -18,7 +18,9 @@
  * +0x10D: see rra_start), one local player, no custom/network race; then
  * Request(8) (end of the current race events) and
  * Request(6) (state 2 loads [0x53F2E4]). Our roam status becomes
- * RC_ST_EVENT: peers park and hide our car, slot kept (as the garage).
+ * RC_ST_EVENT until the race loads: peers park and hide our car, slot kept
+ * (as the garage); from the race's first frame our pose goes out again with
+ * status ROAM + the race bit (roam_race_load), peers see us racing.
  * roam_build (roam_game.c) adds no remote slots to a race load (type != 0),
  * so the race has only its own racers, and with no slots the cruise-only
  * watchers (roam_flow_watch's phase-7 hold, roam_cars) stay out of it: the
@@ -274,7 +276,7 @@ static void rra_start(const roam_race *r, uint32_t mtx, uint32_t top)
     s_rra_back = 0;
     s_op_paid = 0;                              /* its finish pays once (online_progress.c) */
     rra_prompt("");
-    roam_status(RC_ST_EVENT);                   /* peers hide our car, slot kept */
+    roam_status(RC_ST_EVENT);                   /* peers hide our car until the race load (roam_race_load: ROAM + race bit) */
     fprintf(stderr, "[RACE] start %s (%s, type %u, %u lap%s, %u opponents: %u AI%s; city %u event %u) from (%.1f, %.1f, %.1f)%s\n",
             r->name, roam_races_kind_name(r->kind), r->type, r->laps, r->laps == 1 ? "" : "s", r->opponents,
             (unsigned)ai, humans > 1 ? ", a group race" : "", r->city, r->index, s_rra_m[9], s_rra_m[10], s_rra_m[11],

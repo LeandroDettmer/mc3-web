@@ -73,3 +73,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Race start areas are twice as big (60 m) and win over the street race prompt: with players near, White invites them all into the same race against the AI, even if they are outside the start area.
 - **Free Roam:** A busy city no longer freezes the game: past 16 cars on screen (players, slots and career cars together) every car still builds, in Free Roam and the Online career.
 - **Free Roam:** Cars are built only for players within about 300 m of you; farther players show as normal blips on the map, so a full city no longer runs out of cars for the players around you.
+- **Free Roam:** Players in an AI race, or in an Online career race, now show to the others as a car racing where they are (bright on the map) instead of vanishing; street race invites skip them.

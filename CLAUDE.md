@@ -676,6 +676,22 @@ generated files when the lift inputs did not change.
   Open: whether a standalone car's player index 1 (no player 1 in the
   career's manager) trips any game code; the players panel only reads the
   Arcade full map's vtable (0x450900).
+  Live world during races (2026-11-12, untested in game; roam_race_load,
+  roam_game.c): Free Roam's AI race load (race type != 0, not a group race)
+  and an Online career race load (type != 1, one local player with a car,
+  not the garage; was EVENT) keep the session with s_roam_cruise +
+  s_roam_race and 0 slots: roam_player sends our pose from the race's first
+  frame (no spawn rule), roam_net no roam_pool_net, pool frame/queue off,
+  no standalone cars (roam_bslots 0), the phase-7 hold and the water rule
+  off (roam_free_cruise / roam_career_cruise). Status LOADING at the load,
+  ROAM at the first frame with rc_state.bits 0x40 (ROAM_BIT_RACE; a group
+  race sends it too); not a new RC_ST: older cores drop SNAP/FAR with
+  status >= RC_ST__N. Receivers: a normal driving car, its blip bright
+  (roam_map.c); invites skip RACE-bit peers (rch_nearby) and a racer
+  answers NO busy. Way back unchanged (Request(6), next cruise load clears
+  it). '[ROAM] race: sending pose during ...'. Open: one-sided collision
+  (cruisers hit the racer's drawn car, the racer feels nothing); players
+  panel '(racing)' (the switch push has no bits).
   Open: hub-distributed world settings, names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
   (nfsu2-web uses a grid), KIND_BUNDLE.

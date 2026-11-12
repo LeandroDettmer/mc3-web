@@ -330,9 +330,11 @@ static void rmap_far(uint32_t map, uint32_t top)
         if (rmap_shown(seen[i].status)) {
             memcpy(dot[n].p, seen[i].p, sizeof dot[n].p);
             memcpy(dot[n].q, seen[i].q, sizeof dot[n].q);
-            /* dimmed: away, or no car within the car radius (beyond it no car is the rule: a bright blip) */
+            /* dimmed: away, or no car within the car radius (beyond it no car is the rule: a bright blip); a racer
+             * (ROAM_BIT_RACE) is bright: it drives, and a race of ours builds no cars */
             dot[n++].far = seen[i].status != RC_ST_ROAM ||
-                           (!rmap_has_car(seen[i].id) && !roam_pool_beyond(seen[i].dist));
+                           (!(seen[i].bits & ROAM_BIT_RACE) && !rmap_has_car(seen[i].id) &&
+                            !roam_pool_beyond(seen[i].dist));
         }
     nnear = n;
     nf = roam_far(far, ROAM_FAR_MAX);

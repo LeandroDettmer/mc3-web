@@ -1288,7 +1288,8 @@ static int rch_nearby(const float me[3], float reach)
         return 0;
     for (i = 0; i < s_roam_nseen; i++) {
         const roam_peer *pp = &s_roam_seen[i];
-        if (pp->status != RC_ST_ROAM || (d = rch_hd(pp->p, me)) > reach || fabsf(pp->p[1] - me[1]) > 10.0f)
+        if (pp->status != RC_ST_ROAM || (pp->bits & ROAM_BIT_RACE) || (d = rch_hd(pp->p, me)) > reach ||
+            fabsf(pp->p[1] - me[1]) > 10.0f)
             continue;
         for (j = n < RCH_RACERS - 1 ? n++ : RCH_RACERS - 1; j > 0 && dist[j - 1] > d; j--)
             if (j < RCH_RACERS - 1) {
@@ -1358,7 +1359,8 @@ static int rch_player(uint32_t p)
         !online_ram(mtx = MEM32(veh + 0x1Cu))) {
         if (s_rch.st != RCH_IDLE)               /* a race load, the garage, the menus: we are out */
             rch_end(RCH_NO_CANCEL, "cancelled: we left the cruise", now);
-        if (s_career_roam && roam_running()) {  /* Online career: no street or group races, every invite NO busy */
+        /* Online career (no street or group races), or racing with the session on (roam_race_load): invites NO busy */
+        if ((s_career_roam || s_roam_race) && roam_running()) {
             uint8_t b[ROAM_MSG_MAX];
             uint32_t from;
             while ((n = roam_recv_msg(&from, b, sizeof b)) > 0)
