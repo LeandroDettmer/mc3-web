@@ -60,7 +60,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** every player in your city is on the map now, not only the 20 nearest; each city has a server of its own.
 - **Free Roam:** San Diego only for now, so everyone meets in the same city.
 
-## 2026-11-11 (926d1ea)
+## 2026-11-11 (5be444b)
 
 - **Free Roam:** the cars your device can show now go to the players nearest you: a player driving close by takes the car of one far away (after 3 s, at least 50 m nearer), so phones no longer show far cars while the ones next to you are dim arrows.
 - **Free Roam:** street races start with a headlight flash: flash (White, Q) near a player to challenge, flash back to accept; nothing pops up just for being near someone. On phones the White button is now Flash.
@@ -80,3 +80,4 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Page:** the in-game Settings window holds the important options in Graphics, Free Roam and Controls groups: renderer, resolution, screen shape, stretch, 60 fps, texture filtering, low-memory mode, FPS counter, Players shown, name tags, direct connections, game memory, touch controls. Each says whether it changes live or after a restart, and a Restart button brings the game back without the intro.
 - **Free Roam:** players on phones no longer cut others out of view: everyone links to their 32 nearest players (a car 'appearing from nowhere' was a missing link).
 - **Loading:** music track changes no longer freeze the game on a first visit: the background download fetches the start of every song first (kept in memory where the browser gives no room, e.g. an incognito tab), and the rest of a song is fetched ahead while it plays.
+- **Loading:** the start page's 'Download the whole game now' button is back: the whole disc kept in the browser, no waits for the network in game.
