@@ -62,6 +62,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 
 ## 2026-11-11 (926d1ea)
 
+- **Free Roam:** the cars your device can show now go to the players nearest you: a player driving close by takes the car of one far away (after 3 s, at least 50 m nearer), so phones no longer show far cars while the ones next to you are dim arrows.
 - **Free Roam:** street races start with a headlight flash: flash (White, Q) near a player to challenge, flash back to accept; nothing pops up just for being near someone. On phones the White button is now Flash.
 - **Free Roam:** street races start on the race's own start grid, side by side and facing the road, and run from its first checkpoint.
 - **Free Roam:** players in the same city no longer miss each other after a server hiccup: the page keeps reconnecting to the city.
