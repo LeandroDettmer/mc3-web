@@ -173,13 +173,19 @@ static int roam_pool_fits(uint32_t left, int32_t car, uint32_t credit)
 
 static int roam_pool_room(int32_t car, uint32_t credit, const char *what)
 {
-    uint32_t left = roam_heap_log(roam_car_heap(), NULL);
-    if (roam_pool_fits(left, car, credit))
+    uint32_t heap = roam_car_heap(), left = roam_heap_log(heap, NULL), extra = 0;
+    /* mid-cruise in the main heap the game keeps allocating (garage, HUD, streams): keep max(6 MB, heap / 8)
+     * as before the pool, not the load's 3 MB */
+    if (!s_cheap && heap) {
+        uint32_t want = MEM32(heap + 0xCu) / 8u > (6u << 20) ? MEM32(heap + 0xCu) / 8u : (6u << 20);
+        extra = want - ROAM_HEAP_KEEP;
+    }
+    if (left >= extra && roam_pool_fits(left - extra, car, credit))
         return 1;
     if (roam_cars_say(CARS_SAY_HEAP))
         fprintf(stderr, "[ROAM] cars: %s %u KB free, %u KB kept, ~%u KB a car: %s waits (logged once)\n",
                 s_cheap ? "cars heap" : "heap", (unsigned)(left >> 10),
-                (unsigned)((s_cheap ? ROAM_CHEAP_KEEP : ROAM_HEAP_KEEP) >> 10), (unsigned)(roam_pool_cost(car) >> 10),
+                (unsigned)(((s_cheap ? ROAM_CHEAP_KEEP : ROAM_HEAP_KEEP) + extra) >> 10), (unsigned)(roam_pool_cost(car) >> 10),
                 what);
     return 0;
 }
