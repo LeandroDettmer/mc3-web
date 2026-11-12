@@ -175,6 +175,15 @@ static void hub_answer(void){
         enqueue(ROAM_HUB_VIP, g_ep[k].vip, ROAM_PORT, b, n);
     }
 }
+static void hub_empty(void){
+    /* the hub's PEERS to each player: nobody (a socket to it reconnecting) */
+    for (int k = 0; k < 2; k++){
+        rc_msg m; memset(&m, 0, sizeof m); uint8_t b[RC_MAX_DGRAM];
+        m.h.type = RC_MSG_PEERS; m.h.sender = 0x48554221u; m.u.peers.n = 0;
+        int n = rc_encode(&m, b, sizeof b);
+        enqueue(ROAM_HUB_VIP, g_ep[k].vip, ROAM_PORT, b, n);
+    }
+}
 static void deliver(void){
     int w = 0;
     for (int i = 0; i < g_qn; i++){
@@ -237,6 +246,23 @@ static void t_loopback(int with_hub){
     for (int i = 0; i < RC_TABLE; i++) if (g_s[1].peer[i].state == RC_PS_EST) bob_sees_cfg = g_s[1].peer[i].cfg_len == 264 && !memcmp(g_s[1].peer[i].cfg, cfg, 264);
     CHECK(bob_sees_cfg, "%s: car record reached Bob", how);
     if (with_hub) CHECK(g_hub_rx > 10 && g_s[0].hub_lists > 5, "hub: HELLOs/SNAPs to the hub (%u), its lists heard (%u)", g_hub_rx, g_s[0].hub_lists);
+    /* the hub lists neither while both keep sending: the link holds (T_HUB_GRACE_LIVE, 15 s), then goes */
+    if (with_hub){
+        int held = 0;
+        for (int f = 0; f < 1700; f++){
+            g_now += 10000;
+            if (f % 50 == 0) hub_empty();
+            deliver();
+            for (int k = 0; k < 2; k++) rc_tick(&g_s[k], g_now);
+            rc_state a = mk_state((uint32_t)g_now, 0.f, 0.f), b = mk_state((uint32_t)g_now, -50.f, 0.f);
+            rc_push_state(&g_s[0], &a, g_now);
+            rc_push_state(&g_s[1], &b, g_now);
+            if (f == 1000) held = rc_established(&g_s[0]) == 1 && rc_established(&g_s[1]) == 1;
+        }
+        CHECK(held, "hub: a live link unlisted for 10 s holds");
+        CHECK(rc_established(&g_s[0]) == 0 && rc_established(&g_s[1]) == 0, "hub: unlisted for 17 s, dropped (%d, %d)",
+              rc_established(&g_s[0]), rc_established(&g_s[1]));
+    }
     /* Ann goes to another room (city): both drop the link and stay apart, even with a hub that lists them; back in
      * the same room they link again */
     for (int room = 1; room >= 0; room--){

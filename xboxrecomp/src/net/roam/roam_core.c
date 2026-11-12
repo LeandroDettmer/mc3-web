@@ -549,6 +549,11 @@ int rc_interp_eval(rc_interp *ip, int64_t now_us, int64_t frame_dt_us, int64_t d
 #define T_HUB_HELLO    1000000
 #define T_HUB_SNAP      500000
 #define T_HUB_GRACE    2500000      /* a peer the hub has not listed for this long goes */
+/* ... unless it is linked and still sending: then only after this long. With K above a city's size the hub drops a
+ * live pair only when one side's socket to it reconnects (players' logs 2026-11-12: 'left: out of range' and 'joined'
+ * again a second later while its P2P snapshots kept coming) */
+#define T_HUB_GRACE_LIVE 15000000
+#define T_NOSNAP       5000000      /* listed this long without a snapshot: logged once */
 #define T_HUB_SILENT  10000000      /* no list for this long: discovery and gossip again */
 #define T_FAR_FED      1500000
 #define RL_DGRAMS      100          /* per second and source */
@@ -740,6 +745,7 @@ void rc_receive(rc_session *s, uint32_t ip, uint16_t port, const uint8_t *buf, i
                 if (j < 0) continue;
             }
             s->peer[j].hub_listed_us = now;
+            if (!s->peer[j].hub_first_us) s->peer[j].hub_first_us = now;
         }
         return;
     }
@@ -810,6 +816,10 @@ void rc_receive(rc_session *s, uint32_t ip, uint16_t port, const uint8_t *buf, i
     case RC_MSG_SNAP:
         if (p->state != RC_PS_EST) return;
         p->rx_snap++; p->last_snap_rx = now; p->status = m.u.snap.status; p->cfg_rev_seen = m.u.snap.cfg_rev;
+        if (p->rx_snap == 1 && p->said_nosnap){
+            char t[64]; snprintf(t, sizeof t, ": linked, first snapshot %d s after the hub listed it", (int)((now - p->hub_first_us) / 1000000));
+            note(s, RC_EV_NOTE, i, p->name, t, "");
+        }
         if (p->seq_init){
             uint16_t d = (uint16_t)(m.h.seq - p->last_seq), every = (uint16_t)(m.h.flags & RC_HF_EVERY);
             if (every < 1) every = 1;
@@ -919,7 +929,20 @@ void rc_tick(rc_session *s, int64_t now){
             char why[64];
             snprintf(why, sizeof why, "timeout (%u datagrams dropped by the rate limit)", (unsigned)p->rx_drop);
             drop_peer(s, i, p->rx_drop ? why : "timeout"); continue; }
-        if (hub && s->hub_heard_us && !p->configured && s->hub_heard_us - p->hub_listed_us > T_HUB_GRACE){ drop_peer(s, i, "out of range"); continue; }
+        if (hub && s->hub_heard_us && !p->configured && s->hub_heard_us - p->hub_listed_us > T_HUB_GRACE){
+            int live = p->state == RC_PS_EST && p->last_rx_us && now - p->last_rx_us <= T_LOST;
+            if (!live || s->hub_heard_us - p->hub_listed_us > T_HUB_GRACE_LIVE){ drop_peer(s, i, "out of range"); continue; }
+        }
+        /* the hub lists it, its snapshots do not come: which step is missing (state 1 nothing heard, 2 heard but it
+         * does not hear us, 3 linked; hello/snap: its datagrams in) */
+        if (hub && p->hub_first_us && !p->rx_snap && !p->said_nosnap && now - p->hub_first_us > T_NOSNAP){
+            char t[120];
+            snprintf(t, sizeof t, "%08x: listed by the hub %d s, no snapshot (state %d, %s, datagrams in %u)",
+                     (unsigned)p->id, (int)((now - p->hub_first_us) / 1000000), p->state,
+                     p->hears_us ? "hears us" : "does not hear us", (unsigned)p->rx);
+            note(s, RC_EV_NOTE, i, p->name[0] ? p->name : "peer ", p->name[0] ? " " : "", t);
+            p->said_nosnap = 1;
+        }
         if (!p->last_rx_us && !p->configured && now - p->added_us > T_GOSSIP_FORGET){ peer_clear(p, 0); continue; }
         if (p->state == RC_PS_EST && now - p->last_rx_us > T_LOST && !p->lost){ p->lost = 1; note(s, RC_EV_NOTE, i, p->name, ": no packets for 3 s", ""); }
         /* a far peer's HELLOs and pings as much rarer as its SNAPs */

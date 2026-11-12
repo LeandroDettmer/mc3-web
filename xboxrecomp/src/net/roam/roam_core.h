@@ -215,6 +215,8 @@ typedef struct {
     uint8_t  far;                  /* gets every how many of our SNAPs (1, 4, 10) */
     int64_t  cfg_answer_us;
     int64_t  hub_listed_us;
+    int64_t  hub_first_us;         /* first listed by the hub (this slot's life); 0 = never */
+    int      said_nosnap;          /* 'listed, no snapshot' logged */
     char     name[RC_NAME_MAX + 1];
     uint8_t  platform, status, statex;
     uint16_t core_ver, cfg_rev_seen;
