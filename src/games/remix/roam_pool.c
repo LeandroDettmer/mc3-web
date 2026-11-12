@@ -1113,6 +1113,43 @@ static void roam_pool_log(double now)
             cur[1] + cur[2], cur[1], cur[2], cur[3], (unsigned)(roam_heap_log(roam_car_heap(), NULL) >> 10));
 }
 
+/* Online career switched in game (mc3_live MC3_LIVE_CAREER, the in-game Settings row), after the physics step:
+ * only in the career's running cruise (game mode 2, state 2, no request queued), never Free Roam's (s_online).
+ * Off: the standalone cars dropped as at a teardown (roam_pool_pass), the session closed (its BYE: the page closes
+ * the city's socket; blips, name tags and the players panel go with s_career_roam); the career untouched. On: the
+ * session as at the cruise load (roam_career_join), the pool's queue then builds the cars one at a time with its
+ * heap and capacity checks (roam_pool_job). Anywhere else the next cruise load reads the setting. */
+static void roam_career_live(void)
+{
+    uint32_t setup = MEM32(ROAM_SETUP_VA);
+    int on = roam_career_on(), k, n = 0;
+    if (s_online || on == s_career_roam || MEM32(0x0053F2D4u) != 2u || !s_state_obj ||
+        MEM32(s_state_obj + 4u) != 2u || MEM32(s_state_obj + 0x3Cu) || !online_ram(MEM32(ROAM_PM_VA)) ||
+        !online_ram(setup) || !roam_career_setup(setup))
+        return;
+    if (on) {
+        s_roam_nhist = 0;                       /* roam_player records from its next frame */
+        s_roam_tlast = 0.0;
+        fprintf(stderr, "[CAREER-ONLINE] live on\n");
+        roam_career_join(setup, "live on");
+        return;
+    }
+    for (k = s_roam_slots + 1; k < s_nrc; k++)
+        if (s_rc[k].veh) {
+            roam_rc_drop(&s_rc[k], 1);
+            n++;
+        }
+    roam_pool_reset();
+    s_career_roam = s_career_ev = s_roam_cruise = 0;
+    s_roam_nhist = 0;
+    s_roam_seen = NULL;
+    s_roam_nseen = 0;
+    s_rep_at = 0.0;
+    roam_stop();
+    fprintf(stderr, "[CAREER-ONLINE] live off: %d standalone car%s removed, session closed (the career goes on)\n", n,
+            n == 1 ? "" : "s");
+}
+
 /* After the physics step (sub_002BDEC0): reports, the queue, every undriven
  * car parked (again: the game's update may have moved it), each standalone
  * car driven: its pose toward the peer's (tau ROAM_TAU, snap ROAM_SNAP),
@@ -1124,6 +1161,7 @@ static void roam_pool_frame(void)
     double now;
     int i, k;
     roam_flow_watch();
+    roam_career_live();
     if (!s_roam_cruise || !s_roam_nhist || !online_ram(MEM32(ROAM_PM_VA)))
         return;
     now = roam_now();

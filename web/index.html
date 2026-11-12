@@ -638,7 +638,7 @@
     { group: 'Online' },
     { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out. Changes live: lower hides the farthest; higher adds cars up to what the cruise loaded with, the rest at the next cruise.',
       opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
-    { key: 'MC3_CAREER_ONLINE', label: 'Online career', help: 'Your career\'s city with the other players in it: you see the players driving there (Free Roam and other online careers) as cars and on the map, and they see you. Your career, money and saves stay as always; no online money and no street races in the career. Applies on the next load.', opts: ONOFF('Off') },
+    { key: 'MC3_CAREER_ONLINE', label: 'Online career', help: 'Show and meet online players in your career\'s city. Changes live.', opts: ONOFF('Off') },
     { key: 'MC3_NAMETAGS', label: 'Name tags', help: 'Each other player\'s name over their car in free roam (not hidden behind buildings). Changes live.', opts: ONOFF() },
     // page-only (web/rtc.js roamP2P; the game ignores it)
     { key: 'MC3_ROAM_P2P', label: 'Direct connections (P2P) in Free Roam', help: 'The nearest players\' cars come straight from their browsers, not through the server: lighter on the server. It shares your IP address with those players. Off: everything goes through the server. Changes live.', opts: ONOFF() },
@@ -712,17 +712,22 @@
   // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
   // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
   const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
-    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']);
+    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_CAREER_ONLINE', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']);
   const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
   const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
     ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
-    ['ig-roam', ['MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_RAM_MB']],
+    ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_RAM_MB']],
     ['ig-controls', ['MC3_DRIFT', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
   ];
   function renderIngame() {
     for (const [id, keys] of INGAME)
-      $(id).replaceChildren(...keys.map(k => settingRow(SETTINGS.find(s => s.key === k), 'ig-', live(k) ? 'live' : 'restart')));
+      $(id).replaceChildren(...keys.map(k => {
+        const row = settingRow(SETTINGS.find(s => s.key === k), 'ig-', live(k) ? 'live' : 'restart');
+        // Online career does nothing in Free Roam (the game's career cruise only): greyed there
+        if (k === 'MC3_CAREER_ONLINE' && whereNow() === 'arcade') { row.querySelector('select').disabled = true; row.title = 'Career only'; }
+        return row;
+      }));
   }
   function setSetting(key, value) {
     if (value) settings[key] = value; else delete settings[key];

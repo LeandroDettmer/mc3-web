@@ -186,7 +186,10 @@ static int s_roam_building;                     /* inside roam_car_build (roam_b
 static int roam_career_on(void)
 {
 #ifdef __EMSCRIPTEN__
+    int32_t l = mc3_live(MC3_LIVE_CAREER);      /* the in-game Settings row (roam_career_live), else the env */
     const char *e = getenv("MC3_CAREER_ONLINE");
+    if (l)
+        return l == 2;
     return e && e[0] == '1';
 #else
     return 0;
@@ -794,29 +797,18 @@ static uint32_t roam_pool_cost(int32_t car);
  * one local player with a car, race type 1) starts or keeps the session and sends LOADING (roam_player: ROAM at its
  * first frame); any other career load (race, mission, garage) says EVENT / SHOP; a load outside the career closes
  * it. No remote slots: the standalone cars come after the load (roam_pool_load), in the cars heap when there is one. */
-static void roam_career_load(uint32_t setup)
+static int roam_career_setup(uint32_t setup)   /* the career's cruise: one local player with a car, race type 1 */
 {
-    uint32_t e0 = setup + ROAM_ENTRY, cfg0 = MEM32(e0 + 0x0Cu);
-    if (!roam_career_on() || MEM32(0x0053F2D4u) != 2u) {
-        if (s_career_roam) {
-            s_career_roam = 0;
-            roam_stop();
-            fprintf(stderr, "[CAREER-ONLINE] off: a load outside the career, session closed\n");
-        }
-        return;
-    }
-    if (MEM32(setup + 0x4Cu) != 1u || MEM8(setup + 0x108u) || MEM8(e0 + 0x26u) || SMEM32(e0 + 0x14u) < 0 ||
-        MEM32(setup + 0x18u) != 1u) {
-        if (s_career_roam) {
-            roam_status(MEM8(e0 + 0x26u) ? RC_ST_SHOP : RC_ST_EVENT);
-            fprintf(stderr, "[CAREER-ONLINE] career load (race type %u%s): our car hidden from the others\n",
-                    (unsigned)MEM32(setup + 0x18u), MEM8(e0 + 0x26u) ? ", garage" : "");
-        }
-        return;
-    }
-    if (!s_career_roam)
-        fprintf(stderr, "[CAREER-ONLINE] on: the career's cruise joins the city's free roam (no online money, "
-                        "no street races; the career saves as always)\n");
+    uint32_t e0 = setup + ROAM_ENTRY;
+    return MEM32(setup + 0x4Cu) == 1u && !MEM8(setup + 0x108u) && !MEM8(e0 + 0x26u) && SMEM32(e0 + 0x14u) >= 0 &&
+           MEM32(setup + 0x18u) == 1u;
+}
+
+/* The career's cruise joins the city's free roam (its load, or the live switch mid-cruise): LOADING now, ROAM and
+ * our car at its next frame (roam_player). */
+static void roam_career_join(uint32_t setup, const char *when)
+{
+    uint32_t cfg0 = MEM32(setup + ROAM_ENTRY + 0x0Cu);
     s_career_roam = 1;
     s_career_ev = 0;
     if (!online_ram(cfg0) || MEM32(cfg0) != ROAM_CFG_VT)
@@ -828,8 +820,34 @@ static void roam_career_load(uint32_t setup)
     roam_status(RC_ST_LOADING);
     if (s_roam_cruise)
         roam_cheap();                           /* standalone cars in the cars heap (none at 64 MB: the main heap's check) */
-    fprintf(stderr, "[CAREER-ONLINE] cruise load (city %u): %s\n", (unsigned)MEM32(setup),
+    fprintf(stderr, "[CAREER-ONLINE] %s (city %u): %s\n", when, (unsigned)MEM32(setup),
             s_roam_cruise ? "session running, other players as standalone cars and blips" : "no session (link down?)");
+}
+
+static void roam_career_load(uint32_t setup)
+{
+    uint32_t e0 = setup + ROAM_ENTRY;
+    if (!roam_career_on() || MEM32(0x0053F2D4u) != 2u) {
+        if (s_career_roam) {
+            s_career_roam = 0;
+            roam_stop();
+            fprintf(stderr, "[CAREER-ONLINE] off: %s, session closed\n",
+                    MEM32(0x0053F2D4u) != 2u ? "a load outside the career" : "switched off");
+        }
+        return;
+    }
+    if (!roam_career_setup(setup)) {
+        if (s_career_roam) {
+            roam_status(MEM8(e0 + 0x26u) ? RC_ST_SHOP : RC_ST_EVENT);
+            fprintf(stderr, "[CAREER-ONLINE] career load (race type %u%s): our car hidden from the others\n",
+                    (unsigned)MEM32(setup + 0x18u), MEM8(e0 + 0x26u) ? ", garage" : "");
+        }
+        return;
+    }
+    if (!s_career_roam)
+        fprintf(stderr, "[CAREER-ONLINE] on: the career's cruise joins the city's free roam (no online money, "
+                        "no street races; the career saves as always)\n");
+    roam_career_join(setup, "cruise load");
 }
 
 static void roam_build(void)

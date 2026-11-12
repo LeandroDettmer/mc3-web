@@ -645,7 +645,12 @@ generated files when the lift inputs did not change.
   later, each a short freeze (kept: safe over cheap).
   Online career (2026-11-12, untested in game; MC3_CAREER_ONLINE=1, page
   Settings 'Online career', default off, read at each cruise load, browser
-  only): the career's cruise (game mode 2 [0x53F2D4], race type 1) runs a
+  only; live since 2026-11-12, untested: mc3_live word 3, the in-game
+  Settings' Free Roam group, greyed in Free Roam; roam_career_live after
+  the physics step, career cruise only (state 2, no request queued): off
+  drops the standalone cars + roam_stop (BYE closes the city socket), on
+  = roam_career_join, the pool's queue builds the cars; '[CAREER-ONLINE]
+  live off|on'): the career's cruise (game mode 2 [0x53F2D4], race type 1) runs a
   free-roam session of its own, s_career_roam, never s_online (that one
   skips the career's saves sub_00022040 and swaps money and garage). roam_build
   outside s_online goes to roam_career_load: the cruise starts or keeps the

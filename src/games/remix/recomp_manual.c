@@ -2653,8 +2653,9 @@ static void realtime_step(float real)
  * mc3SetLive -> mc3_live_box): word i, 0 = the environment's value as at
  * start. MC3_LIVE_60FPS 1 off / 2 on (fps60_step, from the next drive or
  * race); MC3_LIVE_CARS MC3_ROAM_CARS, -1 auto (roam_cars_total, read live by
- * the remote cars pool); MC3_LIVE_DRIFT MC3_DRIFT 1 off / 2 on / 3 strong (drift.c). */
-enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_N };
+ * the remote cars pool); MC3_LIVE_DRIFT MC3_DRIFT 1 off / 2 on / 3 strong (drift.c);
+ * MC3_LIVE_CAREER MC3_CAREER_ONLINE 1 off / 2 on (roam_career_live, roam_pool.c). */
+enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_N };
 #ifdef __EMSCRIPTEN__
 static int32_t s_mc3_live[MC3_LIVE_N];
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_live_box(void) { return (uintptr_t)s_mc3_live; }
