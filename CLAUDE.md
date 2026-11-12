@@ -643,7 +643,7 @@ generated files when the lift inputs did not change.
   send nothing, the others never saw it). '[ROAM] pool: N peers, C cars (S
   slots + T standalone), D dimmed, heap F KB' every 30 s at most, when it
   changes. Car radius (2026-11-12, untested in game): a peer gets a car only
-  within 300 m of ours (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
+  within 250 m of ours (2026-11-12: was 300; the game fades its traffic at 250 m, 0x4AFD18) (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
   a group race) and gives it back (parked, reused) after 3 s beyond 350 m;
   beyond the radius a carless driving peer is a bright blip, not dimmed;
   the load's cars (roam_build, roam_pool_load) ignore it (our position may

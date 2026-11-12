@@ -67,7 +67,7 @@
 #define ROAM_RC_MAX    (ROAM_K_MAX + 1)
 #define ROAM_NEAR_GAIN 50.0f            /* m nearer */
 #define ROAM_NEAR_HOLD 3.0              /* s, held */
-#define ROAM_RADIUS      300.0f         /* m: a peer gets a car within (MC3_ROAM_RADIUS, 0 off) */
+#define ROAM_RADIUS      250.0f         /* m: a peer gets a car within (MC3_ROAM_RADIUS, 0 off) */
 #define ROAM_RADIUS_OUT  50.0f          /* m past it: the car goes back ... */
 #define ROAM_RADIUS_HOLD 3.0            /* ... after this long beyond (no churn at the edge) */
 #define ROAM_COSTS     64               /* models whose cost is kept */
