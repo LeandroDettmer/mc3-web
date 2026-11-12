@@ -2226,10 +2226,10 @@
 
   // While playing, the game's keys must not act on the page: SDL takes them
   // on the GL thread (proxied, so it cannot cancel them), and Tab moved the
-  // focus to Quit, where Enter or Space then pressed it.
+  // focus to Quit, where Enter or Space then pressed it. Inside an open dialog they are the page's (focus order, selects).
   const GAME_KEYS = new Set(['Tab', 'Enter', 'Space', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
   for (const t of ['keydown', 'keyup'])
-    addEventListener(t, e => { if (playing && GAME_KEYS.has(e.code) && !e.target.closest?.('#races-panel, #players-dlg')) e.preventDefault(); }, true);
+    addEventListener(t, e => { if (playing && GAME_KEYS.has(e.code) && !e.target.closest?.('#races-panel, #players-dlg, #settings-dlg')) e.preventDefault(); }, true);
   document.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || playing || e.repeat) return;
     if (e.target.closest('input, select, textarea, button, a, summary')) return;
