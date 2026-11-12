@@ -2611,9 +2611,18 @@ typedef struct { uint64_t vkey; Nv2aPshKey pk; GLuint prog; } PendProg;   /* pro
 static PendProg s_pend[256];
 static int s_npend;
 static int s_pend_on = -1;
+static int s_gl_proxied;                     /* the context lives on the page thread (gl_make_window) */
 
 static int pend_enabled(void)
 {
+    /* Proxied context (RECOMP_GL_PROXY=1): Emscripten's
+     * emscripten_webgl_enable_extension is not proxied (its _main_thread
+     * variant is the calling-thread one), so this worker read
+     * GL.contexts[c] = undefined: 'context.GLctx' TypeError at the first
+     * shader, Safari 17.3 (2026-11-12). Polling would be a round trip per
+     * program anyway: blocking path. */
+    if (s_pend_on < 0 && s_gl_proxied)
+        s_pend_on = 0;
     if (s_pend_on < 0)
         s_pend_on = emscripten_webgl_enable_extension(emscripten_webgl_get_current_context(),
                                                       "KHR_parallel_shader_compile") != 0
@@ -3576,9 +3585,6 @@ static int ct_start(const char *path, unsigned skip)
  * ready). s_win / s_ctx stay NULL on failure. A context made for another
  * thread is let go of here, so that thread can take it. */
 static int s_win_for_other;                  /* made for a thread other than main */
-#if defined(__EMSCRIPTEN__)
-static int s_gl_proxied;                     /* the context lives on the page thread (gl_make_window) */
-#endif
 
 static void gl_make_window(void *unused)
 {
