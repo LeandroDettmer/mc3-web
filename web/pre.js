@@ -20,7 +20,9 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
 // backing-store.cc): a growing memory may never grow there, so the game must fit its initial size (a TCL Google TV
 // refused every size from 448 MB up and gave 256/512, 2026-11-09).
 // WebKit (iPhone, iPad, Safari) sets aside a shared memory's whole maximum (256 MB with a 2 GB maximum was
-// refused on an iPhone): fixed sizes only (maximum = initial), pool kept at 40 even in the light profile. A Mac's
+// refused on an iPhone): fixed sizes only (maximum = initial). Pool 40 (the 2 GB baseline), but the light profile's
+// (12, index.html) since 2026-11-12: every iPhone ran 40 workers, each a JS heap of its own (Android's light profile
+// runs 12 and makes the rest on demand); '[WEB] workers: N' below gives the real need. A Mac's
 // Safari starts at 2 GB; iOS/iPadOS (the low profile, or the iPad's desktop user agent) at 1 GB: with a fixed 2 GB,
 // 61 iPhones were killed silently in the menus (previous-crash logs, 2026-11-11; the game's peak is ~400 MB).
 // Every refused size is logged; when nothing is given a page error says so (index.html failShow shows it).
@@ -28,7 +30,7 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
   var low = !!Module['mc3MemMB'], refused = [], i, ua = navigator.userAgent, log = Module['print'] || console.log;
   var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   var webkit = ios || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua));
-  if (webkit) delete Module['mc3Pool'];
+  if (webkit && !low) delete Module['mc3Pool'];
   var tries = webkit && (low || ios) ? [[1024, 1024], [768, 768], [512, 512]]
     : webkit ? [[2048, 2048], [1536, 1536], [1024, 1024], [768, 768], [512, 512]]
     : low ? [[1024, 1024], [768, 768], [640, 640], [512, 512], [448, 448], [416, 416], [384, 384], [352, 352],
@@ -42,7 +44,7 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
     try {
       Module['wasmMemory'] = new WebAssembly.Memory({ initial: pages(tries[i][0]), maximum: pages(tries[i][1]), shared: true });
       log('[WEB] memory: ' + tries[i][0] + ' MB to start, ' + tries[i][1] + ' MB at most'
-        + (webkit ? ' (WebKit: fixed, pool 40)' : low ? ' (low profile)' : '') + (gecko ? ' (Firefox: 64 KB less than 2 GB)' : '')
+        + (webkit ? ' (WebKit: fixed, pool ' + (Module['mc3Pool'] || 40) + ')' : low ? ' (low profile)' : '') + (gecko ? ' (Firefox: 64 KB less than 2 GB)' : '')
         + (refused.length ? ' (refused: ' + refused.join('; ') + ')' : ''));
       return;
     } catch (e) {
@@ -54,7 +56,7 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
     + '). Close other tabs and apps, or restart the browser.');
 })();
 
-// The pool workers (made when this script runs, before the .wasm): how many, and each one's loading or error, into
+// The pool workers (made when this script runs, before the .wasm): how many, and each one's loading (errors: below), into
 // the log. A worker that never loads holds the start forever ('1 start-up step(s) left', web/index.html), silently
 // before (Firefox on a TV, 2026-11-09).
 if (!ENVIRONMENT_IS_PTHREAD) Module['preRun'] = [].concat(Module['preRun'] || [], function () {
@@ -67,9 +69,60 @@ if (!ENVIRONMENT_IS_PTHREAD) Module['preRun'] = [].concat(Module['preRun'] || []
       if (e.data && (e.data.cmd === 3 || e.data.cmd === 'loaded') && (++n == 1 || n == all.length || n % 8 == 0))
         log('[WEB] module: pool worker ' + n + ' of ' + all.length + ' loaded');
     });
-    w.addEventListener('error', function (e) { log('[WEB] module: pool worker ' + (i + 1) + ' error: ' + (e.message || e.type)); });
   });
 });
+
+// Errors with their cause (2026-11-12): WebKit hands the page's 'error' event only 'Script error.' (no file, no error
+// object) for any error whose top frame has no script address -- a wasm trap, an engine RangeError -- not just for
+// other origins' scripts: 8 iPhone logs said nothing more (VBARSZ during the compile, D69TNT/SFABFG in Free Roam).
+// So the page thread's entries into the runtime are caught where they happen: every Worker made from here on (the
+// pool's and those made on demand) logs its 'error' event at once with file:line, before Emscripten's onerror is set
+// (a pool worker that dies while the .wasm compiles had none), and its onmessage (proxied calls, the mailbox: the
+// page thread's wasm) logs an uncaught exception's stack, then rethrows as before. '[WEB] worker N ...' lines.
+// Inside the pthreads Emscripten's own handler logs ('worker sent an error!'); unhandled rejections there throw too.
+if (!ENVIRONMENT_IS_PTHREAD && !ENVIRONMENT_IS_NODE && typeof Worker == 'function' && !Worker.mc3Watched) (function () {
+  var W = Worker, n = 0, onmsg = Object.getOwnPropertyDescriptor(W.prototype, 'onmessage');
+  var log = function (m) { (Module['printErr'] || console.error)(m); };
+  function why(x) {
+    if (!x || typeof x != 'object') return String(x);
+    var s = String(x.stack || '');
+    return String(x) + (s && s.indexOf(String(x.message)) < 0 ? '; ' : s ? ' | ' : '') + s.replace(/\s*\n\s*/g, ' < ').slice(0, 1500);
+  }
+  function Watched(url, opts) {
+    var w = new W(url, opts), id = ++n;
+    w.addEventListener('error', function (e) {
+      log('[WEB] worker ' + id + ' error: ' + (e.message || e.type) + (e.filename ? ' (' + String(e.filename).replace(/^.*\//, '')
+        + ':' + e.lineno + ':' + e.colno + ')' : ' (no file: the browser hid it)') + (e.error ? '; ' + why(e.error) : ''));
+    });
+    if (onmsg && onmsg.set) Object.defineProperty(w, 'onmessage', { configurable: true, get: function () { return onmsg.get.call(w); },
+      set: function (f) {
+        onmsg.set.call(w, typeof f != 'function' ? f : function (e) {
+          try { return f.apply(this, arguments); } catch (x) {
+            if (x !== 'unwind' && !(x && x.mc3Seen)) {
+              try { x.mc3Seen = 1; } catch (_) {}
+              log('[WEB] worker ' + id + ' message' + (e && e.data && e.data.cmd ? ' (cmd ' + e.data.cmd + ')' : '') + ': page thread error: ' + why(x));
+            }
+            throw x;
+          }
+        });
+      } });
+    return w;
+  }
+  Watched.prototype = W.prototype;
+  Watched.mc3Watched = true;
+  globalThis.Worker = Watched;
+})();
+
+// How many workers the run really needed (pool + made on demand; idle ones are kept): logged at each new peak, so the
+// pool size (Module.mc3Pool) can follow the logs. '[WEB] workers: N (R threads running)'.
+if (!ENVIRONMENT_IS_PTHREAD && !ENVIRONMENT_IS_NODE && typeof setInterval == 'function') (function () {
+  var peak = 0, log = Module['print'] || console.log;
+  setInterval(function () {
+    if (typeof PThread != 'object' || !PThread.unusedWorkers) return;
+    var run = Object.keys(PThread.pthreads).length, all = run + PThread.unusedWorkers.length;
+    if (all > peak) { peak = all; log('[WEB] workers: ' + all + ' (' + run + ' threads running)'); }
+  }, 5000);
+})();
 
 // A refused growth (sbrk past what the browser set aside; a 32-bit TV's maximum is often only its initial size):
 // logged as '[WEB] out of memory: ...' (the page's 'Out of memory' box) before the runtime aborts the game

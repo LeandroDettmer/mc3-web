@@ -236,7 +236,8 @@ generated files when the lift inputs did not change.
   jump to a new track too). Chrome incognito: estimate() says ~10 GiB
   (Chrome 133+), the real quota is far smaller, so OPFS writes fail and
   the cache turns off for the session; then those track-start blocks are
-  kept in memory (pinned, ~206 MiB JS, not below deviceMemory 8; '[WEB]
+  kept in memory (pinned, ~206 MiB JS, only where deviceMemory >= 8:
+  Safari has none, its Macs pinned and were killed until 2026-11-12; '[WEB]
   prefetch: no disc cache: the music's track starts ... kept in memory').
   Emscripten's own WASMFS fetch
   backend left stale data across chunks, hence our backend.
@@ -270,7 +271,9 @@ generated files when the lift inputs did not change.
   Module.mc3Pool || 40. Low-memory profile (index.html lowMem: a TV user
   agent, a phone or tablet (iOS/iPadOS, Android phones, MC3Touch.isPhone)
   or deviceMemory <= 2; MC3_LOWMEM=1/0 forces): memory from 512 MB,
-  24 pool workers, RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
+  12 pool workers (more made on demand and kept; WebKit too since
+  2026-11-12, every iPhone ran 40 before, each a JS heap; '[WEB] workers: N'
+  logs each new peak), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
   MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=0, no 60 fps, light
   filtering. Failures show a box over the picture with the reason and the
   log's last 20 lines (index.html failShow: abort, page errors before the
@@ -286,6 +289,15 @@ generated files when the lift inputs did not change.
   and '[WEB] tab hidden|visible' first; a hitch within 5 s of a Free Roam
   status change is not sent; Firefox's captureStream transfer refusal sets
   mc3.glProxy);
+  'Script error.' (2026-11-12, untested in a browser): WebKit gives the
+  page only that for any error without a script address (wasm trap, engine
+  error), not just other origins' scripts (8 iPhone logs). web/pre.js wraps
+  every Worker made after it (pool and on demand): its 'error' event logs
+  '[WEB] worker N error: ... (file:line)' at once (before Emscripten's
+  onerror is set), its onmessage (the page thread's wasm: proxied calls,
+  mailbox) logs '[WEB] worker N message (cmd C): page thread error: <stack>'
+  and rethrows. A bare 'Script error.' no longer stops the start (no box):
+  logged, sent as tag error.
   the log Worker (.deploy/worker.js, local) keys it logs/<day>-<tag>-
   <code>.txt and takes 10 an hour per address.
   New version (2026-11-12, untested in a browser): .deploy/stage.sh stamps config.json "version" (short hash of ../mc3-web-main HEAD); the page

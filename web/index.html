@@ -1662,7 +1662,19 @@
     if (!booted) failShow('The game could not start', r);
     else logQuiet('error', r);
   }
-  window.addEventListener('error', e => pageError(String(e.message || e.error) + (e.filename ? ` (${e.filename.replace(/^.*\//, '')}:${e.lineno}:${e.colno})` : '')));
+  // WebKit gives 'Script error.' with no file or error object for an error with no script address (a wasm trap, an
+  // engine error) as well as for other origins' scripts (extensions, injected scripts): not a reason to stop the start
+  // (a fatal box during the compile, VBARSZ 2026-11-12) -- logged and sent; web/pre.js's '[WEB] worker N ...' line just
+  // before names the cause when it was ours. A real stop still shows (abort, no frame in 90 s, runtime not up in 5 min).
+  window.addEventListener('error', e => {
+    const r = String(e.message || e.error) + (e.filename ? ` (${e.filename.replace(/^.*\//, '')}:${e.lineno}:${e.colno})` : '')
+      + (e.error?.stack ? '; ' + String(e.error.stack).replace(/\s*\n\s*/g, ' < ').slice(0, 1500) : '');
+    if (!e.filename && !e.error && /^Script error\.?$/.test(e.message)) {
+      if (!playing) return;
+      out('[WEB] error: Script error. (details hidden by the browser: no script address; see a [WEB] worker line before it)');
+      logQuiet('error', 'Script error. (hidden by the browser)');
+    } else pageError(r);
+  });
   window.addEventListener('unhandledrejection', e => pageError(e.reason?.stack || e.reason?.message || String(e.reason)));
   // Freeze: no new frame for 15 s while the tab is visible (a hidden tab draws nothing), once the game has drawn.
   // The WebGPU watchdog's line (xboxrecomp/src/nv2a_wgpu/wgpu_queue.c wq_watchdog, at 5 and 10 s) names where it stopped.
@@ -1928,8 +1940,8 @@
     for (let i = 0; i < 20; i++) {
       try {
         Module.wasmMemory = new WebAssembly.Memory({ initial: mb * 16, maximum: mb * 16, shared: true });
-        delete Module.mc3Pool;   // as pre.js does for WebKit: pool 40
-        out(`[WEB] memory: ${mb} MB to start, ${mb} MB at most (WebKit: fixed, pool 40` + (i ? ', after ' + i + ' s' : '') + ')');
+        if (!Module.mc3MemMB) delete Module.mc3Pool;   // as pre.js does for WebKit: pool 40, the light profile's (12) kept
+        out(`[WEB] memory: ${mb} MB to start, ${mb} MB at most (WebKit: fixed, pool ${Module.mc3Pool || 40}` + (i ? ', after ' + i + ' s' : '') + ')');
         return;
       } catch (e) {
         if (!i) out(`[WEB] memory: ${mb} MB refused (` + (e?.message || e) + '); waiting up to 20 s for the last run\'s memory to be freed');
