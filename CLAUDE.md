@@ -599,7 +599,12 @@ generated files when the lift inputs did not change.
   the pool full (it was retried every 2 s ahead of new cars, so a full
   phone never built one nor ran the nearest rule); a failed new car sets
   it full too (was a whole build every 0.25 s); a slot whose new car
-  fails after its old one was deleted builds the old one again. Our pose and status go out in every Free Roam
+  fails after its old one was deleted builds the old one again. Mid-cruise
+  the main heap keeps max(6 MB, heap / 8) for a new car only; a rebuild
+  (old car deleted first, ~0 net) keeps the load's 3 MB (2026-11-12,
+  untested in game: phones had 4.0-4.8 MB free mid-cruise, every rebuild
+  was refused and each peer showed in our car; '[ROAM] look: slot N peer X
+  wants <car> (cost K KB) -> built|kept <car> (why)'). Our pose and status go out in every Free Roam
   cruise, with 0 remote slots too (s_roam_cruise; a low-heap phone used to
   send nothing, the others never saw it). '[ROAM] pool: N peers, C cars (S
   slots + T standalone), D dimmed, heap F KB' every 30 s at most, when it

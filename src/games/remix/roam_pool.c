@@ -179,8 +179,10 @@ static int roam_pool_room(int32_t car, uint32_t credit, const char *what)
 {
     uint32_t heap = roam_car_heap(), left = roam_heap_log(heap, NULL), extra = 0;
     /* mid-cruise in the main heap the game keeps allocating (garage, HUD, streams): keep max(6 MB, heap / 8)
-     * as before the pool, not the load's 3 MB */
-    if (!s_cheap && heap) {
+     * as before the pool, not the load's 3 MB -- for a new car only. A rebuild (credit: its old car, deleted
+     * first) replaces a car the load counted, ~0 net: the load's keep. With 6 MB a phone (4.0-4.8 MB free
+     * mid-cruise) refused every rebuild and showed each peer in our car (2026-11-12). */
+    if (!s_cheap && heap && !credit) {
         uint32_t want = MEM32(heap + 0xCu) / 8u > (6u << 20) ? MEM32(heap + 0xCu) / 8u : (6u << 20);
         extra = want - ROAM_HEAP_KEEP;
     }
@@ -630,6 +632,8 @@ static void roam_pool_rebuild(int k, double now)
     roam_rc *c = &s_rc[k];
     uint8_t blob[ROAM_CFG_SIZE + 4];
     int32_t car;
+    const char *old, *got;
+    char want[32];
     if (s_roam_swap_on < 0) {
         const char *e = getenv("MC3_ROAM_SWAP");
         s_roam_swap_on = !(e && e[0] == '0');
@@ -642,12 +646,13 @@ static void roam_pool_rebuild(int k, double now)
         return;
     }
     s_pool_next = now + ROAM_CARS_GAP;
+    old = roam_cfg_name(c->look) ? roam_cfg_name(c->look) : "?";
     if (!roam_pool_look(c->id, blob, &car, c->car, 0, 1)) {
         if (roam_rc_say(c, RC_SAY_LOOK))
-            fprintf(stderr, "[ROAM] %s %d: %s's car (%s, model %d) not in the car list, a motorbike (no rider "
-                            "mid-cruise) or the car cache full (16 models): the old car stands in\n",
+            fprintf(stderr, "[ROAM] look: %s %d peer %s wants %s (model %d) -> kept %s (not in the car list, a "
+                            "motorbike (no rider mid-cruise) or the car cache full (16 models))\n",
                     roam_rc_slot(k) ? "slot" : "car", k, c->name,
-                    roam_peer_rec(c->id, blob) && roam_cfg_name(blob) ? roam_cfg_name(blob) : "?", (int)car);
+                    roam_peer_rec(c->id, blob) && roam_cfg_name(blob) ? roam_cfg_name(blob) : "?", (int)car, old);
         c->want = 0;                            /* until the peer's next car record */
         return;
     }
@@ -661,21 +666,30 @@ static void roam_pool_rebuild(int k, double now)
         /* the old car stands in; new cars and the nearest rule are not held behind it (it was retried every 2 s
          * before them, so a full heap gave no new car and never set s_pool_full) */
         if (roam_rc_say(c, RC_SAY_ROOM))
-            fprintf(stderr, "[ROAM] %s %d: no heap room for %s's car %s: the old car stands in, tried again every "
-                            "%.0f s\n", roam_rc_slot(k) ? "slot" : "car", k, c->name,
-                    roam_cfg_name(blob) ? roam_cfg_name(blob) : "?", ROAM_ROOM_RETRY);
+            fprintf(stderr, "[ROAM] look: %s %d peer %s wants %s (cost %u KB) -> kept %s (heap %u KB free + %u KB "
+                            "freed < %u KB kept + cost; tried again every %.0f s)\n", roam_rc_slot(k) ? "slot" : "car",
+                    k, c->name, roam_cfg_name(blob) ? roam_cfg_name(blob) : "?", (unsigned)(roam_pool_cost(car) >> 10),
+                    old, (unsigned)(roam_heap_log(roam_car_heap(), NULL) >> 10),
+                    (unsigned)(roam_pool_cost(c->car) >> 10),
+                    (unsigned)((s_cheap ? ROAM_CHEAP_KEEP : ROAM_HEAP_KEEP) >> 10), ROAM_ROOM_RETRY);
         c->wait = now + ROAM_ROOM_RETRY;
         s_pool_full = 1;
         s_pool_next = now + ROAM_CARS_GAP;
         return;
     }
     c->said &= ~(uint32_t)RC_SAY_ROOM;
+    snprintf(want, sizeof want, "%s", roam_cfg_name(blob) ? roam_cfg_name(blob) : "?");
     if (!roam_rc_make(k, blob, car, 1)) {
-        fprintf(stderr, "[ROAM] %s %d: rebuild failed (%s's car %s)\n", roam_rc_slot(k) ? "slot" : "car", k, c->name,
-                roam_cfg_name(blob));
+        fprintf(stderr, "[ROAM] look: %s %d peer %s wants %s (cost %u KB) -> not rebuilt (build failed)\n",
+                roam_rc_slot(k) ? "slot" : "car", k, c->name, want, (unsigned)(roam_pool_cost(car) >> 10));
         c->want = 0;
         c->id = 0;                              /* its peer waits for a car like a newcomer */
+        return;
     }
+    got = roam_cfg_name(c->look) ? roam_cfg_name(c->look) : "?";
+    fprintf(stderr, "[ROAM] look: %s %d peer %s wants %s (cost %u KB) -> %s %s (%s)\n", roam_rc_slot(k) ? "slot" : "car",
+            k, c->name, want, (unsigned)(roam_pool_cost(car) >> 10), strcmp(got, want) ? "kept" : "built", got,
+            strcmp(got, want) ? "its build failed, the old car built again" : "rebuilt");
 }
 
 /* A new standalone car for s_pool_need: a dropped entry first, else a new one. */
