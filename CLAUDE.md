@@ -775,6 +775,17 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   RECOMP_WGPU_STATS=1 (per-second line, GPU timestamps), MC3_PERF's
   '[perf] GL WebGPU' line; pipeline list cached in OPFS and prewarmed.
   tools/wgsl_check.sh validates the WGSL with naga.
+  GPU stalls (2026-11-12, untested in a browser): freeze logs with 'executor
+  waiting for ring space; GPU 2 of 2 frames in flight; device ready' (Intel
+  gen-9/11/12, Adreno, Mali; never Apple) follow a burst of new pipelines
+  ('slow frame N ms, 51 pipelines made' then '5 pipelines made' at the title
+  screen): onSubmittedWorkDone waits while the browser's GPU process
+  compiles; one came back after 7.5 s. The render thread never waited
+  forever on the JS side, but the executor did on it. Now after 10 s at the
+  limit '[WGPU] frame N never completed after T ms ...': that frame goes out,
+  the next are consumed without drawing (game runs on, picture holds, input
+  still read) until a frame completes ('[WGPU] GPU answered after ...'); at
+  30 s '[WGPU] GPU stopped responding' -> box, restart on WebGL.
 - **Widescreen (Hor+)**: RECOMP_ASPECT=auto|16:9|21:9|32:9 (page 'Screen
   shape'; Auto follows the canvas through a ResizeObserver ->
   nv2a_wgpu_aspect_box). Surfaces drawn 720 wide (the back buffer's pitch

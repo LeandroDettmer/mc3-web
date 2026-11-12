@@ -1539,6 +1539,9 @@
   // Log lines that mean the game cannot go on: the box below says so over the picture.
   const FATAL = [
     [/\[WGPU\] device lost/, 'Graphics device lost', 'The game cannot draw any more. Restart: from now on this device starts on WebGL (Settings, Renderer: WebGPU tries WebGPU again).'],
+    // The GPU finished no frame for 30 s, device not lost (wgpu_queue.c wq_drop_turn): the game runs on without a
+    // new picture and draws again if the GPU answers (2026-11-12: silent freezes on Intel gen-9 / Adreno / Mali)
+    [/\[WGPU\] GPU stopped responding/, 'GPU stopped responding', 'The graphics processor has not finished a frame for 30 s (often new shaders compiling on a slower GPU). The picture comes back if it answers; click to close and wait, or restart: from now on this device starts on WebGL (Settings, Renderer: WebGPU tries WebGPU again).'],
     [/\[GL\] WebGL context lost/, 'Graphics context lost', 'The game cannot draw any more. Reload the page; close other tabs and apps (often memory).'],
     [/\[GL\] WebGL2 context on #canvas failed|\[GL\] (window|context):/, 'No graphics', 'This browser gave the game no WebGL 2 context. Reload the page: the next start draws through the page thread (slower).'],
     // WebKit's DOMException UnknownError ("unknown transient reason (e.g. out of memory)") killing a game thread:
@@ -1590,7 +1593,7 @@
     m.append(h, p, pre);
     // Restart (2026-11-10): the page again with the intro skipped and Play pressed (restartGame); after a lost
     // WebGPU device on WebGL; 'Back to Free Roam' also drives back to where the Online cruise was (resumeEnv)
-    const bar = document.createElement('p'), lost = /\[WGPU\] device lost/.test(why);
+    const bar = document.createElement('p'), lost = /\[WGPU\] (device lost|GPU stopped responding)/.test(why);
     if (lost) store.set('gpuWebgl', 'WebGPU lost its device');   // every later start too (gpuChoice)
     const btn = (label, how) => {
       const b = document.createElement('button');
