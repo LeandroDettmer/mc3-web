@@ -578,8 +578,10 @@ int rc_established(const rc_session *s){ int n = 0; for (int i = 0; i < RC_TABLE
 static int in_group(const rc_session *s, const rc_peer *p){
     return s->hub_was != 2 || p->configured || p->hub_listed_us == s->hub_heard_us;
 }
+/* with a hub configured the cap is the hub era's even while it is silent (hub_was != 2): else a 10+ city's
+   peers are refused 'full' at max_players (8) through a hub gap; plain LAN discovery keeps max_players */
 static int group_max(const rc_session *s){
-    return s->hub_was == 2 && s->conf.max_players < RC_LIST_MAX + 1 ? RC_LIST_MAX + 1 : s->conf.max_players;
+    return s->conf.hub_ip && s->conf.max_players < RC_LIST_MAX + 1 ? RC_LIST_MAX + 1 : s->conf.max_players;
 }
 static int group_count(const rc_session *s){
     int n = 0;
