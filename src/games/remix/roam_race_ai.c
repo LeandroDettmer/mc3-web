@@ -49,8 +49,8 @@
 #define RRA_NEXT_VA   0x0053F2E4u       /* the race setup to load next */
 #define RRA_SM_VA     0x00557ED0u       /* the state machine (request: vtable +4, sub_00020E40) */
 #define RRA_TEXT      192               /* prompt box bytes (web/pre.js reads the same) */
-#define RRA_RADIUS   30.0f             /* m: a start point this near gets the prompt */
-#define RRA_SLOW      8.0f              /* m/s: slower than this to start */
+#define RRA_RADIUS   60.0f             /* m: a start point this near gets the prompt (and beats the street race's) */
+#define RRA_SLOW     12.0f              /* m/s: slower than this to start (= the street race's RCH_SLOW: no flicker between) */
 #define RRA_HOLD      1.5               /* s: the car held on its spot after the way back */
 #define RRA_WATCH     6.0               /* s: then watched for a fall through unstreamed ground */
 #define RRA_FALL      10.0f             /* m below the spot = fallen */
@@ -140,6 +140,15 @@ static void rra_prompt(const char *text)
 #ifdef __EMSCRIPTEN__
     if (!text[0])
         text = op_note();                       /* nothing else to say: an Online prize line (online_progress.c) */
+    {   /* '[RACE] prompt:' on a change of the title line (the first), not of the counters under it */
+        static char said[64];
+        char title[64];
+        snprintf(title, sizeof title, "%.*s", (int)strcspn(text, "\n"), text);
+        if (strcmp(title, said)) {
+            snprintf(said, sizeof said, "%s", title);
+            fprintf(stderr, "[RACE] prompt: %s\n", title[0] ? title : "(none)");
+        }
+    }
     snprintf(s_rra_prompt.text, sizeof s_rra_prompt.text, "%s", text);
     __atomic_add_fetch(&s_rra_prompt.seq, 1, __ATOMIC_RELEASE);
 #else

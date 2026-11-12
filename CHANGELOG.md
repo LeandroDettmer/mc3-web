@@ -70,3 +70,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Game:** Drift points now show on the left of the screen, and only a crash (wall, car or prop) loses a drift: hard slides and spins no longer do.
 - **Online:** Online career (Settings, off by default): your career's city shows the other players driving there, from Free Roam or their own careers, as cars and on the map, and they see you, nick tags over their cars included. Your career, money and saves are untouched; no street races or online money in the career.
 - **Free Roam:** On phones, other players' cars now show as their own cars instead of copies of yours.
+- **Free Roam:** Race start areas are twice as big (60 m) and win over the street race prompt: with players near, White invites them all into the same race against the AI, even if they are outside the start area.

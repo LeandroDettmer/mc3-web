@@ -1280,7 +1280,7 @@ static const char *rch_ev_name(void)            /* the course's event, for the l
 
 /* The driving players we would invite: within RCH_NEAR m (height within 10 m), nearest first, at most
  * RCH_RACERS - 1, into s_rch.inv (not committed: s_rch.ninv is set by the caller); their count. */
-static int rch_nearby(const float me[3])
+static int rch_nearby(const float me[3], float reach)
 {
     float dist[RCH_RACERS - 1], d;
     int n = 0, i, j;
@@ -1288,7 +1288,7 @@ static int rch_nearby(const float me[3])
         return 0;
     for (i = 0; i < s_roam_nseen; i++) {
         const roam_peer *pp = &s_roam_seen[i];
-        if (pp->status != RC_ST_ROAM || (d = rch_hd(pp->p, me)) > RCH_NEAR || fabsf(pp->p[1] - me[1]) > 10.0f)
+        if (pp->status != RC_ST_ROAM || (d = rch_hd(pp->p, me)) > reach || fabsf(pp->p[1] - me[1]) > 10.0f)
             continue;
         for (j = n < RCH_RACERS - 1 ? n++ : RCH_RACERS - 1; j > 0 && dist[j - 1] > d; j--)
             if (j < RCH_RACERS - 1) {
@@ -1429,10 +1429,18 @@ static int rch_player(uint32_t p)
             rra_prompt(s_rch.note);
             return 1;
         }
-        if (!remix_driving() || speed > RCH_SLOW || !(n = rch_nearby(me)))
+        if (!remix_driving() || speed > RCH_SLOW)
+            return 0;
+        /* a map race start area beats the street race: no opponents (time trial, frenzy) = roam_race_ai.c's solo
+         * prompt; with opponents the group race, inviting everyone in reach of the host (the invitee's own limit,
+         * RCH_AWAY, is the same: the host's area decides, not the invitee's) */
+        gr = roam_races_nearest(MEM32(setup), me[0], me[2], RRA_RADIUS, &gd);
+        if (gr && !gr->opponents)
+            return 0;
+        if (!(n = rch_nearby(me, gr ? RCH_AWAY : RCH_NEAR)))
             return 0;                           /* no one near: the AI race prompt may show */
         /* at a race start point with opponents: a group race of its event (alone if nobody joins) */
-        if ((gr = roam_races_nearest(MEM32(setup), me[0], me[2], RRA_RADIUS, &gd)) != NULL && gr->opponents) {
+        if (gr) {
             s_rch.air = gr;
             if (!press || speed > RRA_SLOW) {
                 rch_ai_desc(d1, sizeof d1, &d2);
