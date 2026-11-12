@@ -139,8 +139,10 @@
  * MC3_ROAM_CHALLENGE=0 turns it off, =2 native without the HUD/audio calls,
  * =3 without native checkpoints.  Log lines '[CHALLENGE]'. */
 
-#define RCH_NEAR       30.0f            /* m: a player this near can be challenged */
-#define RCH_AWAY       60.0f            /* m: before the start, farther apart than this = declined */
+#define RCH_NEAR       200.0f           /* m: a player this near can be invited (the grid moves everyone to the start) */
+#define RCH_AWAY       250.0f           /* m: before the start, farther apart than this = declined (RCH_NEAR + margin: both move in the window) */
+#define RCH_JOIN_SLOW  25.0f            /* m/s: an invitee joins slower than this (a cruising player can accept) */
+#define RCH_DY         30.0f            /* m: height difference limit of an invite */
 #define RCH_SLOW       12.0f            /* m/s: slower to invite (the host) or join (an invitee) */
 #define RCH_ASK_S      10.0             /* s an invite waits */
 #define RCH_COUNT_S    3.0              /* s of countdown */
@@ -1278,7 +1280,7 @@ static const char *rch_ev_name(void)            /* the course's event, for the l
     return "start beacons";
 }
 
-/* The driving players we would invite: within RCH_NEAR m (height within 10 m), nearest first, at most
+/* The driving players we would invite: within RCH_NEAR m (height within 30 m), nearest first, at most
  * RCH_RACERS - 1, into s_rch.inv (not committed: s_rch.ninv is set by the caller); their count. */
 static int rch_nearby(const float me[3], float reach)
 {
@@ -1289,7 +1291,7 @@ static int rch_nearby(const float me[3], float reach)
     for (i = 0; i < s_roam_nseen; i++) {
         const roam_peer *pp = &s_roam_seen[i];
         if (pp->status != RC_ST_ROAM || (pp->bits & ROAM_BIT_RACE) || (d = rch_hd(pp->p, me)) > reach ||
-            fabsf(pp->p[1] - me[1]) > 10.0f)
+            fabsf(pp->p[1] - me[1]) > RCH_DY)
             continue;
         for (j = n < RCH_RACERS - 1 ? n++ : RCH_RACERS - 1; j > 0 && dist[j - 1] > d; j--)
             if (j < RCH_RACERS - 1) {
@@ -1439,7 +1441,7 @@ static int rch_player(uint32_t p)
         gr = roam_races_nearest(MEM32(setup), me[0], me[2], RRA_RADIUS, &gd);
         if (gr && !gr->opponents)
             return 0;
-        if (!(n = rch_nearby(me, gr ? RCH_AWAY : RCH_NEAR)))
+        if (!(n = rch_nearby(me, RCH_NEAR)))
             return 0;                           /* no one near: the AI race prompt may show */
         /* at a race start point with opponents: a group race of its event (alone if nobody joins) */
         if (gr) {
@@ -1466,6 +1468,7 @@ static int rch_player(uint32_t p)
                 s_rch.race = 1;
             s_rch.t0 = now;
             s_rch.tx = 0;
+            fprintf(stderr, "[CHALLENGE] invite: %d players within 200 m (of %d near)\n", n, s_roam_nseen);
             fprintf(stderr, "[RACE] group: we invite %d player%s to %s (race %08X):", n, n > 1 ? "s" : "", gr->name,
                     (unsigned)s_rch.race);
             for (k = 0; k < n; k++)
@@ -1494,6 +1497,7 @@ static int rch_player(uint32_t p)
             s_rch.race = 1;
         s_rch.t0 = now;
         s_rch.tx = 0;
+        fprintf(stderr, "[CHALLENGE] invite: %d players within 200 m (of %d near)\n", n, s_roam_nseen);
         fprintf(stderr, "[CHALLENGE] we invite %d player%s (race %08X, %d checkpoints, %.1f km):", n, n > 1 ? "s" : "",
                 (unsigned)s_rch.race, s_rch.ncp, s_rch.km);
         for (k = 0; k < n; k++)
@@ -1582,9 +1586,9 @@ static int rch_player(uint32_t p)
                          s_rch.name, s_rch.players);
             else
                 snprintf(text, sizeof text, "%s invites you: group race (%d players)\n%s \xC2\xB7 %s\n%s \xC2\xB7 %d s",
-                         s_rch.name, s_rch.players, d1, d2, speed > RCH_SLOW ? "Slow down to join" : "Press White [Q] to join",
+                         s_rch.name, s_rch.players, d1, d2, speed > RCH_JOIN_SLOW ? "Slow down to join" : "Press White [Q] to join",
                          k > 0 ? k : 0);
-            if (s_rch.st == RCH_INVITED && press && speed <= RCH_SLOW) {
+            if (s_rch.st == RCH_INVITED && press && speed <= RCH_JOIN_SLOW) {
                 s_rch.st = RCH_JOINED;
                 s_rch.tx = 0;
                 fprintf(stderr, "[RACE] group: we join %s's race\n", s_rch.name);
@@ -1595,7 +1599,7 @@ static int rch_player(uint32_t p)
         if (s_rch.st == RCH_JOINED)
             snprintf(text, sizeof text, "Race with %s (%d players)\n%d checkpoints \xC2\xB7 %.1f km\nJoined: waiting for the start",
                      s_rch.name, s_rch.players, s_rch.ncp, s_rch.km);
-        else if (speed > RCH_SLOW)
+        else if (speed > RCH_JOIN_SLOW)
             snprintf(text, sizeof text, "%s invites you to a race (%d players)\n%d checkpoints \xC2\xB7 %.1f km\nSlow down to join \xC2\xB7 %d s",
                      s_rch.name, s_rch.players, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
         else {
