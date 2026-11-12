@@ -58,11 +58,16 @@
  * slot at PlayerPosDir, the opponent slot at the first "Opponent { ... PosDir
  * x y z dx dy dz }" (3.5 m to the +(up x dir) side in 241 of 270 files; one
  * farther than RCH_OPP_M from the player slot, or none: RCH_OPP_W m to that
- * side).  dir is the direction of travel (the loader sub_001D4F20 stores the
- * heading atan2(-dx, -dz); dir points at checkpoint 0 in 739 of 787 files),
- * so it is our car matrix's forward row (+0x28, as rch_grid_pose writes it).
- * Start beacons only: both slots RCH_GRID_W m to each side of where the
- * challenger stood, facing the first beacon.
+ * side).  dir is the direction of travel (the grid's back rows lie behind
+ * it; dir points at checkpoint 0 in 739 of 787 files).  The loader
+ * sub_001D4F20 stores the heading h = atan2(-dx, -dz), and the racer placement
+ * (sub_001CBCA0 -> sub_002C8860, rotation sub_0008C2C0: local +z goes to
+ * (sin h, 0, cos h)) turns the car so that its local +z is -dir: the car's
+ * matrix row +0x28 points backwards (the engine's cars face -z), and
+ * rch_grid_pose writes -dir there (until 2026-11-12 it wrote dir: both cars
+ * stood turned around).  A slot whose dir points away from checkpoint 0
+ * (dot < 0) is turned to face it.  Start beacons only: both slots RCH_GRID_W
+ * m to each side of where the challenger stood, facing the first beacon.
  *
  * Native checkpoints (both racers, each in its own world): the Free Roam
  * cruise's race object [[0x533E24]+4] (vtable 0x46B608) is an mcRaceBase with
@@ -419,6 +424,13 @@ static void rch_slots(const rch_rac *rac)
             s_rch.slot[1][0] += RCH_OPP_W * s_rch.sdir[0][1];    /* up x dir = (dz, 0, -dx) */
             s_rch.slot[1][2] -= RCH_OPP_W * s_rch.sdir[0][0];
         }
+        for (k = 0; k < 2; k++)                 /* guard: a slot facing away from checkpoint 0 is turned around */
+            if (s_rch.ncp > 0 && s_rch.sdir[k][0] * (s_rch.cp[0][0] - s_rch.slot[k][0]) +
+                                 s_rch.sdir[k][1] * (s_rch.cp[0][2] - s_rch.slot[k][2]) < 0.0f) {
+                s_rch.sdir[k][0] = -s_rch.sdir[k][0];
+                s_rch.sdir[k][1] = -s_rch.sdir[k][1];
+                fprintf(stderr, "[CHALLENGE] grid: slot %d's dir pointed away from checkpoint 0: turned\n", k);
+            }
         return;
     }
     f[0] = s_rch.cp[0][0] - s_rch.grid[0];
@@ -961,19 +973,20 @@ static void rch_nat_pass(int k, double el, uint32_t top)
     rch_audio(0x15, top);
 }
 
-/* Our grid slot (rch_slots: challenger slot 0, challenged slot 1), forward (+0x28, the direction of travel) along
- * its dir; the car's own matrix turned there (its handedness kept). */
+/* Our grid slot (rch_slots: challenger slot 0, challenged slot 1) facing its dir: the car's local +z (row +0x28)
+ * is its back, so that row is -dir, as the game's racer placement turns it (sub_0008C2C0 with h = atan2(-dx, -dz));
+ * the car's own matrix turned there (its handedness kept). */
 static void rch_grid_pose(uint32_t mtx, float m[12])
 {
     const float *f = s_rch.sdir[s_rch.host ? 0 : 1], *at = s_rch.slot[s_rch.host ? 0 : 1];
-    float s;
+    float s, b[2] = { -f[0], -f[1] };          /* the +z row: backwards */
     int k;
     for (k = 0; k < 12; k++)
         m[k] = MEMF(mtx + 0x10u + 4u * k);
-    s = m[0] * m[8] - m[2] * m[6] >= 0.0f ? 1.0f : -1.0f;  /* right = s * (up x forward) */
-    m[0] = s * f[1]; m[1] = 0.0f; m[2] = -s * f[0];
+    s = m[0] * m[8] - m[2] * m[6] >= 0.0f ? 1.0f : -1.0f;  /* x row = s * (up x z row) */
+    m[0] = s * b[1]; m[1] = 0.0f; m[2] = -s * b[0];
     m[3] = 0.0f;     m[4] = 1.0f; m[5] = 0.0f;
-    m[6] = f[0];     m[7] = 0.0f; m[8] = f[1];
+    m[6] = b[0];     m[7] = 0.0f; m[8] = b[1];
     m[9] = at[0];
     m[10] = at[1] + 0.5f;
     m[11] = at[2];
@@ -1013,7 +1026,7 @@ static int rch_player(uint32_t p)
     }
     for (i = 0; i < 3; i++) {
         me[i] = MEMF(mtx + 0x34u + 4u * i);
-        fwd[i] = MEMF(mtx + 0x28u + 4u * i);
+        fwd[i] = -MEMF(mtx + 0x28u + 4u * i);  /* row +0x28 is the car's back (rch_grid_pose) */
     }
     if ((coll = rra_coll(veh)) != 0)
         for (i = 0; i < 3; i++)
