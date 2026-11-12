@@ -336,22 +336,51 @@ static uint32_t roam_reg_used(uint32_t *cap)
     return n;
 }
 
+/* The particle manager [0x4D6308] (made by sub_000337A0, 0x408 B): 256
+ * emitter pointers at +4, their count at +0x404 -- right after the array.
+ * Its adds (sub_00033A00, sub_000339A0, sub_00033980) never check the count:
+ * the 257th overwrites the count with the emitter's pointer and every add
+ * after writes an emitter pointer at mgr + 4 * pointer, anywhere. Each car's
+ * effects (sub_001167A0, from the render init sub_000FBA90) add 9 (smoke,
+ * exhaust, ...: +0x18 +0xC +0x10, two sub_00033AD0, +0x14 +0x2C +0x34 +0x38);
+ * its delete removes them (sub_001139C0 -> sub_00033910). The game's own
+ * load (8 cars + the world's) stays far below; 33 cars did not: a 25-player
+ * Free Roam (2026-11-12) built the 27th car at count 256, its first emitter
+ * read back from the wild index (ICALL 0x83F05E2C from 0x00113A88, the effects
+ * reset sub_00113A60), then the wild writes broke the vehicle registry's
+ * objects (hundreds of ICALLs from its walk sub_0035DA80 @0x0035DC7B) and
+ * 'divide by zero'. A new car waits unless count + its cost + a margin for
+ * the game's own runtime adds fit; cost measured on each build. */
+#define ROAM_EMIT_VA   0x004D6308u
+#define ROAM_EMIT_MAX  256u
+#define ROAM_EMIT_KEEP 24u              /* emitters left for the game's own adds (traffic, world effects) */
+static uint32_t s_emit_car = 9u;        /* emitters a car adds (measured, the largest seen) */
+
+static uint32_t roam_emit_count(void)   /* 0 unread */
+{
+    uint32_t m = MEM32(ROAM_EMIT_VA);
+    return online_ram(m) ? MEM32(m + 0x404u) : 0;
+}
+
 static void roam_pool_capacity(const char *when)
 {
     uint32_t cap, used = roam_reg_used(&cap);
     int j, xu = 0;
     for (j = 0; j < ROAM_XCACHES; j++)
         xu += roam_cache_used(s_xcache[j]);
-    fprintf(stderr, "[ROAM] cars: capacity: car cache %d/16, remote car caches %d/%d, vehicle registry %u/%u (%s)\n",
-            roam_cache_used(MEM32(ROAM_CACHE_VA)), xu, ROAM_XCACHES * 16, (unsigned)used, (unsigned)cap, when);
+    fprintf(stderr, "[ROAM] cars: capacity: car cache %d/16, remote car caches %d/%d, vehicle registry %u/%u, particle "
+                    "emitters %u/%u (%u a car) (%s)\n", roam_cache_used(MEM32(ROAM_CACHE_VA)), xu, ROAM_XCACHES * 16,
+            (unsigned)used, (unsigned)cap, (unsigned)roam_emit_count(), ROAM_EMIT_MAX, (unsigned)s_emit_car, when);
 }
 
 /* Entry k can be built: a car cache entry and (a new car; a rebuild deletes
- * its old one first) a registry place. Refused: logged once a cruise. */
+ * its old one first, its emitters too) a registry place and particle
+ * emitters. Refused: logged once a cruise. */
 static int roam_pool_fit(int k, const char *what)
 {
     uint32_t cap, used = roam_reg_used(&cap);
-    if (roam_pool_cache_for(k) && (roam_rc_veh(k) || !cap || used < cap))
+    if (roam_pool_cache_for(k) && (roam_rc_veh(k) ||
+        ((!cap || used < cap) && roam_emit_count() + s_emit_car + ROAM_EMIT_KEEP <= ROAM_EMIT_MAX)))
         return 1;
     if (roam_cars_say(CARS_SAY_CAP)) {
         fprintf(stderr, "[ROAM] cars: %s (entry %d) waits: no car cache entry or vehicle registry place (logged once)\n",
@@ -494,7 +523,7 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
     roam_rc *c = &s_rc[k];
     uint32_t setup = MEM32(ROAM_SETUP_VA), e = setup + ROAM_ENTRY + (uint32_t)k * ROAM_ENTRY_SIZE;
     uint32_t top = (g_esp - 0x400u) & ~0xFu, heap = roam_car_heap(), p = 0, pad = 0xFFFFFFFFu, cfg, veh, res, before, after;
-    uint32_t xc, keepc;
+    uint32_t xc, keepc, em;
     double t0 = roam_now();
     if (!online_ram(setup) || !online_ram(heap) || !roam_bslots())
         return 0;
@@ -534,7 +563,10 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
     before = roam_heap_log(heap, NULL);
     keepc = MEM32(ROAM_CACHE_VA);
     MEM32(ROAM_CACHE_VA) = xc;                  /* a standalone car's entry from our cache (a slot's: the game's) */
+    em = roam_emit_count();                     /* the old car's emitters gone: what this build adds */
     veh = roam_car_build(cfg, c->bslot, pad, top, &res);
+    if (veh && em && roam_emit_count() > em && roam_emit_count() - em > s_emit_car && roam_emit_count() - em < 64u)
+        s_emit_car = roam_emit_count() - em;
     if (!veh && p && roam_cfg_name(c->look)) {  /* the slot's old car is gone: built again, else it stays carless all cruise */
         roam_cfg_set(cfg, c->look);
         if ((veh = roam_car_build(cfg, c->bslot, pad, top, &res)))
@@ -909,6 +941,10 @@ static void roam_pool_grow(double now)
         s_nrc++;
     if (roam_rc_make(k, blob, car, 1)) {
         s_pool_full = 0;                        /* the newcomer pick gives it to its peer next frame */
+        /* one car per ask: the next net pass asks again if still needed. While no pass runs (pause menu: the
+         * player update stops, this queue does not) a stale ask built a car every 0.25 s for nobody (2026-11-12:
+         * 29 unassigned cars in 8 s, 33 in all, the particle manager overflowed) */
+        s_pool_need = 0;
         return;
     }
     /* failed: the nearest rule takes over; no full build again every 0.25 s */
