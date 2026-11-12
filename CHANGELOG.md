@@ -54,15 +54,15 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Stability:** Fixed two causes of the game freezing for good; iPhones and iPads start with less memory so tabs stop closing.
 - **Graphics:** Phones whose GPU froze with WebGPU (Mali, older Adreno) use WebGL, and any device where WebGPU failed uses WebGL from its next start.
 
-## 2026-11-12 (9ce8569)
+## 2026-11-12 (8de7b61)
 
 - **Game:** Drift mode (Settings: Off, On or Strong): tap the handbrake, or lift off the throttle with the wheel turned, and the back steps out; the throttle holds the angle and counter-steering catches it. Works on every car in Free Roam, races and career; other players see your drift. A Drift button in the top-right bar switches it.
 - **Online:** Free Roam races pay off: 1st, 2nd and 3rd win $25,000, $12,000 and $6,000, and wins unlock Nitro, Slingshot, Burnout, Two-wheel driving, In-air control, Zone/Agro/Roar and the Pearlescent and Color-shift paints. Kept in your Online profile.
+- **Free Roam:** Map races now have their AI opponents, and players at the same start point can race them together: press White to invite the others.
 - **Free Roam:** Street races for up to 8 players: stop near others, press White (Q, or Flash on touch) to invite them all, and each joins with White within 10 seconds. The result lists every racer's place and time.
 - **Free Roam:** An Online progress panel beside the players list on the full map shows races won, your latest unlock and the next one.
 - **Page:** A Map button next to Settings and Drift opens and closes the full map, with or without touch controls.
 - **Page:** More Settings change without a restart (resolution, filtering, 60 fps, Players shown, keyboard, touch controls), in a new layout with keyboard support.
 - **Page:** After a new version is published, online players get a "reloading in 60 s" box; offline players get a dismissable notice.
 - **Free Roam:** Street race cars now face the course, and passed checkpoints fade as in the game's own races.
-- **Free Roam:** Pausing or opening the full map no longer removes nearby players' cars.
-- **Game:** Drift mode no longer makes the car faster while sliding.
+- **Free Roam:** Nearby players show as cars far more reliably: pausing or opening the full map no longer removes their cars, and dropped links no longer leave them as dimmed arrows.
