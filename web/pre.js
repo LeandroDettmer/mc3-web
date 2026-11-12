@@ -315,19 +315,25 @@ Module['mc3TouchPad'] = function (words) {
     if (!open) { if (pel) pel.style.display = 'none'; return; }
     var roam = (list || []).filter(function (p) { return p && p.mode == 'roam'; }), mine = [], other = [];
     roam.forEach(function (p) { (p.city === here ? mine : other).push(p); });
-    var key = here + '|' + roam.map(function (p) { return p.name + '\u0001' + p.city; }).join('\u0002');
+    var key = here + '|' + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : ''); }).join('\u0002');
     if (show && key !== shown) {
       shown = key;
       el.textContent = '';
-      el.append(row('Free Roam · ' + roam.length + ' online', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
+      el.append(row('Online · ' + roam.length + ' playing', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
       var n = 0;
-      if (mine.length) el.append(row(city(here), 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
-      mine.forEach(function (p) {
-        if (n++ < ROWS) el.append(row(p.name, String(p.name).toLowerCase() == me ? 'color:#7fd4ff' : ''));
+      // our city split by mode: the switch's p.career = a career cruise with Online career on ('(racing)' needs the
+      // roam bits, which the push lacks)
+      [['Free Roam', false], ['Online career', true]].forEach(function (g) {
+        var grp = mine.filter(function (p) { return !!p.career == g[1]; });
+        if (!grp.length) return;
+        el.append(row(city(here) + ' · ' + g[0] + ' (' + grp.length + ')', 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
+        grp.forEach(function (p) {
+          if (n++ < ROWS) el.append(row(p.name, String(p.name).toLowerCase() == me ? 'color:#7fd4ff' : ''));
+        });
       });
       if (other.length) el.append(row('Other cities', 'color:#ffd24a;font-size:.85em;margin-top:.35em'));
       other.forEach(function (p) {
-        if (n++ < ROWS) el.append(row(p.name + ' · ' + city(p.city), 'opacity:.75'));
+        if (n++ < ROWS) el.append(row(p.name + ' · ' + city(p.city) + (p.career ? ' (career)' : ''), 'opacity:.75'));
       });
       if (n > ROWS) el.append(row('+' + (n - ROWS) + ' more', 'opacity:.6;font-size:.85em'));
       var more = lan.players.more | 0;   // beyond the switch's own list

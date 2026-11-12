@@ -307,6 +307,12 @@ test('players: pushed to subscribers on change, at most every WHO_MS; modes, cit
   // nothing changed: nothing sent
   await b.say({ t: 'ping', id: 2 }, now += 2000);
   assert.equal(last(a.ws.texts(), 'players'), undefined);
+  // Online career: a roam player whose page says 'career' is listed with career: true; back to Free Roam drops it
+  await b.say({ t: 'where', w: 'career' }, now += 2000);
+  assert.deepEqual(last(a.ws.texts(), 'players').list[0], { name: 'Bo', mode: 'roam', city: 2, career: true });
+  await b.say({ t: 'where', w: 'arcade' }, now += 2000);
+  await b.say({ t: 'ping', id: 9 }, now += 100);
+  assert.deepEqual(last(a.ws.texts(), 'players').list[0], { name: 'Bo', mode: 'roam', city: 2 });
   // a race room
   await b.say({ t: 'create', name: 'Night' }, now += 2000);
   const c = await named('Cy');

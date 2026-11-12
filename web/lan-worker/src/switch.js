@@ -34,7 +34,8 @@
 // Who is online (the start page's "Playing now" box and its View players list): {"t":"players","sub":1} subscribes;
 // the subscriber gets the list at once, then again whenever it changed (joins, leaves, renames, mode or city), at most
 // every WHO_MS: {"t":"players", online, freeRoam, races (as GET /lan/stats), modes: {roam, race, menu},
-// list: [{name, mode: 'roam'|'race'|'menu', city?: free-roam room id, race?: room name}] (at most PLAYERS_MAX, free
+// list: [{name, mode: 'roam'|'race'|'menu', city?: free-roam room id, career?: true (a 'roam' player whose page says
+// 'career': Online career, not Free Roam), race?: room name}] (at most PLAYERS_MAX, free
 // roam by city first, then races, then the menus, by name), more: the players beyond the list}. 'menu' is everybody
 // else. The public push stays this coarse on purpose: what each page really does (below) is the owner's, GET /lan/activity.
 //
@@ -237,7 +238,7 @@ export class Switch extends Lobby {
     for (const h of this.rooms()) races.set(h.a.host.id, h.a.host.name);
     const all = [...this.clients.values()].map(({ a }) => {
       const e = { name: String(a.name).slice(0, NICK), mode: 'menu' };
-      if (roam.has(a.vip)) { e.mode = 'roam'; e.city = roam.get(a.vip); }
+      if (roam.has(a.vip)) { e.mode = 'roam'; e.city = roam.get(a.vip); if (a.w === 'career') e.career = true; }   // Online career: cruising its career
       else if (a.room) { e.mode = 'race'; e.race = races.get(a.room) ?? ''; }
       modes[e.mode]++;
       return e;

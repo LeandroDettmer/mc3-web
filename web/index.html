@@ -2234,7 +2234,7 @@
   function playersList(s) {
     const n = v => Math.max(0, Math.floor(Number(v)) || 0), groups = new Map(), out = [];
     for (const p of s.list) {
-      const k = p.mode === 'roam' ? 'Free Roam: ' + (CITIES[p.city] || 'City ' + n(p.city)) : p.mode === 'race' ? 'Race room: ' + (p.race || 'unnamed') : 'Menus, career, online races';
+      const k = p.mode === 'roam' ? (p.career ? 'Online career: ' : 'Free Roam: ') + (CITIES[p.city] || 'City ' + n(p.city)) : p.mode === 'race' ? 'Race room: ' + (p.race || 'unnamed') : 'Menus, career, online races';
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k).push(p.name);
     }
