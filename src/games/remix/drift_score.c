@@ -6,10 +6,11 @@
  *
  * A drift: our car over DS_BETA deg of slip above DS_SPEED, on the ground
  * (not DS_AIR s in free fall), in a cruise (race type [[0x53F2E0]+0x18] == 0:
- * never in a race). Points/s = DS_K x clamp(slip, 10, 60) x speed (m/s):
- * 35 deg at 80 km/h ~460/s, a good 5 s drift ~2,300. It ends after DS_GRACE s
+ * never in a race). Points/s = DS_K x clamp(slip, 20, 60) x speed (m/s):
+ * 35 deg at 80 km/h ~233/s, a good 5 s drift ~1,000. It ends after DS_GRACE s
  * under the threshold (or at once when the car is stopped) and is banked x the
- * multiplier into the total (under DS_MIN points it is dropped quietly). A
+ * multiplier into the total, only if it spent DS_TIME s above the threshold and
+ * made DS_MIN points (else dropped quietly, no popup, no live line). A
  * drift that starts within DS_CHAIN s of the last bank chains: the chain's
  * points raise the multiplier one step per DS_STEP, x1..x5. Only a hit (wall,
  * car, prop: drift.c's test, the velocity changing in the ground plane faster
@@ -28,15 +29,16 @@
  * the car moves (paused: stale, the page hides it); web/pre.js shows it on
  * the picture's left, above the race prompt box and the minimap. '[DRIFT] score: ...' per bank, lost drift and payout. */
 
-#define DS_BETA     10.0f           /* deg of slip: a drift */
-#define DS_SPEED    (30.0f / 3.6f)  /* m/s */
-#define DS_K        0.6f            /* points/s = DS_K x clamp(beta, 10, 60) x speed (m/s) */
+#define DS_BETA     20.0f           /* deg of slip: a drift */
+#define DS_SPEED    (50.0f / 3.6f)  /* m/s */
+#define DS_K        0.3f            /* points/s = DS_K x clamp(beta, 20, 60) x speed (m/s) */
 #define DS_GRACE    1.0f            /* s under the threshold before the drift is banked */
 #define DS_AIR      0.1f            /* s in free fall (vertical speed falling > 7 m/s^2): in the air */
 #define DS_CHAIN    1.5f            /* s after a bank for the next drift to chain */
-#define DS_STEP     2500.0f         /* chain points per multiplier step */
+#define DS_TIME     1.5f            /* s above the threshold for a drift to count */
+#define DS_STEP     5000.0f         /* chain points per multiplier step */
 #define DS_MULT     5
-#define DS_MIN      100u            /* points: smaller drifts are dropped (ordinary cornering) */
+#define DS_MIN      300u            /* points: smaller drifts are dropped (ordinary cornering) */
 #define DS_PAY_PTS  10000u
 #define DS_PAY      10000u          /* $ */
 #define DS_SHOW     2.0f            /* s an event (banked, lost, payout) shows */
@@ -44,7 +46,7 @@
 enum { DS_NONE, DS_BANKED, DS_LOST };
 static struct {
     int on;                         /* drifting (the grace time included) */
-    float pend, chain, below, since, air, vy;
+    float pend, chain, below, dur, since, air, vy;
     int what;                       /* the last event, shown for show s */
     float show, pay_show;
     uint32_t got, paid;
@@ -69,7 +71,7 @@ static void ds_bank(int money)
     int mult = ds_mult();
     uint32_t got = (uint32_t)(s_ds.pend * (float)mult + 0.5f), m = money ? online_money_va() : 0, n;
     s_ds.on = 0;
-    if (got < DS_MIN)
+    if (got < DS_MIN || s_ds.dur < DS_TIME)
         return;
     s_ds.since = 0;
     s_ds.what = DS_BANKED;
@@ -130,11 +132,12 @@ static void drift_score(int car, float beta, float s, float vy, float dt, const 
         float pts = DS_K * (beta > 60.0f ? 60.0f : beta) * s * dt;
         if (!s_ds.on) {
             s_ds.on = 1;
-            s_ds.pend = 0;
+            s_ds.pend = s_ds.dur = 0;
             if (s_ds.since > DS_CHAIN)
                 s_ds.chain = 0;
         }
         s_ds.below = 0;
+        s_ds.dur += dt;
         s_ds.pend += pts;
         s_ds.chain += pts;
     } else if (s_ds.on && ((s_ds.below += dt) >= DS_GRACE || s < 1.0f))
@@ -142,7 +145,7 @@ static void drift_score(int car, float beta, float s, float vy, float dt, const 
 
     /* the HUD: the live drift, else the last event; then the progress */
     mult = ds_mult();
-    if (s_ds.on) {
+    if (s_ds.on && s_ds.dur >= DS_TIME) {
         op_dollars(a, sizeof a, (uint32_t)s_ds.pend);
         snprintf(s_ds_box.text, sizeof s_ds_box.text, "DRIFT %s x%d", a, mult);
     } else if (s_ds.show > 0 && s_ds.what == DS_BANKED) {

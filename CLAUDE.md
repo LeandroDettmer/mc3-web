@@ -1159,9 +1159,12 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   (traffic TireGrip), sub_001CAEF0 (AI).
   Drift scoring (2026-11-12, untested in game; src/games/remix/
   drift_score.c, fed by drift_step with Drift mode on or off): a drift =
-  slip > 10 deg above 30 km/h, not in free fall, race type 0 only; points/s
-  = 0.6 x clamp(slip, 10, 60) x m/s; banked x mult after 1 s under (or
-  stopped), mult x1..x5 per 2,500 chain points (next drift within 1.5 s);
+  slip > 20 deg above 50 km/h, not in free fall, race type 0 only; points/s
+  = 0.3 x clamp(slip, 20, 60) x m/s; banked x mult after 1 s under (or
+  stopped) only if it lasted >= 1.5 s above the threshold and made >= 300
+  points (else nothing, no popup; retuned 2026-11-12, owner: too easy; a
+  good 5 s drift at 35 deg / 80 km/h ~1,000), mult x1..x5 per 5,000 chain
+  points (next drift within 1.5 s);
   only a hit loses it (fix untested in game: the first rules, speed lost
   > 15 m/s^2 or a spin-out, fired mid-drift with no hit: a slide
   decelerates that hard; a spin now just banks): drift.c's test, no game
@@ -1169,7 +1172,7 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   ground plane (up row removed: landings) > 60 m/s^2 in one frame or
   > 45 over two (+20 braking/handbrake) and above the change along up;
   the speed give-back skips the same frames; '[DRIFT] lost: hit, <dv,
-  accel, km/h, yaw rate, slip, brake>' per loss. Under 100 points dropped.
+  accel, km/h, yaw rate, slip, brake>' per loss. Under 300 points or 1.5 s dropped.
   Online (browser): each 10,000 of the lifetime total
   (profile.bin v4, s_on_drift) pays $10,000 into +0xACC and saves. HUD
   drift_hud_box -> web/pre.js on the HUD's left edge at 36% height (payout

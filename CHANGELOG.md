@@ -57,10 +57,10 @@ internals. The page header shows the first release (9 November 2026); each later
 ## 2026-11-12 (f5b20be)
 
 - **Game:** Drift mode (Settings: Off, On or Strong): tap the handbrake, or lift off the throttle with the wheel turned, and the back steps out; the throttle holds the angle and counter-steering catches it. Works on every car in Free Roam, races and career; other players see your drift. A Drift button in the top-right bar switches it.
-- **Game:** Drift points, with Drift mode on or off: slide any car for points (more for a wider angle and more speed), chain drifts for up to x5, and hitting a wall or spinning out loses the drift. In Free Roam Online every 10,000 points pays $10,000, kept in your Online profile.
+- **Game:** Drift points, with Drift mode on or off: slide hard (20 degrees or more, 50 km/h or more) for at least 1.5 seconds to bank points (more for a wider angle and more speed), chain drifts for up to x5, and hitting a wall or spinning out loses the drift. In Free Roam Online every 10,000 points pays $10,000, kept in your Online profile.
 - **Online:** Free Roam races pay off: 1st, 2nd and 3rd win $25,000, $12,000 and $6,000, and wins unlock Nitro, Slingshot, Burnout, Two-wheel driving, In-air control, Zone/Agro/Roar and the Pearlescent and Color-shift paints. Kept in your Online profile.
 - **Free Roam:** Map races now have their AI opponents, and players at the same start point can race them together: press White to invite the others.
-- **Free Roam:** Street races for up to 8 players: stop near others, press White (Q, or Flash on touch) to invite them all, and each joins with White within 10 seconds. The result lists every racer's place and time.
+- **Free Roam:** Street races for up to 8 players: press White (Q, or Flash on touch) to invite every driving player within 200 m (the 7 nearest), and each joins with White within 10 seconds, even while cruising. The result lists every racer's place and time.
 - **Free Roam:** An Online progress panel beside the players list on the full map shows races won, your latest unlock and the next one.
 - **Page:** A Map button next to Settings and Drift opens and closes the full map, with or without touch controls.
 - **Page:** More Settings change without a restart (resolution, filtering, 60 fps, Players shown, keyboard, touch controls), in a new layout with keyboard support.
