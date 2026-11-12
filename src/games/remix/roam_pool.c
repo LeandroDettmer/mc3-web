@@ -46,10 +46,12 @@
  * sub_00020EC0, roam_pool_pass) may end the cruise inside that pass, and the
  * player manager's delete (sub_002BD7F0, no override) frees the world with
  * our cars in it: standalone cars are dropped first and the slots put back in
- * the physics level (the game's delete removes them from it). If the cruise
- * goes on (a pause-menu request, a garage door), the standalone cars come
- * back one per ROAM_CARS_GAP s from 1 s later, each build a short freeze:
- * kept, the cheaper way to never leave a car the game's teardown cannot see.
+ * the physics level (the game's delete removes them from it). Pause and
+ * resume requests (1..4: pause menu, full map) never end the cruise and are
+ * left alone (roam_pool_pause_only, 2026-11-12). If the cruise goes on after
+ * another request, the standalone cars come back one per ROAM_CARS_GAP s from
+ * 1 s later, each build a short freeze: kept, the cheaper way to never leave
+ * a car the game's teardown cannot see.
  *
  * '[ROAM] pool: N peers, C cars (S slots + T standalone), D dimmed, heap F KB'
  * every 30 s at most, when the counts change. */
@@ -72,11 +74,13 @@ typedef struct roam_rc {
     uint8_t  ctl[ROAM_CTL], has_ctl;    /* has_ctl 0: the peer sends no inputs */
     uint8_t  here, away, live, want;    /* linked now; in its garage/loading/race; posed; rebuild with the peer's look */
     double   lost;                      /* when its peer dropped out */
+    double   wait;                      /* no rebuild before (one refused for heap room) */
     uint32_t said;                      /* RC_SAY_* logged */
     roam_tyre tyre;
 } roam_rc;
 
-enum { RC_SAY_BADREC = 1, RC_SAY_LOOK = 2, RC_SAY_READ = 4, RC_SAY_OFF = 8 };
+enum { RC_SAY_BADREC = 1, RC_SAY_LOOK = 2, RC_SAY_READ = 4, RC_SAY_OFF = 8, RC_SAY_ROOM = 16 };
+#define ROAM_ROOM_RETRY 10.0            /* s: a rebuild refused for heap room waits; new cars and the nearest rule go first */
 
 static roam_rc s_rc[ROAM_RC_MAX];
 static uint32_t s_rc_cfg[ROAM_RC_MAX];  /* each standalone entry's CarCfg (contiguous window, made once) */
@@ -370,6 +374,14 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
     }
     before = roam_heap_log(heap, NULL);
     veh = roam_car_build(cfg, c->bslot, pad, top, &res);
+    if (!veh && p && roam_cfg_name(c->look)) {  /* the slot's old car is gone: built again, else it stays carless all cruise */
+        roam_cfg_set(cfg, c->look);
+        if ((veh = roam_car_build(cfg, c->bslot, pad, top, &res)))
+            fprintf(stderr, "[ROAM] cars: slot %d: %s not built; its old car (%s) built again, it stands in\n", k,
+                    roam_cfg_name(look) ? roam_cfg_name(look) : "?", roam_cfg_name(c->look));
+        look = c->look;
+        car = c->car;
+    }
     after = roam_heap_log(heap, NULL);
     if (mid)
         roam_build_ctx(0);
@@ -388,9 +400,11 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
     if (after < before)
         roam_pool_cost_note(car, before - after);
     c->car = car;
-    memcpy(c->look, look, ROAM_CFG_SIZE);
+    if (look != c->look) {
+        memcpy(c->look, look, ROAM_CFG_SIZE);
+        c->gen = 0;                             /* its peer's record compared again with the new car */
+    }                                           /* old car back: gen kept, no rebuild until the peer's next record */
     memset(c->look, 0, 4);
-    c->gen = 0;                                 /* its peer's record compared again with the new car */
     c->want = 0;
     c->said = 0;
     c->pveh = veh;
@@ -458,6 +472,7 @@ static void roam_rc_give(int k, const roam_peer *pp, const char *why)
     roam_rc *c = &s_rc[k];
     c->id = pp->id;
     c->live = c->away = c->want = 0;
+    c->wait = 0;
     c->gen = 0;
     c->said = 0;
     snprintf(c->name, sizeof c->name, "%s", pp->name);
@@ -642,9 +657,18 @@ static void roam_pool_rebuild(int k, double now)
         return;
     }
     if (!roam_pool_room(car, roam_pool_cost(c->car), "a rebuild")) {
-        s_pool_next = now + 2.0;
+        /* the old car stands in; new cars and the nearest rule are not held behind it (it was retried every 2 s
+         * before them, so a full heap gave no new car and never set s_pool_full) */
+        if (roam_rc_say(c, RC_SAY_ROOM))
+            fprintf(stderr, "[ROAM] %s %d: no heap room for %s's car %s: the old car stands in, tried again every "
+                            "%.0f s\n", roam_rc_slot(k) ? "slot" : "car", k, c->name,
+                    roam_cfg_name(blob) ? roam_cfg_name(blob) : "?", ROAM_ROOM_RETRY);
+        c->wait = now + ROAM_ROOM_RETRY;
+        s_pool_full = 1;
+        s_pool_next = now + ROAM_CARS_GAP;
         return;
     }
+    c->said &= ~(uint32_t)RC_SAY_ROOM;
     if (!roam_rc_make(k, blob, car, 1)) {
         fprintf(stderr, "[ROAM] %s %d: rebuild failed (%s's car %s)\n", roam_rc_slot(k) ? "slot" : "car", k, c->name,
                 roam_cfg_name(blob));
@@ -656,6 +680,7 @@ static void roam_pool_rebuild(int k, double now)
 /* A new standalone car for s_pool_need: a dropped entry first, else a new one. */
 static void roam_pool_grow(double now)
 {
+    static double said = -1e9;                  /* the last failed build logged */
     uint8_t blob[ROAM_CFG_SIZE + 4];
     int32_t car;
     int k;
@@ -683,8 +708,18 @@ static void roam_pool_grow(double now)
     s_rc[k].car = -1;
     if (k == s_nrc)
         s_nrc++;
-    if (roam_rc_make(k, blob, car, 1))
+    if (roam_rc_make(k, blob, car, 1)) {
         s_pool_full = 0;                        /* the newcomer pick gives it to its peer next frame */
+        return;
+    }
+    /* failed: the nearest rule takes over; no full build again every 0.25 s */
+    if (now - said >= 30.0) {                   /* 30 s apart at most */
+        said = now;
+        fprintf(stderr, "[ROAM] cars: a new car for peer %08X (%s) not built: the nearest get the cars, tried again "
+                        "in 2 s\n", (unsigned)s_pool_need, roam_cfg_name(blob) ? roam_cfg_name(blob) : "?");
+    }
+    s_pool_full = 1;
+    s_pool_next = now + 2.0;
 }
 
 static void roam_pool_job(double now)
@@ -692,7 +727,7 @@ static void roam_pool_job(double now)
     int k;
     if (s_pool_hold || s_roam_fake || now < s_pool_next || roam_pool_pagein(now))
         return;
-    for (k = 1; k < s_nrc && !(s_rc[k].want && s_rc[k].id && s_rc[k].here && roam_rc_veh(k)); k++)
+    for (k = 1; k < s_nrc && !(s_rc[k].want && now >= s_rc[k].wait && s_rc[k].id && s_rc[k].here && roam_rc_veh(k)); k++)
         ;
     if (k < s_nrc)
         roam_pool_rebuild(k, now);
@@ -924,6 +959,20 @@ static void roam_pool_frame(void)
  * after): a queued state request may end the cruise inside it (see the head
  * comment). Builds wait until the queue is empty and the state is the
  * cruise's again. */
+/* Every queued request (ring of 10 at obj+0xC, read index +0x38, count +0x3C;
+ * sub_00020E40) is 1..4: pause and resume. Their handlers (sub_00020AF0 /
+ * sub_00020B70 / sub_00020BE0, request 4 inline) only set the pause flags
+ * (+8/+9/+0xA) and call each player's pause methods and sub_002BDB10; none
+ * deletes the player manager, so the cruise goes on with our cars in it. */
+static int roam_pool_pause_only(uint32_t obj)
+{
+    uint32_t n = MEM32(obj + 0x3Cu), head = MEM32(obj + 0x38u), i, r;
+    for (i = 0; i < n && i < 10u; i++)
+        if ((r = MEM32(obj + 0xCu + 4u * ((head + 1u + i) % 10u))) < 1u || r > 4u)
+            return 0;
+    return n <= 10u;
+}
+
 static void roam_pool_pass(uint32_t obj, int after)
 {
     static uint32_t state;
@@ -933,6 +982,13 @@ static void roam_pool_pass(uint32_t obj, int after)
     if (!after) {
         if (!MEM32(obj + 0x3Cu) || !online_ram(MEM32(ROAM_PM_VA)))
             return;
+        if (roam_pool_pause_only(obj)) {        /* pause menu, full map: cars kept, no rebuild after the resume */
+            static int said;
+            if (!said++)
+                fprintf(stderr, "[ROAM] cars: a pause/resume request (%u): remote cars kept (logged once)\n",
+                        (unsigned)MEM32(obj + 0xCu + 4u * ((MEM32(obj + 0x38u) + 1u) % 10u)));
+            return;
+        }
         for (k = 1; k <= s_roam_slots; k++)     /* parked slots back in: the game's delete expects them there */
             roam_rc_phys(&s_rc[k], roam_rc_veh(k), 1);
         for (k = s_roam_slots + 1; k < s_nrc; k++)
@@ -944,8 +1000,9 @@ static void roam_pool_pass(uint32_t obj, int after)
             s_rc[k].id = 0;
         if (n) {
             state = MEM32(obj + 4u);
-            fprintf(stderr, "[ROAM] cars: %d standalone car%s removed (a state request: the cruise may end)\n", n,
-                    n == 1 ? "" : "s");
+            fprintf(stderr, "[ROAM] cars: %d standalone car%s removed (state request %u: the cruise may end; their "
+                            "peers have no car until the rebuilds)\n", n, n == 1 ? "" : "s",
+                    (unsigned)MEM32(obj + 0xCu + 4u * ((MEM32(obj + 0x38u) + 1u) % 10u)));
         }
         s_pool_hold = 1;
         return;

@@ -551,7 +551,12 @@ generated files when the lift inputs did not change.
   (hidden, out of the physics level, 30 km off). Nearest gets a car: while
   no car can be built (count or heap), the nearest driving peer without one
   takes the farthest holder's (away = farthest) once 50 m nearer for 3 s;
-  '[ROAM] nearest: ...'. Our pose and status go out in every Free Roam
+  '[ROAM] nearest: ...'. Failures (2026-11-12, untested in game): a
+  rebuild refused for heap room keeps the old car, waits 10 s and sets
+  the pool full (it was retried every 2 s ahead of new cars, so a full
+  phone never built one nor ran the nearest rule); a failed new car sets
+  it full too (was a whole build every 0.25 s); a slot whose new car
+  fails after its old one was deleted builds the old one again. Our pose and status go out in every Free Roam
   cruise, with 0 remote slots too (s_roam_cruise; a low-heap phone used to
   send nothing, the others never saw it). '[ROAM] pool: N peers, C cars (S
   slots + T standalone), D dimmed, heap F KB' every 30 s at most, when it
@@ -570,7 +575,10 @@ generated files when the lift inputs did not change.
   '[ROAM] cars heap: ...'. Teardown: the
   state pass (sub_00020EC0) removes the standalone cars whenever a state
   request is queued in the cruise (the player manager's delete has no
-  override); a cruise that goes on rebuilds them one per 0.25 s from 1 s
+  override), but not for requests 1-4 (pause and resume: pause menu, full
+  map; their handlers sub_00020AF0/B70/BE0 only set pause flags and call
+  player methods; until 2026-11-12, untested in game, every pause dimmed
+  the peers beyond the slots); a cruise that goes on rebuilds them one per 0.25 s from 1 s
   later, each a short freeze (kept: safe over cheap).
   Open: hub-distributed world settings, names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
