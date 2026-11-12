@@ -650,7 +650,7 @@
     { group: 'Performance' },
     { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL. Firefox always uses WebGL (its WebGPU shows a black screen). Auto also uses WebGL on GPUs whose WebGPU froze the game (Mali, Adreno 600 and older, Intel HD/UHD 4xx-6xx) and on a device where WebGPU froze or failed before; WebGPU here forces it (and forgets the failure).',
       opts: [['', 'Auto (default)'], ['webgpu', 'WebGPU'], ['webgl', 'WebGL']] },
-    { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60. Changes from the next drive or race.',
+    { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60. Changes live.',
       opts: [['', 'Off (default)'], ['1', 'On']] },
     { key: 'RECOMP_RAM_MB', label: 'Game memory', help: 'The console\'s RAM. 128 MB (like an Xbox devkit) gives the game a 95 MB heap instead of 47 MB: room for every car online, no "heap overrun" in a full Free Roam. Auto: 128 MB on a PC, 64 MB in low-memory mode.',
       opts: [['', 'Auto (default)'], ['64', '64 MB'], ['128', '128 MB']] },

@@ -2678,8 +2678,9 @@ static void fps60_step(void)
         const char *e = getenv("MC3_60FPS");
         env = e && e[0] == '1';
     }
-    /* taken outside a drive or race only: a live change applies from the next one */
-    if (on < 0 || (st != 2 && st != 3 && (l ? l == 2 : env) != on)) {
+    /* a live change applies at once, mid-drive too (the step is the only thing it switches; was next drive only:
+     * Free Roam never leaves states 2/3, so it stayed at 30) */
+    if (on < 0 || (l ? l == 2 : env) != on) {
         on = l ? l == 2 : env;
         if (!on && halved != 0.0f) {            /* off: the 1/30 back, as on leaving states 2/3 */
             if (f == halved)

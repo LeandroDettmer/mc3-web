@@ -478,7 +478,11 @@ generated files when the lift inputs did not change.
   untested in game): both cars go to the race's own start grid (2026-11-11,
   untested: the .rac's PlayerPosDir for the challenger, its first Opponent
   PosDir for the challenged, facing the .rac's dir; the course runs from
-  checkpoint 0; ASK v4, the challenged reads the .rac itself; start beacons
+  checkpoint 0; the car matrix's row +0x28 is the car's back, not its front
+  (the racer placement sub_001CBCA0 -> sub_002C8860 turns local +z to
+  (sin h, cos h), h = atan2(-dx, -dz), i.e. -dir), so that row gets -dir:
+  until 2026-11-12 (untested in game) both cars stood turned around; a slot
+  whose dir points away from checkpoint 0 is turned; ASK v4, the challenged reads the .rac itself; start beacons
   only: 2.5 m to each side of the challenger) and are held there for the 3 s
   countdown;
   the checkpoints are the game's own: the Free Roam cruise's race object
@@ -617,7 +621,7 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   use, s_scale_gen, canvas height re-set), RECOMP_GL_ANISO (in the sampler
   key: new samplers), RECOMP_GL_MIPS 1/2 (next frame: every cached texture
   freed and uploaded again); mc3_live_box (recomp_manual.c): MC3_60FPS
-  1/2 (taken outside states 2/3 only: from the next drive or race),
+  1/2 (applied at once, mid-drive too; was next drive only, so Free Roam stayed at 30),
   MC3_ROAM_CARS (-1 auto; roam_pool_net parks the farthest holders over it
   and gives newcomers no car while it is reached; raising builds new cars
   only up to the vehicle registry sized at the cruise's load; the hub's K
