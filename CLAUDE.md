@@ -208,7 +208,20 @@ generated files when the lift inputs did not change.
   browser's estimate; the page's predownload already takes every file); 15 s after boot, one block at a time, only after 300 ms
   without a game read on the network; '[WEB] prefetch: ...' lines. A game
   read that continues its file into a new block starts the next 2 blocks
-  (readahead, '[WEB] readahead: ...' once per file). Emscripten's own WASMFS fetch
+  (readahead, '[WEB] readahead: ...' once per file). Music track changes
+  (2026-11-11, untested in a browser): every disc read waits under the guest
+  lock; a change reads a random entry of mx.xwb (135, shuffled) from its
+  start in 352 KB packets, and players' logs showed 0.5-2.5 s freezes per
+  change on a cold cache (one at the start, one when a packet crossed into
+  the next 1 MiB block). Now the fill fetches, before anything else, the
+  blocks holding each entry's first 704 KB (parsed from the bank's XACT v3
+  table in block 0: 206 MiB), and every .xwb read starts the readahead (a
+  jump to a new track too). Chrome incognito: estimate() says ~10 GiB
+  (Chrome 133+), the real quota is far smaller, so OPFS writes fail and
+  the cache turns off for the session; then those track-start blocks are
+  kept in memory (pinned, ~206 MiB JS, not below deviceMemory 8; '[WEB]
+  prefetch: no disc cache: the music's track starts ... kept in memory').
+  Emscripten's own WASMFS fetch
   backend left stale data across chunks, hence our backend.
 - **Input:** SDL keyboard/Gamepad on the GL thread; a key tap is held at
   least 120 ms (a down+up in one rAF pump was lost by the menus).

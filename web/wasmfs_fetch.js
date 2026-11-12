@@ -37,10 +37,22 @@
  * then fetches its block alone); the blocks already in are kept. Only when
  * the cache is on. Log lines '[WEB] prefetch: ...'.
  *
+ * Music track starts first (2026-11-11): every disc read waits under the
+ * guest lock, and a track change reads a random track of mx.xwb (135 entries,
+ * shuffled) from its start, 352 KB packets: on a cold cache each change froze
+ * the game 0.5-2.5 s (players' logs). Before anything else the fill fetches
+ * the blocks holding the first HEAD_BYTES of every entry (its XACT table, in
+ * block 0; ~206 MiB). Where the cache was meant to be on but OPFS refused it
+ * or ran out of room (a Chrome incognito tab: estimate() reports ~10 GiB, the
+ * real quota is far smaller), those blocks are kept in memory for the session
+ * instead (`pinned`, never evicted; not below 8 GB of device memory).
+ *
  * Readahead: a game read that goes on where its file's last read ended, into
  * a new block, also starts the next READAHEAD blocks not held yet (memory or
  * OPFS) in the background, one request; the game's later read of one joins
- * its fetch (inflight) or finds it in memory. '[WEB] readahead: <file> ...'
+ * its fetch (inflight) or finds it in memory. A streamed sound bank (.xwb)
+ * does so on every read, a jump to a new track included, so the packet that
+ * crosses into the next block finds it. '[WEB] readahead: <file> ...'
  * once a file. A game read of several blocks fetches each run of missing ones
  * in one request; a read of a file of at most SMALL bytes fetches all of it.
  *
@@ -90,6 +102,7 @@ addToLibrary({
     const OPEN_FILES = webkit || MEM_BYTES < (48 << 20) ? 16 : 128;
     const mem = new Map();          // "<key>#<block>" -> Uint8Array, least recently used first
     let memBytes = 0;
+    const pinned = new Map();       // the same, kept for the session: music track starts without OPFS (pinHeads)
     const inflight = new Map();     // the same, while being read
     const files = {};               // WASMFS file -> Promise<{url, size, key} | {url, size, data}>
     const manifests = {};           // disc url -> Promise<Map path -> {p, s, m}> | null
@@ -99,7 +112,12 @@ addToLibrary({
     const BANKS = ['mx', 'RaceStarters', 'Engine_Revs', 'dx', 'City_Walla'].map(n => `audio/xstreams/${n.toLowerCase()}.xwb`);
     const PREFETCH_DELAY_MS = 15000, IDLE_MS = 300, PREFETCH_BUDGET_MB = 4608;
     const READAHEAD = 2, GAME_STALL_MS = 4000, PREFETCH_RUN = 16, SMALL = 2 * BLOCK;
+    // the music bank, and how much of each track's start is fetched first: two of the Remix's 352 KB stream packets
+    const MUSIC = BANKS[0], HEAD_BYTES = 0xB0000, STREAM = /\.xwb$/i;
     let netReads = 0, lastNet = 0, prefetching = false;   // the game's own reads on the network, when the last ended
+    const idle = async () => {      // until the game has had no read of its own on the network for IDLE_MS
+      while (netReads > 0 || performance.now() - lastNet < IDLE_MS) await new Promise(r => setTimeout(r, IDLE_MS));
+    };
     const bgRuns = new Set();       // the background fill's requests in progress (fetchRun)
     // A game read that waited SLOW_MS or more (the guest thread that asked stood still meanwhile; a free-roam car
     // build waits under the guest lock, so every player's frame does): '[WEB] disc wait: ...', at most a line a
@@ -207,6 +225,8 @@ addToLibrary({
       const k = fi.key + '#' + bi;
       const b = mem.get(k);
       if (b) { mem.delete(k); mem.set(k, b); return b; }
+      const pb = pinned.get(k);
+      if (pb) return pb;
       let p = inflight.get(k);
       if (p && p.run) {                           // a block of a run (fetchRun): if the run drops it, this read fetches it
         if (!p.run.game && bi > p.run.next + 1) p.run.ac.abort();   // far down a background run: not worth the wait
@@ -224,7 +244,8 @@ addToLibrary({
     // of it waits for that, and goes into OPFS as it comes (into memory too for the game's runs, game true). A
     // background run (game false) is dropped by stopBackground and by block (see the header). Resolves to the
     // number of blocks that came; rejects with the fetch's error, or a background block OPFS did not keep.
-    async function fetchRun(fi, bi, n, game) {
+    // pin: a background run kept in `pinned` instead of OPFS.
+    async function fetchRun(fi, bi, n, game, pin = false) {
       const run = { ac: new AbortController(), next: bi, game }, waits = [], puts = [];
       for (let j = bi; j < bi + n; j++) {         // before any await: a read right after this call joins
         const w = { k: fi.key + '#' + j };
@@ -244,7 +265,8 @@ addToLibrary({
             const w = waits[j - bi];
             run.next = j + 1;
             if (game) remember(w.k, b);
-            puts.push(cacheFile(fi).then(c => { if (c && !c.have[j]) C.put(c, j, b); }).catch(e => { kept ??= e; opfsFail(e); }));
+            if (pin) pinned.set(w.k, b);
+            else puts.push(cacheFile(fi).then(c => { if (c && !c.have[j]) C.put(c, j, b); }).catch(e => { kept ??= e; opfsFail(e); }));
             drop(w); w.res(b);
           },
         });
@@ -263,7 +285,7 @@ addToLibrary({
     async function fetchRuns(fi, lo, hi, min) {
       const cf = await cacheFile(fi), free = j => {
         const k = fi.key + '#' + j;
-        return !mem.has(k) && !inflight.has(k) && !(cf && cf.have[j]);
+        return !mem.has(k) && !pinned.has(k) && !inflight.has(k) && !(cf && cf.have[j]);
       };
       let first = -1;
       for (let j = lo; j <= hi;) {
@@ -308,12 +330,65 @@ addToLibrary({
       return n;
     }
 
+    // A disc file of the manifest, as describe() gives it.
+    const fileInfo = (disc, f) => ({ p: f.p, url: C.fileUrl(disc, f.p), src: signers[disc].url(f.p), size: f.s, key: C.key(C.discName(disc), f) });
+    // The blocks (ascending) holding the first HEAD_BYTES of every entry of a wave bank, from its XACT table (version
+    // 3, the Xbox's: segments at +8, bank data, entry metadata, seek tables, wave data; an entry's play region at +8),
+    // which sits in block 0. None for anything else.
+    async function headBlocks(fi) {
+      const h = await block(fi, 0), v = new DataView(h.buffer, h.byteOffset, h.byteLength);
+      const u = o => o + 4 <= h.length ? v.getUint32(o, true) : 0, out = new Set();
+      if (u(0) !== 0x444E4257 || u(4) !== 3) return [];   // 'WBND'
+      const bank = u(8), meta = u(16), wave = u(32), n = u(bank + 4), esz = u(bank + 0x18);
+      if (esz < 16) return [];
+      for (let i = 0; i < n; i++) {
+        const e = meta + i * esz, s = wave + u(e + 8), len = Math.min(HEAD_BYTES, u(e + 12));
+        if (e + 16 > h.length || !len || s + len > fi.size) continue;
+        for (let j = Math.floor(s / BLOCK); j <= Math.floor((s + len - 1) / BLOCK); j++) out.add(j);
+      }
+      return [...out].sort((a, b) => a - b);
+    }
+    // Blocks `list` (ascending) of fi in the background while the game is idle, runs of up to PREFETCH_RUN: into the
+    // OPFS cache, or into `pinned` (pin). onRun(bi, got) after each request. False when the cache went away.
+    async function fill(fi, list, pin, onRun = () => {}) {
+      let cf = null;
+      const busy = j => (pin ? pinned.has(fi.key + '#' + j) : cf.have[j]) || inflight.has(fi.key + '#' + j);
+      for (let i = 0; i < list.length;) {
+        if (!pin && !(cf = await cacheFile(fi))) return false;
+        if (busy(list[i])) { i++; continue; }
+        await idle();
+        if (!pin && !(cf = await cacheFile(fi))) return false;
+        const bi = list[i];
+        let n = 0;                                // from bi, the blocks still missing that the game is not reading
+        while (n < PREFETCH_RUN && i + n < list.length && list[i + n] === bi + n && !busy(bi + n)) n++;
+        if (!n) continue;
+        let got;
+        try { got = await fetchRun(fi, bi, n, false, pin); }   // fewer when dropped for the game: the rest after idle()
+        catch (e) { if (cacheOff) return false; throw e; }       // OPFS full (logged by opfsFail)
+        onRun(bi, got);
+        i += got;
+      }
+      return true;
+    }
+    // No OPFS where the cache was meant to be on (refused, or out of room: an incognito tab): the music's track
+    // starts kept in memory for the session (see the header).
+    async function pinHeads(disc, m) {
+      if (!(await cacheOn) || navigator.deviceMemory < 8) return;
+      const f = [...m.values()].find(f => f.p.toLowerCase() === MUSIC);
+      if (!f) return;
+      const fi = fileInfo(disc, f), list = await headBlocks(fi);
+      err(`[WEB] prefetch: no disc cache: the music's track starts (${list.length} MiB) kept in memory instead`);
+      const t0 = performance.now();
+      await fill(fi, list, true);
+      err(`[WEB] prefetch: music track starts in memory, ${pinned.size} MiB in ${((performance.now() - t0) / 1000).toFixed(0)} s`);
+    }
+
     // The background fill (see the header).
     async function prefetch(disc, m) {
       await new Promise(r => setTimeout(r, PREFETCH_DELAY_MS));
       const d = await cacheFolder();
-      if (!d) return;                             // no cache in this run: nothing to fill
-      const name = C.discName(disc), mib = n => (n / BLOCK).toFixed(0);
+      if (!d) return pinHeads(disc, m);           // no cache in this run: nothing to fill (track starts in memory if OPFS refused)
+      const mib = n => (n / BLOCK).toFixed(0);
       let budget = PREFETCH_BUDGET_MB * BLOCK, room = '';
       try {
         const e = await navigator.storage.estimate();
@@ -323,7 +398,7 @@ addToLibrary({
       const jobs = [];
       let left = 0, total = 0, skipped = 0, done = 0, shown = 0;
       for (const f of prefetchJobs(m)) {
-        const fi = { p: f.p, url: C.fileUrl(disc, f.p), src: signers[disc].url(f.p), size: f.s, key: C.key(name, f) };
+        const fi = fileInfo(disc, f);
         const n = await missing(d, fi);
         total += f.s;
         if (!n) continue;
@@ -335,26 +410,19 @@ addToLibrary({
         + ` (cars, sound banks, resources, banks.dat, Flash screens, city, movies); budget ${PREFETCH_BUDGET_MB} MiB${room}`
         + (skipped ? `, ${mib(skipped)} MiB left out` : ''));
       if (!left) return;
-      const idle = async () => {
-        while (netReads > 0 || performance.now() - lastNet < IDLE_MS) await new Promise(r => setTimeout(r, IDLE_MS));
-      };
-      for (const fi of jobs) {
-        for (let bi = 0; bi * BLOCK < fi.size;) {
-          let cf = await cacheFile(fi);
-          if (!cf) return;
-          if (cf.have[bi] || inflight.has(fi.key + '#' + bi)) { bi++; continue; }
-          await idle();
-          if (!(cf = await cacheFile(fi))) return;
-          let n = 0;                              // from bi, the blocks still missing that the game is not reading
-          while (n < PREFETCH_RUN && (bi + n) * BLOCK < fi.size && !cf.have[bi + n] && !inflight.has(fi.key + '#' + (bi + n))) n++;
-          if (!n) continue;
-          const got = await fetchRun(fi, bi, n, false);   // fewer when dropped for the game: the rest after idle()
-          for (let j = bi; j < bi + got; j++) done += C.blockLen(fi.size, j);
-          bi += got;
-          const pct = Math.floor(done * 10 / left);
-          if (pct > shown && done < left) { shown = pct; err(`[WEB] prefetch: ${pct * 10}% (${mib(done)} of ${mib(left)} MiB), ${fi.p}`); }
-        }
+      const run = (fi, list) => fill(fi, list, false, (bi, got) => {
+        for (let j = bi; j < bi + got; j++) done += C.blockLen(fi.size, j);
+        const pct = Math.floor(done * 10 / left);
+        if (pct > shown && done < left) { shown = pct; err(`[WEB] prefetch: ${pct * 10}% (${mib(done)} of ${mib(left)} MiB), ${fi.p}`); }
+      });
+      const music = jobs.find(fi => fi.p.toLowerCase() === MUSIC);
+      if (music) {                                // the music's track starts before anything else
+        const list = await headBlocks(music);
+        if (!(await run(music, list))) return pinHeads(disc, m);
+        err(`[WEB] prefetch: music track starts kept (${list.length} MiB) after ${((performance.now() - t0) / 1000).toFixed(0)} s`);
       }
+      for (const fi of jobs)
+        if (!(await run(fi, Array.from({ length: Math.ceil(fi.size / BLOCK) }, (_, j) => j)))) return pinHeads(disc, m);
       err(`[WEB] prefetch: done, ${mib(done)} MiB in ${((performance.now() - t0) / 1000).toFixed(0)} s`);
     }
 
@@ -379,7 +447,7 @@ addToLibrary({
         for (let bi = first; bi <= last; bi++) want.push(block(fi, bi));
         const prev = fi.last;                     // the last block of this file's previous read
         fi.last = last;
-        if (prev !== undefined && first >= prev && first <= prev + 1 && last > prev) readahead(fi, last).catch(() => {});
+        if (STREAM.test(fi.url) || (prev !== undefined && first >= prev && first <= prev + 1 && last > prev)) readahead(fi, last).catch(() => {});
         let bs;
         try { bs = await Promise.all(want); }
         catch (e) { err(`[WEB] disc read failed: ${fi.url} @${offset}: ${e}`); return -{{{ cDefs.EIO }}}; }
