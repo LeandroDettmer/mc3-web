@@ -271,7 +271,7 @@
   .hint.one.open, .set:focus-within .hint.one { white-space: normal; overflow-wrap: anywhere; }
   .btn.sw { min-width: 5.5rem; }
   .btn.sw::before { content: "Off"; }
-  .btn.sw[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: var(--gold-fill); }
+  .btn.sw[aria-pressed=true], #drift-btn[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: var(--gold-fill); }
   .btn.sw[aria-pressed=true]::before { content: "On"; }
   .ig-tag { margin-left: 8px; font: 700 10px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
             text-shadow: none; vertical-align: 1px; white-space: nowrap; }
@@ -519,6 +519,7 @@
   <div class="boot-load" id="boot-load" role="status" hidden>Loading the game…</div>
   <div class="stage-bar">
     <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
+    <button type="button" class="btn" id="drift-btn" aria-pressed="false" title="Drift mode (Settings, Controls): looser rear tyres on your car. Changes live.">Drift: Off</button>
   </div>
   <!-- in-game Settings (2026-11-12): sections in a nav (initTabs; the last one picked is kept), one pane scrolls,
        the footer keeps Restart and Close. Setting rows come from SETTINGS (renderIngame), marked live or restart;
@@ -728,6 +729,7 @@
     if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
     if (key === 'MC3_ROAM_P2P' && lan?.rtc) lan.rtc.roamP2P = roamP2P();   // web/rtc.js, live
     if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
+    if (key === 'MC3_DRIFT') syncDrift();
     if (live(key) && window.Module?.mc3SetLive) Module.mc3SetLive(key, buildEnv(null)[key]);   // the value a start would get
     if (key.startsWith('MC3_TOUCH') && touch) {   // web/touch.js, live
       const { mode, opacity } = touchOpts();
@@ -735,6 +737,13 @@
       $('touch-btn').hidden = !(MC3Touch.hasTouch() || mode === 'on');
     }
     preview();
+  }
+
+  // Drift button (stage bar): shows MC3_DRIFT; setSetting calls it, so the button and the Settings row agree
+  function syncDrift() {
+    const on = settings.MC3_DRIFT === '1';
+    $('drift-btn').setAttribute('aria-pressed', on);
+    $('drift-btn').textContent = on ? 'Drift: On' : 'Drift: Off';
   }
 
   // Advanced box: KEY=VALUE lines
@@ -2150,6 +2159,8 @@
   // Settings dialog (the stage bar's only button). Keys / Races / Log / Fullscreen show something over the game: close it first.
   const dlg = $('settings-dlg');
   $('settings-btn').onclick = () => { renderIngame(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
+  syncDrift();
+  $('drift-btn').onclick = () => { setSetting('MC3_DRIFT', settings.MC3_DRIFT === '1' ? '' : '1'); $('canvas').focus(); };
   $('ig-restart').onclick = () => { if (confirm('Restart the game? Anything not saved in the game is lost.')) restartGame({ resume: true }); };
   $('settings-close').onclick = () => dlg.close();
   dlg.onclick = e => { if (e.target === dlg || e.target.closest('#keys-btn, #races-btn, #players-btn, #log-btn, #full')) dlg.close(); };   // the backdrop is the dialog itself
