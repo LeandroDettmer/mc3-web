@@ -297,7 +297,11 @@ generated files when the lift inputs did not change.
   PROXY_ALWAYS + renderViaOffscreenBackBuffer). Void GL calls are queued
   to the page, getters and uploads over 256 KB are round trips, and
   emscripten_webgl_commit_frame runs at each flip. Slower; =0 forces the
-  worker. A refused context logs '[GL] try N refused: <browser's
+  worker. Not every emscripten_webgl_* is proxied: enable_extension runs
+  on the calling thread (GL.contexts[c] undefined in the worker), so
+  Safari 17.3 on a Mac (no WebGL 2 in workers) died at the first shader
+  with 'TypeError ... context.GLctx' (2026-11-12, fix untested on
+  Safari): KHR_parallel_shader_compile is skipped when proxied. A refused context logs '[GL] try N refused: <browser's
   reason>; attributes ...; this worker: webgl2 ..., webgl ...; UA', then
   one retry with plainer attributes.
   Fit in 256 MB (2026-11-09, untested on the TV): the TV gave 256 MB
