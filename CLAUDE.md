@@ -301,7 +301,7 @@ generated files when the lift inputs did not change.
   the log Worker (.deploy/worker.js, local) keys it logs/<day>-<tag>-
   <code>.txt and takes 10 an hour per address.
   New version (2026-11-12, untested in a browser): .deploy/stage.sh stamps config.json "version" (short hash of ../mc3-web-main HEAD); the page
-  (index.html versionCheck) re-reads it every 60 s and on tab visible and shows every player a dismissable notice. Only RELOAD=1 at stage also
+  (index.html versionCheck) re-reads it every 5 min while the tab is visible (and on turning visible, at most once per 5 min; ~130 players at 60 s was ~150 MB/day of Hosting transfer) and shows every player a dismissable notice. Only RELOAD=1 at stage also
   writes "reload" = that version, and then online players (lan.roaming or a room) get a 60 s reload box; career online and offline get the notice only.
   No version (web_serve.py) = off. Pages loaded before this shipped have no poll.
   Versioned module (2026-11-12): the page fetches <app>.js, then <app>.wasm, both from config moduleUrl

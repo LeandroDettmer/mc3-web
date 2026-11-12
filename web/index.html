@@ -965,13 +965,14 @@
     }
   }
   // New version published (2026-11-12): the deploy's stage script stamps config.json "version" (commit hash). While a game
-  // runs the page re-reads it every 60 s and when the tab turns visible. Different and non-empty: every player gets a
-  // dismissable notice. Only when config.json "reload" equals that version (a protocol-breaking deploy, RELOAD=1 at stage)
+  // runs and the tab is visible the page re-reads it every 5 min (and on turning visible, at most once per 5 min).
+  // Different and non-empty: every player gets a dismissable notice. Only when config.json "reload" equals that version (a protocol-breaking deploy, RELOAD=1 at stage)
   // do online players (Free Roam or a race room) get a 60 s reload box. An online career (lan.career) keeps the notice:
   // its progress since the last save would be lost. No version (local dev) = off.
-  let verNew = false, verForce = false, verBox = null, verTxt = null, verBtn = null, verEnd = 0, verMode = '', verDismissed = false;
+  let verNew = false, verForce = false, verBox = null, verTxt = null, verBtn = null, verEnd = 0, verMode = '', verDismissed = false, verAt = 0;
   async function versionCheck() {
-    if (!playing || verNew || !cfg?.version) return;
+    if (!playing || verNew || !cfg?.version || document.hidden) return;
+    verAt = Date.now();
     try {
       const r = await fetch('config.json', { cache: 'no-store' });
       const j = r.ok ? await r.json() : {};
@@ -1008,8 +1009,8 @@
       if (!s) location.reload();
     } else if (mode) verTxt.textContent = 'New version published. Reload when you are done (unsaved progress is lost).';
   }
-  setInterval(versionCheck, 60000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) versionCheck(); });
+  setInterval(versionCheck, 300000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - verAt >= 300000) versionCheck(); });
   // The module's file: from cfg.moduleUrl when set, else beside the page.
   const moduleFile = f => cfg?.moduleUrl ? new URL(f, cfg.moduleUrl.replace(/\/?$/, '/')).href : f;
   // The deploy's module is on another origin: its .js comes as a blob URL, so the pthread workers Emscripten
