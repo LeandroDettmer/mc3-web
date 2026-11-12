@@ -54,7 +54,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Stability:** Fixed two causes of the game freezing for good; iPhones and iPads start with less memory so tabs stop closing.
 - **Graphics:** Phones whose GPU froze with WebGPU (Mali, older Adreno) use WebGL, and any device where WebGPU failed uses WebGL from its next start.
 
-## 2026-11-12 (1be142c)
+## 2026-11-12 (3ff3f9a)
 
 - **Game:** Drift mode (Settings: Off, On or Strong): tap the handbrake, or lift off the throttle with the wheel turned, and the back steps out; the throttle holds the angle and counter-steering catches it. Works on every car in Free Roam, races and career; other players see your drift. A Drift button in the top-right bar switches it.
 - **Game:** Drift points, with Drift mode on or off: slide any car for points (more for a wider angle and more speed), chain drifts for up to x5, and hitting a wall or spinning out loses the drift. In Free Roam Online every 10,000 points pays $10,000, kept in your Online profile.
@@ -71,3 +71,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Online:** Online career (Settings, off by default): your career's city shows the other players driving there, from Free Roam or their own careers, as cars and on the map, and they see you, nick tags over their cars included. Your career, money and saves are untouched; no street races or online money in the career.
 - **Free Roam:** On phones, other players' cars now show as their own cars instead of copies of yours.
 - **Free Roam:** Race start areas are twice as big (60 m) and win over the street race prompt: with players near, White invites them all into the same race against the AI, even if they are outside the start area.
+- **Free Roam:** A busy city no longer freezes the game: past 16 cars on screen (players, slots and career cars together) every car still builds, in Free Roam and the Online career.
