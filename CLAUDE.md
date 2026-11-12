@@ -369,7 +369,7 @@ generated files when the lift inputs did not change.
   lan.js drops the switch hub's frames while the city socket is open (the
   switch hub kept sending PEERS/FAR ~10 s, its gone_ms). '[roam] <name>
   <id>: listed by the hub N s, no snapshot (state, hears us, datagrams in)'
-  / ': linked, first snapshot N s after ...' split dimmed blips. Game side
+  / ': linked, first snapshot N s after ...' split dimmed blips. Game side Game side
   src/games/remix/roam_game.c: the Online cruise's race setup [0x53F2E0]
   gets 1 + N entries (copies of entry 0, +0x10/+0x14/+0x18 = -1, net flag
   0), so the game builds N extra player cars at load (N = peers at load
