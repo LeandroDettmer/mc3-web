@@ -46,6 +46,8 @@
 extern uint32_t g_xbox_contig_size;
 #define MC3_CONTIG_END (0x80000000u + g_xbox_contig_size)
 
+#include "mods.c"                               /* mods/ next to the disc: read before the archives */
+
 /* ── The game's main heap ──────────────────────────────────────
  *
  * Boot (sub_00012440 @0x12503) makes it with sub_002698C0(name 0x447E24,
@@ -69,6 +71,7 @@ void sub_002698C0(void)
     uint32_t game_mb = MEM32(g_esp + 8), mb = game_mb, heap;
     const char *env = getenv("MC3_HEAP_MB"), *cars = getenv("MC3_ROAM_HEAP_MB");
 
+    mods_init();                                /* boot, before the first asset opens */
     if (env && *env)
         mb = (uint32_t)strtoul(env, NULL, 10);
     else if (window_mb >= 128u)
@@ -1932,7 +1935,8 @@ recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
      * if (xbox_va == 0x000ABCDE (PORT?)) return fixed_sub_000ABCDE;
      */
 
-    (void)xbox_va;
+    if (s_mods_n && xbox_va - MODS_VA_LO <= MODS_VA_HI - MODS_VA_LO)
+        return mods_lookup(xbox_va);            /* the archive device (mods.c) */
     return (recomp_func_t)0;
 }
 

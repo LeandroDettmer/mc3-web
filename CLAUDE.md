@@ -1013,6 +1013,21 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   calling convention (`[LISTEN]`, MC3_LISTEN_TRACE=1; MC3_LISTENER_CHECK=0
   runs the game's own loop).
 
+- Mods folder (Remix, 2026-11-12, untested in game; src/games/remix/mods.c):
+  every read-only asset open is sub_001A2280 -> Open of the default device
+  [0x004B26E8], after the archive mount (sub_002B4120) the Dave device
+  0x004B3B18 (cdecl table: +0 Open sub_002B3B80, +8 Read, +0x10 Seek, +0x14
+  Close, +0x1C Size, +0x24 RawInfo for the sector streamer sub_00130E60);
+  Open binary-searches each archive's TOC (sub_002B36B0 -> sub_002B35E0), no
+  fallback to the disc. Those are reached only by indirect calls, so
+  recomp_lookup_manual hooks them (no relift): <disc>/mods/<name> (web
+  /game/mods/) wins over the archives, whole file in memory; loose disc
+  files (flash/) through the toolkit's xbox_host_path_hook. Scanned at boot
+  (sub_002698C0); no mods/ = no hook. '[MOD] <name> from mods/' once per
+  file; MC3_MOD_TRACE=1 logs every archive open. A mods vehicle.lst over 127
+  Vehicle blocks is cut (the showroom's 127 slots; a 128th overwrites
+  progress[0]). Not covered: the archive folder listing (+0x18). A static
+  deploy needs mods/ in its disc list.
 - Saves (2026-10-22): a profile is UDATA/54540079/<12 hex>/<name>.mc3
   (99,162 bytes) + SaveMeta.xbx (UTF-16 "Name=<name>"). The .mc3 starts
   with a format stamp (Xbox 0x02F59447) and ends with HMAC-SHA1 of the
