@@ -386,10 +386,10 @@ generated files when the lift inputs did not change.
   answers "no reset" there for every car but ours ('[ROAM] car ... in the
   water'). Re-entering Free Roam resets the 1 + N
   count we left in the race setup. Nick from MC3_PLAYER_NAME. Cars are built at load; mid-cruise a slot
-  whose peer has another CarCfg is rebuilt (roam_swap, 2026-11-09,
-  untested: async read via the car cache sub_00105CA0 as the garage does,
-  then out of the world sub_000FFB40 + delete as the player dtor, build as
-  the player ctor; one at a time; MC3_ROAM_SWAP=0 off; no motorbike mid-cruise, 2026-11-11: its rider, sub_002CBF70 -> sub_00117880, loops on Sleep(1) until every streamed resource is idle, never in a running cruise -- main frozen for good on an iPhone; roam_car_bike, the old car stands in; a swap waits for 2 MB of heap). Garage round trip
+  whose peer has another CarCfg is rebuilt (2026-11-09, untested; the
+  pool's queue since 2026-11-11, below: out of the world sub_000FFB40 +
+  delete as the player dtor, build as the player ctor, after the physics
+  step; one at a time; MC3_ROAM_SWAP=0 off; no motorbike mid-cruise, 2026-11-11: its rider, sub_002CBF70 -> sub_00117880, loops on Sleep(1) until every streamed resource is idle, never in a running cruise -- main frozen for good on an iPhone; roam_car_bike, the old car stands in; the pool's heap check). Garage round trip
   (2026-11-09, untested): the session stays (roam_stop only in
   online_leave); state 5 (sub_00021A60) sets status RC_ST_SHOP, a cruise
   load RC_ST_LOADING, the first cruise frame RC_ST_ROAM + teleport + entry
@@ -515,16 +515,30 @@ generated files when the lift inputs did not change.
   --roam-k, worker ROAM_K). The hub links a pair only while both are
   under their K: phones asked 7 and, with 10 in a city, left the
   players beyond their 7 nearest unlinked, each the other's dimmed FAR
-  blip, no car (2026-11-11, untested in game). Nearest get the cars
-  (2026-11-11, untested in game; roam_nearest, roam_cars.c): a peer kept
-  its slot/car while linked, so with K 32 a phone's few cars stayed with
-  far peers; now the nearest driving peer without one takes the farthest
-  holder's (away = farthest) once 50 m nearer for 3 s, through the usual
-  swap/rebuild; '[ROAM] nearest: ...'. A phone (64 MB, main heap 47 MB,
+  blip, no car (2026-11-11, untested in game). Remote cars pool
+  (2026-11-11, untested in game; src/games/remix/roam_pool.c): one table
+  s_rc[] owns every remote car, slot-backed (entries 1..slots) or
+  standalone, and its peer; one assignment (a peer keeps its car while
+  linked + 3 s; a newcomer, nearest first, takes a free car with its look,
+  its car, any, then the longest-unseen held one, slots first on a tie;
+  none: a new standalone car), one queue after the physics step (one
+  build/rebuild per 0.25 s, held while a state request is queued or a
+  page-in runs), one look check (car list, no bike mid-cruise, the car
+  cache's 16 models: slot swaps included), one heap check (free +
+  cost(old car) >= keep + cost(new): keep 3 MB main heap, 2 MB cars heap;
+  cost measured per model on each build, an unmeasured model the largest
+  measured, at least 1000 KB; the load's slot count uses it too), one park
+  (hidden, out of the physics level, 30 km off). Nearest gets a car: while
+  no car can be built (count or heap), the nearest driving peer without one
+  takes the farthest holder's (away = farthest) once 50 m nearer for 3 s;
+  '[ROAM] nearest: ...'. Our pose and status go out in every Free Roam
+  cruise, with 0 remote slots too (s_roam_cruise; a low-heap phone used to
+  send nothing, the others never saw it). '[ROAM] pool: N peers, C cars (S
+  slots + T standalone), D dimmed, heap F KB' every 30 s at most, when it
+  changes. A phone (64 MB, main heap 47 MB,
   8.5 MB free at load) fits 4 remote slots ('[ROAM] heap: 4 remote cars
   fit', ~800-950 KB each, ~3.7 MB left; 1.26 MB was fatal), and only
-  peers at load + 2 of them (alone at load: 2). Built at load + on demand, only while the heap keeps max(6 MB,
-  heap/8) after one more car; logs '[ROAM] cars: ...'. Cars heap
+  peers at load + 2 of them (alone at load: 2). Logs '[ROAM] cars: ...'. Cars heap
   (2026-11-10, untested in game; roam_cheap, docs/roam-many-cars.md): a
   second heap of the game's own type ('RoamCars', 48 MB of the contiguous
   window at 128 MB, MC3_ROAM_HEAP_MB, 0 off; none at 64 MB) is made
@@ -534,8 +548,10 @@ generated files when the lift inputs did not change.
   their heap by address (sub_001B3D80 walks the heap list [0x52B478]).
   Not the extended VMA: car textures/vertices are GPU-read, window only.
   '[ROAM] cars heap: ...'. Teardown: the
-  state pass (sub_00020EC0) removes them whenever a state request is
-  queued in the cruise (the player manager's delete has no override).
+  state pass (sub_00020EC0) removes the standalone cars whenever a state
+  request is queued in the cruise (the player manager's delete has no
+  override); a cruise that goes on rebuilds them one per 0.25 s from 1 s
+  later, each a short freeze (kept: safe over cheap).
   Open: hub-distributed world settings, names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
   (nfsu2-web uses a grid), KIND_BUNDLE.

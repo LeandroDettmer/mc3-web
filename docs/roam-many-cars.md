@@ -200,3 +200,51 @@ no override, so cars are dropped whenever a state request is queued
 (sub_00020EC0 pass) and rebuilt if the cruise goes on.
 
 Order: 1-3 with MC3_ROAM_CARS=4 (measure heap per car), then 4-5, then 6-9.
+
+## One pool for every remote car (2026-11-11, untested in game)
+
+src/games/remix/roam_pool.c replaces the twin state of the 7 player slots
+(roam_game.c: s_roam_peer, roam_pick_slot, roam_swap) and the standalone
+cars (roam_cars.c: s_car, roam_cars_net, roam_car_make, roam_nearest).
+
+- **Table** s_rc[]: entries 1..s_roam_slots are the player slots (car =
+  player +0x14), the rest standalone cars (veh 0 = dropped, reused first).
+- **Assignment** (roam_pool_net, from roam_net): a peer keeps its car while
+  linked + ROAM_HOLD 3 s; a newcomer (nearest first) takes a free car with
+  its exact look > same car name > any free > longest-unseen held; a slot
+  before a standalone car on a tie; none: s_pool_need (a new car).
+- **Nearest gets a car** (one rule, slots and standalone): only while no car
+  can be built (s_pool_full: count or heap refused), the nearest driving
+  peer without one takes the farthest holder's car (away = farthest) once
+  50 m nearer for 3 s.
+- **Queue** (roam_pool_job, after the physics step): one build per 0.25 s;
+  a rebuild for a peer's new look first (slots too: moved out of the
+  player's update), else a new standalone car. Held while a state request
+  is queued (slot swaps were not before) or a page-in runs.
+- **Look check** (roam_pool_look, one for all): the car list, no motorbike
+  mid-cruise, the car cache's 16 models (roam_pool_cache_ok, which also
+  counts the slot the rebuilt car's model frees). A rebuild that fails it
+  keeps the old car until the peer's next record; a new car takes ours.
+- **Heap check** (roam_pool_fits, one for all, the load's slot count too):
+  free + cost(old car, a rebuild) >= keep + cost(new); keep 3 MB in the
+  main heap (was max(6 MB, heap/8) for standalone cars, 2 MB free before a
+  slot swap), 2 MB in the cars heap (swaps skipped the check there: 16-32
+  cars could overrun it). cost(model) = heap free before - after its build,
+  the largest seen per model, kept for the session; an unmeasured model
+  costs the largest measured (the load's per-car average included), at
+  least ROAM_CAR_BYTES (1000 KB).
+- **Park** (roam_rc_park, one path): hidden, out of the physics level (not
+  while a state request is queued), 30 km off and 500 m under our car,
+  drawn matrix too; called before a slot's update and after the step.
+- **Our state always goes out**: roam_player runs in every Free Roam cruise
+  (s_roam_cruise), with 0 remote slots too (the heap fit gives 0 below
+  ~5 MB free): before, roam_player returned first and the phone sent no
+  pose or status (others never saw it, and its status stayed 'loading').
+- **Teardown** unchanged: a queued state request drops the standalone cars
+  (the player manager's delete would free the world under them) and puts
+  the parked slots back in the level; if the cruise goes on they come back
+  one per 0.25 s from 1 s later, each build a short freeze.
+- '[ROAM] pool: N peers, C cars (S slots + T standalone), D dimmed, heap F
+  KB' at most every 30 s, when the counts change.
+- Gone: MC3_ROAM_SWAPTEST (the fake-mode swap test hook; two browsers and
+  MC3_ROAM_TEST_CAR still test swaps).
