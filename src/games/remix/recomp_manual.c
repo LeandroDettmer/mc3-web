@@ -2767,6 +2767,7 @@ void sub_0020B6F0(void)
     fps60_step();
     drift_step();
     traffic_lod_step();
+    mods_late();
     online_strings();
     roam_room();
     sub_0020B6F0_gen();
@@ -3779,6 +3780,7 @@ static void main_menu_count_label(uint32_t esp)  /* SetLabel, thiscall (item, co
 /* mcMenuModeSelect build */
 void sub_0018C770(void)
 {
+    mods_late();
     online_strings();
     s_mm_build = 1;
     sub_0018C770_gen();

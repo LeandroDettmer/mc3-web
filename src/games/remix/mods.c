@@ -337,3 +337,161 @@ static recomp_func_t mods_lookup(uint32_t va)
     }
     return (recomp_func_t)0;
 }
+
+/* ── Late fixes, from the main menu's build and the per-frame pass ──
+ *
+ * (1) DLC cars: the loader (sub_0026A720, reached by direct calls, so not
+ * hookable without a relift) fills record +0x18 (mask) and appends name and
+ * price to the DLC lists, never writing record +0x1C, the DLC slot the
+ * showroom (sub_0014AE60) looks for: -1 = skipped, $0 and class Z in the
+ * Flash. Here every record with +0x18 != 0 gets +0x1C = the index of its
+ * name in the DLC name list [0x557EA8] (count [0x557EAC]); the name is the
+ * record's +0 (the list holds that same value; a char* compared as text
+ * too). Records [0x557EB0], count [0x557EB4], stride 0x28.
+ * (2) mods/strings.txt, lines 'key=UTF-8 text': each key missing from a
+ * loaded language table is added with the game's own sub_000EA750 (this =
+ * 0x507E08, the table picked by its +0x28; the new entry's text is the key,
+ * replaced by a buffer of the real text from the game's heap, the old one
+ * left; existing keys are never touched). Every language whose table is
+ * loaded; the pass waits for the current language's. */
+#define MODS_STR_MAX 128
+#define MODS_STR_LANGS 10
+static uint32_t mods_dlc_done_list, mods_dlc_done_n;
+static uint32_t mods_str_done[MODS_STR_LANGS];
+static char *mods_str_key[MODS_STR_MAX], *mods_str_val[MODS_STR_MAX];
+static int mods_str_n, mods_str_loaded;
+extern void sub_000EA750(void), sub_001B3B90(void);
+static int online_ram(uint32_t va);
+static uint32_t str_table(uint32_t *n, uint32_t *buckets);
+static uint32_t str_text(uint32_t n, uint32_t buckets, const char *key);
+static uint32_t roam_call(recomp_func_t fn, uint32_t ecx, uint32_t top, int n, const uint32_t *args);
+
+static void mods_dlc_fix(void)
+{
+    uint32_t names = MEM32(0x00557EA8u), cnt = MEM16(0x00557EACu);
+    uint32_t recs = MEM32(0x00557EB0u), n = MEM16(0x00557EB4u), i, j;
+
+    if (!cnt || !n || !online_ram(names) || !online_ram(recs)
+        || (names == mods_dlc_done_list && cnt == mods_dlc_done_n))
+        return;
+    if (n > MODS_CARS)
+        n = MODS_CARS;
+    for (i = 0; i < n; i++) {
+        uint32_t rec = recs + i * 0x28u, nm = MEM32(rec);
+        if (!MEM32(rec + 0x18u))
+            continue;
+        for (j = 0; j < cnt; j++) {
+            uint32_t c = MEM32(names + 4u * j);
+            if (c == nm || (online_ram(c) && online_ram(nm)
+                            && !strcmp((const char *)XBOX_PTR(c), (const char *)XBOX_PTR(nm))))
+                break;
+        }
+        if (j == cnt || MEM32(rec + 0x1Cu) == j)
+            continue;
+        MEM32(rec + 0x1Cu) = j;
+        fprintf(stderr, "[MOD] DLC car %s: slot %u\n",
+                online_ram(nm) ? (const char *)XBOX_PTR(nm) : "?", j);
+    }
+    mods_dlc_done_list = names;
+    mods_dlc_done_n = cnt;
+}
+
+static void mods_str_load(void)
+{
+    mod_file_t *m = mods_find("strings.txt");
+    char path[1024], line[1024];
+    FILE *f;
+
+    mods_str_loaded = 1;
+    if (!m)
+        return;
+    snprintf(path, sizeof path, "%s/%s", s_mods_dir, m->path);
+    if (!(f = fopen(path, "rb")))
+        return;
+    while (mods_str_n < MODS_STR_MAX && fgets(line, sizeof line, f)) {
+        char *eq = strchr(line, '='), *e;
+        if (!eq || line[0] == '#' || eq == line)
+            continue;
+        *eq = 0;
+        for (e = eq + strlen(eq + 1); e > eq && isspace((unsigned char)*e); e--)
+            *e = 0;
+        mods_str_key[mods_str_n] = strdup(line);
+        mods_str_val[mods_str_n++] = strdup(eq + 1);
+    }
+    fclose(f);
+    mods_used(m);
+}
+
+/* UTF-8 -> UTF-16 into guest memory at va (0 = count only); returns the units, without the 0. */
+static uint32_t mods_utf16(uint32_t va, const char *s)
+{
+    uint32_t k = 0, cp;
+    const uint8_t *u = (const uint8_t *)s;
+    while (*u) {
+        int extra = *u >= 0xF0 ? 3 : *u >= 0xE0 ? 2 : *u >= 0xC0 ? 1 : 0;
+        cp = extra ? *u & (0x3Fu >> extra) : *u;
+        for (u++; extra-- > 0 && (*u & 0xC0) == 0x80; u++)
+            cp = (cp << 6) | (*u & 0x3Fu);
+        if (cp >= 0x10000u) {
+            cp -= 0x10000u;
+            if (va)
+                MEM16(va + 2 * k) = (uint16_t)(0xD800u | (cp >> 10));
+            k++;
+            cp = 0xDC00u | (cp & 0x3FFu);
+        }
+        if (va)
+            MEM16(va + 2 * k) = (uint16_t)cp;
+        k++;
+    }
+    if (va)
+        MEM16(va + 2 * k) = 0;
+    return k;
+}
+
+static void mods_strings(void)
+{
+    uint32_t n, buckets, lang, cur = MEM32(0x00507E08u + 0x28u), top, keybuf;
+    int i;
+
+    if (!mods_str_loaded)
+        mods_str_load();
+    if (!mods_str_n || !str_table(&n, &buckets) || !str_text(n, buckets, "CM_Networking"))
+        return;                                 /* none, or the current language is not loaded yet */
+    keybuf = (g_esp - 0x400u) & ~0xFu;
+    top = keybuf - 0x40u;
+    for (lang = 0; lang < MODS_STR_LANGS; lang++) {
+        uint32_t t = MEM32(0x00507E08u + 4u * lang), added = 0;
+        if (!online_ram(t) || t == mods_str_done[lang])
+            continue;
+        mods_str_done[lang] = t;
+        MEM32(0x00507E08u + 0x28u) = lang;
+        if (str_table(&n, &buckets) != t)
+            continue;
+        for (i = 0; i < mods_str_n; i++) {
+            uint32_t entry, units, buf, a;
+            if (strlen(mods_str_key[i]) >= 0x100u || str_text(n, buckets, mods_str_key[i]))
+                continue;
+            memcpy((char *)XBOX_PTR(keybuf), mods_str_key[i], strlen(mods_str_key[i]) + 1);
+            a = keybuf;
+            entry = roam_call(sub_000EA750, 0x00507E08u, top, 1, &a);
+            units = mods_utf16(0, mods_str_val[i]);
+            a = 2 * (units + 1);
+            buf = online_ram(entry) ? roam_call(sub_001B3B90, 0, top, 1, &a) : 0;
+            if (!online_ram(buf))
+                continue;
+            mods_utf16(buf, mods_str_val[i]);
+            MEM32(entry + 8u) = buf;
+            added++;
+        }
+        fprintf(stderr, "[MOD] strings.txt: %u texts added to language %u\n", added, lang);
+    }
+    MEM32(0x00507E08u + 0x28u) = cur;
+}
+
+static void mods_late(void)
+{
+    if (!s_mods_n)
+        return;
+    mods_dlc_fix();
+    mods_strings();
+}
