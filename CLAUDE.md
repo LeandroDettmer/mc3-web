@@ -1027,7 +1027,15 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   file; MC3_MOD_TRACE=1 logs every archive open. A mods vehicle.lst over 127
   Vehicle blocks is cut (the showroom's 127 slots; a 128th overwrites
   progress[0]). Not covered: the archive folder listing (+0x18). A static
-  deploy needs mods/ in its disc list.
+  deploy needs mods/ in its disc list. A new car must not go in
+  vehicle.lst: the garage's menu items come from garage.xbck's own list (94
+  car names + vp_dlslot_00..22, read through sub_00139650), so an appended
+  car is never offered. It goes in as downloadable content: mods/content.id
+  ("0") + mods/content.lst (Vehicle blocks, each followed by its price), read
+  per archive by sub_0026A720 after vehicle.lst; DLC car N (names
+  [0x557EA8], count [0x557EAC]) shows as vp_dlslot_N (visible while N <
+  count, sub_001459C0; mapped back by sub_0026A630), price ShowRoomPrice
+  from [0x557EC8] (2026-11-12, untested in game).
 - Saves (2026-10-22): a profile is UDATA/54540079/<12 hex>/<name>.mc3
   (99,162 bytes) + SaveMeta.xbx (UTF-16 "Name=<name>"). The .mc3 starts
   with a format stamp (Xbox 0x02F59447) and ends with HMAC-SHA1 of the
