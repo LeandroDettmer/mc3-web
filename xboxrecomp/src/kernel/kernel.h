@@ -691,6 +691,13 @@ extern void (*xbox_file_read_hook)(void *buf, size_t len, int64_t offset);
  * title is loading. NULL (the default) = no hook. */
 extern void (*xbox_path_hook)(const char *xbox_path);
 
+/* Called with every translated host path under the game folder (not the
+ * save folder), POSIX hosts only: host_path is "<game dir>/<rest>" with
+ * base_len = strlen(<game dir>); the hook may rewrite it in place (at most
+ * size bytes), e.g. to serve a mod's copy of a disc file. NULL (the
+ * default) = no hook. */
+extern void (*xbox_host_path_hook)(char *host_path, size_t size, size_t base_len);
+
 NTSTATUS __stdcall xbox_NtWriteFile(
     HANDLE FileHandle, HANDLE Event, PIO_APC_ROUTINE ApcRoutine, PVOID ApcContext,
     PXBOX_IO_STATUS_BLOCK IoStatusBlock, PVOID Buffer, ULONG Length,

@@ -18,6 +18,7 @@
 #include <ctype.h>
 
 void (*xbox_path_hook)(const char *xbox_path);
+void (*xbox_host_path_hook)(char *host_path, size_t size, size_t base_len);
 
 /*
  * Helper: check if an ANSI string starts with a prefix (case-insensitive).
@@ -779,6 +780,8 @@ translate:
                 host_path_buf[--n] = '\0';
         }
         fix_case(host_path_buf, strlen(base_dir));
+        if (xbox_host_path_hook && base_dir == s_game_dir)
+            xbox_host_path_hook(host_path_buf, buf_size, strlen(base_dir));
 
         XBOX_TRACE(XBOX_LOG_PATH, "%s -> %s", xbox_path, host_path_buf);
         return TRUE;
