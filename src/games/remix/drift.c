@@ -45,10 +45,12 @@
  * Levels: MC3_DRIFT=1 normal, =2 strong; the page's live word: 1 off, 2 on
  * (the environment's level, normal if that is off), 3 strong. Off: every
  * value back (if still ours). '[DRIFT]' lines: on/off, the car's layout once
- * per car, one line per drift of 0.5 s or more. */
+ * per car, one line per drift of 0.5 s or more. Drift scoring (drift_score.c)
+ * gets this frame's slip angle, speed and wall-hit test with the mode on or off. */
 #include <math.h>
 
 static int online_ram(uint32_t va);
+static void drift_score(int car, float beta, float b180, float s, float vy, float dt, int hit, int frozen);
 
 typedef struct {
     float base;         /* rear grip factor when gripping (a little loose: a lift-off turns it) */
@@ -95,12 +97,16 @@ static void drift_step(void)
 {
     static int env = -1, said = -1;
     static uint32_t seen;                       /* the body whose layout line went out */
+    static uint32_t ics_last;                   /* the body, and its velocity as the frame left it (paused: unchanged) */
+    static float v_last[3];
     static float fr = 1.0f, kick_t, lift_t, thr_prev, beta_prev, speed_prev;
     static struct { float t, max, v0, g, kept, frmin; int cuts; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
     const drift_tune *t;
     int32_t l = mc3_live(MC3_LIVE_DRIFT);
     uint32_t pm = MEM32(0x00558814u), p, veh, sim, tf = 0, tb = 0, car, ph, ics = 0, c, in = 0;
-    float v[3], w[3], rt[3], up[3], bk[3], s = 0, beta = 0, wy = 0, thr = 0, brk = 0, hb = 0, st = 0, dt, tgt, amt;
+    float v[3], w[3], rt[3], up[3], bk[3], s = 0, beta = 0, b180 = 0, wy = 0, thr = 0, brk = 0, hb = 0, st = 0, dt, tgt,
+          amt;
+    int hit = 0, frozen = 0;
     int lvl, k;
     if (env < 0) {
         const char *e = getenv("MC3_DRIFT");
@@ -137,9 +143,12 @@ static void drift_step(void)
         fr = 1.0f;
         kick_t = lift_t = 0;
         dr.t = 0;
-        return;
+        if (!tb) {
+            drift_score(0, 0, 0, 0, 0, 0, 0, 0);
+            return;
+        }
     }
-    t = &k_drift[lvl - 1];
+    t = &k_drift[lvl ? lvl - 1 : 0];
     dt = drift_clamp(MEMF(0x004B2D70u), 0.005f, 0.07f);
     if (in) {
         thr = drift_clamp(MEMF(in + 0x70u), 0, 1);
@@ -163,8 +172,12 @@ static void drift_step(void)
         s = sqrtf(s);
         /* sign-free: forward or back makes no difference to the angle (reversing straight is 0) */
         beta = s > 6.0f ? atan2f(fabsf(vl), fabsf(vf)) * 57.29578f : 0.0f;
-        if (beta != beta || s != s)
-            beta = s = 0;
+        b180 = s > 6.0f ? atan2f(fabsf(vl), -vf) * 57.29578f : 0.0f;   /* 0..180: past 90 the car goes tail first */
+        if (beta != beta || s != s || b180 != b180)
+            beta = b180 = s = 0;
+        frozen = ics == ics_last && v[0] == v_last[0] && v[1] == v_last[1] && v[2] == v_last[2];
+        /* a wall or car: speed lost faster than 15 m/s^2 (25 while braking) */
+        hit = ics == ics_last && s - speed_prev < (brk > 0.3f ? -25.0f : -15.0f) * dt;
         if (ics != seen) {
             seen = ics;
             fprintf(stderr, "[DRIFT] car: mass %.0f, inertia up %.0f, yaw cap %.1f rad/s; front SteeringLimit %.3f, "
@@ -176,6 +189,8 @@ static void drift_step(void)
         }
     }
 
+    if (!lvl)
+        goto score;                             /* Drift mode off: the car as the game made it, scoring only */
     /* initiation: a handbrake tap, or the throttle let go (from > 0.6 to < 0.2 within 0.3 s) with the wheel turned */
     lift_t = thr_prev > 0.6f && thr < 0.2f ? 0.3f : lift_t > dt ? lift_t - dt : 0.0f;
     thr_prev = thr;
@@ -253,6 +268,13 @@ static void drift_step(void)
                     (double)(dr.v0 * 3.6f), (double)(speed_prev * 3.6f), (double)(dr.kept * 3.6f), (double)dr.t,
                     (double)dr.max, (double)dr.frmin, dr.cuts, (double)wy);
         dr.t = 0;
+    }
+score:
+    drift_score(ics != 0, beta, b180, s, ics ? v[1] : 0.0f, dt, hit, frozen);
+    if (ics) {
+        ics_last = ics;
+        for (k = 0; k < 3; k++)
+            v_last[k] = MEMF(ics + 0x44u + 4u * k);
     }
     beta_prev = beta;
     speed_prev = s;

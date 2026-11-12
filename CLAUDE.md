@@ -1060,6 +1060,18 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   0x47681C; also SteerRate/HandbrakeRate/DriftRate). Other tune binders
   seen: sub_00124B70 (bike Lean/Wheelie/Drift/Burnout), sub_0007C350
   (traffic TireGrip), sub_001CAEF0 (AI).
+  Drift scoring (2026-11-12, untested in game; src/games/remix/
+  drift_score.c, fed by drift_step with Drift mode on or off): a drift =
+  slip > 10 deg above 30 km/h, not in free fall, race type 0 only; points/s
+  = 0.6 x clamp(slip, 10, 60) x m/s; banked x mult after 1 s under (or
+  stopped), mult x1..x5 per 2,500 chain points (next drift within 1.5 s);
+  speed lost > 15 m/s^2 (25 braking) or a spin-out (b180, the signed angle,
+  crosses side-on by 10 deg from the start's side) loses it; under 100
+  points dropped. Online (browser): each 10,000 of the lifetime total
+  (profile.bin v4, s_on_drift) pays $10,000 into +0xACC and saves. HUD
+  drift_hud_box -> web/pre.js bottom-centre (payout big, green). '[DRIFT]
+  score: ...'. Free fall assumes world y up (vertical speed falling > 7
+  m/s^2 for 0.1 s).
   Online O1 (2026-11-08, single player, untested; src/games/remix/
   recomp_manual.c "Online (O1)"): main menu (sub_0018C770) item 3
   CM_Networking ('Online') opens the original screen 0x1E, where

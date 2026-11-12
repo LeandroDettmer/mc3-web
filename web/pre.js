@@ -476,6 +476,64 @@ Module['mc3TouchPad'] = function (words) {
   requestAnimationFrame(frame);
 })();
 
+// Drift score: src/games/remix/drift_score.c's drift_hud_box (seq, 96 bytes UTF-8 "DRIFT 1,240 x2\n6,300 / 10,000 ...",
+// 32 bytes the payout "+$10,000"), bumped every frame the car moves: a line bottom-centre of the picture while fresh,
+// the payout big in the middle. Main thread only.
+(function () {
+  if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
+  var canvas = Module['canvas'], el = null, bigEl = null, seq = -1, seenAt = 0, I32 = null, shown = null, bigShown = null;
+  if (!canvas) return;
+  function str(p, n) { var e = p; while (e < p + n && HEAPU8[e]) e++; return new TextDecoder().decode(HEAPU8.slice(p, e)); }
+  function frame(now) {
+    requestAnimationFrame(frame);
+    if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _drift_hud_box != 'function' || !canvas.parentNode) return;
+    if (!I32) {
+      I32 = new Int32Array(HEAPU8.buffer);
+      var css = 'position:absolute;left:0;top:0;pointer-events:none;z-index:1;color:#fff;text-align:center;white-space:nowrap;' +
+        'text-shadow:0 1px 3px #000,0 0 8px rgba(0,0,0,.7);font-weight:700;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;display:none';
+      el = document.createElement('div');
+      el.style.cssText = css;
+      bigEl = document.createElement('div');
+      bigEl.style.cssText = css + ';color:#5cff7a';
+      canvas.parentNode.append(el, bigEl);
+    }
+    var b = _drift_hud_box(), s = I32[b >>> 2], text = '', big = '';
+    if (s !== seq) { seq = s; seenAt = now; }
+    if (now - seenAt < 400) { text = str(b + 4, 96); big = str(b + 100, 32); }   // stale: paused, loading or gone
+    if (text !== shown) {
+      shown = text;
+      el.textContent = '';
+      text.split('\n').forEach(function (line, i) {
+        var d = document.createElement('div');
+        d.textContent = line;
+        d.style.cssText = i ? 'font-size:.7em;opacity:.85;margin-top:.15em' :
+          'font-size:1.4em;letter-spacing:.04em;color:' + (line === 'Drift lost' ? '#ff5a4a' : '#ffd24a');
+        if (line) el.append(d);
+      });
+    }
+    if (big !== bigShown) { bigShown = big; bigEl.textContent = big; }
+    if (!text && !big) { el.style.display = bigEl.style.display = 'none'; return; }
+    var r = canvas.getBoundingClientRect(), L = canvas.parentNode.getBoundingClientRect(), x = r.left - L.left,
+        y = r.top - L.top, w = r.width, h = r.height, aspect = 16 / 9;
+    if (typeof _roam_tags_box == 'function') {
+      var a = new Float32Array(HEAPU8.buffer)[(_roam_tags_box() >>> 2) + 2];
+      if (a > 0.5 && a < 5) aspect = a;
+    }
+    if (!canvas.parentNode.classList.contains('stretch')) {
+      if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
+    }
+    if (!(w > 0 && h > 0)) { el.style.display = bigEl.style.display = 'none'; return; }
+    var st = el.style, bs = bigEl.style;
+    st.fontSize = Math.max(11, h * 0.026).toFixed(1) + 'px';
+    st.transform = 'translate(' + (x + w / 2).toFixed(1) + 'px,' + (y + h * 0.9).toFixed(1) + 'px) translate(-50%,-100%)';
+    st.display = text ? '' : 'none';
+    bs.fontSize = Math.max(20, h * 0.08).toFixed(1) + 'px';
+    bs.transform = 'translate(' + (x + w / 2).toFixed(1) + 'px,' + (y + h * 0.38).toFixed(1) + 'px) translate(-50%,-50%)';
+    bs.display = big ? '' : 'none';
+  }
+  requestAnimationFrame(frame);
+})();
+
 // Street challenge marker: while racing a player in free roam, src/games/remix/roam_challenge.c publishes the next
 // checkpoint (roam_cp_box: seq, on, u, v (0..1 of the picture), angle (radians, 0 = right, clockwise), edge (1: off
 // the picture, an arrow at its edge), distance m, checkpoint, count, finish). A pin over it, or an edge arrow
