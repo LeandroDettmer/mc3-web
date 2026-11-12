@@ -476,9 +476,12 @@ generated files when the lift inputs did not change.
   step, sub_002BDEC0 hook; in the physics level within 20 m only; parked
   and hidden when unused). MC3_ROAM_CARS=N remote cars at most, slots
   included (page 'Players shown'; auto 32 at RECOMP_RAM_MB=128, 12 at
-  64 MB; 7 = slots only); also the K asked of the hub (roam_set_k; hub
-  default_k 32 for a HELLO asking none, mc3-server --roam-k, worker
-  ROAM_K). Built at load + on demand, only while the heap keeps max(6 MB,
+  64 MB; 7 = slots only); also the K asked of the hub, 32 at least
+  (roam_set_k; hub default_k 32 for a HELLO asking none, mc3-server
+  --roam-k, worker ROAM_K). The hub links a pair only while both are
+  under their K: phones asked 7 and, with 10 in a city, left the
+  players beyond their 7 nearest unlinked, each the other's dimmed FAR
+  blip, no car (2026-11-11, untested in game). Built at load + on demand, only while the heap keeps max(6 MB,
   heap/8) after one more car; logs '[ROAM] cars: ...'. Cars heap
   (2026-11-10, untested in game; roam_cheap, docs/roam-many-cars.md): a
   second heap of the game's own type ('RoamCars', 48 MB of the contiguous

@@ -15,7 +15,7 @@
  * How many: MC3_ROAM_CARS=N remote cars at most in all (slots included;
  * 0 or <= 7: the slots only, as before). Unset (auto): 32 with a 128 MB
  * contiguous window (RECOMP_RAM_MB=128), 12 with 64 MB. That many links are
- * asked of the hub (roam_set_k; MC3_ROAM_K still overrides). Cars are built
+ * asked of the hub, 32 at least (roam_begin; MC3_ROAM_K still overrides). Cars are built
  * at the cruise's load for the peers known then (+ ROAM_SPARE), later one at
  * a time as peers come (mid-cruise with the garage's resource context,
  * roam_build_ctx), in Free Roam's cars heap (roam_cheap, roam_game.c) and

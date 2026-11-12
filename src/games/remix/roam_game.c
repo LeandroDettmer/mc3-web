@@ -394,7 +394,13 @@ static void roam_begin(uint32_t cfg)
         rc_state st;
         if (!name || !*name)
             name = getenv("MC3_PLAYER_NAME");   /* the page's 'Your name' */
-        roam_set_k(roam_cars_total());          /* the hub links us with that many (MC3_ROAM_K overrides) */
+        /* The links asked of the hub (MC3_ROAM_K overrides): 32 at least, more
+         * than the cars we show. The hub links a pair only while both are under
+         * their K, so a phone's 7 (MC3_ROAM_CARS 7) left every player beyond its
+         * 7 nearest without its car and it without theirs, dimmed FAR blips
+         * both ways (2026-11-11, 10 players in a city); a linked peer we have
+         * no car for still gets a live blip. */
+        roam_set_k(roam_cars_total() > 32 ? roam_cars_total() : 32);
         roam_start(name && *name ? name : "Player", 0);
         /* "Not placed yet" (the origin, status menus): the hub links only
          * players with a position, and ours used to come with the cruise's
