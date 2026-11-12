@@ -586,8 +586,16 @@ generated files when the lift inputs did not change.
   its car, any, then the longest-unseen held one, slots first on a tie;
   none: a new standalone car), one queue after the physics step (one
   build/rebuild per 0.25 s, held while a state request is queued or a
-  page-in runs), one look check (car list, no bike mid-cruise, the car
-  cache's 16 models: slot swaps included), one heap check (free +
+  page-in runs), one look check (car list, no bike mid-cruise), one
+  capacity check (2026-11-12, untested in game: the game's car cache
+  [0x50A08C] has 16 entries and gives every car its own (key 0 is never
+  shared, sub_00105B80); full, the builder built on resource 0: ICALL 0 at
+  0x000E92A8/0x002CBD3D, 'builder gave no vehicle', a half car in the
+  registry, main spinning -- always the 17th car, nine Free Roam and
+  career logs. Standalone cars now use caches of our own, [0x50A08C]
+  swapped around their build and delete; a build waits without a free
+  entry or registry place; '[ROAM] cars: capacity: ...' each build;
+  docs/roam-many-cars.md "Car caches"), one heap check (free +
   cost(old car) >= keep + cost(new): keep 3 MB main heap, 2 MB cars heap;
   cost measured per model on each build, an unmeasured model the largest
   measured, at least 1000 KB; the load's slot count uses it too), one park

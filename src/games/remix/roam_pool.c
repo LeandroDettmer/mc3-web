@@ -31,8 +31,9 @@
  * another look (a slot as roam_swap did: old car out and deleted as the
  * player dtor, new one built as the player ctor; a standalone one dropped and
  * built), else a new standalone car for a peer without one. Every build:
- * roam_pool_look (the car list; no motorbike mid-cruise, roam_car_bike; the
- * car cache's 16 models) and roam_pool_room (the heap). A rebuild that cannot
+ * roam_pool_look (the car list; no motorbike mid-cruise, roam_car_bike),
+ * roam_pool_room (the heap) and roam_pool_fit (a car cache entry, a vehicle
+ * registry place; '[ROAM] cars: capacity: ...' after each build). A rebuild that cannot
  * have the peer's car keeps the old one; a new car takes ours instead.
  *
  * Heap (one check, roam_pool_fits): free + cost(the car being rebuilt) >=
@@ -196,23 +197,131 @@ static int roam_pool_room(int32_t car, uint32_t credit, const char *what)
     return 0;
 }
 
-/* ── Looks ── */
+/* ── Car caches and the registry ──
+ *
+ * The game's car cache [0x50A08C] (ctor sub_00103B40: 16 entries of 0x10 B,
+ * +0 car index (-1 free), +4 resource, +8 key, +9 references, +0xA read
+ * pending, +0xC read handle) gives every build its own entry: its get
+ * sub_00105B80 shares an entry only for a non-zero key, and the player
+ * builder (sub_002CB2D0, builder vt+4) asks key 0, same model or not. With
+ * no entry free the get returns 0 and the builder goes on with resource 0:
+ * null vtables (sub_000E6D00 from the render init sub_000FBA90), a half-built
+ * car in the vehicle registry (wild calls from its walk sub_0035DA80), the
+ * main thread spinning (2026-11-12, 9 logs: always the 17th car of any kind
+ * -- ours + slots + standalone cars in Free Roam, ours + 3 of the career's +
+ * 12 standalone in the Online career). Standalone cars take their entries
+ * from caches of our own, same layout, the game's get and release run on
+ * them with [0x50A08C] swapped around the build and the delete; the game's
+ * cache stays for its own cars and the slots'. */
+#define ROAM_XCACHES ((ROAM_RC_MAX + 15) / 16)
+#define CARS_SAY_CAP 128                /* roam_cars_say: a build refused for capacity */
+static uint32_t s_xcache[ROAM_XCACHES];
 
-/* The car cache (key byte 0, as the builder asks) can take car: it holds it,
- * a slot is unreferenced, or old's slot frees with that car's delete. */
-static int roam_pool_cache_ok(int32_t car, int32_t old)
+static int roam_cache_used(uint32_t cache)
 {
-    uint32_t cache = MEM32(ROAM_CACHE_VA), s, i;
-    if (!online_ram(cache))
-        return 0;
-    for (i = 0; i < 16; i++) {
+    int i, n = 0;
+    for (i = 0; online_ram(cache) && i < 16; i++)
+        n += SMEM32(cache + 0x10u * i) != -1;
+    return n;
+}
+
+/* cache can take a build: an entry free, or res's (one reference) freed by the old car's delete first */
+static int roam_cache_room(uint32_t cache, uint32_t res)
+{
+    uint32_t s, i;
+    for (i = 0; online_ram(cache) && i < 16; i++) {
         s = cache + 0x10u * i;
-        if ((SMEM32(s) == car && !MEM8(s + 8u)) || !MEM8(s + 9u) ||
-            (old >= 0 && SMEM32(s) == old && !MEM8(s + 8u) && MEM8(s + 9u) == 1u))
+        if (SMEM32(s) == -1 || (res && MEM32(s + 4u) == res && MEM8(s + 9u) == 1u))
             return 1;
     }
     return 0;
 }
+
+static uint32_t roam_xcache_of(uint32_t res)    /* our cache holding res, 0 none */
+{
+    int j, i;
+    for (j = 0; res && j < ROAM_XCACHES; j++)
+        for (i = 0; s_xcache[j] && i < 16; i++)
+            if (MEM32(s_xcache[j] + 0x10u * (uint32_t)i + 4u) == res)
+                return s_xcache[j];
+    return 0;
+}
+
+/* One of our caches with an entry free (made on first need as sub_00103B40
+ * makes the game's, never freed), 0 none. */
+static uint32_t roam_xcache_pick(void)
+{
+    uint32_t c, i;
+    int j;
+    for (j = 0; j < ROAM_XCACHES; j++) {
+        if (!s_xcache[j]) {
+            if (!(c = xbox_ContiguousAlloc(0x200u, 16)))
+                return 0;
+            memset((uint8_t *)XBOX_PTR(c), 0, 0x200u);
+            for (i = 0; i < 16; i++) {
+                MEM32(c + 0x10u * i) = 0xFFFFFFFFu;
+                MEM32(c + 0x10u * i + 0xCu) = c + 0x100u + 0x10u * i;  /* read handle: only async reads use it, ours never */
+            }
+            s_xcache[j] = c;
+        }
+        if (roam_cache_room(s_xcache[j], 0))
+            return s_xcache[j];
+    }
+    return 0;
+}
+
+/* The cache entry k's next build takes from (a slot: the game's; a
+ * standalone car: ours), 0 none free. */
+static uint32_t roam_pool_cache_for(int k)
+{
+    uint32_t p, res, xc;
+    if (roam_rc_slot(k)) {
+        res = (p = roam_rc_player(k)) ? MEM32(p + 0x10u) : 0;
+        return roam_cache_room(MEM32(ROAM_CACHE_VA), res) ? MEM32(ROAM_CACHE_VA) : 0;
+    }
+    res = k > 0 && k < s_nrc ? s_rc[k].res : 0;
+    if ((xc = roam_xcache_of(res)) && roam_cache_room(xc, res))
+        return xc;
+    return roam_xcache_pick();
+}
+
+/* The vehicle registry's cars (its fullest list) and *cap its capacity (0 unread). */
+static uint32_t roam_reg_used(uint32_t *cap)
+{
+    uint32_t reg = MEM32(ROAM_REG_VA), n = 0, i;
+    *cap = online_ram(reg) ? MEM32(reg + ROAM_REG_CAP) : 0;
+    for (i = 0; *cap && i < sizeof s_roam_reg_lists / sizeof s_roam_reg_lists[0]; i++)
+        if (MEM32(reg + s_roam_reg_lists[i].arr - 4u) > n)
+            n = MEM32(reg + s_roam_reg_lists[i].arr - 4u);
+    return n;
+}
+
+static void roam_pool_capacity(const char *when)
+{
+    uint32_t cap, used = roam_reg_used(&cap);
+    int j, xu = 0;
+    for (j = 0; j < ROAM_XCACHES; j++)
+        xu += roam_cache_used(s_xcache[j]);
+    fprintf(stderr, "[ROAM] cars: capacity: car cache %d/16, remote car caches %d/%d, vehicle registry %u/%u (%s)\n",
+            roam_cache_used(MEM32(ROAM_CACHE_VA)), xu, ROAM_XCACHES * 16, (unsigned)used, (unsigned)cap, when);
+}
+
+/* Entry k can be built: a car cache entry and (a new car; a rebuild deletes
+ * its old one first) a registry place. Refused: logged once a cruise. */
+static int roam_pool_fit(int k, const char *what)
+{
+    uint32_t cap, used = roam_reg_used(&cap);
+    if (roam_pool_cache_for(k) && (roam_rc_veh(k) || !cap || used < cap))
+        return 1;
+    if (roam_cars_say(CARS_SAY_CAP)) {
+        fprintf(stderr, "[ROAM] cars: %s (entry %d) waits: no car cache entry or vehicle registry place (logged once)\n",
+                what, k);
+        roam_pool_capacity("refused");
+    }
+    return 0;
+}
+
+/* ── Looks ── */
 
 /* A read of car pending in the cache, not done yet (the garage's async
  * reads; none of ours): the build would take it half read. */
@@ -231,15 +340,14 @@ static int roam_pool_reading(int32_t car)
 }
 
 /* The look a car for peer id is built with, into blob (*car its model): the
- * peer's when its car is in the car list, the car cache can take it and,
- * mid-cruise, it is no motorbike (roam_car_bike); else ours (stand_in), or
- * none (a rebuild keeps its old car). 0: no look. */
-static int roam_pool_look(uint32_t id, uint8_t blob[ROAM_CFG_SIZE + 4], int32_t *car, int32_t old, int stand_in,
-                          int mid)
+ * peer's when its car is in the car list and, mid-cruise, it is no motorbike
+ * (roam_car_bike); else ours (stand_in), or none (a rebuild keeps its old
+ * car). 0: no look. (Any model takes one car cache entry: roam_pool_fit.) */
+static int roam_pool_look(uint32_t id, uint8_t blob[ROAM_CFG_SIZE + 4], int32_t *car, int stand_in, int mid)
 {
     uint32_t setup = MEM32(ROAM_SETUP_VA), cfg0 = online_ram(setup) ? MEM32(setup + ROAM_ENTRY + 0x0Cu) : 0;
     *car = id && roam_peer_rec(id, blob) ? roam_car_index(roam_cfg_name(blob)) : -1;
-    if (*car >= 0 && !(mid && roam_car_bike(*car)) && roam_pool_cache_ok(*car, old))
+    if (*car >= 0 && !(mid && roam_car_bike(*car)))
         return 1;
     if (!stand_in || !online_ram(cfg0) || MEM32(cfg0) != ROAM_CFG_VT)
         return 0;
@@ -277,7 +385,8 @@ static void roam_rc_phys(roam_rc *c, uint32_t veh, int on)
  * registry) and deleted; mid: with the build context (mid-cruise). */
 static void roam_rc_drop(roam_rc *c, int mid)
 {
-    uint32_t top = (g_esp - 0x400u) & ~0xFu, veh = c->veh, reg, zero = 0;
+    uint32_t top = (g_esp - 0x400u) & ~0xFu, veh = c->veh, reg, zero = 0, xc = roam_xcache_of(c->res);
+    uint32_t keepc = MEM32(ROAM_CACHE_VA);
     if (!veh)
         return;
     if (mid && !roam_build_ctx(1))
@@ -294,7 +403,10 @@ static void roam_rc_drop(roam_rc *c, int mid)
             roam_call(recomp_lookup(MEM32(MEM32(reg) + 8u)), reg, top, 1, &veh);
         MEM8(veh + 0x60u) = 1;
     }
+    if (xc)                                     /* its entry is in our cache: the game's release runs on that */
+        MEM32(ROAM_CACHE_VA) = xc;
     roam_car_delete(veh, c->res, top);
+    MEM32(ROAM_CACHE_VA) = keepc;
     if (mid)
         roam_build_ctx(0);
     c->veh = c->res = c->pveh = 0;
@@ -342,6 +454,7 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
     roam_rc *c = &s_rc[k];
     uint32_t setup = MEM32(ROAM_SETUP_VA), e = setup + ROAM_ENTRY + (uint32_t)k * ROAM_ENTRY_SIZE;
     uint32_t top = (g_esp - 0x400u) & ~0xFu, heap = roam_car_heap(), p = 0, pad = 0xFFFFFFFFu, cfg, veh, res, before, after;
+    uint32_t xc, keepc;
     double t0 = roam_now();
     if (!online_ram(setup) || !online_ram(heap) || !roam_bslots())
         return 0;
@@ -352,6 +465,9 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
             return 0;
         pad = MEM32(e + 0x10u);
     } else if (!(cfg = s_rc_cfg[k]) && !(cfg = s_rc_cfg[k] = xbox_ContiguousAlloc(ROAM_CFG_SIZE, 16)))
+        return 0;
+    /* no cache entry: nothing touched (the builder would build on resource 0, a half car the game keeps) */
+    if (!(xc = roam_pool_cache_for(k)))
         return 0;
     if (mid && !roam_build_ctx(1))
         return 0;
@@ -376,6 +492,8 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
         c->bslot = 1u + (uint32_t)(k - s_roam_slots - 1) % (uint32_t)roam_bslots();
     }
     before = roam_heap_log(heap, NULL);
+    keepc = MEM32(ROAM_CACHE_VA);
+    MEM32(ROAM_CACHE_VA) = xc;                  /* a standalone car's entry from our cache (a slot's: the game's) */
     veh = roam_car_build(cfg, c->bslot, pad, top, &res);
     if (!veh && p && roam_cfg_name(c->look)) {  /* the slot's old car is gone: built again, else it stays carless all cruise */
         roam_cfg_set(cfg, c->look);
@@ -385,6 +503,7 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
         look = c->look;
         car = c->car;
     }
+    MEM32(ROAM_CACHE_VA) = keepc;
     after = roam_heap_log(heap, NULL);
     if (mid)
         roam_build_ctx(0);
@@ -396,8 +515,10 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
         c->res = res;
     }
     if (!veh) {
-        if (roam_cars_say(CARS_SAY_FAIL))
+        if (roam_cars_say(CARS_SAY_FAIL)) {
             fprintf(stderr, "[ROAM] cars: %s %d not built (builder gave no vehicle; logged once)\n", p ? "slot" : "car", k);
+            roam_pool_capacity("after the failed build");
+        }
         return 0;
     }
     if (after < before)
@@ -424,6 +545,7 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
             (int)car, (unsigned)c->bslot, mid ? ", in the cruise" : "", (roam_now() - t0) * 1e3,
             (unsigned)(after < before ? (before - after) >> 10 : 0), s_cheap ? "cars heap" : "heap", (unsigned)(after >> 10),
             (unsigned)(roam_heap_log(MEM32(ROAM_MAIN_HEAP_VA), NULL) >> 10));
+    roam_pool_capacity(p ? "slot built" : "car built");
     return 1;
 }
 
@@ -647,10 +769,10 @@ static void roam_pool_rebuild(int k, double now)
     }
     s_pool_next = now + ROAM_CARS_GAP;
     old = roam_cfg_name(c->look) ? roam_cfg_name(c->look) : "?";
-    if (!roam_pool_look(c->id, blob, &car, c->car, 0, 1)) {
+    if (!roam_pool_look(c->id, blob, &car, 0, 1)) {
         if (roam_rc_say(c, RC_SAY_LOOK))
-            fprintf(stderr, "[ROAM] look: %s %d peer %s wants %s (model %d) -> kept %s (not in the car list, a "
-                            "motorbike (no rider mid-cruise) or the car cache full (16 models))\n",
+            fprintf(stderr, "[ROAM] look: %s %d peer %s wants %s (model %d) -> kept %s (not in the car list or a "
+                            "motorbike (no rider mid-cruise))\n",
                     roam_rc_slot(k) ? "slot" : "car", k, c->name,
                     roam_peer_rec(c->id, blob) && roam_cfg_name(blob) ? roam_cfg_name(blob) : "?", (int)car, old);
         c->want = 0;                            /* until the peer's next car record */
@@ -675,6 +797,11 @@ static void roam_pool_rebuild(int k, double now)
         c->wait = now + ROAM_ROOM_RETRY;
         s_pool_full = 1;
         s_pool_next = now + ROAM_CARS_GAP;
+        return;
+    }
+    if (!roam_pool_fit(k, "a rebuild")) {       /* the old car stands in, as for heap room */
+        c->wait = now + ROAM_ROOM_RETRY;
+        s_pool_full = 1;
         return;
     }
     c->said &= ~(uint32_t)RC_SAY_ROOM;
@@ -714,7 +841,8 @@ static void roam_pool_grow(double now)
         s_pool_next = now + 2.0;
         return;
     }
-    if (!roam_pool_look(s_pool_need, blob, &car, -1, 1, 1) || !roam_pool_room(car, 0, "a new car")) {
+    if (!roam_pool_look(s_pool_need, blob, &car, 1, 1) || !roam_pool_room(car, 0, "a new car") ||
+        !roam_pool_fit(k, "a new car")) {
         s_pool_full = 1;
         s_pool_next = now + 2.0;
         return;
@@ -765,6 +893,18 @@ static void roam_pool_reset(void)
             fprintf(stderr, "[ROAM] cars: car %d left over from the last cruise (its end not seen): out of the "
                             "registry\n", k);
         }
+    /* every standalone car is gone (dropped, or left over above): an entry still in our caches is orphaned; freed
+     * here as empty (its model's bytes not freed: the left-over car may still point at them) */
+    for (k = 0; k < ROAM_XCACHES * 16; k++) {
+        uint32_t e = s_xcache[k / 16] ? s_xcache[k / 16] + 0x10u * (uint32_t)(k % 16) : 0;
+        if (!e || SMEM32(e) == -1)
+            continue;
+        fprintf(stderr, "[ROAM] cars: remote car cache entry %d (model %d) left from the last cruise: emptied\n", k,
+                (int)SMEM32(e));
+        MEM32(e) = 0xFFFFFFFFu;
+        MEM32(e + 4u) = 0;
+        MEM8(e + 8u) = MEM8(e + 9u) = MEM8(e + 0xAu) = 0;
+    }
     memset(s_rc, 0, sizeof s_rc);
     for (k = 0; k < ROAM_RC_MAX; k++)
         s_rc[k].car = -1;
@@ -821,7 +961,8 @@ static void roam_pool_load(void)
     for (i = 0; built < want; built++) {
         while (i < np && roam_pool_of(peers[i].id))
             i++;
-        if (!roam_pool_look(i < np ? peers[i].id : 0, blob, &car, -1, 1, 0) || !roam_pool_room(car, 0, "a car at load"))
+        if (!roam_pool_look(i < np ? peers[i].id : 0, blob, &car, 1, 0) || !roam_pool_room(car, 0, "a car at load") ||
+            !roam_pool_fit(s_nrc, "a car at load"))
             break;
         i++;
         if (!roam_rc_make(s_nrc, blob, car, 0))

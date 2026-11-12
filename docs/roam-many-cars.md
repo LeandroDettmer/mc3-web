@@ -40,7 +40,9 @@ player object: builder ctor sub_002CB270(name, 0, slot, CarCfg*, flag, pad)
   slot|car N sized after S s (radius ...)' once per build, or '... no rim
   geometry after 10 s';
 - vt+0x20 sub_002CB2D0: car cache acquire sub_00105B80 -> builder+0x4C
-  (cache [0x50A08C], 16 slots, refcounted per car index: same model shared);
+  (cache [0x50A08C], 16 entries; key 0, as the builder asks, is never
+  shared: one entry per car, same model or not; full = resource 0, see
+  "Car caches" below);
 - vt+4 sub_002CBDE0: vehicle new 0x6C (vtable 0x454F40, ctor sub_000FF160),
   veh+0x5D = slot, veh+0x5E = 0 (player; AI = 1); physics instance 0x44
   -> veh+0x1C;
@@ -160,9 +162,9 @@ Flash HUD text (not found). Overlay is the cheaper route.
   (per-car paint/vinyl textures likely; the overrun at 7 cars + a garage
   visit says the real cost is well above 25 KB). online-heap-fix's '[ROAM]
   the cruise's N cars took X KB, about Y KB each' line gives the number.
-- Shared per distinct car (cache slot): the model file data, refcounted;
-  16 slots, so at most ~14 distinct remote models besides ours and the
-  garage's.
+- Car cache entry: one per car built (never shared, key 0); the game's
+  16 entries hold every car of the cruise (2026-11-12: the 17th broke);
+  standalone cars now use caches of our own (below).
 - Physics: one collider in the level per car; pool size unknown (init
   sub_002AC730); full = car silently not added.
 - Draws: cruise ~500 draws/frame; a car is roughly 20-40 (body, glass,
@@ -173,8 +175,8 @@ what 7 player cars plus a garage round trip just overran; with reuse of
 same-look cars and no garage-time rebuilds, about **8-12** standalone cars,
 16 only if a car costs under ~150 KB (measure first). 128 MB-like (heap
 ~100 MB, contiguous window 128 MB): +50 MB, **32** cars even at ~1 MB each;
-the 16-slot model cache (distinct looks) and the physics pool become the
-limits.
+the physics pool and the vehicle registry become the limits (the game's
+16-entry car cache, one entry per car, is bypassed for standalone cars).
 
 ## Steps
 
@@ -222,9 +224,30 @@ cars (roam_cars.c: s_car, roam_cars_net, roam_car_make, roam_nearest).
   player's update), else a new standalone car. Held while a state request
   is queued (slot swaps were not before) or a page-in runs.
 - **Look check** (roam_pool_look, one for all): the car list, no motorbike
-  mid-cruise, the car cache's 16 models (roam_pool_cache_ok, which also
-  counts the slot the rebuilt car's model frees). A rebuild that fails it
-  keeps the old car until the peer's next record; a new car takes ours.
+  mid-cruise. A rebuild that fails it keeps the old car until the peer's
+  next record; a new car takes ours.
+- **Car caches** (2026-11-12, untested in game; roam_pool_fit): the game's
+  car cache (sub_00103B40, 16 entries of 0x10 B: +0 car (-1 free), +4
+  resource, +8 key, +9 refs, +0xA read pending, +0xC read handle) shares
+  an entry only for a non-zero key (get sub_00105B80); the player builder
+  asks key 0, so every car takes its own entry. Full, the get returns 0
+  and the builder goes on with resource 0: ICALL 0 at 0x000E92A8 /
+  0x000E6D89 (sub_000E6D00, from the render init sub_000FBA90), 'car N
+  not built (builder gave no vehicle)', a half car in the vehicle
+  registry (wild calls 0x83D181B0 from its walk sub_0035DA80), then the
+  main thread spun or 'Heap overrun'. Nine logs, Free Roam and Online
+  career: always the 17th car (ours + slots + standalone; the career's
+  cruise has 3 cars of its own: 1 + 3 + 12). Now standalone cars take
+  their entries from caches of our own (same layout, contiguous window,
+  made on first need, 3 x 16), the game's get and release running on them
+  with [0x50A08C] swapped around roam_car_build and roam_car_delete; the
+  game's cache keeps its own cars and the slots'. Before each build:
+  a free entry (a rebuild: its old car's entry, freed first) and, for a
+  new car, a vehicle registry place (its fullest list < capacity); else
+  the build waits (pool full: the nearest rule, blips) and nothing is
+  touched. '[ROAM] cars: capacity: car cache N/16, remote car caches
+  N/48, vehicle registry N/M (when)' after every build and on a refusal.
+  The physics level and any other per-car table are not in that line.
 - **Heap check** (roam_pool_fits, one for all, the load's slot count too):
   free + cost(old car, a rebuild) >= keep + cost(new); keep 3 MB in the
   main heap (was max(6 MB, heap/8) for standalone cars, 2 MB free before a
