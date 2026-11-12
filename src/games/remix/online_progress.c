@@ -59,7 +59,8 @@ static const struct { uint32_t wins; int type; const char *name, *code; } s_op_t
 
 static char s_op_line[96];                     /* the last prize, two lines ("+$25,000\nUnlocked: Nitro") */
 static char s_op_flat[96];                     /* the same on one line, for the street race's result */
-static int s_op_note;                          /* s_op_line to show back in the cruise */
+static char s_op_prize[24];                    /* the last prize alone ("+$25,000"), for the page's panel */
+static int s_op_note;                         /* s_op_line to show back in the cruise */
 static double s_op_t;                          /* when it first showed there (0 not yet) */
 static int s_op_paid;                          /* this AI race paid (cleared at its start) */
 
@@ -159,6 +160,7 @@ static void op_award(int place, int racers, int street, int note, const char *wh
         s_on_money = MEM32(m);
     }
     op_dollars(d, sizeof d, money);
+    snprintf(s_op_prize, sizeof s_op_prize, "+$%s", d);
     snprintf(s_op_line, sizeof s_op_line, "+$%s\n%s%s", d, unlocked ? "Unlocked: " : "", unlocked ? unlocked : next);
     snprintf(s_op_flat, sizeof s_op_flat, "+$%s \xC2\xB7 %s%s", d, unlocked ? "unlocked: " : "", unlocked ? unlocked : next);
     s_op_note = note;
@@ -198,6 +200,32 @@ static void op_ai_finish(uint32_t race, uint32_t top)
     }
     op_award((int)place, 0, 0, 1, "AI race");
 }
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+/* Read by the page (web/pre.js, the Online progress panel beside the full map): online, wins, then UTF-8
+ * "Latest\nNext" (Next empty = everything unlocked). Refilled by each call of the getter, so a profile load shows. */
+static struct { int32_t online, wins; char text[160]; } s_op_box;
+EMSCRIPTEN_KEEPALIVE uintptr_t roam_progress_box(void)
+{
+    const char *latest = "\xE2\x80\x94";             /* em dash: nothing yet */
+    char next[80] = "";
+    int i, last = -1;
+    for (i = 0; i < OP_TIERS && s_op_tiers[i].wins <= s_on_wins; i++)
+        last = i;
+    if (last >= 0)
+        latest = s_op_tiers[last].name;
+    else if (s_op_prize[0])
+        latest = s_op_prize;
+    if (i < OP_TIERS)
+        snprintf(next, sizeof next, "%s at %u win%s (%u to go)", s_op_tiers[i].name, (unsigned)s_op_tiers[i].wins,
+                 s_op_tiers[i].wins == 1 ? "" : "s", (unsigned)(s_op_tiers[i].wins - s_on_wins));
+    s_op_box.online = s_online ? 1 : 0;
+    s_op_box.wins = (int32_t)s_on_wins;
+    snprintf(s_op_box.text, sizeof s_op_box.text, "%s\n%s", latest, next);
+    return (uintptr_t)&s_op_box;
+}
+#endif
 
 /* The line for an empty prompt: the AI race's prize, back in the cruise. */
 __attribute__((unused)) static const char *op_note(void)   /* browser only (rra_prompt) */

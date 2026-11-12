@@ -443,7 +443,10 @@ generated files when the lift inputs did not change.
   the FAR list also carries the linked players, after the unlinked ones
   (a link whose snapshots do not arrive still gets a blip; roam_far drops
   those drawn as cars), and '[roam] map: ...' logs on each change of the
-  counts (it used to log the first frame only). Players panel: while the
+  counts (it used to log the first frame only). Online progress panel
+  (2026-11-12, untested in a browser): the same pre.js code puts it left of
+  the players panel, from roam_progress_box (online_progress.c: online,
+  wins, "Latest\nNext" UTF-8; refilled on each call). Players panel: while the
   full map draws, roam_bigmap_box (seq, city) tells web/pre.js, which
   lists the Free Roam players from the switch's players push on the
   picture's right edge (same city first; none on web/server, which has no

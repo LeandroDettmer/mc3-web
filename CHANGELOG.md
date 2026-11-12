@@ -87,6 +87,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 
 ## 2026-11-12 (9ce8569)
 
+- **Free Roam:** with the full map open, an "Online progress" panel sits beside the players list: races won, the latest unlock (or last prize) and the next unlock with wins to go.
 - **Page:** more of the in-game Settings change without a restart: resolution, anisotropic filtering and mipmaps (WebGPU), 60 fps (at once, mid-drive too), Players shown (lower hides the farthest cars at once), keyboard as pad 1, touch controls and their opacity. Renderer, game memory, low-memory mode and texture detail bias still need Restart.
 - **Page:** the in-game Settings window is laid out anew: sections on the left (Game, Graphics, Free Roam, Controls, Info; tabs on top on a narrow phone), one short line per option (tap or focus it for the whole text), a quiet live / restart mark, and Restart and Close always at the bottom, Restart lit up once an option that needs it changed. Keyboard works inside it now (Tab, arrows, Enter, Esc).
 - **Free Roam:** street races start with both cars facing the course (they stood turned around on the grid).

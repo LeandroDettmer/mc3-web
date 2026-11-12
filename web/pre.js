@@ -287,7 +287,7 @@ Module['mc3TouchPad'] = function (words) {
 // 16:9); hidden without a list (web/server's switch has none). Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
-  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
+  var canvas = Module['canvas'], el = null, pel = null, pshown = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
   var CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'], ROWS = 24;   // free-roam room ids 0..3 (web/index.html)
   var me = String((Module['mc3Env'] || {}).MC3_PLAYER_NAME || '').toLowerCase();
   if (!canvas) return;
@@ -309,11 +309,13 @@ Module['mc3TouchPad'] = function (words) {
     var b = _roam_bigmap_box() >>> 2, s = I32[b], here = I32[b + 1];
     if (s !== seq) { seq = s; seenAt = now; }
     var lan = Module['mc3Lan'], list = lan && lan.players && Array.isArray(lan.players.list) ? lan.players.list : null;
-    if (now - seenAt > 400 || !list) { el.style.display = 'none'; return; }   // map closed, paused or gone; no list
-    var roam = list.filter(function (p) { return p && p.mode == 'roam'; }), mine = [], other = [];
+    var open = now - seenAt <= 400, show = open && !!list;   // map closed, paused or gone; no list: players hidden
+    if (!show) el.style.display = 'none';
+    if (!open) { if (pel) pel.style.display = 'none'; return; }
+    var roam = (list || []).filter(function (p) { return p && p.mode == 'roam'; }), mine = [], other = [];
     roam.forEach(function (p) { (p.city === here ? mine : other).push(p); });
     var key = here + '|' + roam.map(function (p) { return p.name + '\u0001' + p.city; }).join('\u0002');
-    if (key !== shown) {
+    if (show && key !== shown) {
       shown = key;
       el.textContent = '';
       el.append(row('Free Roam · ' + roam.length + ' online', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
@@ -340,13 +342,41 @@ Module['mc3TouchPad'] = function (words) {
     if (!canvas.parentNode.classList.contains('stretch')) {
       if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
     }
-    if (!(w > 0 && h > 0)) { el.style.display = 'none'; return; }
-    var st = el.style, pad = Math.max(8, h * 0.02);
-    st.fontSize = Math.max(10, h * 0.022).toFixed(1) + 'px';
+    if (!(w > 0 && h > 0)) { el.style.display = 'none'; if (pel) pel.style.display = 'none'; return; }
+    var st = el.style, pad = Math.max(8, h * 0.02), fs = Math.max(10, h * 0.022).toFixed(1) + 'px', right = x + w - pad;
+    st.fontSize = fs;
     st.maxWidth = (w * 0.2).toFixed(0) + 'px';
     st.maxHeight = (h * 0.8).toFixed(0) + 'px';
-    st.transform = 'translate(' + (x + w - pad).toFixed(1) + 'px,' + (y + h * 0.1).toFixed(1) + 'px) translateX(-100%)';
-    st.display = '';
+    st.transform = 'translate(' + right.toFixed(1) + 'px,' + (y + h * 0.1).toFixed(1) + 'px) translateX(-100%)';
+    if (show) st.display = '';
+    // Online progress panel (src/games/remix/online_progress.c roam_progress_box: online, wins, "Latest\nNext"),
+    // to the left of the players panel (the right edge when that is hidden), same top.
+    if (typeof _roam_progress_box != 'function') return;
+    var pb = _roam_progress_box() >>> 2;
+    if (!I32[pb]) { if (pel) pel.style.display = 'none'; return; }   // not the Online session
+    if (!pel) {
+      pel = document.createElement('div');
+      pel.style.cssText = el.style.cssText;
+      pel.style.whiteSpace = 'normal';
+      canvas.parentNode.append(pel);
+    }
+    var pe = (pb + 2) << 2, pend = pe + 160;
+    while (pe < pend && HEAPU8[pe]) pe++;
+    var lines = new TextDecoder().decode(HEAPU8.slice((pb + 2) << 2, pe)).split('\n'), ptext = I32[pb + 1] + '|' + lines.join('|');
+    if (ptext !== pshown) {
+      pshown = ptext;
+      pel.textContent = '';
+      pel.append(row('Online progress', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
+      pel.append(row('Races won: ' + I32[pb + 1]));
+      pel.append(row('Latest: ' + lines[0], 'opacity:.85'));
+      pel.append(row(lines[1] ? 'Next: ' + lines[1] : 'Everything unlocked', 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
+    }
+    var ps = pel.style, gap = Math.max(6, h * 0.015);
+    ps.fontSize = fs;
+    ps.width = (w * 0.2).toFixed(0) + 'px';
+    ps.maxHeight = (h * 0.8).toFixed(0) + 'px';
+    ps.transform = 'translate(' + (right - (show ? el.offsetWidth + gap : 0)).toFixed(1) + 'px,' + (y + h * 0.1).toFixed(1) + 'px) translateX(-100%)';
+    ps.display = '';
   }
   requestAnimationFrame(frame);
 })();
