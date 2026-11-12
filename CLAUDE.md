@@ -549,15 +549,27 @@ generated files when the lift inputs did not change.
   accept): driving under 12 m/s within 40 m (height 10 m) of 1+ driving
   players, the prompt box offers 'Street race? N nearby players will be
   invited'; White (Q, touch 'Flash'; still also the game's headlight toggle)
-  sends INVITE to the up to 7 nearest every 0.3 s for 10 s; each invitee
+  sends INVITE to the up to 7 nearest every 0.3 s for 15 s (was 10 until
+  2026-11-12); each invitee
   sees '<host> invites you to a race (N players)' and joins with White (under
-  12 m/s) within 10 s; the window closes at 10 s, when every invitee still in
+  12 m/s) within 15 s; the window closes at 15 s, when every invitee still in
   joined, or on the host's White; nobody joined = a note; else GO to each
   racer (its slot, every racer's id) and NO late to the rest; places from
   finish times (each on its own clock from GO), then checkpoints; decided when
   all still in finished, or one left 1 s past the latest finish (last), or at
   600 s; a racer gone/away/silent 5 s or saying NO is out (DNF); the result
-  lists every racer. While that prompt shows, White never starts the AI race; the course is the nearest
+  lists every racer. Quit (2026-11-12, untested in game): Black (E) held 1 s
+  or the prompt box's button (roam_race_button_box act/click, pre.js
+  Module.mc3RaceButton): the host cancels before GO (NO cancel to the
+  invitees: '<host> cancelled the race'), an invitee declines or leaves (NO
+  decline), a racer not yet finished gives up (NO decline: the others mark
+  it out, DNF; our checkpoints go, the cruise's empty array back); the
+  prompt's last line says so; '[CHALLENGE] cancel|give up ...'. Markers:
+  rc_state.bits 0x80 (ROAM_BIT_STREET, roam_game.c; builds before it test
+  0x40 only) while hosting a race someone joined, joined, counting down or
+  racing; name tags (roam_tags.c) of players with 0x40/0x80, or known from
+  our own INVITE/JOIN/GO, start with byte 2: pre.js draws a flag, gold;
+  invites skip them. While that prompt shows, White never starts the AI race; the course is the nearest
   sprint/circuit's own checkpoints, read from its .rac at challenge time
   (tune/race/<city>/<event>.rac through the game's file system and text
   tokenizer: position + 4 sizes), the whole course from checkpoint 0 to the

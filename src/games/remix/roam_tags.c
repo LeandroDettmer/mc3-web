@@ -28,7 +28,9 @@
  * projection (sub_002D4AE0's override) put the arrow's top on the picture
  * (0..1 across), published in roam_tags_box with the arrow's alpha and
  * colour, and the page draws the names there (web/pre.js, "Name tags"):
- * no background, the arrow's colour, fading as it does.
+ * no background, the arrow's colour, fading as it does. A player going to
+ * race or racing (rch_marked: joined a street/group race, or rc_state.bits
+ * 0x40/0x80) gets byte 2 before its name: the page draws a flag, in gold.
  *
  * The camera: a camera object applies itself to its viewport by setting
  * the camera matrix (sub_002D3DA0: the view matrix, its inverse, into
@@ -65,13 +67,16 @@ static uint32_t s_icon_seen[64];                /* render objects the game marke
 static int s_icon_nseen, s_icon_in;
 static int32_t s_icon_col;                      /* the colour the game gave a remote slot (0 until seen) */
 
-/* Remote cars driven now: their vehicles and names, at most max. */
-static int tags_cars(uint32_t *veh, const char **name, int max)
+/* Remote cars driven now: their vehicles, names and peer ids (id may be NULL), at most max. */
+static int tags_cars(uint32_t *veh, const char **name, uint32_t *id, int max)
 {
     int n = 0, k;
     for (k = 1; k < s_nrc && n < max; k++)
-        if (roam_rc_driven(&s_rc[k]) && s_rc[k].live && (veh[n] = roam_rc_veh(k)) != 0)
+        if (roam_rc_driven(&s_rc[k]) && s_rc[k].live && (veh[n] = roam_rc_veh(k)) != 0) {
+            if (id)
+                id[n] = s_rc[k].id;
             name[n++] = s_rc[k].name;
+        }
     return n;
 }
 
@@ -105,7 +110,7 @@ static void roam_icons_end(uint32_t vp, uint32_t top)
     if (!s_online || !roam_running() || !online_ram(pm) || vp > 7u || !online_ram(pl = MEM32(pm + 8u + 4u * vp)) ||
         !online_ram(hud = MEM32(pl + 0x58u)) || !MEM8(hud + 0x8Cu))
         return;                                 /* the game's gate: no icons for this viewer now */
-    n = tags_cars(veh, name, TAGS_MAX);
+    n = tags_cars(veh, name, NULL, TAGS_MAX);
     a[0] = (uint32_t)(s_icon_col >= 0 && s_icon_col < 8 ? s_icon_col : 0);
     for (i = 0; i < n; i++) {
         if (!online_ram(r = MEM32(veh[i] + 0xCu)) || !MEM8(r + 0x12Du))
@@ -127,6 +132,7 @@ static void roam_icons_end(uint32_t vp, uint32_t top)
 #include <emscripten.h>
 extern float nv2a_wgpu_wide(void);              /* xboxrecomp nv2a_wgpu: Hor+ widening, 1 when off */
 static void rch_view(const float vw[16], const float pr[16], float k);  /* roam_challenge.c */
+static int rch_marked(uint32_t id);             /* roam_challenge.c: going to race or racing */
 
 typedef struct { float u, v, alpha; char name[TAGS_NAME]; } roam_tag;
 _Static_assert(ROAM_NAME_MAX < TAGS_NAME, "a name and its NUL fit");
@@ -174,7 +180,7 @@ static float tags_clamp01(float x) { return x < 0.0f ? 0.0f : x > 1.0f ? 1.0f : 
 
 /* The arrow over vehicle veh as sub_000FA070 places it (type 1): its top through the camera, its alpha. */
 static void tags_add(int *n, const float vw[16], const float pr[16], float k, float th, uint32_t veh,
-                     const char *name)
+                     const char *name, int racing)
 {
     uint32_t r = MEM32(veh + 0xCu), b;
     float p[3], d = 0.0f, s, fade, top = 0.0f, u, v, w;
@@ -203,7 +209,7 @@ static void tags_add(int *n, const float vw[16], const float pr[16], float k, fl
     t->u = u;
     t->v = v;
     t->alpha = fade;
-    snprintf(t->name, sizeof t->name, "%s", name[0] ? name : "Player");
+    snprintf(t->name, sizeof t->name, "%s%s", racing ? "\002" : "", name[0] ? name : "Player");  /* byte 2: racing */
 }
 
 /* After the projection builder ran for viewport vp, called from ret. */
@@ -212,7 +218,7 @@ static void roam_tags_view(uint32_t vp, uint32_t ret)
     static int trace = -1, found;
     static uint32_t best;
     static double best_t, trace_t;
-    uint32_t veh[TAGS_MAX], area, i, g;
+    uint32_t veh[TAGS_MAX], ids[TAGS_MAX], area, i, g;
     const char *name[TAGS_MAX];
     float vw[16], pr[16], k, fov, th;
     double now;
@@ -246,9 +252,9 @@ static void roam_tags_view(uint32_t vp, uint32_t ret)
         fov = 60.0f;
     th = tanf(fov * 0.01745f * 0.5f);
     rch_view(vw, pr, k);                        /* a street challenge's next checkpoint (roam_challenge.c) */
-    nc = tags_cars(veh, name, TAGS_MAX);
+    nc = tags_cars(veh, name, ids, TAGS_MAX);
     for (j = 0; j < nc; j++)
-        tags_add(&n, vw, pr, k, th, veh[j], name[j]);
+        tags_add(&n, vw, pr, k, th, veh[j], name[j], rch_marked(ids[j]));
     s_tags.aspect = (tags_env("RECOMP_WIDESCREEN", 1) ? 16.0f / 9.0f : 4.0f / 3.0f) * k;
     s_tags.rgb = 0xFFFFFF;
     if (online_ram(g = MEM32(TAGS_ICON_VA))) {

@@ -328,6 +328,8 @@ Module['mc3SaveResult'] = function (n) {
     for (var i = 0; i < n; i++) {
       var t = b + 4 + i * 10, el = pool[i], name = '';
       for (var c = 0, p = (t + 3) * 4; c < 27 && U8[p + c]; c++) name += String.fromCharCode(U8[p + c]);
+      var racing = name.charCodeAt(0) === 2;   // going to race or racing (roam_tags.c rch_marked): flag, gold
+      if (racing) name = '🏁 ' + name.slice(1);
       if (!el) {
         el = pool[i] = document.createElement('div');
         el.style.cssText = 'position:absolute;left:0;top:0;white-space:nowrap;font-weight:700;' +
@@ -336,7 +338,7 @@ Module['mc3SaveResult'] = function (n) {
         layer.append(el);
       }
       if (el.textContent !== name) el.textContent = name;
-      el.style.color = rgb;
+      el.style.color = racing ? '#ffd24a' : rgb;
       el.style.fontSize = Math.max(10, h * 0.022).toFixed(1) + 'px';   // about the HUD's small text
       el.style.transform = 'translate(' + (x + F32[t] * w).toFixed(1) + 'px,' + (y + F32[t + 1] * h).toFixed(1) +
         'px) translate(-50%,-100%)';
@@ -463,9 +465,17 @@ Module['mc3SaveResult'] = function (n) {
 // at most 32% of the picture wide, and kept above the touch controls. A text starting with \x01 (the countdown, GO, the
 // first 2 s of a result) is big and centred instead. Placed from the game picture's rect (letterboxing, Hor+), as the
 // name tags. Main thread only.
+// Its button (2026-11-12): roam_challenge.c's roam_race_button_box (act, click): act = what quitting does now (1 cancel
+// the race we host, 2 leave a race we joined, 3 give up a running race, 4 decline an invite; 0 none), shown as a
+// button under the text; a tap writes that act into click (Module.mc3RaceButton), the game takes it while still offered.
+Module['mc3RaceButton'] = function (act) {
+  if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_race_button_box != 'function') return;
+  Atomics.store(new Int32Array(HEAPU8.buffer), (_roam_race_button_box() >>> 2) + 1, act | 0);
+};
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
   var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null, big = false;
+  var ACTS = { 1: 'Cancel race', 2: 'Leave race', 3: 'Give up race', 4: 'Decline' };
   // the minimap's top-left in the HUD's 16:9 (720x480 layout): left edge and top, fractions of the HUD's width/height
   var MAP_LEFT = 0.055, MAP_TOP = 0.64, GAP = 0.015;
   if (!canvas) return;
@@ -489,8 +499,10 @@ Module['mc3SaveResult'] = function (n) {
       while (e < end && HEAPU8[e]) e++;
       text = new TextDecoder().decode(HEAPU8.slice(b + 4, e));
     }
-    if (text !== shown) {
-      shown = text;
+    var act = text && typeof _roam_race_button_box == 'function' ? I32[_roam_race_button_box() >>> 2] | 0 : 0;
+    if (!ACTS[act]) act = 0;
+    if (text + '|' + act !== shown) {
+      shown = text + '|' + act;
       big = text.charCodeAt(0) === 1;
       if (big) text = text.slice(1);
       el.textContent = '';
@@ -498,6 +510,7 @@ Module['mc3SaveResult'] = function (n) {
         var d = document.createElement('div');
         if (i === 0) d.style.cssText = big ? 'font-size:2.6em;line-height:1.05;color:#ffd24a' : 'font-size:1.15em;letter-spacing:.03em';
         else if (i === 1) d.style.cssText = 'opacity:.85;font-size:.9em';
+        else if (i >= 3) d.style.cssText = 'margin-top:.2em;font-size:.8em;opacity:.8';   // the quit hint
         else d.style.cssText = 'margin-top:.25em;color:#ffd24a';
         line.split(/(\[[^\]]+\])/).forEach(function (part) {   // [Q] = a keycap
           if (/^\[.+\]$/.test(part)) {
@@ -510,6 +523,22 @@ Module['mc3SaveResult'] = function (n) {
         });
         if (text) el.append(d);
       });
+      if (act) {   // the box ignores the pointer; its button takes it (mouse and touch)
+        var btn = document.createElement('button'), a = act;
+        btn.type = 'button';
+        btn.tabIndex = -1;
+        btn.textContent = ACTS[act];
+        btn.style.cssText = 'pointer-events:auto;display:block;margin-top:.45em;padding:.3em 1em;min-height:2.2em;' +
+          'border-radius:6px;border:1px solid rgba(255,255,255,.7);background:#a3262a;color:#fff;font:inherit;' +
+          'font-size:.9em;cursor:pointer;touch-action:manipulation';
+        btn.addEventListener('pointerdown', function (ev) {   // not a click: the canvas keeps focus (keys)
+          ev.preventDefault();
+          ev.stopPropagation();
+          Module['mc3RaceButton'](a);
+        });
+        if (big) btn.style.margin = '.45em auto 0';
+        el.append(btn);
+      }
     }
     if (!text) { el.style.display = 'none'; return; }
     // the picture inside the canvas (object-fit contain unless Stretch), its shape as the name tags got it

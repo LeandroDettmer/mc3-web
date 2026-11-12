@@ -184,6 +184,10 @@ static int s_roam_ghosts;
 /* rc_state.bits: racing (an AI, career or group race). The status stays RC_ST_ROAM: cores before it drop a SNAP or
  * FAR with a status >= RC_ST__N (roam_core.c), so a new status would hide the racer from them altogether. */
 #define ROAM_BIT_RACE 0x40u
+/* rc_state.bits: in a street or group race of the cruise (joined a pending one, hosting one someone joined, counting
+ * down, racing): name tags mark it (roam_challenge.c rch_bits / rch_marked). Builds before it test 0x40 only. */
+#define ROAM_BIT_STREET 0x80u
+static unsigned rch_bits(void);                 /* roam_challenge.c */
 static int s_roam_cfg_loaded;                   /* entry 0's CarCfg sent again once the cruise runs */
 /* Online career (MC3_CAREER_ONLINE=1, browser only, read at each cruise load): the career's cruise (game mode 2,
  * race type 1) runs a free-roam session of its own, never s_online (that one skips the career's saves and swaps
@@ -1112,7 +1116,7 @@ static void roam_send_local(const roam_pose *me)
     st.speed = st.v[0] * me->m[6] + st.v[1] * me->m[7] + st.v[2] * me->m[8];
     st.steer = (float)(int8_t)me->ctl[7] / 127.0f;
     st.gear = (int8_t)me->ctl[11];
-    st.bits = s_roam_race || roam_group_race() ? ROAM_BIT_RACE : 0;
+    st.bits = (uint8_t)((s_roam_race || roam_group_race() ? ROAM_BIT_RACE : 0) | rch_bits());
     st.ext_len = ROAM_CTL;                      /* the receiver applies these through the game */
     memcpy(st.ext, me->ctl, ROAM_CTL);
     roam_set_local(&st);
