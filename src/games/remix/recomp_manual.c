@@ -1937,7 +1937,7 @@ recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
 
     if (s_mods_n && xbox_va - MODS_VA_LO <= MODS_VA_HI - MODS_VA_LO)
         return mods_lookup(xbox_va);            /* the archive device (mods.c) */
-    return (recomp_func_t)0;
+    return mods_net_lookup(xbox_va);            /* System Link car records (mods_net.c) */
 }
 
 /* ── ICALL failure logging ─────────────────────────────────── */
@@ -4150,6 +4150,7 @@ static void online_strings(void)
 
 /* ── Free roam (O3): remote players as cars in the Online cruise ── */
 #include "roam_game.c"
+#include "mods_net.c"                           /* mod cars online: unknown cars shown as a stock donor */
 #include "online_progress.c"                    /* Online: race prizes, wins unlock abilities and reward paints */
 #include "drift_score.c"                        /* drift points (drift.c feeds them), Online: $10,000 per 10,000 */
 #include "roam_cars.c"                          /* MC3_ROAM_CARS: room for standalone remote cars */

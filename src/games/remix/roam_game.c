@@ -347,8 +347,12 @@ static int32_t roam_car_index(const char *name)  /* the car list's index of a vp
     return (int32_t)roam_call(sub_0026A6A0, 0, top, 1, &a);
 }
 
+static int mods_net_peer_rec(uint32_t id, const uint8_t *rec, int len, uint8_t blob[ROAM_CFG_SIZE]);  /* mods_net.c */
+static void mods_net_send_cfg(const uint8_t blob[ROAM_CFG_SIZE]);
+
 /* Our car to every peer: the CarCfg at cfg, its vtable word zeroed (each
- * receiver puts its own). The core sends only a changed record. */
+ * receiver puts its own). The core sends only a changed record. A mod car
+ * goes through mods_net_send_cfg (older builds get a stock donor). */
 static void roam_send_cfg(uint32_t cfg)
 {
     static uint8_t sent[ROAM_CFG_SIZE];
@@ -379,7 +383,7 @@ static void roam_send_cfg(uint32_t cfg)
         name = roam_cfg_name(blob);
         fprintf(stderr, "[roam] cfg sent: %s\n", name ? name : "(no car name)");
     }
-    roam_set_cfg(blob, ROAM_CFG_SIZE);
+    mods_net_send_cfg(blob);
 }
 
 /* Our status to the peers and the hub: RC_ST_ROAM driving in the cruise,
@@ -516,7 +520,8 @@ static const char *roam_cfg_name(const uint8_t blob[ROAM_CFG_SIZE])
  * ever queued, both silently -- each browser saw the other in its own car. */
 static int roam_peer_rec(uint32_t id, uint8_t blob[ROAM_CFG_SIZE + 4])
 {
-    return roam_peer_cfg(id, blob, ROAM_CFG_SIZE + 4) == (int)ROAM_CFG_SIZE && roam_cfg_name(blob);
+    uint8_t rec[ROAM_CFG_SIZE + 64];            /* a CarCfg, or one + mods_net.c's donor trailer */
+    return mods_net_peer_rec(id, rec, roam_peer_cfg(id, rec, (int)sizeof rec), blob);
 }
 
 /* Two CarCfgs give the same car (name, parts, paint): compared from +0xA.

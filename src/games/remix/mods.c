@@ -63,6 +63,8 @@ static mod_file_t *s_mods;
 static int s_mods_n, s_mods_cap, s_mods_trace;
 static char s_mods_dir[512];
 static mod_open_t s_mods_open[MODS_OPEN];
+static uint32_t mods_net_vehicles(uint8_t *d, uint32_t n);    /* mods_net.c: stock count, Donor lines */
+static recomp_func_t mods_net_lookup(uint32_t va);           /* mods_net.c: System Link car records */
 
 static void mods_key(char *dst, const char *src, size_t size)
 {
@@ -233,7 +235,8 @@ static void mods_dev_open(void)
     s_mods_open[slot].pos = 0;
     fclose(f);
     if (!strcmp(m->key, "tune/vehicle/vehicle.lst"))
-        s_mods_open[slot].size = mods_cap_vehicles(s_mods_open[slot].data, s_mods_open[slot].size);
+        s_mods_open[slot].size = mods_cap_vehicles(s_mods_open[slot].data,
+                                                   mods_net_vehicles(s_mods_open[slot].data, s_mods_open[slot].size));
     mods_used(m);
     g_eax = MODS_H0 + (uint32_t)slot;
     g_esp += 4;
