@@ -99,10 +99,18 @@ function capTests() {
       assert.strictEqual(r.roamMode(50), 'relay', 'answerer side capped too');
       offer();
       assert.strictEqual(pcs.length, 13, 'offer refused while backing off');
-      // thinning through the server: SNAPs to a far peer 1 in 4; HELLO, BYE, the hub's and near peers' never
+      // thinning through the server: beyond max(ROAM.near, roamMax) busiest, SNAPs 1 in 4; HELLO, BYE, the hub's,
+      // near peers' and those the core already thinned by distance (flags every-n 4 / 10) never
+      out.length = 0;
+      for (let n = 0; n < 8; n++) r.roamSend(roamFrame(112, 3));
+      assert.strictEqual(out.length, 8, 'roamMax 32: the 12th busiest is near');
+      r.roamMax = 8; r.tick(); second();     // forget the frames above, re-rank: the 8 busiest are near
       out.length = 0;
       for (let n = 0; n < 8; n++) r.roamSend(roamFrame(112, 3));
       assert.strictEqual(out.length, 2, 'far SNAP: 1 in 4');
+      out.length = 0;
+      for (let n = 0; n < 8; n++) { const f = frame(100, 112, ROAM, ROAM, 'MC3R\x01\x03' + '.'.repeat(14)); f[16 + 14] = n & 1 ? 4 : 10; r.roamSend(f); }
+      assert.strictEqual(out.length, 8, 'core-thinned SNAP: not thinned again');
       out.length = 0;
       for (let n = 0; n < 4; n++) { r.roamSend(roamFrame(112, 1)); r.roamSend(roamFrame(112, 8)); r.roamSend(roamFrame(0x0A4D00FD, 3)); }
       assert.strictEqual(out.length, 12, 'HELLO, BYE, hub: all');

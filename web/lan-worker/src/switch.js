@@ -106,10 +106,14 @@ export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, b
 // JSON: web/lan.js sends a ping every 20 s plus a handful of subs/joins/renames at connect: < 1/s, but web/rtc.js signals
 // through it too: an offer/answer + ~10 ICE candidates per peer, ~80 at once joining an 8-player room. 20/s, burst 200.
 // Free roam's P2P (rtc.js, "roam":1) shares that budget (an estimate, not measured live): a pair costs each end ~6-11
-// (offer or answer + its candidates); a page opens at most 2 pairs a second and holds 12, so entering a busy city is
-// ~70-130 at most over 6 s, and driving through it a pair or two every few seconds; failed pairs back off 30 s .. 5 min.
+// (offer or answer + its candidates); a page opens at most 2 pairs a second but answers every offer it gets, and holds
+// up to its roamMax (32 at 128 MB, index.html): entering a 32-player city, the 31 pages already there may all offer in
+// the same second, ~31 x 6-11 = 190-340 messages from the newcomer in a few seconds, plus its own 2 offers a second.
+// That overran 20/s burst 200 (dropped candidates fail pairs; refused for FLOOD_MS in a row the city socket closes 1008,
+// and the page falls back to the Switch's own hub: split hubs). 40/s burst 400 holds it (2026-11-11); driving through
+// a city stays a pair or two every few seconds; failed pairs back off 30 s .. 5 min.
 // Over budget: dropped silently; empty for FLOOD_MS in a row: closed with 1008 (lan.js reconnects with backoff).
-export const CTL = { perS: 20, burst: 200 }, FLOOD_MS = 10e3;
+export const CTL = { perS: 40, burst: 400 }, FLOOD_MS = 10e3;
 export const NICK = 15, PLAYERS_MAX = 200, WHO_MS = 2000, ACTIVITY_LOG_MS = 60e3;   // the page's name field is 15 long
 // What a player not in free roam or a race room is doing ({"t":"where","w"} from the page, web/lan.js link.where), in the
 // list's order; a player whose page never said (an old page, or not yet) counts as 'menu'. Free roam and race rooms are

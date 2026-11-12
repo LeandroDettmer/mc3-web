@@ -32,8 +32,11 @@
 // Cost caps: at most ROAM.relayMax channels may run through a TURN relay (selected ICE pair 'relay', checked when the
 // channel opens and when ICE reconnects); a relayed channel beyond that, the least busy, closes and its peer goes
 // through the server, retried with the same backoff (both ends refuse it meanwhile). Through the server, a SNAP to a
-// peer outside the ROAM.near busiest (= nearest) is thinned to 1 in ROAM.thin (20 Hz -> 5 Hz); HELLO, BYE, FAR and
-// anything to the hub never are.
+// peer outside the max(ROAM.near, roamMax) busiest (= nearest; roamMax = the game's cars) is thinned to 1 in ROAM.thin
+// (20 Hz -> 5 Hz), unless the core already thinned it by distance (header flags & RC_HF_EVERY = 4 or 10, roam_core.c
+// snap_every: 300 m / 1000 m): thinning those again left ~0.5 Hz against the core's 3 s lost timer. HELLO, BYE, FAR and
+// anything to the hub never are. Every 30 s in Free Roam, on change: '[rtc] free roam load: N peers, P2P x, relayed y,
+// thinned z/s' (frames a second of each kind over those 30 s).
 (function (root) {
   var BCAST = 0xFFFFFFFF, KIND = 3, HDR = 16, MAX = 1472, ROAM_PORT = 47210, RETRIES = 3, HUB = 0x0A4D00FD;
   var ROAM = { max: 12, idleMs: 10000, openMs: 15000, perTick: 2, tickMs: 1000, minFrames: 2, backoffMs: 30000, backoffMaxMs: 300000, statsMs: 60000, queue: 65536,
@@ -65,6 +68,8 @@
     var room = { peers: {}, roam: false }, fr = { peers: {}, roam: true }, peers = room.peers;
     var tries = {}, timers = {}, fns = [], vips = [];
     var act = {}, bad = {}, near = {}, nearN = 0, refused = false, statsAt = Date.now(), statsLast = '';
+    var loadAt = statsAt, load = [0, 0, 0], loadLast = '';
+    function nearMax() { return Math.max(ROAM.near, rtc.roamMax); }
     function changed() { fns.forEach(function (f) { try { f(rtc); } catch (e) { console.error(e); } }); }
     function say(s) { try { (rtc.log || console.log)(s); } catch (_) {} }
     function openP(p) { return !!p && p.dc.readyState == 'open' && p.pc.connectionState != 'disconnected'; }
@@ -285,11 +290,13 @@
       rtc.roamRelay++;
       return out(f);
     };
-    // Through the server: a SNAP (roam datagram 'MC3R', type 3 at +5) to a peer outside the ROAM.near busiest goes
-    // 1 in ROAM.thin. Until ROAM.near peers are ranked, every peer is near.
+    // Through the server: a SNAP (roam datagram 'MC3R', type 3 at +5) to a peer outside the nearMax() busiest goes
+    // 1 in ROAM.thin, unless the core thinned it already (flags u16 little-endian at +14, every-n nibble 4 or 10).
+    // Until nearMax() peers are ranked, every peer is near.
     function thin(dst, f) {
       if (f.length < HDR + 6 || f[HDR] != 0x4D || f[HDR + 1] != 0x43 || f[HDR + 2] != 0x33 || f[HDR + 3] != 0x52 || f[HDR + 5] != 3) return false;
-      if (nearN < ROAM.near || near[dst]) return false;
+      if ((f[HDR + 14] & 0x0F) > 1) return false;
+      if (nearN < nearMax() || near[dst]) return false;
       return act[dst].skip++ % ROAM.thin != 0;
     }
     // Once a second: idle channels go, the busiest new destinations get an offer, a stats line each minute on change.
@@ -311,17 +318,24 @@
           return v <= link.vip || (bad[v] && now < bad[v].until);   // the lower vip offers; a failed pair waits
         }).forEach(function (v) { offer(v, fr); });
       }
-      // the last second's frames rank the peers: the ROAM.near busiest are the near ones (not thinned)
+      // the last second's frames rank the peers: the nearMax() busiest are the near ones (not thinned)
       Object.keys(act).forEach(function (k) { act[k].last = act[k].tx; act[k].tx = 0; });
-      var ranked = Object.keys(act).filter(function (k) { return act[k].last > 0; })
-        .sort(function (a, b) { return act[b].last - act[a].last || a - b; }).slice(0, ROAM.near);
+      var live = Object.keys(act).filter(function (k) { return act[k].last > 0; });
+      var ranked = live.slice().sort(function (a, b) { return act[b].last - act[a].last || a - b; }).slice(0, nearMax());
       near = {}; nearN = ranked.length;
       ranked.forEach(function (k) { near[k] = 1; });
+      if (now - loadAt >= 30000) {
+        var s = (now - loadAt) / 1000, d = [rtc.roamSent - load[0], rtc.roamRelay - load[1], rtc.roamThinned - load[2]];
+        loadAt = now; load = [rtc.roamSent, rtc.roamRelay, rtc.roamThinned];
+        var ll = '[rtc] free roam load: ' + live.length + ' peers, P2P ' + Math.round(d[0] / s) + ', relayed ' + Math.round(d[1] / s) +
+          ', thinned ' + Math.round(d[2] / s) + '/s';
+        if ((d[0] || d[1]) && ll != loadLast) { loadLast = ll; say(ll); }   // only while frames flow (in Free Roam)
+      }
       if (now - statsAt >= ROAM.statsMs) {
         statsAt = now;
         var open = Object.keys(fr.peers).filter(function (k) { return openP(fr.peers[k]); });
         var m = relayed().length, srv = Object.keys(act).filter(function (k) { return act[k].last > 0 && open.indexOf(k) < 0; });
-        var t = nearN < ROAM.near ? 0 : srv.filter(function (k) { return !near[k]; }).length;
+        var t = nearN < nearMax() ? 0 : srv.filter(function (k) { return !near[k]; }).length;
         var line = '[rtc] free roam: ' + (open.length - m) + ' direct, ' + m + ' via TURN, ' + srv.length + ' via the server (thinned ' + t +
           '); frames P2P sent ' + rtc.roamSent + ', received ' + rtc.roamRecv + ', via the server ' + rtc.roamRelay + ', thinned out ' + rtc.roamThinned;
         if (line != statsLast && (rtc.roamSent || rtc.roamRelay)) { statsLast = line; say(line); }

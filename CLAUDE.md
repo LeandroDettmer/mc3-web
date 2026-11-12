@@ -344,7 +344,16 @@ generated files when the lift inputs did not change.
   frames and roam signals; the Switch keeps lobby, races, players list (city
   reports) and its own hub as fallback; '[net] free roam: own socket to city N
   open'; a lost link (switch or city socket not open for 3 s after a HELLO) shows a notice over the picture (lan.js roamDown, pre.js; reload button after 30 s; '[net] free roam: link lost'). Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
-  pairs without a P2P channel (the larger share while K > roamMax). Game side
+  pairs without a P2P channel (the larger share while K > roamMax).
+  Over 10 players (2026-11-11, untested in a browser): the core's group cap
+  stays the hub era's (RC_LIST_MAX + 1) while a configured hub is silent
+  (was max_players 8: peers refused 'full'; LAN discovery alone keeps 8);
+  rtc.js thins a relayed SNAP only beyond max(8, roamMax) busiest peers and
+  never one the core already thinned by distance (flags every-n 4/10: the
+  two stacked gave ~0.5 Hz vs the 3 s lost timer); '[rtc] free roam load: N
+  peers, P2P x, relayed y, thinned z/s' every 30 s on change; the city
+  object builds its report only after CITY.reportMs; Worker CTL 40/s burst
+  400 (a 32-player join's ICE signalling overran 20/200). Game side
   src/games/remix/roam_game.c: the Online cruise's race setup [0x53F2E0]
   gets 1 + N entries (copies of entry 0, +0x10/+0x14/+0x18 = -1, net flag
   0), so the game builds N extra player cars at load (N = peers at load

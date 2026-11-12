@@ -184,6 +184,8 @@ export class RoamCity {
 
   /** The players (vip, room) to the Switch (see the head). Returns the call when one was made (tests). */
   report(now = Date.now(), force = false) {
+    // called on every message: no list or JSON before CITY.reportMs has passed (keepMs >= reportMs, so both rules wait that long)
+    if (!force && now - this.sent.at < CITY.reportMs) return null;
     const vips = new Map();
     for (const p of this.hub.players.values()) if (!vips.has(p.vip)) vips.set(p.vip, [p.room >>> 0, p.status]);
     const players = [...vips].map(([v, [room, st]]) => [v, room, st]).sort((x, y) => x[0] - y[0]), body = JSON.stringify({ city: this.city, players });
