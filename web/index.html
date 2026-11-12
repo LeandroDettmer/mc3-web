@@ -520,6 +520,7 @@
   <div class="stage-bar">
     <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
     <button type="button" class="btn" id="drift-btn" aria-pressed="false" title="Drift mode (Settings, Controls): looser rear tyres on your car. Changes live.">Drift: Off</button>
+    <button type="button" class="btn" id="map-btn" title="Full map (d-pad up, I): press again to close it">Map</button>
   </div>
   <!-- in-game Settings (2026-11-12): sections in a nav (initTabs; the last one picked is kept), one pane scrolls,
        the footer keeps Restart and Close. Setting rows come from SETTINGS (renderIngame), marked live or restart;
@@ -2161,6 +2162,7 @@
   $('settings-btn').onclick = () => { renderIngame(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
   syncDrift();
   $('drift-btn').onclick = () => { setSetting('MC3_DRIFT', settings.MC3_DRIFT ? '' : '1'); $('canvas').focus(); };
+  $('map-btn').onclick = () => { touch?.tapMap(); $('canvas').focus(); };
   $('ig-restart').onclick = () => { if (confirm('Restart the game? Anything not saved in the game is lost.')) restartGame({ resume: true }); };
   $('settings-close').onclick = () => dlg.close();
   dlg.onclick = e => { if (e.target === dlg || e.target.closest('#keys-btn, #races-btn, #players-btn, #log-btn, #full')) dlg.close(); };   // the backdrop is the dialog itself

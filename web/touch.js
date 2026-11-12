@@ -135,6 +135,8 @@
         if (!pressed) continue;
         if (c.kind === 'a') words[c.value] = 255; else words[1] |= c.value;
       }
+      // api.tapMap (the page's Map button): d-pad up, held like a touch press, merged even with the controls off
+      if (held(downAt.get('map'), now, f)) { words[0] = 1; words[1] |= BIT.up; }
       if (stick) {
         let x = stick.dx / STICK_PX, y = stick.dy / STICK_PX;
         const m = Math.hypot(x, y);
@@ -222,7 +224,8 @@
     // the in-game Settings change both live (web/index.html setSetting)
     function setMode(m) { mode = m; setOn(m === 'on' || (m === 'auto' && touchFirst())); }
     const setOpacity = v => root.style.setProperty('--tc-op', v);
-    const api = { setOn, isOn: () => on, onchange: null, setMode, setOpacity };
+    const tapMap = () => { downAt.set('map', { t: performance.now(), f: frames() }); kick(); };
+    const api = { setOn, isOn: () => on, onchange: null, setMode, setOpacity, tapMap };
     setMode(mode);
     return api;
   }
