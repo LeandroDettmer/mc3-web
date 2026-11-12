@@ -483,7 +483,28 @@ generated files when the lift inputs did not change.
   becomes Request(6) with [0x53F2E4] = the city's cruise (SetEvent(city,
   -1), time and weather kept); the first cruise frame puts the car back
   and holds it 1.5 s, re-placed if it falls. '[RACE]' lines;
-  MC3_ROAM_RACE=0 off, =2 Request(6) alone.
+  MC3_ROAM_RACE=0 off, =2 Request(6) alone. No AI cars until 2026-11-12
+  (fix untested in game): the race takes min(.rac racers, setup +0x40)
+  AI and none when setup +0x10D is 0 (.rac reader sub_001D4F20 ->
+  sub_001D3AE0, 0x1D42DB-0x1D42FB; +0x10D is "AI racers on", not
+  hookmen: Arcade's start sub_00184770 copies 1 from 0x4B36B3; Arcade's Go
+  sets +0x40 = sub_00165F50 = min(OpponentCount, 5)); the copied Free
+  Roam cruise had +0x40 = 0 (fr_direct_pass) and rra_start wrote +0x10D =
+  0. Now +0x40 = min(OpponentCount, 8 - humans), +0x10D = 1; the way back
+  sets +0x40 = 0. Racer records: players first (race+0x98, 0xB8 B), AI
+  after (race+0x658, 0x60 B), pointers at race+0x65C. Local players are
+  placed side by side at PlayerPosDir ([race+0x7E8]: x y z heading;
+  sub_001CBCA0, event race, 2+ players: player i at ((i & 1) - 0.5) x
+  2.5 m across, (i >> 1) x 6 m back). Group race (2026-11-12, untested in
+  game): at a start point with players near, roam_challenge.c's prompt
+  offers the event as a group race (its INVITE with 0 checkpoints + the
+  event; v5 builds before it answer NO busy); at GO each racer loads it
+  with its own AI, roam_build gives the race a slot per other racer
+  (s_roam_group, no standalone cars, no phase-7 hold), our car moves to
+  its join-order grid spot for 3 s, a racer not driving 10 s (after 30 s)
+  or still racing 30 s after our finish gets its record's +7 (out) so the
+  race ends; result (places among humans + AI) and prize back in the
+  cruise. Nobody joins: alone vs the AI. '[RACE] group ...'.
   Street challenge (feature 2, 2026-11-09, untested in game;
   src/games/remix/roam_challenge.c, docs/roam-races.md F2): up to 8 racers
   (2026-11-12, untested in game; was a 1v1 headlight flash, flash back to

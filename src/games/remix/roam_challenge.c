@@ -126,6 +126,16 @@
  * u32.  Anything else, or another race id, is dropped (an INVITE while busy is
  * answered NO busy; two hosts inviting each other: the lower race id goes on).
  *
+ * Group race (2026-11-12, untested in game): at a race start point (within
+ * RRA_RADIUS m, slower than RRA_SLOW, an event with opponents) with players
+ * near, the prompt offers the event itself as a group race: the same INVITE
+ * with 0 checkpoints and the event (v5 builds before it answer NO busy: they
+ * take 0 checkpoints as no course), JOIN, GO; at GO every racer loads the
+ * event with its AI (roam_race_ai.c rra_group_start: racers in join order,
+ * each sees the others' cars in its race). Nobody joins, or every other
+ * racer drops out before GO: the host races the AI alone. '[RACE] group'
+ * lines.
+ *
  * MC3_ROAM_CHALLENGE=0 turns it off, =2 native without the HUD/audio calls,
  * =3 without native checkpoints.  Log lines '[CHALLENGE]'. */
 
@@ -231,6 +241,8 @@ static struct {
     char note[RRA_TEXT];
     double note_until;
     struct { uint32_t to[RCH_RACERS], race; int n, left; uint8_t why; double tx; } no;   /* NOs still to repeat */
+    int ai;                                     /* a group race: the event's own race with its AI (air), loaded at GO */
+    const roam_race *air;
 } s_rch;
 
 static int rch_mode(void)                       /* 0 off, 1 native, 2 native without HUD/audio calls, 3 no native */
@@ -891,6 +903,39 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
                     rch_send(from, race, RCH_OP_NO, RCH_NO_BUSY, now);
                 continue;
             }
+            /* a group race: 0 checkpoints and an event (a v5 build before it answers NO busy: b[3] < 2) */
+            if (b[3] == 0 && n >= 24 && (b[21] | b[22] << 8) != 0xFFFF) {
+                const roam_race *gr = NULL;
+                for (i = 0; i < roam_races_count() && !gr; i++)
+                    if (roam_races_get(i)->city == b[20] && roam_races_get(i)->index == (unsigned)(b[21] | b[22] << 8))
+                        gr = roam_races_get(i);
+                if (!gr || !gr->opponents || !(pp = rch_peer(from)) || rch_hd(pp->p, me) > RCH_AWAY) {
+                    fprintf(stderr, "[RACE] group: invite from %08X to event %u/%u declined (%s)\n", (unsigned)from,
+                            b[20], (unsigned)(b[21] | b[22] << 8), !gr ? "not one of our start points" :
+                            !gr->opponents ? "no opponents" : "too far");
+                    rch_send(from, race, RCH_OP_NO, RCH_NO_BUSY, now);
+                    continue;
+                }
+                s_rch.st = RCH_INVITED;
+                s_rch.ai = 1;
+                s_rch.air = gr;
+                s_rch.ncp = 0;
+                s_rch.km = 0.0f;
+                s_rch.ev_city = gr->city;
+                s_rch.ev_index = gr->index;
+                s_rch.race = race;
+                s_rch.peer = from;
+                s_rch.host = 0;
+                s_rch.players = b[23] < 2 ? 2 : b[23] > RCH_RACERS ? RCH_RACERS : b[23];
+                snprintf(s_rch.name, sizeof s_rch.name, "%s", pp->name);
+                s_rch.t0 = s_rch.heard = now;
+                s_rch.tx = 0;
+                s_rch.away = 0;
+                fprintf(stderr, "[RACE] group: %s invites us to %s (race %08X, %d players)\n", s_rch.name, gr->name,
+                        (unsigned)race, s_rch.players);
+                continue;
+            }
+            s_rch.ai = 0;
             if (b[3] < 2 || n < 24 || !(pp = rch_peer(from)) || rch_hd(pp->p, me) > RCH_AWAY) {
                 rch_send(from, race, RCH_OP_NO, RCH_NO_BUSY, now);
                 continue;
@@ -1260,6 +1305,35 @@ static int rch_nearby(const float me[3])
     return n;
 }
 
+/* ---- group race (roam_race_ai.c): the same invite, then every racer loads the event with its AI ---- */
+
+/* The event's first two prompt lines ("Sprint · Downtown", "Easy · 7 opponents") into d1, d2. */
+static void rch_ai_desc(char *d1, size_t n, const char **d2)
+{
+    char *e;
+    rra_text(d1, n, s_rch.air, 0);
+    *d2 = "";
+    if ((e = strchr(d1, '\n')) != NULL) {
+        *e++ = 0;
+        *d2 = e;
+        if ((e = strchr(e, '\n')) != NULL)
+            *e = 0;
+    }
+}
+
+/* GO: every racer still in (join order) loads the event now; alone: just us, as the AI race prompt does. */
+static void rch_ai_go(uint32_t mtx, uint32_t top, double now, int alone)
+{
+    uint32_t ids[RCH_RACERS];
+    const roam_race *r = s_rch.air;
+    int n = alone ? 1 : s_rch.nrc, me = alone ? 0 : s_rch.me, k;
+    for (k = 0; k < n; k++)
+        ids[k] = alone || s_rch.rc[k].out ? 0 : s_rch.rc[k].id;
+    rch_end(alone && s_rch.st == RCH_INVITING ? RCH_NO_DECLINE : 0, NULL, now);
+    fprintf(stderr, "[RACE] group: %s\n", alone ? "nobody else races: alone against the AI" : "GO: loading the race");
+    rra_group_start(r, ids, n, me, mtx, top);
+}
+
 /* ---- the frame ---- */
 
 /* Each player's update (sub_002C1520) for slot 0, before rra_player; 1: the street race owns the prompt and White
@@ -1272,8 +1346,10 @@ static int rch_player(uint32_t p)
     float me[3], fwd[3], v[3] = { 0 }, speed;
     double now = roam_now(), el, last;
     int white, press, i, k, n, nj, nin, go, place, order[RCH_RACERS];
-    char text[RRA_TEXT] = "", t1[16], t2[160];
-    const char *big, *tail;
+    char text[RRA_TEXT] = "", t1[16], t2[160], d1[RRA_TEXT];
+    const char *big, *tail, *d2;
+    const roam_race *gr;
+    float gd;
     rch_racer *mine;
     if (!rch_on() || !online_ram(p) || MEM32(p + 0x5Cu) != 0)
         return 0;
@@ -1330,6 +1406,10 @@ static int rch_player(uint32_t p)
             n += !r->out;
         }
         if (!n) {                               /* every other racer out */
+            if (s_rch.ai) {                     /* a group race: we race the AI alone */
+                rch_ai_go(mtx, top, now, 1);
+                return 1;
+            }
             if (s_rch.st == RCH_RACE && s_rch.rc[s_rch.me].fin > 0.0)
                 rch_result(me, now);
             else
@@ -1344,6 +1424,39 @@ static int rch_player(uint32_t p)
         }
         if (!remix_driving() || speed > RCH_SLOW || !(n = rch_nearby(me)))
             return 0;                           /* no one near: the AI race prompt may show */
+        /* at a race start point with opponents: a group race of its event (alone if nobody joins) */
+        if ((gr = roam_races_nearest(MEM32(setup), me[0], me[2], RRA_RADIUS, &gd)) != NULL && gr->opponents) {
+            s_rch.air = gr;
+            if (!press || speed > RRA_SLOW) {
+                rch_ai_desc(d1, sizeof d1, &d2);
+                snprintf(text, sizeof text, "%s\n%s \xC2\xB7 %d nearby player%s invited\n%s", d1, d2, n, n > 1 ? "s" : "",
+                         speed > RRA_SLOW ? "Slow down to race" : "Press White [Q] to race");
+                rra_prompt(text);
+                return 1;
+            }
+            s_rch.st = RCH_INVITING;
+            s_rch.ai = 1;
+            s_rch.ninv = n;
+            s_rch.host = 1;
+            s_rch.peer = 0;
+            s_rch.ncp = 0;
+            s_rch.km = 0.0f;
+            s_rch.ev_city = gr->city;
+            s_rch.ev_index = gr->index;
+            memcpy(s_rch.grid, gr->pos, sizeof s_rch.grid);
+            s_rch.race = (uint32_t)rand() ^ (uint32_t)(now * 1e6) ^ s_rch.inv[0].id;
+            if (!s_rch.race)
+                s_rch.race = 1;
+            s_rch.t0 = now;
+            s_rch.tx = 0;
+            fprintf(stderr, "[RACE] group: we invite %d player%s to %s (race %08X):", n, n > 1 ? "s" : "", gr->name,
+                    (unsigned)s_rch.race);
+            for (k = 0; k < n; k++)
+                fprintf(stderr, " %s", s_rch.inv[k].name);
+            fprintf(stderr, "\n");
+            return 1;
+        }
+        s_rch.ai = 0;
         if (!press) {
             snprintf(text, sizeof text, "Street race?\n%d nearby player%s will be invited\nPress White [Q] (Flash) to invite",
                      n, n > 1 ? "s" : "");
@@ -1379,6 +1492,28 @@ static int rch_player(uint32_t p)
             }
             nin += !s_rch.inv[k].out;
             nj += !s_rch.inv[k].out && s_rch.inv[k].joined;
+        }
+        if (s_rch.ai && (press || nj == nin || now - s_rch.t0 >= RCH_ASK_S)) {
+            if (!nj) {                          /* nobody joined (or could): the race alone */
+                rch_ai_go(mtx, top, now, 1);
+                return 1;
+            }
+            rch_host_go(now);
+            break;
+        }
+        if (s_rch.ai) {
+            k = (int)(RCH_ASK_S - (now - s_rch.t0) + 0.99);
+            rch_ai_desc(d1, sizeof d1, &d2);
+            snprintf(text, sizeof text, "%s\nGroup race \xC2\xB7 %d of %d joined \xC2\xB7 %d s\nPress White [Q] to start now",
+                     d1, nj, nin, k > 0 ? k : 0);
+            if (now - s_rch.tx >= RCH_RESEND) {
+                for (k = 0; k < s_rch.ninv; k++)
+                    if (!s_rch.inv[k].out)
+                        rch_send(s_rch.inv[k].id, s_rch.race, RCH_OP_INVITE, 0, now);
+                s_rch.tx = now;
+            }
+            rra_prompt(text);
+            return 1;
         }
         if (nj && (press || nj == nin || now - s_rch.t0 >= RCH_ASK_S)) {
             rch_host_go(now);
@@ -1423,6 +1558,23 @@ static int rch_player(uint32_t p)
             s_rch.tx = now;
         }
         k = (int)(RCH_ASK_S - (now - s_rch.t0) + 0.99);
+        if (s_rch.ai) {                         /* a group race */
+            rch_ai_desc(d1, sizeof d1, &d2);
+            if (s_rch.st == RCH_JOINED)
+                snprintf(text, sizeof text, "%s\nGroup race with %s (%d players)\nJoined: waiting for the start", d1,
+                         s_rch.name, s_rch.players);
+            else
+                snprintf(text, sizeof text, "%s invites you: group race (%d players)\n%s \xC2\xB7 %s\n%s \xC2\xB7 %d s",
+                         s_rch.name, s_rch.players, d1, d2, speed > RCH_SLOW ? "Slow down to join" : "Press White [Q] to join",
+                         k > 0 ? k : 0);
+            if (s_rch.st == RCH_INVITED && press && speed <= RCH_SLOW) {
+                s_rch.st = RCH_JOINED;
+                s_rch.tx = 0;
+                fprintf(stderr, "[RACE] group: we join %s's race\n", s_rch.name);
+            }
+            rra_prompt(text);
+            return 1;
+        }
         if (s_rch.st == RCH_JOINED)
             snprintf(text, sizeof text, "Race with %s (%d players)\n%d checkpoints \xC2\xB7 %.1f km\nJoined: waiting for the start",
                      s_rch.name, s_rch.players, s_rch.ncp, s_rch.km);
@@ -1441,6 +1593,22 @@ static int rch_player(uint32_t p)
         rra_prompt(text);
         return 1;
     case RCH_COUNT:
+        if (s_rch.ai) {                         /* a group race: the countdown to everyone's load */
+            if (now - s_rch.tx >= RCH_RESEND) {
+                rch_send_racers(s_rch.host ? RCH_OP_GO : RCH_OP_PROG, now);
+                s_rch.tx = now;
+            }
+            if (now < s_rch.t0) {
+                k = (int)(s_rch.t0 - now) + 1;
+                rch_ai_desc(d1, sizeof d1, &d2);
+                snprintf(text, sizeof text, RCH_BIG "%d\n%s\nGroup race \xC2\xB7 %d racers \xC2\xB7 loading", k > 3 ? 3 : k,
+                         d1, s_rch.nrc);
+                rra_prompt(text);
+                return 1;
+            }
+            rch_ai_go(mtx, top, now, 0);
+            return 1;
+        }
         if (!s_rch.held) {
             rch_grid_pose(mtx, s_rch.hold);     /* our slot on the start line */
             s_rch.held = 1;
@@ -1574,7 +1742,7 @@ static int rch_player(uint32_t p)
 /* The course is on our maps (preview while invited, then the race). */
 static int rch_shown(void)
 {
-    return rch_on() && (s_rch.st == RCH_INVITING || s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED ||
+    return rch_on() && !s_rch.ai && (s_rch.st == RCH_INVITING || s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED ||
                         s_rch.st == RCH_COUNT || (s_rch.st == RCH_RACE && s_rch.rc[s_rch.me].fin == 0.0));
 }
 
