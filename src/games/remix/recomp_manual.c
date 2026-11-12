@@ -1230,7 +1230,10 @@ static RECOMP_TLS int t_ls_thread;          /* this is the loading-screen thread
  * At the stop the loop runs once with the movie hidden (+0x400C = 0: no
  * transition-out, nothing drawn), then the movie goes back for the main
  * thread's delete (sub_0001BB70), which is still waiting on this thread.
- * MC3_SKIP_LEGAL=0 shows it again. */
+ * Opt-in since 2026-11-12 (MC3_SKIP_LEGAL=1): players' profiles went
+ * missing at the title after it shipped; no file I/O is skipped here (the
+ * per-turn calls left out, sub_002D3620 and sub_001B4E00, set D3D state),
+ * but it stays off until a run shows profiles found with it on. */
 extern void sub_00084C00(void);             /* the loop's per-turn input poll, cdecl () */
 extern void sub_002D1830(void);             /* BeginScene, cdecl () */
 void sub_002D2990(void);                    /* Present, cdecl () (override below) */
@@ -1243,7 +1246,7 @@ static int legal_hidden(uint32_t obj)
     uint32_t movie = MEM32(obj + 0x400C), r[8], turns = 0;
     double t0;
 
-    if (runs++ || !s || strcmp(s, "hard") || (l && l[0] == '0') || !movie || MEM8(obj + 0x4004))
+    if (runs++ || !s || strcmp(s, "hard") || !(l && l[0] == '1') || !movie || MEM8(obj + 0x4004))
         return 0;                           /* not the legal screen, or not skipping */
     t0 = ls_now();
     fprintf(stderr, "[LS] legal screen hidden: boot load running\n");   /* the page shows its Loading box (index.html) */

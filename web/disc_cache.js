@@ -24,6 +24,10 @@
 //     { t: 'stopped' }, { t: 'error', msg }. What was written stays.
 var MC3DiscCache = (() => {
   const BLOCK = 1 << 20, DIR = 'mc3-disc-cache';
+  // The saves (OPFS UDATA) share this origin with up to ~4.4 GiB of cache: best-effort storage is evicted whole under
+  // disk pressure, saves included. Persistent storage is not (Chrome grants it silently or not; Firefox asks once).
+  if (typeof document == 'object' && navigator.storage?.persist)
+    navigator.storage.persisted().then(p => p || navigator.storage.persist()).catch(() => {});
   const blockCount = size => Math.ceil(size / BLOCK);
   const blockLen = (size, bi) => Math.min(BLOCK, size - bi * BLOCK);
   /** a disc's name in cache keys: the last part of its URL's path */

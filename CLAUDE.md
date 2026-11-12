@@ -782,7 +782,12 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   (~2.6 s) warm, 5-25 s of disc waits under it cold. Now each turn is
   input poll + BeginScene + Present + Sleep(24), no movie drawn, and the
   stop leaves with +0x400C hidden (no transition-out); '[LS] legal screen
-  hidden ...: N turns, S s of boot load'; MC3_SKIP_LEGAL=0 shows it. The
+  hidden ...: N turns, S s of boot load'. Opt-in since 2026-11-12
+  (MC3_SKIP_LEGAL=1): players' profiles went missing at the title after it
+  shipped; it skips no file I/O (the left-out per-turn calls set D3D
+  state), the cause is not proven. The page asks navigator.storage.persist()
+  (disc_cache.js): best-effort OPFS (saves + ~4.4 GiB cache) is evicted
+  whole under disk pressure. The
   cold wait stays: its reads (assets_x.dat ~287-310 MB, _3 ~75-132 MB,
   _1 ~3 MB) are one 1 MiB block at a time under the guest lock.
   `MC3_AUTOSTART=cruise` (src/autostart.c, the page's "Start in Cruise",
