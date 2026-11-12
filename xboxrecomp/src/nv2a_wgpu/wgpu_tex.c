@@ -273,6 +273,8 @@ static void account(WtTex *t, uint32_t bytes)
     }
 }
 
+static void mips_poll(void);
+
 /* s_gen, moved on at a new segment (texfast): a new vertex epoch
  * (semaphore release, trap) or frame. */
 static uint32_t tex_seg(void)
@@ -280,6 +282,8 @@ static uint32_t tex_seg(void)
     static uint32_t epoch, frame;
     uint32_t ep = s_batch ? s_batch->vtx_epoch : 0;
     if (ep != epoch || wg_frame != frame) {
+        if (wg_frame != frame)
+            mips_poll();
         epoch = ep;
         frame = wg_frame;
         s_gen++;
@@ -360,15 +364,37 @@ static int bc_on(void)
     return env && (wg_ctl.features & WG_FEAT_BC);
 }
 
-/* RECOMP_GL_MIPS (default on). */
+/* RECOMP_GL_MIPS (default on); the page's live value (WG_LIVE_MIPS) first. */
 static int mips_on(void)
 {
     static int on = -1;
+    int32_t l = wg_live(WG_LIVE_MIPS);
     if (on < 0) {
         const char *e = getenv("RECOMP_GL_MIPS");
         on = !(e && *e == '0');
     }
-    return on;
+    return l ? l == 2 : on;
+}
+
+/* A live RECOMP_GL_MIPS change: every cached texture goes, each uploaded
+ * again with or without its levels at its next use (TEX_FREE waits for the
+ * submit). At a frame's first lookup (tex_seg). */
+static void mips_poll(void)
+{
+    static int last = -1;
+    int on = mips_on(), i, n = 0;
+    if (last < 0 || on == last) {
+        last = on;
+        return;
+    }
+    last = on;
+    for (i = 0; i < WT_MAX; i++)
+        if (s_tex[i].id) {
+            entry_free(&s_tex[i]);
+            n++;
+        }
+    fprintf(stderr, "  [WGPU] mipmaps %s: %d textures uploaded again at their next use (RECOMP_GL_MIPS, in-game"
+            " Settings)\n", on ? "on" : "off", n);
 }
 
 /* Levels to upload: the title's, down to 1x1, when it has more than one and
@@ -618,16 +644,24 @@ static uint32_t addr_mode(uint32_t m)
 }
 
 /* RECOMP_GL_ANISO, 1..16 (default 16; JS keeps it to WebGPU's 16 and to
- * all-linear samplers). Logged once with the mipmap switch, as nv2a_gl. */
+ * all-linear samplers); the page's live value (WG_LIVE_ANISO) first: the
+ * level is in the sampler key, so a new one makes new samplers. Logged with
+ * the mipmap switch at first use, as nv2a_gl, and at each change. */
 static uint32_t aniso(void)
 {
-    static uint32_t a;
-    if (!a) {
+    static uint32_t a, env;
+    int32_t l = wg_live(WG_LIVE_ANISO);
+    uint32_t want;
+    if (!env) {
         const char *e = getenv("RECOMP_GL_ANISO");
         int v = e ? atoi(e) : 16;
-        a = v < 1 ? 1u : v > 16 ? 16u : (uint32_t)v;
-        fprintf(stderr, "  [WGPU] mipmaps %s, anisotropic filtering %ux (LOD bias not applied)\n",
-                mips_on() ? "on" : "off", a);
+        env = v < 1 ? 1u : v > 16 ? 16u : (uint32_t)v;
+    }
+    want = l > 0 ? (l > 16 ? 16u : (uint32_t)l) : env;
+    if (want != a) {
+        fprintf(stderr, "  [WGPU] mipmaps %s, anisotropic filtering %ux%s\n", mips_on() ? "on" : "off", want,
+                a ? " (in-game Settings)" : "");
+        a = want;
     }
     return a;
 }

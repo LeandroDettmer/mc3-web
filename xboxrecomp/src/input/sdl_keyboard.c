@@ -95,9 +95,22 @@ void xbox_sdl_keyboard_handle(const SDL_Event *e)
     }
 }
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+/* The page's in-game Settings (web/pre.js mc3SetLive): 0 = RECOMP_KEYBOARD
+ * as at start, 1 off, 2 on. Read at every poll. */
+static volatile int s_kb_live;
+EMSCRIPTEN_KEEPALIVE int *xbox_keyboard_box(void) { return (int *)&s_kb_live; }
+#endif
+
 int xbox_sdl_keyboard_enabled(void)
 {
     static int on = -1;
+#ifdef __EMSCRIPTEN__
+    int l = __atomic_load_n(&s_kb_live, __ATOMIC_RELAXED);
+    if (l)
+        return l == 2;
+#endif
     if (on < 0) {
         const char *v = getenv("RECOMP_KEYBOARD");
         on = (v && *v && *v != '0') ? 1 : 0;

@@ -69,6 +69,7 @@ typedef struct {
     uint32_t shadow, shadow_seq;        /* copy for draws sampling their own target; its pass */
     int      fresh;                     /* storage not yet cleared */
     float    kw;                        /* Hor+ widening (ws_wide), 1: none */
+    uint32_t sgen;                      /* s_scale_gen it was made at */
 } WsSurf;
 
 typedef struct {
@@ -222,6 +223,10 @@ static int s_aspect_auto;
 static volatile uint32_t s_page_aspect;
 
 EMSCRIPTEN_KEEPALIVE uintptr_t nv2a_wgpu_aspect_box(void) { return (uintptr_t)&s_page_aspect; }
+/* The in-game Settings' live words (wgpu_int.h WG_LIVE_*), same pattern. */
+static volatile int32_t s_live[WG_LIVE_N];
+EMSCRIPTEN_KEEPALIVE uintptr_t nv2a_wgpu_live_box(void) { return (uintptr_t)s_live; }
+int32_t wg_live(int i) { return __atomic_load_n(&s_live[i], __ATOMIC_RELAXED); }
 /* The page's FPS overlay reads this u32 (PRESENTs drawn, written by web/wgpu.js) and divides by time. */
 EMSCRIPTEN_KEEPALIVE uintptr_t nv2a_wgpu_fps_box(void) { return (uintptr_t)&wg_ctl.frames_presented; }
 
@@ -302,6 +307,48 @@ float nv2a_wgpu_wide(void)
 
 static double s_scale = -1.0, s_small = -1.0;
 static int    s_square = -1;
+static uint32_t s_scale_gen;                    /* moves on with each live RECOMP_GL_SCALE */
+static int    s_scale_new;                      /* the canvas takes the new scale's height at the next present */
+
+static void ws_scale_init(void)
+{
+    if (s_scale < 0.0) {                        /* nv2a_gl's settings, same meaning */
+        const char *e = getenv("RECOMP_GL_SCALE");
+        double k = e ? atof(e) : 1.0;
+        if (!(k > 0.0)) k = 1.0;
+        s_scale = k < 0.5 ? 0.5 : k > 5.0 ? 5.0 : k;
+        e = getenv("RECOMP_GL_SMALL_SCALE");
+        s_small = e && atof(e) > 0.0 ? atof(e) : 0.0;
+        e = getenv("RECOMP_GL_SQUARE");
+        s_square = !(e && *e == '0') && xbox_video_widescreen();
+        if (s_scale != 1.0 || s_small > 0.0)
+            fprintf(stderr, "  [WGPU] surfaces at %gx (RECOMP_GL_SCALE), narrower than 512 at %gx\n",
+                    s_scale, s_small > 0.0 && s_small < s_scale ? s_small : s_scale);
+    }
+}
+
+/* The page's live RECOMP_GL_SCALE (WG_LIVE_SCALE), at a frame's end (render
+ * thread): every surface is made again at its next use (ws_surf_get), as
+ * for a new Hor+ widening; depth buffers follow by size. */
+static void ws_scale_poll(void)
+{
+    static int32_t seen;
+    int32_t v = wg_live(WG_LIVE_SCALE);
+    double k;
+
+    ws_scale_init();
+    if (!v || v == seen)
+        return;
+    seen = v;
+    k = v / 1000.0;
+    k = k < 0.5 ? 0.5 : k > 5.0 ? 5.0 : k;
+    if (k == s_scale)
+        return;
+    fprintf(stderr, "  [WGPU] surfaces at %gx from now on (RECOMP_GL_SCALE, in-game Settings)\n", k);
+    s_scale = k;
+    s_scale_gen++;
+    s_scale_new = 1;
+}
 
 /* exact_w: the surface must be w wide (a widened frame, ws_bind). */
 static WsSurf *ws_surf_get(uint32_t va, uint32_t w, uint32_t h, uint32_t aa_sx, uint32_t aa_sy, int exact_w)
@@ -313,7 +360,7 @@ static WsSurf *ws_surf_get(uint32_t va, uint32_t w, uint32_t h, uint32_t aa_sx, 
 
     /* the clip fits and the widening is still the screen's: keep it */
     if (s && s->w >= w && s->h >= h && (!exact_w || s->w == w)
-        && s->kw == ws_kw(s->w, s->h, s->aa_sx, s->aa_sy)) {
+        && s->kw == ws_kw(s->w, s->h, s->aa_sx, s->aa_sy) && s->sgen == s_scale_gen) {
         s->used = wg_frame;
         return s;
     }
@@ -334,20 +381,9 @@ static WsSurf *ws_surf_get(uint32_t va, uint32_t w, uint32_t h, uint32_t aa_sx, 
     memset(s, 0, sizeof *s);
     s->va = va; s->w = w; s->h = h; s->used = wg_frame;
     s->aa_sx = aa_sx; s->aa_sy = aa_sy;
+    s->sgen = s_scale_gen;
 
-    if (s_scale < 0.0) {                        /* nv2a_gl's settings, same meaning */
-        const char *e = getenv("RECOMP_GL_SCALE");
-        double k = e ? atof(e) : 1.0;
-        if (!(k > 0.0)) k = 1.0;
-        s_scale = k < 0.5 ? 0.5 : k > 5.0 ? 5.0 : k;
-        e = getenv("RECOMP_GL_SMALL_SCALE");
-        s_small = e && atof(e) > 0.0 ? atof(e) : 0.0;
-        e = getenv("RECOMP_GL_SQUARE");
-        s_square = !(e && *e == '0') && xbox_video_widescreen();
-        if (s_scale != 1.0 || s_small > 0.0)
-            fprintf(stderr, "  [WGPU] surfaces at %gx (RECOMP_GL_SCALE), narrower than 512 at %gx\n",
-                    s_scale, s_small > 0.0 && s_small < s_scale ? s_small : s_scale);
-    }
+    ws_scale_init();
     kx = ky = s_scale;
     if (s_small > 0.0 && w < 512 && s_small < s_scale)
         kx = ky = s_small;
@@ -734,6 +770,7 @@ void wsurf_frame_end(uint32_t out_w, uint32_t out_h)
 
     ws_pass_close();
     ws_aspect_poll();
+    ws_scale_poll();
     /* Nothing to show yet: no surface, or only cleared ones (a title clears
      * to black long before its first frame). The canvas keeps what it had. */
     if (!s || !s_drew_any)
@@ -760,6 +797,10 @@ void wsurf_frame_end(uint32_t out_w, uint32_t out_h)
      * next frame would keep it. object-fit: contain shows it unstretched. */
     minh = (uint32_t)(480.0 * (s_scale > 0.0 ? s_scale : 1.0) + 0.5);
     (void)out_w;
+    if (s_scale_new) {                          /* a live scale: its own height, smaller too */
+        out_h = minh;
+        s_scale_new = 0;
+    }
     if (!out_h) out_h = 720;
     if (out_h < minh) out_h = minh;
 

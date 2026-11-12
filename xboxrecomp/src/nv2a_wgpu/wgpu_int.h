@@ -132,6 +132,14 @@ void wsurf_pass_suspend(void);
  * into an out_w x out_h canvas, with the WG_PF_* fill fields. */
 void wsurf_frame_end(uint32_t out_w, uint32_t out_h);
 
+/* The page's in-game Settings (web/pre.js mc3SetLive -> nv2a_wgpu_live_box,
+ * wgpu_surf.c): word i, 0 = what the environment said at start.
+ * WG_LIVE_SCALE RECOMP_GL_SCALE x 1000 (next frame end), WG_LIVE_ANISO
+ * RECOMP_GL_ANISO 1..16 (next sampler), WG_LIVE_MIPS RECOMP_GL_MIPS 1 off /
+ * 2 on (next frame: textures uploaded again). Any thread. */
+enum { WG_LIVE_SCALE, WG_LIVE_ANISO, WG_LIVE_MIPS, WG_LIVE_N };
+int32_t wg_live(int i);
+
 /* What the open pass draws into (after wsurf_draw + wsurf_pass_begin);
  * NULL when no pass is open. Valid until the next wsurf_* call. */
 typedef struct {
