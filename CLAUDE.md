@@ -997,23 +997,43 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   sub_0020B6F0 override halves it to 1/60 and sub_0041B550 rewrites flip
   interval 2 to 1. Risks: per-frame (not per-step) lerps and Flash HUD run
   2x, replays/ghosts, System Link peers in different modes.
-  Drift mode (2026-11-12, untested in game; MC3_DRIFT=1, live, page
-  "Drift mode"; drift_step in the sub_0020B6F0 override): player 0's car
-  only ([[0x558814]+8]+0x14 = veh). Car physics = AGE vehCarSim (vtable
-  0x44EA64; mcCarSim 0x456550, ctor sub_00121550) at [veh+0x50], one per
-  vehicle (vehicle ctor sub_000FF160); tune FileIO sub_000A3CA0: WheelFront
-  [sim+0x54], WheelBack [sim+0x58] = wheel tune objects (vtable 0x44D6C8,
-  ctor sub_000A69C0, fields sub_000A6DA0: +0x38 HandbrakeCoef, +0x64
+  Drift mode (2026-11-12, v2 assist untested in game; MC3_DRIFT=1 normal,
+  =2 strong, live: page "Drift mode" Off/On/Strong = live word 1/2/3;
+  src/games/remix/drift.c, drift_step from the sub_0020B6F0 override):
+  player 0's car only ([[0x558814]+8]+0x14 = veh). Car physics = AGE
+  vehCarSim (vtable 0x44EA64; mcCarSim 0x456550, ctor sub_00121550) at
+  [veh+0x50], one per vehicle (vehicle ctor sub_000FF160); tune FileIO
+  sub_000A3CA0 (Mass +0x24, CenterOfMass +0x18, InertiaBox +0x34, ...):
+  WheelFront [sim+0x54], WheelBack [sim+0x58] = wheel tune objects (vtable
+  0x44D6C8, ctor sub_000A69C0, fields sub_000A6DA0: +0x24 SteeringLimit,
+  +0x34 BrakeCoef, +0x38 HandbrakeCoef, +0x3C SteeringOffset, +0x64
   OptimumSlipPercent 0.14, +0x68 StaticFric 2.5, +0x6C SlidingFric 2.3
   defaults); wheels point at their axle's ([wheel+4], sub_000A28B0).
   Friction curve sub_000A6220 (from the wheel force sub_000A8770, long and
   lat slip each): up to StaticFric at the optimum slip, SlidingFric past
-  it, times the ground grip [wheel+0x118] (recomputed each step). Drift =
-  WheelBack SlidingFric x0.55, StaticFric x0.9, re-applied each frame (the
-  upgrade blend sub_000A3A90 rewrites sim tunes), originals back when off;
-  '[DRIFT] ...' lines. Other tune binders seen: sub_00124B70 (bike
-  Lean/Wheelie/Drift/Burnout), sub_0007C350 (traffic TireGrip),
-  sub_002C9840 (steer/HandbrakeRate/DriftRate inputs), sub_001CAEF0 (AI).
+  it, times the ground grip [wheel+0x118] (recomputed each step). Wheel
+  steer angle [wheel+0x140] = -SteeringLimit x input (sub_000A6900). Body
+  (phInertialCS) [[[veh+8]+0x68]+0x10]: +4 mass, +0xC inertia, +0x28
+  angular speed cap, +0x2C momentum, +0x38 angular momentum, +0x44
+  velocity, +0x50 angular velocity (world), +0x5C 3x3 rows right/up/back
+  (SetVel sub_003432B0, SetAngVel sub_00343300). Inputs [[veh+4]+0x34]
+  +0x6C steer, +0x70 throttle, +0x74 brake, +0x78 handbrake (sub_002C9570).
+  Assist per frame from slip angle beta and speed (ideas from nfsu2-web's
+  drift assist, no code): rear grip factor fr (Sliding x fr, Static x
+  0.6+0.4 fr) gripping 0.92 -> drift 0.62 over 0..6 deg, minus 0.10 x
+  throttle, 0.50 for 0.35 s after a handbrake tap or a lift-off with the
+  wheel turned, back to 1.05 past beta_max 40 deg (+25); front SteeringLimit
+  x up to 1.6 and SlidingFric x up to 1.15 with slip; past beta_max and
+  growing, the yaw rate is cut (w and L together); half the speed a slide
+  scrubs off per frame is given back (not braking, not a wall); strong
+  level looser. Each value re-applied each frame (the upgrade blend
+  sub_000A3A90 rewrites tunes), originals back when off. '[DRIFT] car:
+  ...' once per car (layout check), '[DRIFT] drift N s, max A deg, ...'
+  per drift. Not found: the speed-sensitive steering's owner (vehInput
+  tune SSSValue +0x10 / SSSThreshold +0xC, FileIO sub_002C9840, vtable
+  0x47681C; also SteerRate/HandbrakeRate/DriftRate). Other tune binders
+  seen: sub_00124B70 (bike Lean/Wheelie/Drift/Burnout), sub_0007C350
+  (traffic TireGrip), sub_001CAEF0 (AI).
   Online O1 (2026-11-08, single player, untested; src/games/remix/
   recomp_manual.c "Online (O1)"): main menu (sub_0018C770) item 3
   CM_Networking ('Online') opens the original screen 0x1E, where

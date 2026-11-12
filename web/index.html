@@ -632,8 +632,8 @@
     { key: 'MC3_REALTIME', label: 'Real-time races', help: 'Below 30 fps a race advances by the time passed, so it keeps its pace on a slow machine.', opts: ONOFF() },
     { key: 'MC3_TRAFFIC_WHEEL_DIST', label: 'Traffic detail distance', help: 'How far traffic cars keep their wheels and shadow (the original 75 m makes wheels pop in close).',
       opts: [['', '150 m (default)'], ['75', '75 m (original)'], ['300', '300 m']] },
-    { key: 'MC3_DRIFT', label: 'Drift mode', help: 'Looser rear tyres on your own car: once the back steps out (handbrake, throttle, a flick) it keeps sliding and you steer the drift. Every car, Free Roam, races and career. Changes live.',
-      opts: [['', 'Off (default)'], ['1', 'On']] },
+    { key: 'MC3_DRIFT', label: 'Drift mode', help: 'A drift assist on your own car: tap the handbrake (or lift off the throttle with the wheel turned) and the back steps out; the throttle holds the angle, counter-steer catches it, it does not spin out and keeps its speed. Strong: easier, wider angles. Every car, Free Roam, races and career. Changes live.',
+      opts: [['', 'Off (default)'], ['1', 'On'], ['2', 'Strong']] },
     { group: 'Online' },
     { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out. Changes live: lower hides the farthest; higher adds cars up to what the cruise loaded with, the rest at the next cruise.',
       opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
@@ -741,9 +741,9 @@
 
   // Drift button (stage bar): shows MC3_DRIFT; setSetting calls it, so the button and the Settings row agree
   function syncDrift() {
-    const on = settings.MC3_DRIFT === '1';
+    const on = !!settings.MC3_DRIFT;
     $('drift-btn').setAttribute('aria-pressed', on);
-    $('drift-btn').textContent = on ? 'Drift: On' : 'Drift: Off';
+    $('drift-btn').textContent = settings.MC3_DRIFT === '2' ? 'Drift: Strong' : on ? 'Drift: On' : 'Drift: Off';
   }
 
   // Advanced box: KEY=VALUE lines
@@ -2160,7 +2160,7 @@
   const dlg = $('settings-dlg');
   $('settings-btn').onclick = () => { renderIngame(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
   syncDrift();
-  $('drift-btn').onclick = () => { setSetting('MC3_DRIFT', settings.MC3_DRIFT === '1' ? '' : '1'); $('canvas').focus(); };
+  $('drift-btn').onclick = () => { setSetting('MC3_DRIFT', settings.MC3_DRIFT ? '' : '1'); $('canvas').focus(); };
   $('ig-restart').onclick = () => { if (confirm('Restart the game? Anything not saved in the game is lost.')) restartGame({ resume: true }); };
   $('settings-close').onclick = () => dlg.close();
   dlg.onclick = e => { if (e.target === dlg || e.target.closest('#keys-btn, #races-btn, #players-btn, #log-btn, #full')) dlg.close(); };   // the backdrop is the dialog itself

@@ -189,7 +189,7 @@ Module['mc3TouchPad'] = function (words) {
     RECOMP_GL_MIPS: [gfx, 2, onoff],
     MC3_60FPS: [game, 0, function (v) { return v === '1' ? 2 : 1; }],
     MC3_ROAM_CARS: [game, 1, function (v) { return parseInt(v, 10) || -1; }],   // -1 auto
-    MC3_DRIFT: [game, 2, function (v) { return v === '1' ? 2 : 1; }],
+    MC3_DRIFT: [game, 2, function (v) { return v === '2' ? 3 : v === '1' ? 2 : 1; }],
     RECOMP_KEYBOARD: [function () { return typeof _xbox_keyboard_box == 'function' ? _xbox_keyboard_box() : 0; }, 0, onoff],
   };
   var want = {}, timer = 0;
