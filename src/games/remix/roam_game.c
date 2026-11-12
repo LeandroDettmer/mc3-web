@@ -190,7 +190,7 @@ static int roam_career_on(void)
     const char *e = getenv("MC3_CAREER_ONLINE");
     if (l)
         return l == 2;
-    return e && e[0] == '1';
+    return !e || e[0] != '0';             /* on by default (2026-11-12); MC3_CAREER_ONLINE=0 off */
 #else
     return 0;
 #endif
