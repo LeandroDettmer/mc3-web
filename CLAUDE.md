@@ -231,7 +231,9 @@ generated files when the lift inputs did not change.
   into port 0 like the keyboard; Settings 'Touch controls' Auto/On/Off
   (page-only MC3_TOUCH*). Phones (MC3Touch.isPhone): full screen + landscape
   on Play, RECOMP_GL_SCALE 1 and MC3_60FPS off unless picked; Wake Lock on
-  every device.
+  every device. Page defaults (2026-11-11, untested in game): every device
+  4x aniso, FXAA and sharpen off, MC3_MOVIE_HD 0; PC 1.5x (was 3x), phones
+  and lowMem 1x (phones were 1.5x).
 - **Wasm memory and TVs (2026-11-09, untested on a TV):** the fixed 2 GB
   (INITIAL_MEMORY, no growth) never started on a TV browser (black
   screen). Now linked 256 MB min, growth to 2 GB (Emscripten's
