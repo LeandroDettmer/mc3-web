@@ -506,9 +506,14 @@ static void roam_pool_nearest(const roam_peer *peers, int n, int cand, double no
  * nearest rule. */
 static void roam_pool_net(const roam_peer *peers, int n, double now)
 {
+    static int k_was;                           /* the hub's K follows a live Players shown (roam_begin's rule) */
     uint8_t used[ROAM_K_MAX] = { 0 }, blob[ROAM_CFG_SIZE + 4];
     const char *pname;
-    int i, k, best, bs, sc, ok, cand = -1;
+    int at[ROAM_RC_MAX];                        /* entry k's peer index this frame */
+    int i, k, best, bs, sc, ok, cand = -1, held = 0, lim = roam_cars_total(), kk = lim > 32 ? lim : 32;
+    if (k_was && kk != k_was && roam_running())
+        roam_set_k(kk);
+    k_was = kk;
     if (n > ROAM_K_MAX)
         n = ROAM_K_MAX;
     s_pool_need = 0;
@@ -520,6 +525,8 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
             ;
         if (i < n) {
             used[i] = 1;
+            at[k] = i;
+            held++;
             roam_rc_take(k, &peers[i]);
         } else if (c->here) {                   /* dropped out: parked, held a while */
             c->here = 0;
@@ -528,9 +535,28 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
         } else if (now - c->lost > ROAM_HOLD)
             c->id = 0;
     }
+    /* A live lower Players shown (in-game Settings): the farthest holders over it lose their car (parked, free
+     * for a nearer one); no newcomer gets a car while lim are held, the nearest rule swaps instead. */
+    while (held > lim) {
+        for (k = 1, best = 0, bs = -1; k < s_nrc; k++)
+            if (s_rc[k].id && s_rc[k].here && at[k] > bs) {
+                bs = at[k];
+                best = k;
+            }
+        fprintf(stderr, "[ROAM] %s %d: %s parked (Players shown %d)\n", roam_rc_slot(best) ? "slot" : "car", best,
+                s_rc[best].name, lim);
+        s_rc[best].id = 0;
+        s_rc[best].here = s_rc[best].live = 0;
+        held--;
+    }
     for (i = 0; i < n; i++) {
         if (used[i])
             continue;
+        if (held >= lim) {
+            if (cand < 0 && peers[i].status == RC_ST_ROAM)
+                cand = i;
+            continue;
+        }
         for (k = 1, best = 0, bs = 0, ok = -1; k < s_nrc; k++) {
             roam_rc *c = &s_rc[k];
             if ((c->id && c->here) || !roam_rc_veh(k))
@@ -552,6 +578,7 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
         }
         if (best) {
             used[i] = 1;
+            held++;
             roam_rc_give(best, &peers[i], "");
             continue;
         }
@@ -560,7 +587,7 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
         if (cand < 0 && peers[i].status == RC_ST_ROAM)
             cand = i;
     }
-    roam_pool_nearest(peers, n, s_pool_full ? cand : -1, now);
+    roam_pool_nearest(peers, n, s_pool_full || held >= lim ? cand : -1, now);
 }
 
 /* ── The queue ── */
@@ -632,12 +659,17 @@ static void roam_pool_grow(double now)
     uint8_t blob[ROAM_CFG_SIZE + 4];
     int32_t car;
     int k;
+    uint32_t reg = MEM32(ROAM_REG_VA), cap = online_ram(reg) ? MEM32(reg + ROAM_REG_CAP) : 0;
     s_pool_next = now + ROAM_CARS_GAP;
     for (k = s_roam_slots + 1; k < s_nrc && s_rc[k].veh; k++)
         ;
-    if (!s_roam_slots || (k == s_nrc && (s_nrc - 1 >= roam_cars_total() || s_nrc >= ROAM_RC_MAX))) {
+    /* a new entry also needs room in the vehicle registry, sized at the cruise's load (roam_cars_registry) for
+     * the Players shown of then: a live raise beyond it waits for the next load */
+    if (!s_roam_slots || (k == s_nrc && (s_nrc - 1 >= roam_cars_total() || s_nrc >= ROAM_RC_MAX
+                                         || 8u + (uint32_t)s_nrc + 2u > cap))) {
         if (roam_cars_say(CARS_SAY_MAX))
-            fprintf(stderr, "[ROAM] cars: all %d remote cars in use: the nearest get them (logged once)\n", s_nrc - 1);
+            fprintf(stderr, "[ROAM] cars: all %d remote cars in use (Players shown %d, vehicle registry %u): the "
+                            "nearest get them (logged once)\n", s_nrc - 1, roam_cars_total(), (unsigned)cap);
         s_pool_full = 1;
         s_pool_next = now + 2.0;
         return;

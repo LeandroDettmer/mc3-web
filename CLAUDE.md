@@ -608,6 +608,24 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   sides (glows, flares) were thrown out or smeared -- now only a
   pre-transformed draw spanning both edges keeps it (wgpu_draw.c
   wide_full_2d), any other is squeezed whole.
+- **Live settings** (2026-11-12, untested in a browser): the in-game
+  Settings window's live rows (web/index.html LIVE, setSetting) go through
+  web/pre.js Module.mc3SetLive(key, the value buildEnv would give) into
+  32-bit boxes, 0 = the env's value at start: nv2a_wgpu_live_box
+  (wgpu_int.h WG_LIVE_*; WebGPU only, WebGL rows say restart):
+  RECOMP_GL_SCALE x1000 (frame end: every surface made again at its next
+  use, s_scale_gen, canvas height re-set), RECOMP_GL_ANISO (in the sampler
+  key: new samplers), RECOMP_GL_MIPS 1/2 (next frame: every cached texture
+  freed and uploaded again); mc3_live_box (recomp_manual.c): MC3_60FPS
+  1/2 (taken outside states 2/3 only: from the next drive or race),
+  MC3_ROAM_CARS (-1 auto; roam_pool_net parks the farthest holders over it
+  and gives newcomers no car while it is reached; raising builds new cars
+  only up to the vehicle registry sized at the cruise's load; the hub's K
+  follows); xbox_keyboard_box (sdl_keyboard.c) RECOMP_KEYBOARD 1/2; touch
+  rows page-only (touch.js setMode/setOpacity). Restart stays for
+  RECOMP_GPU, RECOMP_RAM_MB, MC3_LOWMEM (renderer and memory layout are
+  set at boot) and RECOMP_GL_LOD_BIAS (in every fragment shader's text and
+  the OPFS pipeline list's keys: live would recompile every pipeline).
 - **Builds**: tools/build_web.sh uses ccache when installed (WSL:
   ~/.cache/ccache-mc3, CCACHE_BASEDIR = repo, so build folders share it;
   CCACHE=0 off). Builds on /mnt/e are slow; one relift per round.

@@ -211,16 +211,19 @@
       kick();
       api.onchange?.(on);
     }
-    if (mode === 'auto') {
-      // a finger on the game shows them, a key hides them until the next touch (nfsu2-web's rule)
-      // (on the picture only: a tap on the bar's Touch button toggles them itself)
-      stage.addEventListener('pointerdown', e => { if (e.pointerType === 'touch' && e.target.tagName === 'CANVAS') setOn(true); }, true);
-      addEventListener('keydown', e => {
-        if (!e.repeat && e.isTrusted && !e.target.closest?.('input, textarea, select')) setOn(false);
-      }, true);
-    }
-    const api = { setOn, isOn: () => on, onchange: null };
-    setOn(mode === 'on' || (mode === 'auto' && touchFirst()));
+    // Auto: a finger on the game shows them, a key hides them until the next touch (nfsu2-web's rule)
+    // (on the picture only: a tap on the bar's Touch button toggles them itself)
+    stage.addEventListener('pointerdown', e => {
+      if (mode === 'auto' && e.pointerType === 'touch' && e.target.tagName === 'CANVAS') setOn(true);
+    }, true);
+    addEventListener('keydown', e => {
+      if (mode === 'auto' && !e.repeat && e.isTrusted && !e.target.closest?.('input, textarea, select')) setOn(false);
+    }, true);
+    // the in-game Settings change both live (web/index.html setSetting)
+    function setMode(m) { mode = m; setOn(m === 'on' || (m === 'auto' && touchFirst())); }
+    const setOpacity = v => root.style.setProperty('--tc-op', v);
+    const api = { setOn, isOn: () => on, onchange: null, setMode, setOpacity };
+    setMode(mode);
     return api;
   }
 

@@ -174,6 +174,42 @@ Module['mc3TouchPad'] = function (words) {
   Module['mc3SetAspect'](a || 'auto');
 })();
 
+// The in-game Settings window's live rows (web/index.html setSetting, with the value the game would get at start):
+// each a 32-bit word in a box the C side reads at its next use, 0 = what the game started with. Renderer:
+// xboxrecomp/src/nv2a_wgpu (nv2a_wgpu_live_box, WebGPU only); game: src/games/remix/recomp_manual.c (mc3_live_box);
+// keyboard: xboxrecomp/src/input/sdl_keyboard.c (xbox_keyboard_box). Kept in `want` so a value set before the
+// runtime is up lands once it is. Main thread only.
+(function () {
+  var onoff = function (v) { return v === '0' ? 1 : 2; };   // unset = on
+  function gfx() { return typeof _nv2a_wgpu_live_box == 'function' ? _nv2a_wgpu_live_box() : 0; }
+  function game() { return typeof _mc3_live_box == 'function' ? _mc3_live_box() : 0; }
+  var BOX = {   // key: [box address (0: not up yet), word, value -> word]
+    RECOMP_GL_SCALE: [gfx, 0, function (v) { return Math.round((parseFloat(v) || 1) * 1000); }],
+    RECOMP_GL_ANISO: [gfx, 1, function (v) { return parseInt(v, 10) || 16; }],
+    RECOMP_GL_MIPS: [gfx, 2, onoff],
+    MC3_60FPS: [game, 0, function (v) { return v === '1' ? 2 : 1; }],
+    MC3_ROAM_CARS: [game, 1, function (v) { return parseInt(v, 10) || -1; }],   // -1 auto
+    RECOMP_KEYBOARD: [function () { return typeof _xbox_keyboard_box == 'function' ? _xbox_keyboard_box() : 0; }, 0, onoff],
+  };
+  var want = {}, timer = 0;
+  function put() {
+    timer = 0;
+    var k, b, a;
+    for (k in want) {
+      b = BOX[k];
+      if (typeof HEAPU8 == 'undefined' || !HEAPU8 || !(a = b[0]())) { timer = setTimeout(put, 250); return; }
+      Atomics.store(new Int32Array(HEAPU8.buffer), (a >>> 2) + b[1], b[2](want[k]));
+      delete want[k];
+    }
+  }
+  Module['mc3SetLive'] = function (key, value) {
+    if (!BOX[key]) return false;
+    want[key] = value === undefined ? '' : String(value);
+    if (!timer) put();
+    return true;
+  };
+})();
+
 // Which gamepad drives this tab (xboxrecomp/src/input/xinput_device.c, xbox_web_pad_box): -2 auto, -1 none, n = SDL
 // joystick device index. Kept in `want` so a value set before the runtime is up lands once it is. Main thread only.
 (function () {

@@ -2644,17 +2644,49 @@ static void realtime_step(float real)
  * smoothing, Flash HUD) runs 2x fast; replays and ghosts recorded at 1/30
  * may play back differently; System Link peers must both run the same mode;
  * the race object's +0x58 rate (60/30/20 for sub_0009BE00) is not changed. */
+/* The page's in-game Settings (web/index.html setSetting -> web/pre.js
+ * mc3SetLive -> mc3_live_box): word i, 0 = the environment's value as at
+ * start. MC3_LIVE_60FPS 1 off / 2 on (fps60_step, from the next drive or
+ * race); MC3_LIVE_CARS MC3_ROAM_CARS, -1 auto (roam_cars_total, read live by
+ * the remote cars pool). */
+enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_N };
+#ifdef __EMSCRIPTEN__
+static int32_t s_mc3_live[MC3_LIVE_N];
+EMSCRIPTEN_KEEPALIVE uintptr_t mc3_live_box(void) { return (uintptr_t)s_mc3_live; }
+#endif
+static int32_t mc3_live(int i)
+{
+#ifdef __EMSCRIPTEN__
+    return __atomic_load_n(&s_mc3_live[i], __ATOMIC_RELAXED);
+#else
+    (void)i;
+    return 0;
+#endif
+}
+
 static void fps60_step(void)
 {
-    static int on = -1;
+    static int on = -1, env = -1;
     static float halved;                        /* the 1/60 we wrote, 0 = none */
     uint32_t st = s_state_obj ? MEM32(s_state_obj + 4) : 0;
     float f = MEMF(0x004B2D58u);
-    if (on < 0) {
+    int32_t l = mc3_live(MC3_LIVE_60FPS);
+    if (env < 0) {
         const char *e = getenv("MC3_60FPS");
-        on = e && e[0] == '1';
-        if (on)
-            fprintf(stderr, "[TIME] races and cruise step 1/60 s at interval 1 (MC3_60FPS)\n");
+        env = e && e[0] == '1';
+    }
+    /* taken outside a drive or race only: a live change applies from the next one */
+    if (on < 0 || (st != 2 && st != 3 && (l ? l == 2 : env) != on)) {
+        on = l ? l == 2 : env;
+        if (!on && halved != 0.0f) {            /* off: the 1/30 back, as on leaving states 2/3 */
+            if (f == halved)
+                MEMF(0x004B2D58u) = f * 2.0f;
+            halved = 0.0f;
+            s_fps60 = 0;
+        }
+        if (on || l)
+            fprintf(stderr, "[TIME] races and cruise step 1/%d s at interval %d (MC3_60FPS%s)\n", on ? 60 : 30,
+                    on ? 1 : 2, l ? ", in-game Settings" : "");
     }
     if (!on)
         return;

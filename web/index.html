@@ -241,18 +241,69 @@
                             padding: 8px 16px; background: linear-gradient(90deg, var(--red-lo) 40%, transparent), var(--grid);
                             border-bottom: 2px solid var(--silver); }
   #settings-dlg .dlg-head strong, #players-dlg .dlg-head strong, #changelog-dlg .dlg-head strong { font-size: 18px; }
-  #settings-dlg .dlg-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
   #settings-dlg .btn, #players-dlg .btn, #changelog-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
-  #settings-dlg .pad-sel { flex: 1 1 160px; max-width: 100%; min-height: 40px; }
-  #settings-dlg h3 { margin: 20px 0 0; }
-  #settings-dlg .set > div { flex-basis: 220px; }
-  #settings-dlg .set select { min-width: 0; max-width: 100%; }
-  #ig-restart-msg { flex: 1 1 200px; min-width: 0; }
-  .ig-tag { display: inline-block; margin-left: 8px; padding: 0 6px; border: 1px solid var(--line); border-radius: var(--r);
-            font-size: 12px; line-height: 18px; font-weight: 400; color: var(--muted); vertical-align: middle; }
-  .ig-tag.live { color: var(--ok); border-color: var(--ok); }
-  #run-status { display: block; color: var(--muted); font-size: 14px; word-break: break-word; }
-  #run-status.bad { color: var(--bad); }
+  /* in-game Settings (2026-11-12): title bar, the sections' nav (left; on top when narrow), one pane that scrolls,
+     a footer with Restart and Close. The dialog has a fixed height so it does not jump between sections. */
+  #settings-dlg { width: min(760px, calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+                  height: min(560px, calc(100% - 16px)); height: min(560px, calc(100dvh - 16px)); max-width: none; max-height: none; padding: 0; overflow: hidden; }
+  #settings-dlg[open] { display: flex; flex-direction: column; }
+  #settings-dlg .dlg-head { flex: none; margin: 0; padding: 6px 16px; }
+  .ig-main { flex: 1 1 auto; min-height: 0; display: flex; }
+  .ig-nav { flex: none; width: 140px; display: flex; flex-direction: column; gap: 2px; padding: 8px 0; overflow-y: auto;
+            background: var(--panel); border-right: 1px solid var(--line); }
+  .ig-nav .tab { min-height: 44px; padding: 0 14px; text-align: left; font-size: 15px; color: var(--muted);
+                 border-bottom: 0; border-left: 3px solid transparent; }
+  .ig-nav .tab:hover { color: var(--text); }
+  .ig-nav .tab[aria-selected=true] { color: var(--gold); border-left-color: var(--gold); background: var(--gold-fill); }
+  .ig-nav .tab:focus-visible { outline-offset: -3px; }
+  .ig-main > [role=tabpanel] { flex: 1 1 auto; min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 16px 12px; touch-action: pan-y; }
+  /* rows: label and a one-line hint on the left (the whole hint on focus or a tap), the control on the right */
+  #settings-dlg .set { flex-wrap: nowrap; gap: 12px; padding: 8px 0; min-height: 56px; }
+  #settings-dlg .set:last-child { border-bottom: 0; }
+  #settings-dlg .set > div { flex: 1 1 auto; min-width: 0; }
+  #settings-dlg .set select { flex: none; width: 11rem; min-width: 0; max-width: 48%; }
+  #settings-dlg .set > .btn, #settings-dlg .set-btns { flex: none; }
+  #settings-dlg .set > .btn { min-width: 7rem; }
+  #settings-dlg .set-btns { display: flex; gap: 8px; }
+  #settings-dlg .set:has(> .btn[hidden]) { display: none; }   /* Fullscreen, Races, Touch: no row when the button is hidden */
+  #settings-dlg .set .pad-sel { flex: none; width: 11rem; max-width: 48%; min-height: 40px; }
+  .hint.one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; line-height: 18px; cursor: pointer; }
+  .hint.one.open, .set:focus-within .hint.one { white-space: normal; overflow-wrap: anywhere; }
+  .btn.sw { min-width: 5.5rem; }
+  .btn.sw::before { content: "Off"; }
+  .btn.sw[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: var(--gold-fill); }
+  .btn.sw[aria-pressed=true]::before { content: "On"; }
+  .ig-tag { margin-left: 8px; font: 700 10px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+            text-shadow: none; vertical-align: 1px; white-space: nowrap; }
+  .ig-tag.live { color: var(--ok); }
+  #settings-dlg .ig-quit { margin-top: 12px; border-top: 1px solid var(--line); }
+  #settings-dlg .ig-quit .set-label { color: var(--bad); }
+  .ig-foot { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 16px; padding-bottom: max(8px, env(safe-area-inset-bottom));
+             background: var(--panel); border-top: 2px solid var(--line); }
+  #ig-restart-msg { flex: 1 1 0; min-width: 0; font-size: 13px; line-height: 18px; }
+  #ig-restart.hot { border-color: var(--gold); color: var(--gold); background: var(--gold-fill); box-shadow: 0 0 12px var(--gold-glow); }
+  #run-status { display: block; margin: 8px 0 4px; padding: 10px 12px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r);
+                color: var(--muted); font-size: 14px; line-height: 20px; word-break: break-word; }
+  #run-status.bad { color: var(--bad); border-color: var(--bad); }
+  /* narrow (a phone upright): the sections become a row of tabs over the pane; a row's control may drop under its label */
+  @media (max-width: 560px) {
+    .ig-main { flex-direction: column; }
+    .ig-nav { width: auto; flex-direction: row; gap: 0; padding: 0; overflow: visible; border-right: 0; border-bottom: 1px solid var(--line); }
+    .ig-nav .tab { flex: 1 1 0; min-width: 0; padding: 0 2px; text-align: center; font-size: 12px; line-height: 14px;
+                   border-left: 0; border-bottom: 3px solid transparent; }
+    .ig-nav .tab[aria-selected=true] { border-bottom-color: var(--gold); }
+    #settings-dlg .set { flex-wrap: wrap; }
+    #settings-dlg .set > div { flex-basis: 150px; }
+  }
+  /* short (a phone on its side): thinner bars, so the pane keeps most of the height */
+  @media (max-height: 460px) {
+    #settings-dlg .dlg-head { padding: 2px 16px; }
+    #settings-dlg .dlg-head strong { font-size: 15px; }
+    .ig-nav { padding: 4px 0; }
+    .ig-nav .tab { min-height: 40px; }
+    #settings-dlg .set { min-height: 48px; padding: 4px 0; }
+    .ig-foot { padding-top: 4px; padding-bottom: max(4px, env(safe-area-inset-bottom)); }
+  }
   .stage canvas { width: 100% !important; height: 100% !important; object-fit: contain; display: block; outline: none; min-height: 0;
                   grid-row: -2 / -1; grid-column: 1; }    /* the last row, shared with the touch controls (web/touch.js) */
   body.playing, .stage { touch-action: none; overscroll-behavior: none; }   /* no scroll, pinch or double-tap zoom over the game */
@@ -469,36 +520,59 @@
   <div class="stage-bar">
     <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
   </div>
-  <dialog id="settings-dlg" aria-label="Settings">
-    <div class="dlg-head"><strong>Settings</strong><button type="button" class="btn" id="settings-close" aria-label="Close">Close</button></div>
-    <span id="run-status" role="status">Loading…</span>
-    <div class="dlg-row">
-    <button type="button" class="btn" id="full">Fullscreen</button>
-    <button type="button" class="btn" id="keys-btn" aria-expanded="false" aria-controls="keys-panel">Keys</button>
-    <button type="button" class="btn" id="races-btn" aria-expanded="false" aria-controls="races-panel" hidden>Races</button>
-    <button type="button" class="btn" id="players-btn" aria-haspopup="dialog" aria-controls="players-dlg">Players</button>
-    <button type="button" class="btn" id="log-btn" aria-expanded="false" aria-controls="log">Log</button>
-    <button type="button" class="btn" id="log-save">Save log</button>
-    <button type="button" class="btn danger" id="quit">Quit</button>
+  <!-- in-game Settings (2026-11-12): sections in a nav (initTabs; the last one picked is kept), one pane scrolls,
+       the footer keeps Restart and Close. Setting rows come from SETTINGS (renderIngame), marked live or restart;
+       a button whose row has no use here is hidden, and its row with it (CSS :has). -->
+  <dialog id="settings-dlg" aria-labelledby="settings-title">
+    <div class="dlg-head"><strong id="settings-title">Settings</strong></div>
+    <div class="ig-main">
+      <div class="ig-nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+        <button type="button" class="tab" role="tab" data-tab="ig-run">Game</button>
+        <button type="button" class="tab" role="tab" data-tab="ig-gfx">Graphics</button>
+        <button type="button" class="tab" role="tab" data-tab="ig-fr">Free Roam</button>
+        <button type="button" class="tab" role="tab" data-tab="ig-input">Controls</button>
+        <button type="button" class="tab" role="tab" data-tab="ig-info">Info</button>
+      </div>
+      <div role="tabpanel" data-pane="ig-run">
+        <span id="run-status" role="status">Loading…</span>
+        <div class="set"><div><span class="set-label">Full screen</span><p class="hint one">Hides the browser's bars.</p></div>
+          <button type="button" class="btn" id="full">Fullscreen</button></div>
+        <div class="set"><div><span class="set-label">Online races</span><p class="hint one">Make or join a race room, then Online Races in the game's Online menu.</p></div>
+          <button type="button" class="btn" id="races-btn" aria-expanded="false" aria-controls="races-panel" hidden>Races</button></div>
+        <div class="set ig-quit"><div><span class="set-label">Quit</span><p class="hint one">Back to the start page. Anything not saved in the game is lost.</p></div>
+          <button type="button" class="btn danger" id="quit">Quit</button></div>
+      </div>
+      <div role="tabpanel" data-pane="ig-gfx">
+        <div class="set"><div><span class="set-label">Stretch<span class="ig-tag live">live</span></span><p class="hint one">Fills the screen; distorts the picture.</p></div>
+          <button type="button" class="btn sw" id="stretch-btn" aria-pressed="false" aria-label="Stretch"></button></div>
+        <div class="set"><div><span class="set-label">FPS counter<span class="ig-tag live">live</span></span><p class="hint one">Frames per second over the picture.</p></div>
+          <button type="button" class="btn sw" id="fps-btn" aria-pressed="false" aria-label="FPS counter"></button></div>
+        <div id="ig-graphics"></div>
+      </div>
+      <div role="tabpanel" data-pane="ig-fr">
+        <div id="ig-roam"></div>
+      </div>
+      <div role="tabpanel" data-pane="ig-input">
+        <div class="set"><div><label class="set-label" for="pad-sel-bar">Controller</label><p class="hint one">Which controller this tab plays with.</p></div>
+          <select class="pad-sel" id="pad-sel-bar"></select></div>
+        <div class="set"><div><span class="set-label">On-screen controller<span class="ig-tag live">live</span></span><p class="hint one">Shows or hides the touch controls now (Touch controls below sets when).</p></div>
+          <button type="button" class="btn sw" id="touch-btn" aria-pressed="false" aria-label="On-screen controller" hidden></button></div>
+        <div id="ig-controls"></div>
+      </div>
+      <div role="tabpanel" data-pane="ig-info">
+        <div class="set"><div><span class="set-label">Keys</span><p class="hint one">Every key by in-game action, over the picture.</p></div>
+          <button type="button" class="btn" id="keys-btn" aria-expanded="false" aria-controls="keys-panel">Keys</button></div>
+        <div class="set"><div><span class="set-label">Players online</span><p class="hint one">Who is online, by city and mode.</p></div>
+          <button type="button" class="btn" id="players-btn" aria-haspopup="dialog" aria-controls="players-dlg">Players</button></div>
+        <div class="set"><div><span class="set-label">Log</span><p class="hint one">The game's log over the picture, or saved as a file for a bug report.</p></div>
+          <span class="set-btns"><button type="button" class="btn" id="log-btn" aria-expanded="false" aria-controls="log">Log</button>
+          <button type="button" class="btn" id="log-save">Save log</button></span></div>
+      </div>
     </div>
-    <!-- the start page's Settings rows that matter while playing (renderIngame): the same store, marked live or restart -->
-    <h3>Graphics</h3>
-    <div class="dlg-row">
-    <button type="button" class="btn" id="stretch-btn" aria-pressed="false" title="Fill the screen (distorts the picture; changes live)">Stretch</button>
-    <button type="button" class="btn" id="fps-btn" aria-pressed="false" title="Show frames per second over the picture (changes live)">FPS counter</button>
-    </div>
-    <div id="ig-graphics"></div>
-    <h3>Free Roam</h3>
-    <div id="ig-roam"></div>
-    <h3>Controls</h3>
-    <div class="dlg-row">
-    <select class="pad-sel" id="pad-sel-bar" aria-label="Controller for this tab"></select>
-    <button type="button" class="btn" id="touch-btn" aria-pressed="false" title="On-screen controller (Settings: Touch controls)" hidden>Touch</button>
-    </div>
-    <div id="ig-controls"></div>
-    <div class="dlg-row">
-    <button type="button" class="btn" id="ig-restart" title="Reload the game with the intro skipped (back to Free Roam where you were)">Restart</button>
-    <span class="hint" id="ig-restart-msg" role="status">Settings marked “restart” apply after a restart.</span>
+    <div class="ig-foot">
+      <span class="hint" id="ig-restart-msg" role="status">Settings marked restart apply after a restart.</span>
+      <button type="button" class="btn" id="ig-restart" title="Reload the game with the intro skipped (back to Free Roam where you were)">Restart</button>
+      <button type="button" class="btn" id="settings-close">Close</button>
     </div>
   </dialog>
   <canvas id="canvas" tabindex="0" aria-label="Game" oncontextmenu="event.preventDefault()"></canvas>
@@ -534,15 +608,15 @@
     { key: 'RECOMP_WIDESCREEN', label: 'Console video', help: 'The console video setting the game reads.', opts: [['', '16:9 (default)'], ['0', '4:3']] },
     { key: 'RECOMP_ASPECT', label: 'Screen shape', help: 'WebGPU: on a screen wider than 16:9 the race shows more to the sides instead of stretching; menus and the HUD keep their shape in the middle. Auto: the game picture\'s shape on the page, following window resizes and full screen.',
       opts: [['', 'Auto (default)'], ['16:9', '16:9'], ['21:9', '21:9'], ['32:9', '32:9']] },
-    { key: 'RECOMP_GL_SCALE', label: 'Resolution', help: 'Renders at this multiple of 720×480; 1.5 gives 1280×720 with square pixels.',
+    { key: 'RECOMP_GL_SCALE', label: 'Resolution', help: 'Renders at this multiple of 720×480; 1.5 gives 1280×720 with square pixels. Changes live with WebGPU.',
       opts: [['', '1× (default)'], ['1.5', '1.5×'], ['2', '2×'], ['2.5', '2.5×'], ['3', '3×']] },
     { key: 'RECOMP_GL_SQUARE', label: 'Square pixels in 16:9', help: 'Widens 16:9 frames so pixels are square, not stretched.', opts: ONOFF() },
     { key: 'RECOMP_GL_FILL', label: 'Fill 4:3 screens', help: 'Menus and videos laid out in the middle 4:3 are shown full width (not the boot logos).', opts: ONOFF() },
     { key: 'RECOMP_GL_FXAA', label: 'Anti-aliasing (FXAA)', help: 'Smooths edges in the final pass.', opts: ONOFF('Off') },
     { key: 'RECOMP_GL_SHARPEN', label: 'Sharpening', help: 'Contrast-adaptive sharpening in the final pass.',
       opts: [['', 'Off (default)'], ['0.25', '0.25'], ['0.5', '0.5'], ['0.75', '0.75'], ['1', '1']] },
-    { key: 'RECOMP_GL_MIPS', label: 'Mipmaps', help: "The game's own mip levels with trilinear filtering.", opts: ONOFF() },
-    { key: 'RECOMP_GL_ANISO', label: 'Anisotropic filtering', help: 'Sharper textures at a slant.',
+    { key: 'RECOMP_GL_MIPS', label: 'Mipmaps', help: "The game's own mip levels with trilinear filtering. Changes live with WebGPU (textures load again).", opts: ONOFF() },
+    { key: 'RECOMP_GL_ANISO', label: 'Anisotropic filtering', help: 'Sharper textures at a slant. Changes live with WebGPU.',
       opts: [['', 'Off (default)'], ['16', '16×'], ['8', '8×'], ['4', '4×'], ['2', '2×']] },
     { key: 'RECOMP_GL_LOD_BIAS', label: 'Texture detail bias', help: 'Lower is sharper, with more shimmer.',
       opts: [['', '0 (default)'], ['-0.25', '-0.25'], ['-0.5', '-0.5'], ['-1', '-1']] },
@@ -558,25 +632,25 @@
     { key: 'MC3_TRAFFIC_WHEEL_DIST', label: 'Traffic detail distance', help: 'How far traffic cars keep their wheels and shadow (the original 75 m makes wheels pop in close).',
       opts: [['', '150 m (default)'], ['75', '75 m (original)'], ['300', '300 m']] },
     { group: 'Online' },
-    { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out.',
+    { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out. Changes live: lower hides the farthest; higher adds cars up to what the cruise loaded with, the rest at the next cruise.',
       opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
     { key: 'MC3_NAMETAGS', label: 'Name tags', help: 'Each other player\'s name over their car in free roam (not hidden behind buildings). Changes live.', opts: ONOFF() },
     // page-only (web/rtc.js roamP2P; the game ignores it)
     { key: 'MC3_ROAM_P2P', label: 'Direct connections (P2P) in Free Roam', help: 'The nearest players\' cars come straight from their browsers, not through the server: lighter on the server. It shares your IP address with those players. Off: everything goes through the server. Changes live.', opts: ONOFF() },
     { group: 'Keyboard' },
-    { key: 'RECOMP_KEYBOARD', label: 'Keyboard as pad 1', help: 'Off leaves only controllers.', opts: ONOFF() },
+    { key: 'RECOMP_KEYBOARD', label: 'Keyboard as pad 1', help: 'Off leaves only controllers. Changes live.', opts: ONOFF() },
     { key: 'RECOMP_KEYBOARD_STICK_Y', label: 'Up and Down move the stick', help: 'Menus move with the stick. Auto: while driving (when the game says so) the arrows are gas and brake alone.',
       opts: [['', 'Auto (default)'], ['1', 'Always'], ['0', 'Never']] },
     { group: 'Touch' },
     // page-only rows (buildEnv leaves MC3_TOUCH* out of the game's environment): web/touch.js
-    { key: 'MC3_TOUCH', label: 'Touch controls', help: 'An on-screen controller over the game (pad 1, with the keyboard and any controller). Auto: on phones and tablets, and once a finger touches the game; a key press hides it until the next touch.',
+    { key: 'MC3_TOUCH', label: 'Touch controls', help: 'An on-screen controller over the game (pad 1, with the keyboard and any controller). Auto: on phones and tablets, and once a finger touches the game; a key press hides it until the next touch. Changes live.',
       opts: [['', 'Auto (default)'], ['1', 'On'], ['0', 'Off']] },
-    { key: 'MC3_TOUCH_OPACITY', label: 'Touch controls opacity', help: 'How much of the game shows through them.',
+    { key: 'MC3_TOUCH_OPACITY', label: 'Touch controls opacity', help: 'How much of the game shows through them. Changes live.',
       opts: [['', '45% (default)'], ['0.25', '25%'], ['0.6', '60%'], ['0.8', '80%'], ['1', '100%']] },
     { group: 'Performance' },
     { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL. Firefox always uses WebGL (its WebGPU shows a black screen). Auto also uses WebGL on GPUs whose WebGPU froze the game (Mali, Adreno 600 and older, Intel HD/UHD 4xx-6xx) and on a device where WebGPU froze or failed before; WebGPU here forces it (and forgets the failure).',
       opts: [['', 'Auto (default)'], ['webgpu', 'WebGPU'], ['webgl', 'WebGL']] },
-    { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60.',
+    { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60. Changes from the next drive or race.',
       opts: [['', 'Off (default)'], ['1', 'On']] },
     { key: 'RECOMP_RAM_MB', label: 'Game memory', help: 'The console\'s RAM. 128 MB (like an Xbox devkit) gives the game a 95 MB heap instead of 47 MB: room for every car online, no "heap overrun" in a full Free Roam. Auto: 128 MB on a PC, 64 MB in low-memory mode.',
       opts: [['', 'Auto (default)'], ['64', '64 MB'], ['128', '128 MB']] },
@@ -609,9 +683,10 @@
     for (const [v, t] of s.opts) sel.add(new Option(t, v));
     sel.value = settings[s.key] ?? '';
     if (sel.value !== (settings[s.key] ?? '')) delete settings[s.key];   // a value no longer offered
+    if (tag) { help.classList.add('one'); help.title = s.help; help.onclick = () => help.classList.toggle('open'); }   // in game: one line, a tap shows it all
     sel.onchange = () => {
       setSetting(s.key, sel.value);
-      if (tag === 'restart') $('ig-restart-msg').textContent = s.label + ' changed: press Restart to apply it.';
+      if (tag === 'restart') { $('ig-restart-msg').textContent = s.label + ' changed: Restart applies it.'; $('ig-restart').classList.add('hot'); }
     };
     text.append(label, help);
     row.append(text, sel);
@@ -628,7 +703,13 @@
   // In-game Settings window (2026-11-11): the rows a player changes while playing, from SETTINGS and the same store.
   // Live ones apply at once (setSetting); the rest are what the game read at start: Restart (restartGame).
   // Not offered: FXAA and sharpening (the WebGPU renderer never sets WgPresent.sharp / has no FXAA pass).
-  const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_ROAM_P2P']);
+  // Live (2026-11-12): web/pre.js mc3SetLive writes a box the game reads at its next use (resolution, filtering and
+  // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
+  // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
+  const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
+    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']);
+  const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
+  const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
     ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
     ['ig-roam', ['MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_RAM_MB']],
@@ -636,7 +717,7 @@
   ];
   function renderIngame() {
     for (const [id, keys] of INGAME)
-      $(id).replaceChildren(...keys.map(k => settingRow(SETTINGS.find(s => s.key === k), 'ig-', LIVE.has(k) ? 'live' : 'restart')));
+      $(id).replaceChildren(...keys.map(k => settingRow(SETTINGS.find(s => s.key === k), 'ig-', live(k) ? 'live' : 'restart')));
   }
   function setSetting(key, value) {
     if (value) settings[key] = value; else delete settings[key];
@@ -645,6 +726,12 @@
     if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
     if (key === 'MC3_ROAM_P2P' && lan?.rtc) lan.rtc.roamP2P = roamP2P();   // web/rtc.js, live
     if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
+    if (live(key) && window.Module?.mc3SetLive) Module.mc3SetLive(key, buildEnv(null)[key]);   // the value a start would get
+    if (key.startsWith('MC3_TOUCH') && touch) {   // web/touch.js, live
+      const { mode, opacity } = touchOpts();
+      touch.setMode(mode); touch.setOpacity(opacity);
+      $('touch-btn').hidden = !(MC3Touch.hasTouch() || mode === 'on');
+    }
     preview();
   }
 
@@ -768,7 +855,7 @@
         t.setAttribute('aria-controls', pane.id); pane.setAttribute('aria-labelledby', t.id);
         t.onclick = () => show(t.dataset.tab);
         t.onkeydown = e => {
-          const d = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+          const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
           if (d) { e.preventDefault(); show(tabs[(i + d + tabs.length) % tabs.length].dataset.tab, true); }
         };
       });
@@ -1542,6 +1629,11 @@
   }
   const runStatus = (t, bad) => { $('run-status').textContent = t; $('run-status').classList.toggle('bad', !!bad); };
   let playing = false, touch = null;
+  // Touch controls' mode and opacity: the URL, else the rows (page-only MC3_TOUCH*, web/touch.js)
+  function touchOpts() {
+    const q = new URLSearchParams(location.search), pick = k => q.get(k) ?? settings[k];
+    return { mode: { 1: 'on', 0: 'off' }[pick('MC3_TOUCH')] || 'auto', opacity: Number(pick('MC3_TOUCH_OPACITY')) || 0.45 };
+  }
   // WebGPU is only offered when an adapter answers: asked before the canvas goes to the game's worker.
   // Auto picks WebGPU when an adapter answers (30 fps in cruise where WebGL held 15,
   // 2026-11-08), else WebGL; the row or ?RECOMP_GPU=webgl forces WebGL.
@@ -1626,9 +1718,8 @@
     canvas.focus();
     if (window.MC3Touch) {
       MC3Touch.keepScreenOn(out);
-      const q = new URLSearchParams(location.search), pick = k => q.get(k) ?? settings[k];
-      const mode = { 1: 'on', 0: 'off' }[pick('MC3_TOUCH')] || 'auto';
-      touch = MC3Touch.attach($('stage'), $('fps'), { mode, opacity: Number(pick('MC3_TOUCH_OPACITY')) || 0.45 });
+      const { mode, opacity } = touchOpts();
+      touch = MC3Touch.attach($('stage'), $('fps'), { mode, opacity });
       touch.onchange = on => $('touch-btn').setAttribute('aria-pressed', on);
       $('touch-btn').setAttribute('aria-pressed', touch.isOn());
       $('touch-btn').hidden = !(MC3Touch.hasTouch() || mode === 'on');
@@ -2012,7 +2103,7 @@
   $('changelog-dlg').onclick = e => { if (e.target === e.currentTarget) e.currentTarget.close(); };
   // Settings dialog (the stage bar's only button). Keys / Races / Log / Fullscreen show something over the game: close it first.
   const dlg = $('settings-dlg');
-  $('settings-btn').onclick = () => { renderIngame(); dlg.showModal(); $('settings-close').focus(); };
+  $('settings-btn').onclick = () => { renderIngame(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
   $('ig-restart').onclick = () => { if (confirm('Restart the game? Anything not saved in the game is lost.')) restartGame({ resume: true }); };
   $('settings-close').onclick = () => dlg.close();
   dlg.onclick = e => { if (e.target === dlg || e.target.closest('#keys-btn, #races-btn, #players-btn, #log-btn, #full')) dlg.close(); };   // the backdrop is the dialog itself

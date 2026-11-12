@@ -55,16 +55,22 @@ static uint32_t s_cars_said;                    /* reasons already logged */
 enum { CARS_SAY_HEAP = 1, CARS_SAY_MAX = 2, CARS_SAY_POOL = 4, CARS_SAY_PHYS = 8, CARS_SAY_FAIL = 16,
        CARS_SAY_PAGEIN = 32, CARS_SAY_BIKE = 64 };
 
-/* Remote cars shown at most, slots included: MC3_ROAM_CARS, else by the window. */
+/* Remote cars shown at most, slots included: MC3_ROAM_CARS, else by the window.
+ * The page's in-game Settings change it live (mc3_live MC3_LIVE_CARS, -1 auto). */
 static int roam_cars_total(void)
 {
     static int n = -1;
+    int32_t l = mc3_live(MC3_LIVE_CARS);
+    int v;
     if (n < 0) {
         const char *e = getenv("MC3_ROAM_CARS");
         n = e && *e && strcmp(e, "auto") ? atoi(e) : g_xbox_contig_size >= (128u << 20) ? 32 : 12;
         n = n < ROAM_SLOTS ? ROAM_SLOTS : n > ROAM_K_MAX ? ROAM_K_MAX : n;
     }
-    return n;
+    if (!l)
+        return n;
+    v = l > 0 ? l : g_xbox_contig_size >= (128u << 20) ? 32 : 12;
+    return v < ROAM_SLOTS ? ROAM_SLOTS : v > ROAM_K_MAX ? ROAM_K_MAX : v;
 }
 
 /* Before the cruise's cars are built: registry capacity >= 8 players + the

@@ -84,3 +84,7 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** another player riding a motorbike no longer freezes your game for good when their bike appears mid-cruise: it shows as a car until your next cruise load.
 - **Free Roam:** street races use the game's own checkpoints at last (the flares, the race arrow and the checkpoint sound, not the page's marker) and run the race's whole course, not just its first 2 km. Both racers need this version.
 - **Loading:** with "Skip intro" on, the red legal screen at start is gone too: the game loads behind a "Loading the game…" spinner, a little sooner (the screen no longer takes time from the loading, nor plays its way out). On a first visit most of that wait is the game's data coming over the network.
+
+## 2026-11-12 (9ce8569)
+
+- **Page:** more of the in-game Settings change without a restart: resolution, anisotropic filtering and mipmaps (WebGPU), 60 fps (from the next drive or race), Players shown (lower hides the farthest cars at once), keyboard as pad 1, touch controls and their opacity. Renderer, game memory, low-memory mode and texture detail bias still need Restart.
