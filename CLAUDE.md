@@ -355,7 +355,21 @@ generated files when the lift inputs did not change.
   two stacked gave ~0.5 Hz vs the 3 s lost timer); '[rtc] free roam load: N
   peers, P2P x, relayed y, thinned z/s' every 30 s on change; the city
   object builds its report only after CITY.reportMs; Worker CTL 40/s burst
-  400 (a 32-player join's ICE signalling overran 20/200). Game side
+  400 (a 32-player join's ICE signalling overran 20/200).
+  Link churn and listed-but-no-car (2026-11-12, untested in a browser):
+  with K 32 above every city's size (<= 12 seen) the hub drops a live pair
+  only when one side's socket to it reconnects; the core then dropped it
+  'out of range' after 2.5 s and re-linked a second later while P2P
+  snapshots kept coming (log HN5PQT). Now a linked peer still sending is
+  kept 15 s unlisted (T_HUB_GRACE_LIVE), a silent one 2.5 s as before.
+  rtc.js uses a free-roam channel only after a frame came over it within
+  5 s (1-byte probe each tick until then; an open-but-dead channel ate
+  the frames until ICE failed: 'joined' then 'no packets for 3 s' to the
+  timeout), '[rtc] free roam X: channel open, nothing came over it ...'.
+  lan.js drops the switch hub's frames while the city socket is open (the
+  switch hub kept sending PEERS/FAR ~10 s, its gone_ms). '[roam] <name>
+  <id>: listed by the hub N s, no snapshot (state, hears us, datagrams in)'
+  / ': linked, first snapshot N s after ...' split dimmed blips. Game side
   src/games/remix/roam_game.c: the Online cruise's race setup [0x53F2E0]
   gets 1 + N entries (copies of entry 0, +0x10/+0x14/+0x18 = -1, net flag
   0), so the game builds N extra player cars at load (N = peers at load

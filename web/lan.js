@@ -87,7 +87,13 @@ window.mc3Lan = function (name, lanUrl) {
     };
     ws.onmessage = function (e) {
       heard = Date.now();
-      if (typeof e.data != 'string') { link.recv++; if (link.onframe) link.onframe(new Uint8Array(e.data)); return; }
+      if (typeof e.data != 'string') {
+        var f = new Uint8Array(e.data);
+        // the switch's own hub keeps listing us ~10 s after the city socket opens (its gone_ms): two hubs, two lists
+        // (other players, stale FAR) into one core; with the city socket open only the city's hub counts
+        if (f.length >= 8 && f[4] == 10 && f[5] == 77 && f[6] == 0 && f[7] == 253 && cityUp()) return;
+        link.recv++; if (link.onframe) link.onframe(f); return;
+      }
       if (e.data === BEAT) { beats = true; return; }
       var m;
       try { m = JSON.parse(e.data); } catch (_) { return; }

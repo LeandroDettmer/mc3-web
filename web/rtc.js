@@ -23,7 +23,7 @@
 // does not see the destination (xnet_web.c's RX slot holds the source only).
 //
 // Free-roam routing: a frame to the hub (10.77.0.253) or a broadcast always goes to the switch; a unicast to a peer
-// with an open free-roam channel goes over it, anything else to the switch. Once a second (tick) the page closes
+// with an open free-roam channel that carried a frame from it lately (liveP) goes over it, anything else to the switch. Once a second (tick) the page closes
 // channels idle for ROAM.idleMs and offers up to ROAM.perTick new ones to the busiest destinations of the last second
 // (at least ROAM.minFrames: a peer that gets only HELLOs stays on the switch) while it holds fewer than roamMax.
 // Signals carry "roam":1 (the switch relays them between two players of the same free-roam city; with a city socket
@@ -40,7 +40,8 @@
 (function (root) {
   var BCAST = 0xFFFFFFFF, KIND = 3, HDR = 16, MAX = 1472, ROAM_PORT = 47210, RETRIES = 3, HUB = 0x0A4D00FD;
   var ROAM = { max: 12, idleMs: 10000, openMs: 15000, perTick: 2, tickMs: 1000, minFrames: 2, backoffMs: 30000, backoffMaxMs: 300000, statsMs: 60000, queue: 65536,
-    relayMax: 8, near: 8, thin: 4 };
+    relayMax: 8, near: 8, thin: 4, deadMs: 5000 };
+  var PROBE = new Uint8Array([0x50]);   // free roam: 1 byte over a new channel until the other side's first frame comes
   var STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
   function vs(v) { return [v >>> 24, v >>> 16 & 255, v >>> 8 & 255, v & 255].join('.'); }
 
@@ -74,6 +75,11 @@
     function say(s) { try { (rtc.log || console.log)(s); } catch (_) {} }
     function openP(p) { return !!p && p.dc.readyState == 'open' && p.pc.connectionState != 'disconnected'; }
     function isOpen(v) { return openP(peers[v]); }
+    // A free-roam channel carries our frames only once something came over it, and while something did within
+    // ROAM.deadMs: an open channel can be dead one way (the other side's open, ours never; a lost NAT binding), and
+    // frames into it were lost until ICE gave up (players' logs 2026-11-12: 'joined', then 'no packets for 3 s' to the
+    // timeout). Until then the switch carries them, and each tick sends PROBE over it (an older page drops it: too short).
+    function liveP(p) { return openP(p) && p.rxAt > 0 && Date.now() - p.rxAt < ROAM.deadMs; }
     // ICE servers from the switch (GET <lan as http(s)>/ice, web/lan-worker: STUN + Cloudflare TURN, credentials for
     // 6 h): asked once per session and again when older than ICE.ageMs; until then, or if it fails (no such route,
     // web/server, offline), config.json's iceServers or public STUN. New pairs take the newest list.
@@ -178,12 +184,12 @@
       var pc = new RTCPeerConnection(cfg);
       // negotiated: both ends make the same channel, no ondatachannel round
       var dc = pc.createDataChannel('mc3', { ordered: false, maxRetransmits: 0, negotiated: true, id: 0 });
-      var p = T.peers[v] = { pc: pc, dc: dc, ice: [], remote: false, offerer: false, deadline: 0 };
+      var p = T.peers[v] = { pc: pc, dc: dc, ice: [], remote: false, offerer: false, deadline: 0, rxAt: 0, openAt: 0, saidDead: false };
       dc.binaryType = 'arraybuffer';
       dc.onopen = function () {
         clearTimeout(p.deadline);
         p.open = true;
-        if (T.roam) { touch(v); roamVia(v, p); }
+        if (T.roam) { p.openAt = Date.now(); try { dc.send(PROBE); } catch (_) {} touch(v); roamVia(v, p); }
         else { tries[v] = 0; changed(); via(pc).then(function (w) { say('[rtc] race room ' + vs(v) + ': ' + (w ? 'P2P through a TURN relay' : 'direct (P2P)')); }); }
       };
       dc.onclose = function () {
@@ -191,7 +197,7 @@
         if (T.roam && p.open) { drop(v, fr); say('[rtc] free roam ' + vs(v) + ': channel closed by the other side, via the server'); }
         else lost(v, T, 'closed');
       };
-      dc.onmessage = function (e) { if (T.roam) rxRoam(v, e.data); else rx(v, e.data); };
+      dc.onmessage = function (e) { if (T.roam) { p.rxAt = Date.now(); rxRoam(v, e.data); } else rx(v, e.data); };
       pc.onicecandidate = function (e) { signal(v, 'ice', e.candidate ? e.candidate.toJSON() : null, T.roam); };
       pc.onconnectionstatechange = function () {
         if (T.peers[v] !== p) return;
@@ -283,7 +289,7 @@
       if (dst == HUB || dst == BCAST) return out(f);
       touch(dst).tx++;
       var p = rtc.roamP2P && fr.peers[dst];
-      if (openP(p) && p.dc.bufferedAmount < ROAM.queue) {
+      if (liveP(p) && p.dc.bufferedAmount < ROAM.queue) {
         try { p.dc.send(f); rtc.roamSent++; return true; } catch (_) {}   // just closed: the switch
       }
       if (thin(dst, f)) { rtc.roamThinned++; return true; }
@@ -305,7 +311,15 @@
       iceFetch();
       Object.keys(fr.peers).forEach(function (k) {
         var a = act[k], p = fr.peers[k];
-        if (on && a && now - a.at <= ROAM.idleMs) return;
+        if (on && a && now - a.at <= ROAM.idleMs) {
+          if (!openP(p) || liveP(p)) return;
+          try { p.dc.send(PROBE); } catch (_) {}
+          if (!p.saidDead && now - (p.rxAt || p.openAt) >= ROAM.deadMs) {
+            p.saidDead = true;
+            say('[rtc] free roam ' + vs(+k) + ': channel open, nothing came over it for ' + ROAM.deadMs / 1000 + ' s (' + (p.rxAt ? 'it went quiet' : 'never') + '), via the server');
+          }
+          return;
+        }
         drop(+k, fr);
         if (p.open) say('[rtc] free roam ' + vs(+k) + ': channel closed (' + (on ? 'idle' : 'P2P off or offline') + ')');
       });
@@ -333,7 +347,7 @@
       }
       if (now - statsAt >= ROAM.statsMs) {
         statsAt = now;
-        var open = Object.keys(fr.peers).filter(function (k) { return openP(fr.peers[k]); });
+        var open = Object.keys(fr.peers).filter(function (k) { return liveP(fr.peers[k]); });
         var m = relayed().length, srv = Object.keys(act).filter(function (k) { return act[k].last > 0 && open.indexOf(k) < 0; });
         var t = nearN < nearMax() ? 0 : srv.filter(function (k) { return !near[k]; }).length;
         var line = '[rtc] free roam: ' + (open.length - m) + ' direct, ' + m + ' via TURN, ' + srv.length + ' via the server (thinned ' + t +
@@ -345,7 +359,7 @@
     rtc.tick = tick;   // tests
     iceFetch();
     rtc.mode = function (v) { return isOpen(v >>> 0) ? 'direct' : 'relay'; };
-    rtc.roamMode = function (v) { return openP(fr.peers[v >>> 0]) ? 'direct' : 'relay'; };
+    rtc.roamMode = function (v) { return liveP(fr.peers[v >>> 0]) ? 'direct' : 'relay'; };
     rtc.on = function (f) { fns.push(f); f(rtc); };
     rtc.close = function () {
       clearInterval(ticker);
