@@ -277,6 +277,12 @@ generated files when the lift inputs did not change.
   (index.html versionCheck) re-reads it every 60 s and on tab visible and shows every player a dismissable notice. Only RELOAD=1 at stage also
   writes "reload" = that version, and then online players (lan.roaming or a room) get a 60 s reload box; career online and offline get the notice only.
   No version (web_serve.py) = off. Pages loaded before this shipped have no poll.
+  Versioned module (2026-11-12): the page fetches <app>.js, then <app>.wasm, both from config moduleUrl
+  (pthread workers start from a blob of that .js, never refetch). upload.sh overwrote module/ in place, so a
+  page started mid-upload paired the old .js with the new .wasm: 'ASM_CONSTS[code] is not a function' in a
+  pool worker 3 s after Play (logs 53KH78, PPAQHY). Now upload.sh writes module/<commit>/ (+ the flat path
+  for old pages, .deploy/.module-version), stage.sh sets moduleUrl to it, versions over 2 days old are
+  deleted at upload (not the live one); the disc Worker caches module/<commit>/ immutable.
   TCL Google TV (Chrome for Android TV, 32-bit, 2026-11-09, fix untested
   on the TV): every memory from 448 MB up was refused (256/512 given; a
   32-bit V8 that cannot set aside the maximum may set aside only the
