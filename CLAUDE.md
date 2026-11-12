@@ -481,7 +481,15 @@ generated files when the lift inputs did not change.
   --roam-k, worker ROAM_K). The hub links a pair only while both are
   under their K: phones asked 7 and, with 10 in a city, left the
   players beyond their 7 nearest unlinked, each the other's dimmed FAR
-  blip, no car (2026-11-11, untested in game). Built at load + on demand, only while the heap keeps max(6 MB,
+  blip, no car (2026-11-11, untested in game). Nearest get the cars
+  (2026-11-11, untested in game; roam_nearest, roam_cars.c): a peer kept
+  its slot/car while linked, so with K 32 a phone's few cars stayed with
+  far peers; now the nearest driving peer without one takes the farthest
+  holder's (away = farthest) once 50 m nearer for 3 s, through the usual
+  swap/rebuild; '[ROAM] nearest: ...'. A phone (64 MB, main heap 47 MB,
+  8.5 MB free at load) fits 4 remote slots ('[ROAM] heap: 4 remote cars
+  fit', ~800-950 KB each, ~3.7 MB left; 1.26 MB was fatal), and only
+  peers at load + 2 of them (alone at load: 2). Built at load + on demand, only while the heap keeps max(6 MB,
   heap/8) after one more car; logs '[ROAM] cars: ...'. Cars heap
   (2026-11-10, untested in game; roam_cheap, docs/roam-many-cars.md): a
   second heap of the game's own type ('RoamCars', 48 MB of the contiguous

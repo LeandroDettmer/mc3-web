@@ -591,6 +591,84 @@ static void roam_cars_net(const roam_peer *peers, int n, const uint8_t *used, do
     }
 }
 
+/* The remote cars we can afford go to the nearest linked peers (2026-11-11,
+ * untested in game): a phone builds ~4 (the 64 MB heap rule, roam_build), and
+ * a peer kept its slot or car as long as it stayed linked (K >= 32), so
+ * players driving next to us stayed dimmed blips while far ones had cars.
+ * Now the nearest driving peer with no slot and no car takes the slot or car
+ * of the farthest peer holding one (an away one -- garage, loading, AI race --
+ * counts as farthest) once it has been ROAM_NEAR_GAIN m nearer for
+ * ROAM_NEAR_HOLD s: no flips at the edge. Handed over in roam_net before the
+ * newcomers' pick: the slot or car takes its new peer this frame, the old
+ * peer goes the newcomer way, and a different car record queues the usual
+ * rebuild (roam_swap for a slot, roam_cars_frame for a car; one at a time).
+ * A slot whose swap is in flight is left alone. Log '[ROAM] nearest: ...'. */
+#define ROAM_NEAR_GAIN 50.0f            /* m nearer */
+#define ROAM_NEAR_HOLD 3.0              /* s, held */
+
+static int roam_near_at(const roam_peer *peers, int n, uint32_t id)
+{
+    int i;
+    for (i = 0; i < n && peers[i].id != id; i++)
+        ;
+    return i < n ? i : -1;
+}
+
+static void roam_nearest(const roam_peer *peers, int n, uint8_t *used, double now)
+{
+    static double since;
+    const roam_peer *pp;
+    float far = -1.0f, d;
+    int i, k, cand = -1, from = -1, slot = 0, car = -1;
+    for (k = 1; k <= s_roam_slots; k++)         /* a free or held slot: the newcomer way takes it */
+        if (!s_roam_peer[k].id || !s_roam_peer[k].here) {
+            since = 0;
+            return;
+        }
+    for (i = 0; i < n && cand < 0; i++)         /* nearest first */
+        if (!used[i] && peers[i].status == RC_ST_ROAM && !roam_cars_owns(peers[i].id))
+            cand = i;
+    for (k = 1; cand >= 0 && k <= s_roam_slots; k++)
+        if (k != s_swap.slot && (i = roam_near_at(peers, n, s_roam_peer[k].id)) >= 0 &&
+            (d = roam_away(peers[i].status) ? 1e9f : peers[i].dist) > far) {
+            far = d;
+            from = i;
+            slot = k;
+        }
+    for (k = 0; cand >= 0 && k < s_ncar; k++)
+        if (s_car[k].veh && s_car[k].id && s_car[k].here && (i = roam_near_at(peers, n, s_car[k].id)) >= 0 &&
+            (d = roam_away(peers[i].status) ? 1e9f : peers[i].dist) > far) {
+            far = d;
+            from = i;
+            car = k;
+        }
+    if (cand < 0 || from < 0 || far < peers[cand].dist + ROAM_NEAR_GAIN) {
+        since = 0;
+        return;
+    }
+    if (!since)
+        since = now;
+    if (now - since < ROAM_NEAR_HOLD)
+        return;
+    since = 0;
+    pp = &peers[cand];
+    fprintf(stderr, "[ROAM] nearest: %s %d goes from %s (%.0f m%s) to %s (%.0f m)\n", car >= 0 ? "car" : "slot",
+            car >= 0 ? car : slot, peers[from].name, peers[from].dist,
+            roam_away(peers[from].status) ? ", away" : "", pp->name, pp->dist);
+    if (car >= 0) {                             /* roam_cars_net takes it up by id this frame */
+        roam_car *c = &s_car[car];
+        c->id = pp->id;
+        c->live = 0;
+        c->gen = 0;
+        c->want = 0;
+        snprintf(c->name, sizeof c->name, "%s", pp->name);
+        return;
+    }
+    used[from] = 0;
+    used[cand] = 1;
+    roam_slot_give(slot, pp);
+}
+
 /* ── The cruise's own end (RACE OVER) in Free Roam ──
  *
  * RACE OVER is sub_00023C80 (this = [0x4CBAE0]): [this+0x38] = 1, the

@@ -100,7 +100,8 @@
  * A peer keeps its slot while it is among the nearest and for ROAM_HOLD s
  * after it drops out (parked meanwhile); a new peer takes a free slot built
  * with its exact CarCfg, else one with its car, else any free slot, else a
- * held one.
+ * held one. A linked peer with no slot and no car that stays 50 m nearer
+ * than a slot's peer takes that slot (roam_nearest, roam_cars.c).
  *
  * Pose correction: the game's (sub_002C0540) with its smoothing settings
  * changed from 0.02*d per frame and a 20 m snap to an exponential decay
@@ -1181,6 +1182,23 @@ static void roam_ctl_pack(uint32_t c, uint8_t out[ROAM_CTL])
  * back on the same slot with the same car; newcomers take roam_pick_slot's. */
 static int roam_cars_owns(uint32_t id);          /* roam_cars.c: a standalone car is this peer's */
 static void roam_cars_net(const roam_peer *peers, int n, const uint8_t *used, double now);
+static void roam_nearest(const roam_peer *peers, int n, uint8_t *used, double now);  /* roam_cars.c */
+
+/* Slot k is pp's from now on (a newcomer, or a hand-over to a nearer peer):
+ * snapped onto its pose, its car record compared (a different one queues a swap). */
+static void roam_slot_give(int k, const roam_peer *pp)
+{
+    s_roam_peer[k].id = pp->id;
+    s_roam_peer[k].here = 1;
+    s_roam_peer[k].live = 0;
+    s_roam_peer[k].away = 0;
+    snprintf(s_roam_peer[k].name, sizeof s_roam_peer[k].name, "%s", pp->name);
+    s_roam_gen[k] = 0;
+    s_roam_want[k] = 0;
+    s_roam_said[k] = 0;
+    roam_peer_take(k, pp);
+    roam_cfg_check(k, pp);
+}
 
 static void roam_send_local(const roam_pose *me)
 {
@@ -1227,19 +1245,12 @@ static void roam_net(const roam_pose *me)
         roam_peer_take(k, &peers[i]);
         roam_cfg_check(k, &peers[i]);
     }
+    if (!s_roam_fake)
+        roam_nearest(peers, n, used, now);      /* a nearer peer without a car takes a far one's */
     for (i = 0; i < n; i++)
         if (!used[i] && !roam_cars_owns(peers[i].id) && (k = roam_pick_slot(peers[i].id)) > 0) {
             used[i] = 1;
-            s_roam_peer[k].id = peers[i].id;
-            s_roam_peer[k].here = 1;
-            s_roam_peer[k].live = 0;
-            s_roam_peer[k].away = 0;
-            snprintf(s_roam_peer[k].name, sizeof s_roam_peer[k].name, "%s", peers[i].name);
-            s_roam_gen[k] = 0;
-            s_roam_want[k] = 0;
-            s_roam_said[k] = 0;
-            roam_peer_take(k, &peers[i]);
-            roam_cfg_check(k, &peers[i]);
+            roam_slot_give(k, &peers[i]);
             fprintf(stderr, "[ROAM] slot %d: %s (id %08X)%s\n", k, peers[i].name, (unsigned)peers[i].id,
                     s_roam_want[k] ? ", other car: swap queued" : "");
         }
