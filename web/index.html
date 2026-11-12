@@ -538,7 +538,7 @@
       opts: [['', 'Auto (default): 1.5×, 1× on phones'], ['1', '1×'], ['1.5', '1.5×'], ['2', '2×'], ['2.5', '2.5×'], ['3', '3×']] },
     { key: 'RECOMP_GL_SQUARE', label: 'Square pixels in 16:9', help: 'Widens 16:9 frames so pixels are square, not stretched.', opts: ONOFF() },
     { key: 'RECOMP_GL_FILL', label: 'Fill 4:3 screens', help: 'Menus and videos laid out in the middle 4:3 are shown full width (not the boot logos).', opts: ONOFF() },
-    { key: 'RECOMP_GL_FXAA', label: 'Anti-aliasing (FXAA)', help: 'Smooths edges in the final pass.', opts: ONOFF() },
+    { key: 'RECOMP_GL_FXAA', label: 'Anti-aliasing (FXAA)', help: 'Smooths edges in the final pass.', opts: ONOFF('Off') },
     { key: 'RECOMP_GL_SHARPEN', label: 'Sharpening', help: 'Contrast-adaptive sharpening in the final pass.',
       opts: [['', 'Off (default)'], ['0.25', '0.25'], ['0.5', '0.5'], ['0.75', '0.75'], ['1', '1']] },
     { key: 'RECOMP_GL_MIPS', label: 'Mipmaps', help: "The game's own mip levels with trilinear filtering.", opts: ONOFF() },
