@@ -49,8 +49,10 @@
  * gets this frame's slip angle, speed and hit test with the mode on or off.
  *
  * A hit (wall, car, prop): the velocity's change in the car's ground plane (the plane the tyres push in, normal =
- * the body's up row; a landing pushes along it) faster than tyres can do: DH_A1 m/s^2 over one frame or DH_A2 over
- * two (DH_BRAKE more while braking or on the handbrake), and larger than the change along up (a tilted landing).
+ * the body's up row; a landing pushes along it) of DH_D1 m/s within one frame or DH_D2 within two (absolute, not per
+ * second: at 30 fps 3.9 m/s over two frames read as 56 m/s^2); DH_BRAKE more while braking or on the handbrake;
+ * larger than the change along up (a tilted landing); and the speed must fall DH_DROP (a hit never leaves the car
+ * faster; 2026-11-12 logs: 376 of 380 lost lines were slide dynamics, 4 real hits like 93 -> 76 km/h stay).
  * Tyres top out near StaticFric x g ~ 25 m/s^2. Until 2026-11-12 a speed drop over 15 m/s^2 counted: a slide
  * decelerates that hard by itself, and 'Drift lost' fired mid-drift without a hit. */
 #include <math.h>
@@ -58,9 +60,10 @@
 static int online_ram(uint32_t va);
 static void drift_score(int car, float beta, float s, float vy, float dt, const char *hit, int frozen);
 
-#define DH_A1    60.0f      /* m/s^2 in the ground plane over one frame: a hit */
-#define DH_A2    45.0f      /* ... over two frames */
-#define DH_BRAKE 20.0f      /* ... more while braking or on the handbrake */
+#define DH_D1    6.0f       /* m/s of velocity change in the ground plane in one frame: a hit (absolute, not per second) */
+#define DH_D2    8.0f       /* ... over two frames */
+#define DH_DROP  1.111f     /* m/s (4 km/h): the speed must fall by this much; a hit never leaves the car faster */
+#define DH_BRAKE 3.0f       /* m/s more while braking or on the handbrake */
 
 typedef struct {
     float base;         /* rear grip factor when gripping (a little loose: a lift-off turns it) */
@@ -110,7 +113,7 @@ static void drift_step(void)
     static uint32_t ics_last;                   /* the body, and its velocity as the frame left it (paused: unchanged) */
     static float v_last[3], dv_prev[3], dn_prev, dt_prev, wy_prev;
     static char why[200];
-    static float fr = 1.0f, kick_t, lift_t, thr_prev, beta_prev, speed_prev;
+    static float fr = 1.0f, kick_t, lift_t, thr_prev, beta_prev, speed_prev, speed_prev2;
     static struct { float t, max, v0, g, kept, frmin; int cuts; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
     const drift_tune *t;
     int32_t l = mc3_live(MC3_LIVE_DRIFT);
@@ -203,7 +206,8 @@ static void drift_step(void)
             d2 = sqrtf(d2);
             a1 = d1 / dt;
             a2 = d2 / (dt + dt_prev);
-            if ((a1 > DH_A1 + lim && d1 > fabsf(dn)) || (a2 > DH_A2 + lim && d2 > fabsf(dn + dn_prev))) {
+            if (((d1 >= DH_D1 + lim && d1 > fabsf(dn) && s < speed_prev - DH_DROP) ||
+                 (d2 >= DH_D2 + lim && d2 > fabsf(dn + dn_prev) && s < speed_prev2 - DH_DROP))) {
                 hit = 1;
                 snprintf(why, sizeof why, "hit, %.1f m/s in the ground plane in 1 frame (%.0f m/s^2), %.1f in 2 "
                          "(%.0f m/s^2), %.1f m/s along up; %.0f -> %.0f km/h, yaw rate %+.2f -> %+.2f rad/s, slip "
@@ -318,5 +322,6 @@ score:
         }
     }
     beta_prev = beta;
+    speed_prev2 = speed_prev;
     speed_prev = s;
 }
