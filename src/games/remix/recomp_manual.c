@@ -2479,7 +2479,8 @@ static void activity_update(uint32_t obj)
 #include <emscripten.h>
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_activity_box(void) { return (uintptr_t)&s_activity; }
 #endif
-static void online_garage_left(void);           /* the Online profile is saved (below) */
+static int online_garage_left(void);            /* the Online profile is saved (below) */
+static void manual_save_pass(uint32_t obj);     /* the page's Save progress button (below) */
 static void roam_pool_pass(uint32_t obj, int after); /* free roam: remote cars at state requests (roam_pool.c) */
 #ifdef __EMSCRIPTEN__
 static void fr_direct_pass(uint32_t obj);       /* Online: the deferred cruise load (below) */
@@ -2493,6 +2494,7 @@ void sub_00020EC0(void)
     fr_direct_pass(obj);                        /* Online's Request(6), outside the menu's Flash dispatch */
 #endif
     roam_pool_pass(obj, 0);                     /* standalone cars out before a cruise teardown (roam_pool.c) */
+    manual_save_pass(obj);                      /* before the state's update: the save pump runs after it, same frame */
     sub_00020EC0_gen();
     roam_pool_pass(obj, 1);
     activity_update(obj);
@@ -3404,13 +3406,13 @@ static void online_profile_load(void)
             s_on_money, online_cars(s_on_garage), (unsigned)s_on_wins, (unsigned)s_on_drift);
 }
 
-static void online_profile_save(void)           /* written beside, then renamed over: never half a file */
+static int online_profile_save(void)            /* written beside, then renamed over: never half a file; 1 = written */
 {
     uint32_t h[5] = { ONLINE_PROFILE_MAGIC, ONLINE_PROFILE_VER, ONLINE_PROFILE_BODY, 0, online_cars(s_on_garage) };
     FILE *f;
     int ok;
     if (!s_on_have)
-        return;
+        return 0;
     memcpy(s_on_file + ONLINE_PROFILE_HDR, &s_on_money, 4);
     memcpy(s_on_file + ONLINE_PROFILE_HDR + 4, s_on_garage, ONLINE_GARAGE_SIZE);
     memcpy(s_on_file + ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY1, s_on_car, 4);
@@ -3429,10 +3431,11 @@ static void online_profile_save(void)           /* written beside, then renamed 
                 (unsigned)s_on_wins, (unsigned)s_on_drift);
     else
         fprintf(stderr, "[ONLINE] profile NOT saved (" ONLINE_PROFILE_PATH "): the last one stays\n");
+    return ok;
 }
 #else
 static void online_profile_load(void) {}
-static void online_profile_save(void) {}
+static int online_profile_save(void) { return 0; }
 #endif
 
 static void online_money(void)                  /* the session's money and unlocks */
@@ -3478,20 +3481,22 @@ static void online_enter(void)
 }
 
 /* The garage (state 5) was left: what it bought and tuned is the online
- * profile now (browser only). */
-static void online_garage_left(void)
+ * profile now (browser only). 1 = the file was written. */
+static int online_garage_left(void)
 {
 #ifdef __EMSCRIPTEN__
     uint32_t m = online_money_va();
     if (!s_online)
-        return;
+        return 0;
     if (m)
         s_on_money = MEM32(m);
     memcpy(s_on_garage, (uint8_t *)XBOX_PTR(ONLINE_GARAGE_VA), ONLINE_GARAGE_SIZE);
     s_on_have = 1;
     online_car_get(s_on_car);                   /* the car picked, in that garage */
     s_on_car_ok = 1;
-    online_profile_save();
+    return online_profile_save();
+#else
+    return 0;
 #endif
 }
 
@@ -3837,6 +3842,111 @@ void sub_00025E30(void)
     sub_00025E30_gen();
 }
 
+/* ── Save progress: the page's in-game Settings button (browser only) ──
+ *
+ * The page bumps word 0 of mc3_save_box (web/pre.js mc3SaveNow); the state
+ * pass (sub_00020EC0, game thread, before the state's update) takes it once
+ * and answers in word 1 (the request answered) and word 2: 1 pending, 2 saved,
+ * 3 refused (not now), 4 the write failed. Only in a running cruise (state 2,
+ * no state request queued).
+ * Career (game mode 2, race type 1): the game's own save, as its race end
+ * asks it (sub_001C33E0 -> sub_00019360(1, 0, 0, 0, 0) on the save manager
+ * [0x4CB690], when [mgr+0x334B4] (the profile's name) is set): that only
+ * stamps the time (+0x33558), clears +0x3355C and queues op 100 (+4). The
+ * main loop (sub_0001F9D0) pumps the manager each frame right after the
+ * state's update (sub_0001A9E0, game thread): op 100 is sub_0001A550, which
+ * copies the garage (sub_0026BD10) and the career (sub_00277250) into the
+ * manager and writes the file (sub_00022040 -> sub_000193F0), then holds the
+ * op until the "saving" message's minimum time and leaves the result in +8
+ * (done +0xC; listener +0x334F8/F4, set only while a save screen lives). The
+ * screen the race end shows meanwhile (sub_00154A20) only displays that.
+ * Refused while the manager is busy (+4), has no profile name or a listener.
+ * Online Free Roam: the Online profile (online_garage_left), never the
+ * career (sub_00022040 keeps skipping it while s_online). */
+#ifdef __EMSCRIPTEN__
+static int32_t s_msave[3];
+EMSCRIPTEN_KEEPALIVE uintptr_t mc3_save_box(void) { return (uintptr_t)s_msave; }
+static int32_t s_msave_seen;                    /* the last request taken */
+static int s_msave_wait;                        /* career: op 100 queued, the writer not seen yet */
+static double s_msave_t;
+
+static void manual_save_done(int res, const char *what, const char *why)
+{
+    fprintf(stderr, "[SAVE] manual: %s %s%s%s%s\n", what, res == 2 ? "ok" : res == 4 ? "failed" : "refused",
+            why ? " (" : "", why ? why : "", why ? ")" : "");
+    __atomic_store_n(&s_msave[2], res, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&s_msave[1], s_msave_seen, __ATOMIC_SEQ_CST);
+}
+#endif
+
+void sub_00019360(void);
+static void manual_save_pass(uint32_t obj)
+{
+#ifdef __EMSCRIPTEN__
+    int32_t req = __atomic_load_n(&s_msave[0], __ATOMIC_SEQ_CST);
+    uint32_t mgr = MEM32(0x004CB690u), setup = MEM32(0x0053F2E0u);
+    const char *why = NULL;
+    if (s_msave_wait) {
+        if (emscripten_get_now() - s_msave_t > 5000.0) {   /* the op was taken over (another save or load) */
+            s_msave_wait = 0;
+            manual_save_done(3, "career", "the game's save never ran");
+        }
+        return;
+    }
+    if (req == s_msave_seen)
+        return;
+    s_msave_seen = req;
+    if (MEM32(obj + 4u) != 2u || MEM32(obj + 0x3Cu))
+        why = "not driving: loading, a menu or a state request queued";
+    else if (s_online) {
+        if (!online_money_va())
+            why = "no progress object";
+        else
+            manual_save_done(online_garage_left() ? 2 : 4, "online", NULL);
+        if (why)
+            manual_save_done(3, "online", why);
+        return;
+    }
+    else if (MEM32(0x0053F2D4u) != 2u)
+        why = "not the career (Arcade keeps no save)";
+    else if (!online_ram(setup) || MEM32(setup + 0x18u) != 1u)
+        why = "not the city cruise (a race or event)";
+    else if (!online_ram(mgr))
+        why = "no save manager";
+    else if (MEM32(mgr + 4u))
+        why = "the game's save manager is busy";
+    else if (!MEM8(mgr + 0x334B4u))
+        why = "no profile picked";
+    else if (MEM32(mgr + 0x334F8u))
+        why = "a save screen is waiting on the manager";
+    if (why) {
+        manual_save_done(3, "career", why);
+        return;
+    }
+    {
+        uint32_t r[8] = { g_eax, g_ecx, g_edx, g_ebx, g_esp, g_ebp, g_esi, g_edi };
+        g_esp = (r[4] - 0x200u) & ~0xFu;
+        for (int i = 0; i < 4; i++) {           /* thiscall (1, 0, 0, 0, 0), ret 0x14: as the race end pushes them */
+            g_esp -= 4; MEM32(g_esp) = 0;
+        }
+        g_esp -= 4; MEM32(g_esp) = 1;
+        g_esp -= 4; MEM32(g_esp) = 0;           /* return address */
+        g_ecx = mgr;
+        sub_00019360();
+        g_eax = r[0]; g_ecx = r[1]; g_edx = r[2]; g_ebx = r[3];
+        g_esp = r[4]; g_ebp = r[5]; g_esi = r[6]; g_edi = r[7];
+    }
+    s_msave_wait = 1;
+    s_msave_t = emscripten_get_now();
+    __atomic_store_n(&s_msave[2], 1, __ATOMIC_SEQ_CST);
+    __atomic_store_n(&s_msave[1], s_msave_seen, __ATOMIC_SEQ_CST);
+    fprintf(stderr, "[SAVE] manual: career queued (op 100 on the save manager, profile %.24s)\n",
+            (const char *)XBOX_PTR(mgr + 0x334B4u));
+#else
+    (void)obj;
+#endif
+}
+
 /* The profile writer, thiscall (name, object, mode), ret 12, al = done. */
 extern void sub_00022040_gen(void);
 void sub_00022040(void)
@@ -3850,6 +3960,12 @@ void sub_00022040(void)
         return;
     }
     sub_00022040_gen();
+#ifdef __EMSCRIPTEN__
+    if (s_msave_wait) {                         /* our op 100 (or the game's own, same save): its answer */
+        s_msave_wait = 0;
+        manual_save_done((g_eax & 0xFFu) ? 2 : 4, "career", (g_eax & 0xFFu) ? NULL : "the write failed");
+    }
+#endif
 }
 
 /* A profile is applied, thiscall (flag), ret 4, al = done: the reader

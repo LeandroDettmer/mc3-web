@@ -212,6 +212,21 @@ Module['mc3TouchPad'] = function (words) {
   };
 })();
 
+// Save progress (the in-game Settings button): src/games/remix/recomp_manual.c's mc3_save_box { request, answered,
+// result }. mc3SaveNow bumps the request (the game takes it at its next state pass, on its own thread) and gives its
+// number, false before the runtime is up; mc3SaveResult(n) gives 0 while that request is unanswered, else 1 pending,
+// 2 saved, 3 refused (not now), 4 the write failed. Main thread only.
+Module['mc3SaveNow'] = function () {
+  if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _mc3_save_box != 'function') return false;
+  var h = new Int32Array(HEAPU8.buffer), b = _mc3_save_box() >>> 2;
+  return Atomics.add(h, b, 1) + 1;
+};
+Module['mc3SaveResult'] = function (n) {
+  if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _mc3_save_box != 'function') return 0;
+  var h = new Int32Array(HEAPU8.buffer), b = _mc3_save_box() >>> 2;
+  return Atomics.load(h, b + 1) === n ? Atomics.load(h, b + 2) : 0;
+};
+
 // Which gamepad drives this tab (xboxrecomp/src/input/xinput_device.c, xbox_web_pad_box): -2 auto, -1 none, n = SDL
 // joystick device index. Kept in `want` so a value set before the runtime is up lands once it is. Main thread only.
 (function () {

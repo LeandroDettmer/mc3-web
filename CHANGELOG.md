@@ -77,3 +77,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Game:** Safari 17 on a Mac no longer crashes a few seconds after Play.
 - **Free Roam:** In an AI race or an Online career race on a PC, the other players nearby show as ghost cars: you see them driving and their name tags, but they never get in your way.
 - **Free Roam:** The full map's players list now splits your city into Free Roam and Online career players, each with a count (and the start page's players list does the same).
+- **Game:** Settings has a Save button: while you drive in the city it saves your career now (as the game does after a race), or in Free Roam your Online money and garage.

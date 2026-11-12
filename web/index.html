@@ -541,6 +541,8 @@
           <button type="button" class="btn" id="full">Fullscreen</button></div>
         <div class="set"><div><span class="set-label">Online races</span><p class="hint one">Make or join a race room, then Online Races in the game's Online menu.</p></div>
           <button type="button" class="btn" id="races-btn" aria-expanded="false" aria-controls="races-panel" hidden>Races</button></div>
+        <div class="set"><div><span class="set-label">Save progress</span><p class="hint one" id="save-msg" role="status">Saves now: the career, or your Online money and garage.</p></div>
+          <button type="button" class="btn" id="save-btn" disabled>Save</button></div>
         <div class="set ig-quit"><div><span class="set-label">Quit</span><p class="hint one">Back to the start page. Anything not saved in the game is lost.</p></div>
           <button type="button" class="btn danger" id="quit">Quit</button></div>
       </div>
@@ -2173,7 +2175,24 @@
   $('changelog-dlg').onclick = e => { if (e.target === e.currentTarget) e.currentTarget.close(); };
   // Settings dialog (the stage bar's only button). Keys / Races / Log / Fullscreen show something over the game: close it first.
   const dlg = $('settings-dlg');
-  $('settings-btn').onclick = () => { renderIngame(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
+  // Save progress: in game only (career or Free Roam/Arcade); the game answers at its next state pass (web/pre.js mc3SaveNow).
+  const SAVE_MSG = { 2: 'Saved', 3: "Can't save right now: drive in the city and try again", 4: 'Save failed: try again' };
+  function syncSave() { const a = booted ? window.Module?.mc3Activity?.() : 0; $('save-btn').disabled = a !== 2 && a !== 3; }
+  $('save-btn').onclick = () => {
+    const n = window.Module?.mc3SaveNow?.(), t0 = performance.now();
+    if (!n) return;
+    $('save-btn').disabled = true;
+    $('save-msg').textContent = 'Saving…';
+    const poll = () => {
+      const r = Module.mc3SaveResult(n);
+      if (r >= 2 || performance.now() - t0 > 10000) {
+        $('save-msg').textContent = SAVE_MSG[r] || "Can't save right now: drive in the city and try again";
+        syncSave();
+      } else setTimeout(poll, 250);
+    };
+    poll();
+  };
+  $('settings-btn').onclick = () => { renderIngame(); syncSave(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
   syncDrift();
   $('drift-btn').onclick = () => { setSetting('MC3_DRIFT', settings.MC3_DRIFT ? '' : '1'); $('canvas').focus(); };
   $('map-btn').onclick = () => { touch?.tapMap(); $('canvas').focus(); };
