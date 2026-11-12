@@ -1060,7 +1060,26 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   sub_00289D20/D40/D80, the showroom sub_00154710/sub_001550B0); parts,
   paint, rims, perf levels: 0x53F2F2, the garage's own "all unlocked"
   flag; no game code writes either. Log '[ONLINE] unlocks applied: N cars
-  (of M in the showroom)', N from sub_00289D80 per showroom car. The garage shows and
+  (of M in the showroom)', N from sub_00289D80 per showroom car.
+  Progression (2026-11-12, browser only, untested in game;
+  src/games/remix/online_progress.c): still locked Online were the driving
+  abilities (rule types 0xB-0x10, names at 0x4B3A18: ZONEAGROROAR, NITRO,
+  SST, BO, 2WD, IAC; checks sub_00289EB0 (special, ret 4) and
+  sub_00289E10..E90 (0xC..0x10), 1 if 0x53F2F0 else the rules vs career
+  progress; asked at car setup sub_001240F0/sub_002BF920, so they count
+  from the next car build) and the reward paints (sub_0014C180 asks the
+  GENERIC check sub_0028B4E0 by name, Pearlescent_reward 0x45AFF8 /
+  ColorShift_reward 0x45AFE4). Overrides answer 1 while Online for what
+  the races won reached: 1 Nitro, 2 SST, 3 BO, 4 Pearlescent, 5 2WD,
+  6 IAC, 8 ZONE/AGRO/ROAR, 10 ColorShift. Prize 1st/2nd/3rd $25k/$12k/$6k
+  (street race x racers/2, needs >= 2 racers and our finish; rch_result);
+  AI race: our place at the race flow's finish state (sub_001C2B00 ->
+  sub_001CFC50, the career prize routine, a no-op outside game mode 2,
+  wrapped and run as is), racer record race+0x98+i*0xB8 (+0x14 place,
+  1-based; i = sub_002694D0). Money into +0xACC and profile.bin saved at
+  once (version 3 = + wins; 1 and 2 load with 0). Prompt box: the street
+  result's last line, or 8 s back in the cruise (rra_prompt with nothing
+  else to say). '[ONLINE] progress: ...'. The garage shows and
   spends [[0x557F0C]+0xC]+0xACC (sub_00152420 prints "$%d.00"; Flash
   var Fortune, read back on updateMoney). Strings: the language's table [0x507E08 +
   4*[0x507E08+0x28]] (buckets {hash, entry, next}, entry+8 = UTF-16; hash

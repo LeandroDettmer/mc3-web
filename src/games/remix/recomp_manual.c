@@ -3311,7 +3311,9 @@ static uint32_t online_cars_unlocked(uint32_t *total)
  *       0x541700 + i*0x108, garage 0x53F810 + i*0x108) into player 0's
  *       entry, the car the cruise builds; the garage and the car row write
  *       them (e.g. at 0x0014E029, 0x0015516D). Version 1 files (no car) still
- *       load: the car stays the game's pick, as before.
+ *       load: the car stays the game's pick, as before. Then (version 3)
+ *       the races won (uint32, online_progress.c: they unlock abilities and
+ *       reward paints); versions 1 and 2 load with 0 wins.
  * Loaded at each session's start (a missing, short, old or damaged file:
  * a fresh start, logged); none yet: $2,000,000 and the garage as it is, as
  * before. Taken from the game and saved when the garage (state 5) is left,
@@ -3322,10 +3324,11 @@ static uint32_t online_cars_unlocked(uint32_t *total)
  * sub_00019560) is replaced by the online one the way the game applies a
  * profile: copy (sub_0026BD10's), sub_0026BC60(1), sub_0026CBB0. */
 #define ONLINE_PROFILE_MAGIC 0x4F33434Du        /* "MC3O" */
-#define ONLINE_PROFILE_VER   2u
+#define ONLINE_PROFILE_VER   3u
 #define ONLINE_PROFILE_HDR   20u
 #define ONLINE_PROFILE_BODY1 (4u + ONLINE_GARAGE_SIZE)          /* version 1 */
-#define ONLINE_PROFILE_BODY  (ONLINE_PROFILE_BODY1 + 4u)        /* version 2: + the car picked */
+#define ONLINE_PROFILE_BODY2 (ONLINE_PROFILE_BODY1 + 4u)        /* version 2: + the car picked */
+#define ONLINE_PROFILE_BODY  (ONLINE_PROFILE_BODY2 + 4u)        /* version 3: + the races won */
 #define ONLINE_CAR_FROM      0x0053F2FCu        /* player 0's pick: 1 showroom car, 0 garage car */
 #define ONLINE_CAR_INDEX     0x0053F2FEu        /* int16, its index */
 static uint32_t s_on_money = ONLINE_MONEY;      /* the online profile's money */
@@ -3333,6 +3336,7 @@ static uint8_t s_on_garage[ONLINE_GARAGE_SIZE]; /* and its garage, once s_on_hav
 static int s_on_have;
 static uint8_t s_on_car[4];                     /* and its car: from, 0, index (LE) */
 static int s_on_car_ok;                         /* s_on_car holds one */
+static uint32_t s_on_wins;                      /* races won Online (online_progress.c) */
 #ifdef __EMSCRIPTEN__
 static uint8_t s_online_car[4];                 /* the career's pick, for the end */
 #endif
@@ -3419,12 +3423,13 @@ static void online_profile_load(void)
     FILE *f = fopen(ONLINE_PROFILE_PATH, "rb");
     s_on_have = 0;
     s_on_car_ok = 0;
+    s_on_wins = 0;
     s_on_money = ONLINE_MONEY;
     if (!f) {
         fprintf(stderr, "[ONLINE] no profile yet: $%u and the garage as it is\n", ONLINE_MONEY);
         return;
     }
-    n = fread(s_on_file, 1, sizeof s_on_file, f);  /* version 1 files are 4 bytes shorter */
+    n = fread(s_on_file, 1, sizeof s_on_file, f);  /* versions 1 and 2 are shorter */
     fclose(f);
     if (n >= sizeof h)
         memcpy(h, s_on_file, sizeof h);
@@ -3432,7 +3437,8 @@ static void online_profile_load(void)
         bad = "short";
     else if (h[0] != ONLINE_PROFILE_MAGIC)
         bad = "not an online profile";
-    else if (!(h[1] == 1u && h[2] == ONLINE_PROFILE_BODY1) && !(h[1] == ONLINE_PROFILE_VER && h[2] == ONLINE_PROFILE_BODY))
+    else if (!(h[1] == 1u && h[2] == ONLINE_PROFILE_BODY1) && !(h[1] == 2u && h[2] == ONLINE_PROFILE_BODY2) &&
+             !(h[1] == ONLINE_PROFILE_VER && h[2] == ONLINE_PROFILE_BODY))
         bad = "another version";
     else if (n != ONLINE_PROFILE_HDR + h[2])
         bad = "short";
@@ -3449,8 +3455,10 @@ static void online_profile_load(void)
         memcpy(s_on_car, s_on_file + ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY1, 4);
         s_on_car_ok = 1;
     }
-    fprintf(stderr, "[ONLINE] profile loaded (version %u): $%u, %u cars\n", h[1], s_on_money,
-            online_cars(s_on_garage));
+    if (h[1] >= 3u)
+        memcpy(&s_on_wins, s_on_file + ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY2, 4);
+    fprintf(stderr, "[ONLINE] profile loaded (version %u): $%u, %u cars, %u races won\n", h[1], s_on_money,
+            online_cars(s_on_garage), (unsigned)s_on_wins);
 }
 
 static void online_profile_save(void)           /* written beside, then renamed over: never half a file */
@@ -3463,6 +3471,7 @@ static void online_profile_save(void)           /* written beside, then renamed 
     memcpy(s_on_file + ONLINE_PROFILE_HDR, &s_on_money, 4);
     memcpy(s_on_file + ONLINE_PROFILE_HDR + 4, s_on_garage, ONLINE_GARAGE_SIZE);
     memcpy(s_on_file + ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY1, s_on_car, 4);
+    memcpy(s_on_file + ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY2, &s_on_wins, 4);
     h[3] = rc_crc32(s_on_file + ONLINE_PROFILE_HDR, ONLINE_PROFILE_BODY);
     memcpy(s_on_file, h, sizeof h);
     mkdir(ONLINE_PROFILE_DIR, 0777);
@@ -3472,7 +3481,7 @@ static void online_profile_save(void)           /* written beside, then renamed 
         ok = (fclose(f) == 0) && ok;
     ok = ok && rename(ONLINE_PROFILE_PATH ".tmp", ONLINE_PROFILE_PATH) == 0;
     if (ok)
-        fprintf(stderr, "[ONLINE] profile saved: $%u, %u cars\n", s_on_money, h[4]);
+        fprintf(stderr, "[ONLINE] profile saved: $%u, %u cars, %u races won\n", s_on_money, h[4], (unsigned)s_on_wins);
     else
         fprintf(stderr, "[ONLINE] profile NOT saved (" ONLINE_PROFILE_PATH "): the last one stays\n");
 }
@@ -4076,6 +4085,7 @@ static void online_strings(void)
 
 /* ── Free roam (O3): remote players as cars in the Online cruise ── */
 #include "roam_game.c"
+#include "online_progress.c"                    /* Online: race prizes, wins unlock abilities and reward paints */
 #include "roam_cars.c"                          /* MC3_ROAM_CARS: room for standalone remote cars */
 #include "roam_pool.c"                          /* free roam: the remote cars pool (who drives which car, builds) */
 #include "roam_races.c"                         /* free roam: the cities' race start points (roam_races.h) */
@@ -4113,6 +4123,34 @@ void sub_000A5890(void)
     }
     g_eax = (g_eax & ~0xFFu) | flag;
     g_esp += 4u;
+}
+
+/* Online progression (online_progress.c), in the Online session only: the
+ * driving abilities' checks (rule types 0xC..0x10 cdecl, 0xB cdecl (special)
+ * ret 4) and the GENERIC check (thiscall (name, x), ret 8: the reward paints)
+ * answer "unlocked" for what the races won reached, else the game's; the
+ * race flow's finish (sub_001CFC50, the career's prize routine, a no-op
+ * outside game mode 2, run as is) pays our AI race's place. */
+extern void sub_00289E10_gen(void);
+void sub_00289E10(void) { if (!op_ability(0xC, 0)) sub_00289E10_gen(); }
+extern void sub_00289E30_gen(void);
+void sub_00289E30(void) { if (!op_ability(0xD, 0)) sub_00289E30_gen(); }
+extern void sub_00289E50_gen(void);
+void sub_00289E50(void) { if (!op_ability(0xE, 0)) sub_00289E50_gen(); }
+extern void sub_00289E70_gen(void);
+void sub_00289E70(void) { if (!op_ability(0xF, 0)) sub_00289E70_gen(); }
+extern void sub_00289E90_gen(void);
+void sub_00289E90(void) { if (!op_ability(0x10, 0)) sub_00289E90_gen(); }
+extern void sub_00289EB0_gen(void);
+void sub_00289EB0(void) { if (!op_ability(0xB, 1)) sub_00289EB0_gen(); }
+extern void sub_0028B4E0_gen(void);
+void sub_0028B4E0(void) { if (!op_paint()) sub_0028B4E0_gen(); }
+extern void sub_001CFC50_gen(void);
+void sub_001CFC50(void)
+{
+    if (s_online && s_rra_race)
+        op_ai_finish(g_ecx, (g_esp - 0x200u) & ~0xFu);
+    sub_001CFC50_gen();
 }
 
 /* The HUD map's points of interest into the map server's list (vtable

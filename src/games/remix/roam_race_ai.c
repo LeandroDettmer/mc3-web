@@ -131,6 +131,8 @@ EMSCRIPTEN_KEEPALIVE uintptr_t roam_prompt_box(void) { return (uintptr_t)&s_rra_
 static void rra_prompt(const char *text)
 {
 #ifdef __EMSCRIPTEN__
+    if (!text[0])
+        text = op_note();                       /* nothing else to say: an Online prize line (online_progress.c) */
     snprintf(s_rra_prompt.text, sizeof s_rra_prompt.text, "%s", text);
     __atomic_add_fetch(&s_rra_prompt.seq, 1, __ATOMIC_RELEASE);
 #else
@@ -243,6 +245,7 @@ static void rra_start(const roam_race *r, uint32_t mtx, uint32_t top)
     snprintf(s_rra_name, sizeof s_rra_name, "%s", r->name);
     s_rra_race = 1;
     s_rra_back = 0;
+    s_op_paid = 0;                              /* its finish pays once (online_progress.c) */
     rra_prompt("");
     roam_status(RC_ST_EVENT);                   /* peers hide our car, slot kept */
     fprintf(stderr, "[RACE] start %s (%s, type %u, %u lap%s, %u opponents; city %u event %u) from (%.1f, %.1f, %.1f)%s\n",

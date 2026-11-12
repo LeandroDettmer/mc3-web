@@ -805,6 +805,7 @@ static void rch_result(const float me[3], double now)
     place = rch_rank(order, me);
     rch_standings(t, sizeof t, order);
     fprintf(stderr, "[CHALLENGE] result: we are %s of %d: %s\n", rch_ord(place), s_rch.nrc, t);
+    op_street(place, s_rch.nrc, s_rch.rc[s_rch.me].fin > 0.0);   /* Online prize and wins (online_progress.c) */
 }
 
 /* The countdown to t0 with nrc racers (ids in s_rch.rc[].id already, ours 0 at slot me). */
@@ -1272,7 +1273,7 @@ static int rch_player(uint32_t p)
     double now = roam_now(), el, last;
     int white, press, i, k, n, nj, nin, go, place, order[RCH_RACERS];
     char text[RRA_TEXT] = "", t1[16], t2[160];
-    const char *big;
+    const char *big, *tail;
     rch_racer *mine;
     if (!rch_on() || !online_ram(p) || MEM32(p + 0x5Cu) != 0)
         return 0;
@@ -1554,17 +1555,18 @@ static int rch_player(uint32_t p)
     }
     mine = &s_rch.rc[s_rch.me];
     place = rch_rank(order, me);
-    rch_standings(t2, 140, order);              /* the box holds RRA_TEXT bytes: room for the other lines */
+    tail = s_op_flat[0] ? s_op_flat : "Free Roam goes on";   /* the Online prize line (online_progress.c) */
+    rch_standings(t2, s_op_flat[0] ? 100 : 140, order);   /* the box holds RRA_TEXT bytes: room for the other lines */
     rch_fmt_time(t1, sizeof t1, mine->fin);
     big = now < s_rch.until - (RCH_RESULT_S - 2.0) ? RCH_BIG : "";   /* big the first 2 s */
     if (mine->fin == 0.0)
-        snprintf(text, sizeof text, "%sDid not finish\n%s\nFree Roam goes on", big, t2);
+        snprintf(text, sizeof text, "%sDid not finish\n%s\n%s", big, t2, tail);
     else if (place == 1 && s_rch.nrc > 1 && s_rch.rc[order[1]].fin == mine->fin)
-        snprintf(text, sizeof text, "%sDead heat! %s\n%s\nFree Roam goes on", big, t1, t2);
+        snprintf(text, sizeof text, "%sDead heat! %s\n%s\n%s", big, t1, t2, tail);
     else if (place == 1)
-        snprintf(text, sizeof text, "%sYou win! %s\n%s\nFree Roam goes on", big, t1, t2);
+        snprintf(text, sizeof text, "%sYou win! %s\n%s\n%s", big, t1, t2, tail);
     else
-        snprintf(text, sizeof text, "%s%s of %d \xC2\xB7 %s\n%s\nFree Roam goes on", big, rch_ord(place), s_rch.nrc, t1, t2);
+        snprintf(text, sizeof text, "%s%s of %d \xC2\xB7 %s\n%s\n%s", big, rch_ord(place), s_rch.nrc, t1, t2, tail);
     rra_prompt(text);
     return 1;
 }
