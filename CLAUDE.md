@@ -953,7 +953,10 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   sub_00184FD0 (stand-in screen, +0x1E0 = 0; 0x4B36C4 put back): copy
   into [0x53F2E4] and Request(6), as the main menu's Request(0x12) item
   does; '[ONLINE] Free Roam: straight into ...'; MC3_FR_DIRECT=0 brings
-  the screens back. The Online session: money ([[0x557F0C]+0xC]+0xACC) 2,000,000, also at each
+  the screens back. No Arcade item in the browser (2026-11-11, untested in
+  game): main_menu_online_first drops the slot whose callback is
+  0x0018C530 and lowers the count (every list routine reads it live);
+  MC3_ARCADE=1 keeps it; Free Roam still runs Arcade's path. The Online session: money ([[0x557F0C]+0xC]+0xACC) 2,000,000, also at each
   garage entry (state 5, sub_00021A60); no saves (the writer is
   sub_00022040 -> sub_000193F0; sub_0001A1F0 *reads* the old .mc3 format);
   Career/Tokyo/Arcade (sub_0018C560/580/530) end it and put money and the

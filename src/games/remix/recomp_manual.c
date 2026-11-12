@@ -3597,7 +3597,8 @@ void sub_00348AF0(void);
  * a label block of [list+0x234] {text, flag} pairs that +8 points to. Slot
  * 3 moves to 0 (contents moved, +8 kept), then SetSelection(0, -1)
  * (sub_00348AF0, thiscall (slot, col), ret 8) again, as the builder ended,
- * so the cursor starts on Online and the selected id is Online's. */
+ * so the cursor starts on Online and the selected id is Online's. The
+ * browser drops the Arcade item (callback 0x0018C530) before that. */
 static void main_menu_online_first(void)
 {
     uint32_t r[8] = { g_eax, g_ecx, g_edx, g_ebx, g_esp, g_ebp, g_esi, g_edi };
@@ -3627,6 +3628,36 @@ static void main_menu_online_first(void)
     for (w = 0; w < 4; w++) MEM32(lst + 0xECu + 4u * w) = fn[w];
     MEM32(MM_REC(0)) = rec[0]; MEM32(MM_REC(0) + 4u) = rec[1]; MEM32(MM_REC(0) + 0xCu) = rec[2];
     for (k = 0; k < 2 * nl; k++) MEM32(MEM32(MM_REC(0) + 8u) + 4u * k) = lab[k];
+#ifdef __EMSCRIPTEN__
+    {   /* Browser: no Arcade item (Free Roam is its way into the cruise). Every
+         * list routine reads the count [list+0x238+4*col] live (SetSelection's
+         * bound, the up/down wrap, the visible rows): later slots move one up
+         * as above and the count drops by one. MC3_ARCADE=1 keeps it. */
+        static int keep = -1;
+        uint32_t n = MEM32(lst + 0x238u + 4u * col), a;
+        if (keep < 0) {
+            const char *e = getenv("MC3_ARCADE");
+            keep = e && e[0] == '1';
+        }
+        for (a = 0; !keep && n <= 20u && a < n; a++) {
+            if (MEM32(lst + 0xECu + a * 16u + 4u) != 0x0018C530u)
+                continue;
+            for (i = a; i + 1u < n; i++) {       /* slots after Arcade one up */
+                for (w = 0; w < 4; w++)
+                    MEM32(lst + 0xECu + i * 16u + 4u * w) = MEM32(lst + 0xECu + (i + 1u) * 16u + 4u * w);
+                MEM32(MM_REC(i)) = MEM32(MM_REC(i + 1u));
+                MEM32(MM_REC(i) + 4u) = MEM32(MM_REC(i + 1u) + 4u);
+                MEM32(MM_REC(i) + 0xCu) = MEM32(MM_REC(i + 1u) + 0xCu);
+                for (k = 0; k < 2 * nl; k++)
+                    MEM32(MEM32(MM_REC(i) + 8u) + 4u * k) = MEM32(MEM32(MM_REC(i + 1u) + 8u) + 4u * k);
+            }
+            MEM32(lst + 0x238u + 4u * col) = n - 1u;
+            fprintf(stderr, "[ONLINE] main menu: Arcade item (slot %u) removed, %u items (MC3_ARCADE=1 keeps it)\n",
+                    a, n - 1u);
+            break;
+        }
+    }
+#endif
 #undef MM_REC
     g_esp = (r[4] - 0x200u) & ~0xFu;
     g_esp -= 4; MEM32(g_esp) = 0xFFFFFFFFu;      /* col: the current one */
