@@ -631,6 +631,8 @@
     { key: 'MC3_REALTIME', label: 'Real-time races', help: 'Below 30 fps a race advances by the time passed, so it keeps its pace on a slow machine.', opts: ONOFF() },
     { key: 'MC3_TRAFFIC_WHEEL_DIST', label: 'Traffic detail distance', help: 'How far traffic cars keep their wheels and shadow (the original 75 m makes wheels pop in close).',
       opts: [['', '150 m (default)'], ['75', '75 m (original)'], ['300', '300 m']] },
+    { key: 'MC3_DRIFT', label: 'Drift mode', help: 'Looser rear tyres on your own car: once the back steps out (handbrake, throttle, a flick) it keeps sliding and you steer the drift. Every car, Free Roam, races and career. Changes live.',
+      opts: [['', 'Off (default)'], ['1', 'On']] },
     { group: 'Online' },
     { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out. Changes live: lower hides the farthest; higher adds cars up to what the cruise loaded with, the rest at the next cruise.',
       opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
@@ -707,13 +709,13 @@
   // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
   // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
   const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
-    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']);
+    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']);
   const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
   const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
     ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
     ['ig-roam', ['MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_RAM_MB']],
-    ['ig-controls', ['MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
+    ['ig-controls', ['MC3_DRIFT', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
   ];
   function renderIngame() {
     for (const [id, keys] of INGAME)

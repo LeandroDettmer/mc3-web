@@ -666,7 +666,8 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   MC3_ROAM_CARS (-1 auto; roam_pool_net parks the farthest holders over it
   and gives newcomers no car while it is reached; raising builds new cars
   only up to the vehicle registry sized at the cruise's load; the hub's K
-  follows); xbox_keyboard_box (sdl_keyboard.c) RECOMP_KEYBOARD 1/2; touch
+  follows); MC3_DRIFT 1/2 (drift_step, below); xbox_keyboard_box
+  (sdl_keyboard.c) RECOMP_KEYBOARD 1/2; touch
   rows page-only (touch.js setMode/setOpacity). Restart stays for
   RECOMP_GPU, RECOMP_RAM_MB, MC3_LOWMEM (renderer and memory layout are
   set at boot) and RECOMP_GL_LOD_BIAS (in every fragment shader's text and
@@ -996,6 +997,23 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   sub_0020B6F0 override halves it to 1/60 and sub_0041B550 rewrites flip
   interval 2 to 1. Risks: per-frame (not per-step) lerps and Flash HUD run
   2x, replays/ghosts, System Link peers in different modes.
+  Drift mode (2026-11-12, untested in game; MC3_DRIFT=1, live, page
+  "Drift mode"; drift_step in the sub_0020B6F0 override): player 0's car
+  only ([[0x558814]+8]+0x14 = veh). Car physics = AGE vehCarSim (vtable
+  0x44EA64; mcCarSim 0x456550, ctor sub_00121550) at [veh+0x50], one per
+  vehicle (vehicle ctor sub_000FF160); tune FileIO sub_000A3CA0: WheelFront
+  [sim+0x54], WheelBack [sim+0x58] = wheel tune objects (vtable 0x44D6C8,
+  ctor sub_000A69C0, fields sub_000A6DA0: +0x38 HandbrakeCoef, +0x64
+  OptimumSlipPercent 0.14, +0x68 StaticFric 2.5, +0x6C SlidingFric 2.3
+  defaults); wheels point at their axle's ([wheel+4], sub_000A28B0).
+  Friction curve sub_000A6220 (from the wheel force sub_000A8770, long and
+  lat slip each): up to StaticFric at the optimum slip, SlidingFric past
+  it, times the ground grip [wheel+0x118] (recomputed each step). Drift =
+  WheelBack SlidingFric x0.55, StaticFric x0.9, re-applied each frame (the
+  upgrade blend sub_000A3A90 rewrites sim tunes), originals back when off;
+  '[DRIFT] ...' lines. Other tune binders seen: sub_00124B70 (bike
+  Lean/Wheelie/Drift/Burnout), sub_0007C350 (traffic TireGrip),
+  sub_002C9840 (steer/HandbrakeRate/DriftRate inputs), sub_001CAEF0 (AI).
   Online O1 (2026-11-08, single player, untested; src/games/remix/
   recomp_manual.c "Online (O1)"): main menu (sub_0018C770) item 3
   CM_Networking ('Online') opens the original screen 0x1E, where

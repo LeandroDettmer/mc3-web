@@ -2651,8 +2651,8 @@ static void realtime_step(float real)
  * mc3SetLive -> mc3_live_box): word i, 0 = the environment's value as at
  * start. MC3_LIVE_60FPS 1 off / 2 on (fps60_step, from the next drive or
  * race); MC3_LIVE_CARS MC3_ROAM_CARS, -1 auto (roam_cars_total, read live by
- * the remote cars pool). */
-enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_N };
+ * the remote cars pool); MC3_LIVE_DRIFT MC3_DRIFT 1 off / 2 on (drift_step). */
+enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_N };
 #ifdef __EMSCRIPTEN__
 static int32_t s_mc3_live[MC3_LIVE_N];
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_live_box(void) { return (uintptr_t)s_mc3_live; }
@@ -2705,6 +2705,76 @@ static void fps60_step(void)
     s_fps60 = halved != 0.0f && MEMF(0x004B2D58u) == halved;
 }
 
+/* MC3_DRIFT=1 (off by default; live through mc3_live_box): looser rear tyres
+ * on our own car, every car, any mode. The car's physics is the engine's
+ * vehCarSim (vtable 0x44EA64; mcCarSim 0x456550, ctor sub_00121550, made per
+ * vehicle by the vehicle ctor sub_000FF160 at [veh+0x50]). Its tune (FileIO
+ * sub_000A3CA0) owns WheelFront [sim+0x54] and WheelBack [sim+0x58], wheel
+ * tune objects (vtable 0x44D6C8, ctor sub_000A69C0, fields sub_000A6DA0); each
+ * wheel points at its axle's one ([wheel+4], set in sub_000A28B0). The
+ * tyre's friction curve sub_000A6220 (from the wheel force sub_000A8770, once
+ * for the longitudinal and once for the lateral slip) rises to StaticFric
+ * (+0x68, default 2.5) at OptimumSlipPercent (+0x64, 0.14) and falls to
+ * SlidingFric (+0x6C, 2.3) past it, both times the ground's grip
+ * [wheel+0x118] (recomputed every step: no lever). Drift scales WheelBack's
+ * SlidingFric by 0.55 and StaticFric by 0.9: once the rear breaks loose
+ * (handbrake, power, a flick) it keeps sliding and the front steers it; under
+ * the optimum slip the rear still pushes, so the car accelerates. Only player
+ * 0's vehicle ([[0x558814]+8]+0x14), so AI, traffic and remote cars keep
+ * theirs; peers just see our pose. The upgrade blend (sub_000A3A90) rewrites
+ * the sim's tunes, so this runs every frame: values that are not the ones we
+ * wrote are the game's, taken as the new originals. Off: the originals back
+ * (if still ours). Any other sim or tune vtable: left alone. */
+#define DRIFT_SLIDE  0.55f
+#define DRIFT_STATIC 0.90f
+static int online_ram(uint32_t va);
+
+static void drift_step(void)
+{
+    static int env = -1, said = -1;
+    static uint32_t tune;                       /* the WheelBack we patched, 0 none */
+    static float orig_s, orig_k, set_s, set_k;  /* StaticFric / SlidingFric: the game's, ours */
+    int32_t l = mc3_live(MC3_LIVE_DRIFT);
+    uint32_t pm = MEM32(0x00558814u), p, veh, sim, t = 0;
+    int on;
+    if (env < 0) {
+        const char *e = getenv("MC3_DRIFT");
+        env = e && e[0] == '1';
+    }
+    on = l ? l == 2 : env;
+    if (!(online_ram(pm) && online_ram(p = MEM32(pm + 8u)) && online_ram(veh = MEM32(p + 0x14u)) &&
+          online_ram(sim = MEM32(veh + 0x50u)) && MEM32(sim) == 0x00456550u &&
+          online_ram(t = MEM32(sim + 0x58u)) && MEM32(t) == 0x0044D6C8u))
+        t = 0;
+    if (on != said) {
+        if (said >= 0 || on)
+            fprintf(stderr, "[DRIFT] drift mode %s (MC3_DRIFT%s)\n", on ? "on" : "off", l ? ", in-game Settings" : "");
+        said = on;
+    }
+    if (t != tune)                              /* another car (or none): the old one's values are not ours to touch */
+        tune = 0;
+    if (!on || !t) {
+        if (tune && MEMF(tune + 0x68u) == set_s && MEMF(tune + 0x6Cu) == set_k) {
+            MEMF(tune + 0x68u) = orig_s;
+            MEMF(tune + 0x6Cu) = orig_k;
+            fprintf(stderr, "[DRIFT] rear tyres back: StaticFric %.3f SlidingFric %.3f (WheelBack %08X)\n",
+                    (double)orig_s, (double)orig_k, (unsigned)tune);
+        }
+        tune = 0;
+        return;
+    }
+    if (tune && MEMF(t + 0x68u) == set_s && MEMF(t + 0x6Cu) == set_k)
+        return;
+    tune = t;
+    orig_s = MEMF(t + 0x68u);
+    orig_k = MEMF(t + 0x6Cu);
+    MEMF(t + 0x68u) = set_s = orig_s * DRIFT_STATIC;
+    MEMF(t + 0x6Cu) = set_k = orig_k * DRIFT_SLIDE;
+    fprintf(stderr, "[DRIFT] rear tyres: StaticFric %.3f -> %.3f, SlidingFric %.3f -> %.3f (WheelBack %08X, "
+                    "OptimumSlip %.3f)\n", (double)orig_s, (double)set_s, (double)orig_k, (double)set_k,
+            (unsigned)t, (double)MEMF(t + 0x64u));
+}
+
 /* ── Traffic LOD: wheels and shadow pop in at 75 m ──
  *
  * Found on the PS2 Remix by The_Hexagone (Reddit r/midnightclub), same code
@@ -2753,6 +2823,7 @@ void sub_0020B6F0(void)
         last_ns = now;
     }
     fps60_step();
+    drift_step();
     traffic_lod_step();
     online_strings();
     roam_room();
