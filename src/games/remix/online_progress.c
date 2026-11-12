@@ -63,6 +63,7 @@ static char s_op_prize[24];                    /* the last prize alone ("+$25,00
 static int s_op_note;                         /* s_op_line to show back in the cruise */
 static double s_op_t;                          /* when it first showed there (0 not yet) */
 static int s_op_paid;                          /* this AI race paid (cleared at its start) */
+static char s_op_head[112];                    /* a group race's result, two lines, shown above s_op_flat */
 
 /* Wins reach this type's tier, in the Online session. */
 static int op_has(int type)
@@ -230,7 +231,7 @@ EMSCRIPTEN_KEEPALIVE uintptr_t roam_progress_box(void)
 /* The line for an empty prompt: the AI race's prize, back in the cruise. */
 __attribute__((unused)) static const char *op_note(void)   /* browser only (rra_prompt) */
 {
-    static char out[100];
+    static char out[192];                      /* RRA_TEXT */
     uint32_t setup = MEM32(ROAM_SETUP_VA);
     double now;
     if (!s_op_note || !s_online || !online_ram(setup) || MEM32(setup + 0x18u) != 0)
@@ -240,8 +241,13 @@ __attribute__((unused)) static const char *op_note(void)   /* browser only (rra_
         s_op_t = now;
     if (now - s_op_t > OP_NOTE_S) {
         s_op_note = 0;
+        s_op_head[0] = 0;
         return "";
     }
-    snprintf(out, sizeof out, "%s%s", now - s_op_t < 2.0 ? "\x01" : "", s_op_line);
+    if (s_op_head[0])                          /* a group race: place and standings, then the prize on one line */
+        snprintf(out, sizeof out, "%s%s%s%s", now - s_op_t < 2.0 ? "\x01" : "", s_op_head, s_op_flat[0] ? "\n" : "",
+                 s_op_flat);
+    else
+        snprintf(out, sizeof out, "%s%s", now - s_op_t < 2.0 ? "\x01" : "", s_op_line);
     return out;
 }

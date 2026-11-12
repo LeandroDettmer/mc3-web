@@ -42,13 +42,13 @@ The race setup object (fields confirmed in `sub_0026B8E0`, `sub_0013B110`,
 | +0x08 | weather (event +0xC) |
 | +0x14 / +0x1C | set to 1 by SetEvent (+0x1C only for types 0xA/0xB/0xF/0x14) |
 | +0x18 | RaceType (0 Arcade cruise, 1 career cruise, 4 unordered, 7 ordered/circuit, 8/9 blitz, 0x15 autocross, 0x16 track, the rest battle modes; labels `sub_0013A690`) |
-| +0x40 | (DoStartRace caps it at 3 with >1 player) |
+| +0x40 | AI racers at most: the race takes min(its .rac's, this) (sub_001D3AE0); Arcade's Go sets sub_00165F50 = min(OpponentCount, 5), DoStartRace caps it at 3 with >1 player; career cruise 0 |
 | +0x47 / +0x48 | 0xFF / custom race flag (0 = event race) |
 | +0x4C | local players (entries used) |
 | +0x54 | split-screen layout |
 | +0x68 | event name (Arcade's lookup key, `sub_0026B010`) |
 | +0x108 | network race flag (`sub_00155AF0` sets 1) |
-| +0x10D | hookmen on (career cruise only; host path clears it) |
+| +0x10D | AI racers on (0: none, sub_001D3AE0 at 0x1D42F1; also the career cruise's hookmen); Arcade's start copies 1 from 0x4B36B3, the career cruise sets 0 |
 | +0x114 + i·0x2C | entries: +0x0C CarCfg*, +0x10 pad, +0x14 viewport (roam_game.c) |
 
 Event record (0x30 B, reader `sub_0026DA70` from `tune/race/<city>.loc`; also in

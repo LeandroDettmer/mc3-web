@@ -173,6 +173,24 @@ void xbox_gil_atomic(int d);                    /* xboxrecomp kernel_bridge.c: n
 static int s_roam_fake = -1, s_roam_slots, s_roam_swap_on = -1;
 static int s_roam_cruise;                       /* the Free Roam cruise is loaded (slots or not): roam_player runs */
 static int s_roam_cfg_loaded;                   /* entry 0's CarCfg sent again once the cruise runs */
+/* A group race (roam_challenge.c invites, roam_race_ai.c loads it): the players racing the same event, in join order
+ * (id[me] = 0, us). While on, its race load gets remote slots for them alone (roam_build), no standalone cars, and
+ * the race ends as the game rules (no phase-7 hold). Off at the way back to the cruise. */
+#define ROAM_GROUP_MAX 8
+static struct { int on, n, me; uint32_t id[ROAM_GROUP_MAX]; } s_roam_group;
+static int roam_group_race(void)                /* a group race's load or race is running */
+{
+    uint32_t setup = MEM32(ROAM_SETUP_VA);
+    return s_roam_group.on && online_ram(setup) && MEM32(setup + 0x18u) != 0;
+}
+static int roam_group_has(uint32_t id)          /* peer id races with us */
+{
+    int k;
+    for (k = 0; id && k < s_roam_group.n; k++)
+        if (k != s_roam_group.me && s_roam_group.id[k] == id)
+            return 1;
+    return 0;
+}
 static roam_pose s_roam_hist[ROAM_HIST];
 static unsigned s_roam_nhist;
 static double s_roam_tlast;
@@ -747,8 +765,11 @@ static void roam_build(void)
     if (MEM32(setup + 0x4Cu) != 1u || MEM8(setup + 0x108u) || MEM8(e0 + 0x26u) || SMEM32(e0 + 0x14u) < 0)
         return;
     /* A race (Free Roam's AI race, roam_race_ai.c) gets no remote slots: the
-     * race would count them as N undriven racers. Only the cruise (type 0). */
-    if (MEM32(setup + 0x18u) != 0) {
+     * race would count them as N undriven racers. Only the cruise (type 0),
+     * and a group race: a slot for each player racing with us, the race's
+     * own racers (the game places the 1 + N local players side by side at
+     * its start, sub_001CBCA0; the AI on their own grid). */
+    if (MEM32(setup + 0x18u) != 0 && !roam_group_race()) {
         fprintf(stderr, "[ROAM] race load: no slots (race type %u)\n", (unsigned)MEM32(setup + 0x18u));
         return;
     }
@@ -773,9 +794,20 @@ static void roam_build(void)
          * gets its car too, hidden until it drives), nearest first; not
          * waited for -- the session started at Free Roam's pick, ~10 s ago */
         np = roam_peers(peers, ROAM_SLOTS);
+        if (roam_group_race()) {                /* the players racing with us, a slot each, no spares */
+            int m = 0;
+            for (i = 0; i < (uint32_t)np; i++)
+                if (roam_group_has(peers[i].id))
+                    peers[m++] = peers[i];
+            np = m;
+            n = s_roam_group.n - 1 < ROAM_SLOTS ? s_roam_group.n - 1 : ROAM_SLOTS;
+            fprintf(stderr, "[RACE] group load: %d slot%s for the players racing with us (%d linked now)\n", n,
+                    n == 1 ? "" : "s", np);
+        }
         for (i = 0; i < (uint32_t)np; i++)
             nrec += roam_peer_rec(peers[i].id, blob);
-        n = roam_nslots(np);
+        if (!roam_group_race())
+            n = roam_nslots(np);
     } else
         n = 0;
     if (!n)
@@ -931,8 +963,18 @@ static void roam_net(const roam_pose *me)
     s_roam_seen = peers;                        /* a second roam_peers a frame would upset its blend clock */
     s_roam_nseen = n;
     s_roam_seen_t = me->t;
-    if (!s_roam_fake)
-        roam_pool_net(peers, n, me->t);         /* who drives which remote car (roam_pool.c) */
+    if (s_roam_fake)
+        return;
+    if (roam_group_race()) {                    /* a group race: its slots show the players racing with us only */
+        static roam_peer mates[ROAM_GROUP_MAX];
+        int i, m = 0;
+        for (i = 0; i < n && m < ROAM_GROUP_MAX; i++)
+            if (roam_group_has(peers[i].id))
+                mates[m++] = peers[i];
+        roam_pool_net(mates, m, me->t);
+        return;
+    }
+    roam_pool_net(peers, n, me->t);             /* who drives which remote car (roam_pool.c) */
 }
 
 /* SetMatrix and SetVel on a player's car, as sub_002C0540 does. */
@@ -1177,7 +1219,7 @@ static int roam_spawn_clear(uint32_t veh, roam_pose *s)
     static const float step[] = { 0, 10, -10, 20, -20, 30, -30, 40, -40 };
     float m[12], best_d = -1.0f;
     int i, j, best = 0;
-    if (s_rra_back || !s_roam_seen)
+    if (s_rra_back || !s_roam_seen || roam_group_race())   /* a group race: the game's grid (roam_race_ai.c) */
         return 0;
     for (i = 0; i < (int)(sizeof step / sizeof step[0]); i++) {
         float x = s->m[9] + s->m[6] * step[i], z = s->m[11] + s->m[8] * step[i], d = 1e9f;

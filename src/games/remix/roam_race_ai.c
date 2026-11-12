@@ -14,8 +14,9 @@
  * a copy of the current one (sub_00268E50, cdecl (dst, src)), SetEvent
  * sub_0026B8E0 (thiscall (city, event), ret 8) makes it that event (type,
  * name, time, weather; the AI opponents come from the event's
- * OpponentCount when the race loads), one local player, no custom/network
- * race, no hookmen; then Request(8) (end of the current race events) and
+ * OpponentCount when the race loads, capped by +0x40 and switched on by
+ * +0x10D: see rra_start), one local player, no custom/network race; then
+ * Request(8) (end of the current race events) and
  * Request(6) (state 2 loads [0x53F2E4]). Our roam status becomes
  * RC_ST_EVENT: peers park and hide our car, slot kept (as the garage).
  * roam_build (roam_game.c) adds no remote slots to a race load (type != 0),
@@ -53,6 +54,12 @@
 #define RRA_HOLD      1.5               /* s: the car held on its spot after the way back */
 #define RRA_WATCH     6.0               /* s: then watched for a fall through unstreamed ground */
 #define RRA_FALL      10.0f             /* m below the spot = fallen */
+#define RRA_RACERS    8                 /* the game's player slots: the race's humans + AI */
+#define RRA_GRID_S    3.0               /* s: a group race holds our car on its grid spot from the first frame */
+#define RRA_LOAD_S    30.0              /* s: a group race's players may take this long to load */
+#define RRA_GONE_S    10.0              /* s: then one not driving that long is out of our race */
+#define RRA_WAIT_S    30.0              /* s: after our finish, the players still racing are out of it */
+#define RRA_RACEP_VA  0x00533E24u       /* [+4] = the race object */
 
 void sub_00268E50(void);                        /* race setup copy, cdecl (dst, src) */
 void sub_0026B8E0(void);                        /* SetEvent, thiscall (city, event; -1 = the city's cruise), ret 8 */
@@ -222,7 +229,8 @@ static uint32_t rra_coll(uint32_t veh)
 
 static void rra_start(const roam_race *r, uint32_t mtx, uint32_t top)
 {
-    uint32_t cur = MEM32(ROAM_SETUP_VA), next = MEM32(RRA_NEXT_VA), a[2], k;
+    uint32_t cur = MEM32(ROAM_SETUP_VA), next = MEM32(RRA_NEXT_VA), a[2], k, ai;
+    int humans;
     if (!online_ram(cur) || !online_ram(next))
         return;
     for (k = 0; k < 12; k++)
@@ -238,19 +246,29 @@ static void rra_start(const roam_race *r, uint32_t mtx, uint32_t top)
     a[0] = r->city;
     a[1] = r->index;
     roam_call(sub_0026B8E0, next, top, 2, a);
-    MEM32(next + 0x4Cu) = 1;                    /* us alone: the opponents are the event's AI */
+    humans = s_roam_group.on ? s_roam_group.n : 1;
+    ai = r->opponents < RRA_RACERS - humans ? r->opponents : RRA_RACERS - humans;
+    MEM32(next + 0x4Cu) = 1;                    /* us alone: a group race's other players come from roam_build */
+    /* The AI racers. The race takes min(its .rac's racers, +0x40) and none
+     * at all when +0x10D is 0 (the .rac reader's sub_001D3AE0, 0x1D42DB-
+     * 0x1D42FB). SetEvent sets neither: Arcade's Go puts +0x40 =
+     * sub_00165F50 (min(OpponentCount, 5)) and its start (sub_00184770)
+     * copies +0x10D = 1 from 0x4B36B3. The Free Roam cruise we copy has
+     * +0x40 = 0 (fr_direct_pass), and +0x10D was set 0 here ("no hookmen"):
+     * both left every AI race without opponents (2026-11-12). */
+    MEM32(next + 0x40u) = ai;
+    MEM8(next + 0x10Du) = 1;
     MEM8(next + 0x48u) = 0;                     /* an event race, not a custom one */
     MEM8(next + 0x108u) = 0;                    /* not a network race */
-    MEM8(next + 0x10Du) = 0;                    /* no hookmen */
     snprintf(s_rra_name, sizeof s_rra_name, "%s", r->name);
     s_rra_race = 1;
     s_rra_back = 0;
     s_op_paid = 0;                              /* its finish pays once (online_progress.c) */
     rra_prompt("");
     roam_status(RC_ST_EVENT);                   /* peers hide our car, slot kept */
-    fprintf(stderr, "[RACE] start %s (%s, type %u, %u lap%s, %u opponents; city %u event %u) from (%.1f, %.1f, %.1f)%s\n",
+    fprintf(stderr, "[RACE] start %s (%s, type %u, %u lap%s, %u opponents: %u AI%s; city %u event %u) from (%.1f, %.1f, %.1f)%s\n",
             r->name, roam_races_kind_name(r->kind), r->type, r->laps, r->laps == 1 ? "" : "s", r->opponents,
-            r->city, r->index, s_rra_m[9], s_rra_m[10], s_rra_m[11],
+            (unsigned)ai, humans > 1 ? ", a group race" : "", r->city, r->index, s_rra_m[9], s_rra_m[10], s_rra_m[11],
             rra_mode() == 2 ? ", Request(6) alone (MC3_ROAM_RACE=2)" : "");
     if (rra_mode() != 2)
         rra_request(8, top);
@@ -265,6 +283,7 @@ static void rra_state_request(uint32_t esp)
     uint32_t n = MEM32(esp + 4u), next = MEM32(RRA_NEXT_VA), cur = MEM32(ROAM_SETUP_VA), a[2];
     if (!s_online) {
         s_rra_race = s_rra_back = 0;
+        s_roam_group.on = 0;
         return;
     }
 #ifdef __EMSCRIPTEN__
@@ -277,6 +296,7 @@ static void rra_state_request(uint32_t esp)
         fprintf(stderr, "[RACE] request 0x%X in a cruise: to the menus as the game does (AI race flag cleared)\n",
                 (unsigned)n);
         s_rra_race = 0;
+        s_roam_group.on = 0;
         return;
     }
     a[0] = online_ram(cur) ? MEM32(cur) : MEM32(next);   /* the race's city */
@@ -285,8 +305,12 @@ static void rra_state_request(uint32_t esp)
     MEM32(next + 4u) = s_rra_time;
     MEM32(next + 8u) = s_rra_weather;
     MEM32(next + 0x4Cu) = 1;                    /* roam_build adds the slots again */
+    MEM32(next + 0x40u) = 0;                    /* the cruise has no AI racers (fr_direct_pass) */
     MEM8(next + 0x108u) = 0;
     MEM32(esp + 4u) = 6;                        /* load [0x53F2E4], not the front end */
+    if (s_roam_group.on)
+        fprintf(stderr, "[RACE] group race over: back to the cruise\n");
+    s_roam_group.on = 0;                        /* the cruise's slots are anyone's again */
     s_rra_race = 0;
     s_rra_back = 1;
     s_rra_t0 = 0;
@@ -314,6 +338,156 @@ static void rra_label(uint32_t esp)
     MEM32(esp + 0xCu) = buf;
 }
 
+/* ---- group race (2026-11-12, untested in game): the players at one start
+ * point race its event together, each against its own AI (roam_challenge.c
+ * invites, its GO calls rra_group_start at the same moment everywhere).
+ * Each loads the event as rra_start does; roam_build gives the race a slot
+ * for every other racer (System Link's remote path drives it from that
+ * player's snapshots, as in the cruise), so the game races 1 + N local
+ * players + min(OpponentCount, 8 - (1 + N)) AI. The game places the local
+ * players side by side at the race's PlayerPosDir (sub_001CBCA0, event
+ * race: player i at ((i & 1) - 0.5) x 2.5 m across, (i >> 1) x 6 m back,
+ * rotated by its heading); each client has itself at spot 0, so our car
+ * moves to the spot of our join order (the host 0) for RRA_GRID_S s. Its
+ * racer records (race+0x65C, players first: +4 done, +7 out, +0x14 place)
+ * end the race: a player not driving RRA_GONE_S s (after RRA_LOAD_S s) or
+ * still racing RRA_WAIT_S s after our finish is set out, so the race ends.
+ * The result: our place among all its racers (humans as seen here + AI)
+ * and the players' places, back in the cruise (op_note), prize by place
+ * (op_ai_finish). '[RACE] group ...' lines. */
+static double s_rra_g0, s_rra_fin, s_rra_gone[ROAM_GROUP_MAX];
+static uint32_t s_rra_gobj;                     /* the race object the grid was set for */
+static float s_rra_gm[12];
+
+static uint32_t rra_race_obj(void)
+{
+    uint32_t h = MEM32(RRA_RACEP_VA);
+    return online_ram(h) && online_ram(MEM32(h + 4u)) ? MEM32(h + 4u) : 0;
+}
+
+/* roam_challenge.c's GO: n racers in join order, ids[me] us. */
+static void rra_group_start(const roam_race *r, const uint32_t *ids, int n, int me, uint32_t mtx, uint32_t top)
+{
+    int k;
+    memset(&s_roam_group, 0, sizeof s_roam_group);
+    if (n > ROAM_GROUP_MAX)
+        n = ROAM_GROUP_MAX;
+    for (k = 0; k < n; k++)
+        s_roam_group.id[k] = k == me ? 0 : ids[k];
+    s_roam_group.n = n;
+    s_roam_group.me = me;
+    s_roam_group.on = n > 1;
+    s_rra_gobj = 0;
+    fprintf(stderr, "[RACE] group start: %s, %d racers, our grid spot %d:", r->name, n, me);
+    for (k = 0; k < n; k++)
+        fprintf(stderr, " %08X", (unsigned)s_roam_group.id[k]);
+    fprintf(stderr, "\n");
+    rra_start(r, mtx, top);
+}
+
+/* Each frame of ours in a group race: our grid spot, players out. */
+static void rra_group_frame(uint32_t veh, uint32_t mtx)
+{
+    static const float zero[3] = { 0 };
+    uint32_t race = rra_race_obj(), pd, arr, rec, setup = MEM32(ROAM_SETUP_VA);
+    double now = roam_now();
+    const char *why;
+    int k, me = s_roam_group.me;
+    if (!race || !online_ram(setup))
+        return;
+    if (race != s_rra_gobj) {                   /* the race's first frame (a restart too) */
+        float h, a, b, dx = 0.0f, dz = 0.0f;
+        s_rra_gobj = race;
+        s_rra_g0 = now;
+        s_rra_fin = 0;
+        memset(s_rra_gone, 0, sizeof s_rra_gone);
+        for (k = 0; k < 12; k++)
+            s_rra_gm[k] = MEMF(mtx + 0x10u + 4u * k);
+        if (me > 0 && online_ram(pd = MEM32(race + 0x7E8u))) {   /* PlayerPosDir: x y z heading */
+            h = MEMF(pd + 0xCu);
+            a = (float)(me & 1) * 2.5f;         /* from spot 0: across ((me & 1) - 0.5 + 0.5) x 2.5, back (me >> 1) x 6 */
+            b = (float)(me >> 1) * 6.0f;
+            dx = a * cosf(h) + b * sinf(h);
+            dz = b * cosf(h) - a * sinf(h);
+            s_rra_gm[9] += dx;
+            s_rra_gm[10] += 0.3f;
+            s_rra_gm[11] += dz;
+        }
+        fprintf(stderr, "[RACE] group race: %u players + %u AI, our grid spot %d (%.1f m from spot 0), %d slot%s\n",
+                (unsigned)MEM32(setup + 0x4Cu), (unsigned)MEM32(race + 0x18u), me, sqrtf(dx * dx + dz * dz),
+                s_roam_slots, s_roam_slots == 1 ? "" : "s");
+    }
+    if (me > 0 && now - s_rra_g0 < RRA_GRID_S) {
+        roam_set_pose(veh, s_rra_gm, zero);
+        if (roam_running())
+            roam_teleport();
+    }
+    if (!online_ram(arr = MEM32(race + 0x65Cu)))
+        return;
+    if (!s_rra_fin && online_ram(rec = MEM32(arr)) && MEM8(rec + 4u)) {
+        s_rra_fin = now;
+        fprintf(stderr, "[RACE] group race: we finished\n");
+    }
+    for (k = 1; k <= s_roam_slots && k < ROAM_GROUP_MAX && k < (int)MEM32(setup + 0x4Cu); k++) {
+        rec = MEM32(arr + 4u * (uint32_t)k);
+        if (!online_ram(rec) || MEM8(rec + 4u) || MEM8(rec + 7u))
+            continue;
+        if (roam_rc_driven(&s_rc[k]))
+            s_rra_gone[k] = 0;
+        else if (!s_rra_gone[k])
+            s_rra_gone[k] = now;
+        why = s_rra_gone[k] && now - s_rra_gone[k] > RRA_GONE_S && now - s_rra_g0 > RRA_LOAD_S ? "not driving"
+            : s_rra_fin && now - s_rra_fin > RRA_WAIT_S ? "still racing after our finish" : NULL;
+        if (why) {
+            MEM8(rec + 7u) = 1;
+            fprintf(stderr, "[RACE] group race: %s (slot %d) %s: out of our race\n",
+                    s_rc[k].name[0] ? s_rc[k].name : "a player", k, why);
+        }
+    }
+}
+
+static const char *rra_ord(uint32_t n)
+{
+    static const char *o[9] = { "-", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th" };
+    return n <= 8 ? o[n] : "-";
+}
+
+/* The race flow's finish (sub_001CFC50 wrapper), before op_ai_finish: a group race's places for the box. */
+static void rra_group_result(uint32_t race)
+{
+    uint32_t setup = MEM32(ROAM_SETUP_VA), np, ai, pl[ROAM_GROUP_MAX], i, j, t, ord[ROAM_GROUP_MAX];
+    char line[96];
+    size_t o = 0;
+    s_op_head[0] = 0;
+    if (!s_roam_group.on || s_op_paid || !online_ram(race) || !online_ram(setup) || MEM8(race + 0xEu))
+        return;
+    np = MEM32(setup + 0x4Cu);
+    np = np > ROAM_GROUP_MAX ? ROAM_GROUP_MAX : np;
+    ai = MEM32(race + 0x18u);
+    for (i = 0; i < np; i++) {                  /* the players by place */
+        pl[i] = MEM32(race + 0x98u + i * 0xB8u + 0x14u);
+        for (j = i, t = i; j > 0 && pl[ord[j - 1]] > pl[t]; j--)
+            ord[j] = ord[j - 1];
+        ord[j] = t;
+    }
+    line[0] = 0;
+    for (i = 0; i < np && o < sizeof line; i++) {
+        int w = snprintf(line + o, sizeof line - o, "%s%u %.8s", i ? " \xC2\xB7 " : "", (unsigned)pl[ord[i]],
+                         !ord[i] ? "You" : (int)ord[i] <= s_roam_slots && s_rc[ord[i]].name[0] ? s_rc[ord[i]].name
+                                                                                                : "Player");
+        if (w < 0)
+            break;
+        o += (size_t)w;
+    }
+    snprintf(s_op_head, sizeof s_op_head, "Group race: %s of %u\n%s", np ? rra_ord(pl[0]) : "-", (unsigned)(np + ai),
+             line);
+    s_op_note = 1;                              /* shown back in the cruise, prize or not */
+    s_op_t = 0;
+    s_op_flat[0] = 0;                           /* op_ai_finish's prize, if any, goes after it */
+    fprintf(stderr, "[RACE] group result: we are %s of %u (%u players + %u AI): %s\n", np ? rra_ord(pl[0]) : "-",
+            (unsigned)(np + ai), (unsigned)np, (unsigned)ai, line);
+}
+
 /* Each player's update (sub_002C1520), before roam_player: slot 0 only. */
 static void rra_player(uint32_t p)
 {
@@ -331,6 +505,11 @@ static void rra_player(uint32_t p)
     x = MEMF(mtx + 0x34u);
     y = MEMF(mtx + 0x38u);
     z = MEMF(mtx + 0x3Cu);
+    if (s_rra_race && roam_group_race()) {
+        rra_group_frame(veh, mtx);
+        rra_prompt("");
+        return;
+    }
 #ifdef __EMSCRIPTEN__
     if (MEM32(setup + 0x18u) == 0 && !s_rra_race && MEM32(0x0050F14Cu) == 0) {   /* the Free Roam cruise */
         rra_resume_take(MEM32(setup));
@@ -381,7 +560,9 @@ static void rra_player(uint32_t p)
     }
     rra_text(text, sizeof text, r, speed > RRA_SLOW);
     rra_prompt(text);
-    if (white && !white_was && speed <= RRA_SLOW)
+    if (white && !white_was && speed <= RRA_SLOW) {
+        s_roam_group.on = 0;                    /* alone (others near: roam_challenge.c's group prompt instead) */
         rra_start(r, mtx, top);
+    }
     white_was = white;
 }

@@ -62,6 +62,8 @@ static int roam_cars_total(void)
     static int n = -1;
     int32_t l = mc3_live(MC3_LIVE_CARS);
     int v;
+    if (roam_group_race())                      /* a group race: its slots alone, no standalone cars */
+        return s_roam_slots;
     if (n < 0) {
         const char *e = getenv("MC3_ROAM_CARS");
         n = e && *e && strcmp(e, "auto") ? atoi(e) : g_xbox_contig_size >= (128u << 20) ? 32 : 12;
@@ -247,7 +249,7 @@ static void roam_flow_watch(void)
     static int let = -1, said;
     static uint32_t last, held;
     uint32_t flow = MEM32(ROAM_FLOW_VA), sm = MEM32(0x00557ED0u), ph;
-    if (!roam_free_cruise() || !online_ram(flow)) {
+    if (!roam_free_cruise() || roam_group_race() || !online_ram(flow)) {   /* a group race ends as the game says */
         last = 0;
         return;
     }

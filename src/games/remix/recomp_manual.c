@@ -4081,8 +4081,10 @@ void sub_0028B4E0(void) { if (!op_paint()) sub_0028B4E0_gen(); }
 extern void sub_001CFC50_gen(void);
 void sub_001CFC50(void)
 {
-    if (s_online && s_rra_race)
+    if (s_online && s_rra_race) {
+        rra_group_result(g_ecx);                /* a group race's places (roam_race_ai.c) */
         op_ai_finish(g_ecx, (g_esp - 0x200u) & ~0xFu);
+    }
     sub_001CFC50_gen();
 }
 
