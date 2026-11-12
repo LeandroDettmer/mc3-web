@@ -943,6 +943,50 @@
         if (typeof cfg[k] === 'string') cfg[k] = cfg[k].replaceAll('{key}', encodeURIComponent(key));
     }
   }
+  // New version published (2026-11-12): the deploy's stage script stamps config.json "version" (commit hash). While a game
+  // runs the page re-reads it every 60 s and when the tab turns visible. Different and non-empty: online (Free Roam or a
+  // race room) a box counts 60 s and reloads (old clients speak old protocols); offline (career progress may be unsaved)
+  // only a dismissable notice. No version (local dev) = off.
+  let verNew = false, verBox = null, verTxt = null, verBtn = null, verEnd = 0, verMode = '', verDismissed = false;
+  async function versionCheck() {
+    if (!playing || verNew || !cfg?.version) return;
+    try {
+      const r = await fetch('config.json', { cache: 'no-store' });
+      const v = r.ok ? (await r.json()).version : '';
+      if (v && v !== cfg.version) { verNew = true; setInterval(versionTick, 1000); versionTick(); }
+    } catch {}
+  }
+  function versionTick() {
+    const online = !!(lan && (lan.roaming || lan.room));
+    const mode = online ? 'online' : verDismissed ? '' : 'offline';
+    const host = $('canvas').parentNode;
+    if (!verBox && mode && host) {
+      verBox = document.createElement('div');
+      verBox.style.cssText = 'position:absolute;left:50%;top:56px;transform:translateX(-50%);z-index:6;box-sizing:border-box;' +
+        'max-width:92%;padding:.5em .9em;border-radius:8px;background:rgba(0,0,0,.78);border:1px solid #ffd24a;color:#fff;' +
+        'text-shadow:0 1px 2px #000;font:700 15px Arial,sans-serif;text-align:center';
+      verTxt = document.createElement('span');
+      verBtn = document.createElement('button');
+      verBtn.style.cssText = 'margin-left:.8em;padding:.2em .8em;font:inherit;cursor:pointer';
+      verBox.append(verTxt, verBtn);
+      host.append(verBox);
+    }
+    if (!verBox) return;
+    if (mode !== verMode) {
+      verMode = mode;
+      verEnd = online ? Date.now() + 60000 : 0;
+      verBox.style.display = mode ? '' : 'none';
+      verBtn.textContent = online ? 'Reload now' : 'Dismiss';
+      verBtn.onclick = online ? () => location.reload() : () => { verDismissed = true; versionTick(); };
+    }
+    if (online) {
+      const s = Math.max(0, Math.ceil((verEnd - Date.now()) / 1000));
+      verTxt.textContent = `New version published - reloading in ${s} s`;
+      if (!s) location.reload();
+    } else if (mode) verTxt.textContent = 'New version published. Reload when you are done (unsaved progress is lost).';
+  }
+  setInterval(versionCheck, 60000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) versionCheck(); });
   // The module's file: from cfg.moduleUrl when set, else beside the page.
   const moduleFile = f => cfg?.moduleUrl ? new URL(f, cfg.moduleUrl.replace(/\/?$/, '/')).href : f;
   // The deploy's module is on another origin: its .js comes as a blob URL, so the pthread workers Emscripten

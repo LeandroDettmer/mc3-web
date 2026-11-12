@@ -27,7 +27,8 @@
 //   link.roamSend(frame)             // a free-roam frame (net.js, rtc.js): the city socket when open, else the switch
 //   link.roamMsg(m)                  // a free-roam signal (rtc.js): the same way
 //   l.city                           // the city whose socket is open, or null (free roam through the switch)
-//   l.roamDown                       // ms timestamp the free-roam link has been lost since (3 s grace), 0 = fine (pre.js notice)
+//   l.roaming                        // true between the game's Free Roam HELLO and BYE (index.html's new-version notice)
+//   l.roamDown                    // ms timestamp the free-roam link has been lost since (3 s grace), 0 = fine (pre.js notice)
 // The game's HELLO to the hub (10.77.0.253:47210) names its room (MC3: the city): a new one closes the old socket, asks
 // the switch {"t":"ticket"} and opens wss .../lan/roam?city=N&vip&exp&sig; its BYE closes it. Until the socket is open,
 // and whenever it is not (refused, a server without it), the frames go through the switch as before. A socket that never
@@ -185,8 +186,8 @@ window.mc3Lan = function (name, lanUrl) {
   link.roamSend = function (f) {
     if (f.length >= 22 && f[8] == 10 && f[9] == 77 && f[10] == 0 && f[11] == 253 && ((f[14] << 8) | f[15]) == ROAM_PORT &&
         f[16] == 0x4D && f[17] == 0x43 && f[18] == 0x33 && f[19] == 0x52) {
-      if (f[21] == 1 && f.length >= 44) { roaming = true; cityWant((f[40] | f[41] << 8 | f[42] << 16 | f[43] << 24) >>> 0); }   // HELLO: room u32 LE at datagram +24
-      else if (f[21] == 8) { roaming = false; var ok = roamOut(f); cityClose(); watch(); return ok; }   // BYE: the game left free roam
+      if (f[21] == 1 && f.length >= 44) { roaming = link.roaming = true; cityWant((f[40] | f[41] << 8 | f[42] << 16 | f[43] << 24) >>> 0); }   // HELLO: room u32 LE at datagram +24
+      else if (f[21] == 8) { roaming = link.roaming = false; var ok =roamOut(f); cityClose(); watch(); return ok; }   // BYE: the game left free roam
     }
     return roamOut(f);
   };
@@ -235,6 +236,6 @@ window.mc3Lan = function (name, lanUrl) {
   link.join = function (id, p) { pass = p || ''; auto = false; return ctl({ t: 'join', room: id, pass: pass }); };
   link.leave = function () { rejoin = null; return ctl({ t: 'leave' }); };
   link.signal = function (to, kind, data) { return ctl({ t: 'signal', to: to, kind: kind, data: data }); };
-  link.close = function () { want = false; clearTimeout(retry); clearInterval(watchT); roaming = false; watch(); cityClose(); if (ws) ws.close(1000, 'closed'); else if (link.state != 'offline') { link.state = 'offline'; changed(); } };
+  link.close = function () { want = false; clearTimeout(retry); clearInterval(watchT); roaming = link.roaming = false; watch(); cityClose(); if (ws) ws.close(1000, 'closed'); else if (link.state != 'offline') { link.state = 'offline'; changed(); } };
   return link;
 };
