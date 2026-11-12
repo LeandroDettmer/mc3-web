@@ -535,7 +535,7 @@
     { key: 'RECOMP_ASPECT', label: 'Screen shape', help: 'WebGPU: on a screen wider than 16:9 the race shows more to the sides instead of stretching; menus and the HUD keep their shape in the middle. Auto: the game picture\'s shape on the page, following window resizes and full screen.',
       opts: [['', 'Auto (default)'], ['16:9', '16:9'], ['21:9', '21:9'], ['32:9', '32:9']] },
     { key: 'RECOMP_GL_SCALE', label: 'Resolution', help: 'Renders at this multiple of 720×480; 1.5 gives 1280×720 with square pixels.',
-      opts: [['', 'Auto (default): 1.5×, 1× on phones'], ['1', '1×'], ['1.5', '1.5×'], ['2', '2×'], ['2.5', '2.5×'], ['3', '3×']] },
+      opts: [['', '1× (default)'], ['1.5', '1.5×'], ['2', '2×'], ['2.5', '2.5×'], ['3', '3×']] },
     { key: 'RECOMP_GL_SQUARE', label: 'Square pixels in 16:9', help: 'Widens 16:9 frames so pixels are square, not stretched.', opts: ONOFF() },
     { key: 'RECOMP_GL_FILL', label: 'Fill 4:3 screens', help: 'Menus and videos laid out in the middle 4:3 are shown full width (not the boot logos).', opts: ONOFF() },
     { key: 'RECOMP_GL_FXAA', label: 'Anti-aliasing (FXAA)', help: 'Smooths edges in the final pass.', opts: ONOFF('Off') },
@@ -543,9 +543,9 @@
       opts: [['', 'Off (default)'], ['0.25', '0.25'], ['0.5', '0.5'], ['0.75', '0.75'], ['1', '1']] },
     { key: 'RECOMP_GL_MIPS', label: 'Mipmaps', help: "The game's own mip levels with trilinear filtering.", opts: ONOFF() },
     { key: 'RECOMP_GL_ANISO', label: 'Anisotropic filtering', help: 'Sharper textures at a slant.',
-      opts: [['', '4× (default)'], ['16', '16×'], ['8', '8×'], ['4', '4×'], ['2', '2×'], ['1', 'Off']] },
+      opts: [['', 'Off (default)'], ['16', '16×'], ['8', '8×'], ['4', '4×'], ['2', '2×']] },
     { key: 'RECOMP_GL_LOD_BIAS', label: 'Texture detail bias', help: 'Lower is sharper, with more shimmer.',
-      opts: [['', '-0.25 (default)'], ['0', '0'], ['-0.5', '-0.5'], ['-1', '-1']] },
+      opts: [['', '0 (default)'], ['-0.25', '-0.25'], ['-0.5', '-0.5'], ['-1', '-1']] },
     { group: 'Movies' },
     { key: 'MC3_SKIP_MOVIES', label: 'Skip intro movies', help: 'Rockstar, Rockstar San Diego and intro movies. All: none played (the Play tab\'s Skip intro). Press through: as a player would, so the logos still play.',
       opts: [['', 'Off (default)'], ['hard', 'All'], ['1', 'Press through']] },
@@ -576,8 +576,8 @@
     { group: 'Performance' },
     { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL. Firefox always uses WebGL (its WebGPU shows a black screen). Auto also uses WebGL on GPUs whose WebGPU froze the game (Mali, Adreno 600 and older, Intel HD/UHD 4xx-6xx) and on a device where WebGPU froze or failed before; WebGPU here forces it (and forgets the failure).',
       opts: [['', 'Auto (default)'], ['webgpu', 'WebGPU'], ['webgl', 'WebGL']] },
-    { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60. Auto: on, off (30 fps) on phones.',
-      opts: [['', 'Auto (default)'], ['1', 'On'], ['0', 'Off']] },
+    { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60.',
+      opts: [['', 'Off (default)'], ['1', 'On']] },
     { key: 'RECOMP_RAM_MB', label: 'Game memory', help: 'The console\'s RAM. 128 MB (like an Xbox devkit) gives the game a 95 MB heap instead of 47 MB: room for every car online, no "heap overrun" in a full Free Roam. Auto: 128 MB on a PC, 64 MB in low-memory mode.',
       opts: [['', 'Auto (default)'], ['64', '64 MB'], ['128', '128 MB']] },
     { key: 'MC3_LOWMEM', label: 'Low-memory mode', help: 'For TVs, phones and small devices: the game starts at 512 MB, 1x resolution, fewer threads. Auto: on for TVs and devices with 2 GB or less.',
@@ -680,13 +680,13 @@
     const nick = $('name').value.trim();
     if (nick && !env.MC3_PLAYER_NAME) env.MC3_PLAYER_NAME = nick;   // the game's sign-in texts
     env.MC3_NETPLAY = '1';   // System Link (Online Races) and Free Roam: always on, idle when playing alone
-    // Page defaults (the rows' "(default)"), lower graphics on every device, the player raises each: 60 fps driving;
-    // 1.5x on a PC, 1x on a phone and lowMem (a phone's GPU fills fewer pixels than its screen has, nfsu2-web
-    // device.ts); 4x aniso, no FXAA or sharpening, movie HD off, unless the player picked otherwise
-    const phone = window.MC3Touch?.isPhone() ?? false, low = lowMem(env);
-    if (env.MC3_60FPS === '0') delete env.MC3_60FPS; else if (env.MC3_60FPS === undefined && !phone && !low) env.MC3_60FPS = '1';
-    if (env.RECOMP_GL_SCALE === undefined) env.RECOMP_GL_SCALE = low || phone ? '1' : '1.5';
-    if (env.RECOMP_GL_ANISO === undefined) env.RECOMP_GL_ANISO = '4';
+    // Page defaults (the rows' "(default)"): the lowest graphics on every device, the player raises each (2026-11-11):
+    // 30 fps driving, 1x, no aniso, LOD bias 0, no FXAA or sharpening, movie HD off
+    const low = lowMem(env);
+    if (env.MC3_60FPS !== '1') delete env.MC3_60FPS;
+    if (env.RECOMP_GL_SCALE === undefined) env.RECOMP_GL_SCALE = '1';
+    if (env.RECOMP_GL_ANISO === undefined) env.RECOMP_GL_ANISO = '1';
+    if (env.RECOMP_GL_LOD_BIAS === undefined) env.RECOMP_GL_LOD_BIAS = '0';
     if (env.RECOMP_GL_SHARPEN === undefined) env.RECOMP_GL_SHARPEN = '0';
     if (env.RECOMP_GL_FXAA === undefined) env.RECOMP_GL_FXAA = '0';
     if (env.MC3_MOVIE_HD === undefined) env.MC3_MOVIE_HD = '0';
@@ -700,7 +700,7 @@
       // A 32-bit TV browser gives 256 MB and never grows it (2026-11-09): GL record queue 4 MB (48), GL ring copies
       // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory)
       const d = { RECOMP_RAM_MB: '64', MC3_ROAM_CARS: '7', MC3_DISC_MEM_MB: '16', MC3_PREFETCH: '0',
-        RECOMP_GL_ANISO: '4', RECOMP_GL_SHARPEN: '0', RECOMP_GL_FXAA: '0', MC3_MOVIE_HD: '0',
+        RECOMP_GL_SHARPEN: '0', RECOMP_GL_FXAA: '0', MC3_MOVIE_HD: '0',
         RECOMP_GL_QUEUE_MB: '4', RECOMP_GL_RING_MB: '4', RECOMP_GL_MAX_PROG: '256', RECOMP_GL_VPOOL: '8',
         MC3_THREAD_STACK_KB: '1024' };
       for (const k in d) if (env[k] === undefined) env[k] = d[k];
