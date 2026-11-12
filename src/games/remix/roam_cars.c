@@ -6,7 +6,7 @@
  * How many: MC3_ROAM_CARS=N remote cars at most in all (slots included;
  * 0 or <= 7: the slots only). Unset (auto): 32 with a 128 MB contiguous
  * window (RECOMP_RAM_MB=128), 12 with 64 MB. That many links are asked of
- * the hub, ROAM_K_ASK (48) at least (roam_begin; MC3_ROAM_K still overrides).
+ * the hub, 32 at least (roam_begin; MC3_ROAM_K still overrides).
  *
  * Collision: a standalone car is in the physics level ([0x5580F0], add
  * vt+0x70 sub_002ABD00(collider [car+0x68], 0), remove vt+0x14

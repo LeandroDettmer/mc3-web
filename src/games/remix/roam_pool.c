@@ -690,7 +690,7 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
     uint8_t used[ROAM_K_MAX] = { 0 }, blob[ROAM_CFG_SIZE + 4];
     const char *pname;
     int at[ROAM_RC_MAX];                        /* entry k's peer index this frame */
-    int i, k, best, bs, sc, ok, cand = -1, held = 0, lim = roam_cars_total(), kk = lim > ROAM_K_ASK ? lim : ROAM_K_ASK;
+    int i, k, best, bs, sc, ok, cand = -1, held = 0, lim = roam_cars_total(), kk = lim > 32 ? lim : 32;
     float rad = roam_pool_radius();
     if (k_was && kk != k_was && roam_running())
         roam_set_k(kk);
