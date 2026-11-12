@@ -113,6 +113,10 @@ void roam_teleport(void);                   /* our car jumped: receivers snap in
 int  roam_peers(roam_peer *out, int max);
 /* our car-look record (opaque; MC3: CarCfg, 264 bytes); a change goes to every peer */
 void roam_set_cfg(const void *blob, int len);
+/* the same, and old_blob (NULL: blob) for peers whose core is older than 19
+ * (MC3: a stock car in place of a mod car those builds cannot check); one
+ * revision for both, a change of either goes out */
+void roam_set_cfg2(const void *blob, int len, const void *old_blob, int old_len);
 /* the peer's car-look record: bytes copied (<= cap), 0 none yet, -1 no such peer */
 int  roam_peer_cfg(uint32_t id, void *out, int cap);
 /* the players the hub knows beyond our links (none drawn as a car by roam_peers),

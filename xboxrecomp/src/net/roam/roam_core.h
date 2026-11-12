@@ -50,7 +50,8 @@
 #include "roam_api.h"
 
 #define RC_PROTO_VER     1
-#define RC_CORE_VER      18
+#define RC_CORE_VER      19
+#define RC_CORE_CFG2     19         /* a peer's core from this one gets rc_set_cfg2's rec, older ones its old_rec */
 #define RC_MAGIC0        0x4D       /* "MC3R" */
 #define RC_MAGIC1        0x43
 #define RC_MAGIC2        0x33
@@ -236,6 +237,7 @@ typedef struct {
     uint16_t  seq;
     uint8_t   status, epoch, clock;
     uint16_t  cfg_rev;  int cfg_len;  uint8_t cfg[RC_CFG_MAX];
+    int       cfg_old_len;  uint8_t cfg_old[RC_CFG_MAX];   /* for peers before RC_CORE_CFG2 (0: cfg) */
     rc_state  last[RC_SNAP_STATES];  int nlast;
     int64_t   next_snap_us, last_beacon, last_peers_tx;  int peers_dirty;
     uint32_t  tx, tx_bytes, rx, rx_bad, rx_policy, rx_ratelimit, rx_unknown_full, rx_version, rx_room, rx_dup_id, rx_stray;
@@ -260,6 +262,9 @@ void rc_set_status(rc_session *s, uint8_t status);
 void rc_set_links(rc_session *s, int links);
 void rc_set_room(rc_session *s, uint32_t room);   /* conf.room; the old room's peers dropped */
 void rc_set_cfg(rc_session *s, const uint8_t *rec, int len, int64_t now_us);
+/* rec to peers with a core from RC_CORE_CFG2, old_rec (NULL: rec) to older ones and to a
+ * peer whose HELLO has not come; one cfg_rev for both */
+void rc_set_cfg2(rc_session *s, const uint8_t *rec, int len, const uint8_t *old_rec, int old_len, int64_t now_us);
 int  rc_push_state(rc_session *s, const rc_state *st, int64_t now_us);
 void rc_bump_epoch(rc_session *s);
 void rc_bump_clock(rc_session *s);

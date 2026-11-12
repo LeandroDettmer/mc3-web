@@ -129,6 +129,12 @@ void roam_set_cfg(const void *blob, int len){
     if (!g_on || !blob || len <= 0 || len > ROAM_CFG_MAX) return;
     roam_plat_lock(); rc_set_cfg(&g_s, (const uint8_t *)blob, len, roam_plat_now_us()); roam_plat_unlock();
 }
+void roam_set_cfg2(const void *blob, int len, const void *old_blob, int old_len){
+    if (!g_on || !blob || len <= 0 || len > ROAM_CFG_MAX) return;
+    roam_plat_lock();
+    rc_set_cfg2(&g_s, (const uint8_t *)blob, len, (const uint8_t *)old_blob, old_len, roam_plat_now_us());
+    roam_plat_unlock();
+}
 int roam_far(roam_far_peer *out, int max){
     if (!g_on || !out || max <= 0) return 0;
     int n = 0;

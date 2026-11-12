@@ -666,14 +666,16 @@ static void fill_hello(rc_session *s, rc_msg *m, const rc_peer *to){
 }
 static void send_hello(rc_session *s, rc_peer *p, int64_t now){ rc_msg m; fill_hello(s, &m, p); tx(s, p, &m); p->last_hello_tx = now; }
 static void send_cfg(rc_session *s, rc_peer *p, uint8_t have_mask){
+    int old = p->core_ver < RC_CORE_CFG2 && s->cfg_old_len, len = old ? s->cfg_old_len : s->cfg_len;
+    const uint8_t *rec = old ? s->cfg_old : s->cfg;
     if (!s->cfg_len) return;
-    int nf = (s->cfg_len + RC_CFG_FRAG - 1) / RC_CFG_FRAG;
+    int nf = (len + RC_CFG_FRAG - 1) / RC_CFG_FRAG;
     for (int f = 0; f < nf; f++){
         if (have_mask & (1u << f)) continue;
         rc_msg m; hdr(s, &m, RC_MSG_CFG);
-        m.u.cfg.cfg_rev = s->cfg_rev; m.u.cfg.frag = (uint8_t)f; m.u.cfg.nfrag = (uint8_t)nf; m.u.cfg.total = (uint16_t)s->cfg_len;
-        m.u.cfg.dlen = (uint16_t)(f + 1 < nf ? RC_CFG_FRAG : s->cfg_len - f * RC_CFG_FRAG);
-        m.u.cfg.data = s->cfg + f * RC_CFG_FRAG;
+        m.u.cfg.cfg_rev = s->cfg_rev; m.u.cfg.frag = (uint8_t)f; m.u.cfg.nfrag = (uint8_t)nf; m.u.cfg.total = (uint16_t)len;
+        m.u.cfg.dlen = (uint16_t)(f + 1 < nf ? RC_CFG_FRAG : len - f * RC_CFG_FRAG);
+        m.u.cfg.data = rec + f * RC_CFG_FRAG;
         tx(s, p, &m);
     }
 }
@@ -992,11 +994,16 @@ void rc_set_room(rc_session *s, uint32_t room){
 }
 void rc_bump_epoch(rc_session *s){ s->epoch++; s->nlast = 0; s->hub_snap_tx = INT64_MIN / 4; }
 void rc_bump_clock(rc_session *s){ s->clock++; s->nlast = 0; }
-void rc_set_cfg(rc_session *s, const uint8_t *rec, int len, int64_t now){
+void rc_set_cfg(rc_session *s, const uint8_t *rec, int len, int64_t now){ rc_set_cfg2(s, rec, len, NULL, 0, now); }
+void rc_set_cfg2(rc_session *s, const uint8_t *rec, int len, const uint8_t *old_rec, int old_len, int64_t now){
     (void)now;
     if (len <= 0 || len > RC_CFG_MAX) return;
-    if (len == s->cfg_len && !memcmp(rec, s->cfg, (size_t)len)) return;
+    if (!old_rec || old_len <= 0 || old_len > RC_CFG_MAX) old_len = 0;
+    if (len == s->cfg_len && !memcmp(rec, s->cfg, (size_t)len) &&
+        old_len == s->cfg_old_len && (!old_len || !memcmp(old_rec, s->cfg_old, (size_t)old_len))) return;
     memcpy(s->cfg, rec, (size_t)len); s->cfg_len = len;
+    if (old_len) memcpy(s->cfg_old, old_rec, (size_t)old_len);
+    s->cfg_old_len = old_len;
     s->cfg_rev++; if (!s->cfg_rev) s->cfg_rev = 1;
     for (int i = 0; i < RC_TABLE; i++) if (s->peer[i].state == RC_PS_EST) send_cfg(s, &s->peer[i], 0);
 }
