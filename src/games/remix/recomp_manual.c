@@ -1210,6 +1210,68 @@ extern void nv2a_gl_fill_hold(int delta) __attribute__((weak));
 extern void nv2a_gl_fill_freeze(int delta) __attribute__((weak));   /* RECOMP_GL_FILL_STEADY */
 extern void sub_0001B9D0_gen(void);
 static RECOMP_TLS int t_ls_thread;          /* this is the loading-screen thread */
+
+#ifdef __EMSCRIPTEN__
+/* ── "Skip intro" hides the legal screen too (browser, MC3_SKIP_MOVIES=hard) ──
+ *
+ * The legal screen (flash/legal_x.xbck: red, scrolling copyright and
+ * trademark text) is this loop's first run, behind the boot load. Its
+ * length is that load, not a timer: the main thread sets the stop flag
+ * (+0x4004, sub_0001AD50) when it has loaded and waits for this thread
+ * (WaitForSingleObject, INFINITE); the loop then plays the movie's
+ * transition-out (StartOfTransitionOut -> EndOfTransitionOut) and leaves.
+ * Players' logs (2026-11-11): 78 turns (~2.6 s) on a warm disc cache;
+ * cold, the disc waits under it alone sum to 5-25 s (one log: 758 turns,
+ * 25.3 s of waits). Each turn advanced and drew the movie (600-900 draws)
+ * under the guest lock the loader needs. With hard skip the first run
+ * draws nothing: each turn is the loop's own input poll (sub_00084C00),
+ * BeginScene + Present (as at its exit: the black of the skipped movies
+ * stays) and Sleep(24), so frames keep coming (the page's freeze watch).
+ * At the stop the loop runs once with the movie hidden (+0x400C = 0: no
+ * transition-out, nothing drawn), then the movie goes back for the main
+ * thread's delete (sub_0001BB70), which is still waiting on this thread.
+ * MC3_SKIP_LEGAL=0 shows it again. */
+extern void sub_00084C00(void);             /* the loop's per-turn input poll, cdecl () */
+extern void sub_002D1830(void);             /* BeginScene, cdecl () */
+void sub_002D2990(void);                    /* Present, cdecl () (override below) */
+void sub_0001735C(void);                    /* Sleep, stdcall (ms) (override below) */
+static double ls_now(void);
+static int legal_hidden(uint32_t obj)
+{
+    static int runs;
+    const char *s = getenv("MC3_SKIP_MOVIES"), *l = getenv("MC3_SKIP_LEGAL");
+    uint32_t movie = MEM32(obj + 0x400C), r[8], turns = 0;
+    double t0;
+
+    if (runs++ || !s || strcmp(s, "hard") || (l && l[0] == '0') || !movie || MEM8(obj + 0x4004))
+        return 0;                           /* not the legal screen, or not skipping */
+    t0 = ls_now();
+    r[0] = g_eax; r[1] = g_ecx; r[2] = g_edx; r[3] = g_ebx;
+    r[4] = g_esp; r[5] = g_ebp; r[6] = g_esi; r[7] = g_edi;
+    while (!MEM8(obj + 0x4004)) {
+        g_esp -= 4; MEM32(g_esp) = 0;       /* return address */
+        sub_00084C00();
+        g_esp -= 4; MEM32(g_esp) = 0;
+        sub_002D1830();
+        g_esp -= 4; MEM32(g_esp) = 0;
+        sub_002D2990();
+        g_esp -= 4; MEM32(g_esp) = 24;      /* as the loop: Sleep(24), gives the lock away */
+        g_esp -= 4; MEM32(g_esp) = 0;
+        sub_0001735C();
+        g_esp = r[4];
+        turns++;
+    }
+    g_eax = r[0]; g_ecx = r[1]; g_edx = r[2]; g_ebx = r[3];
+    g_ebp = r[5]; g_esi = r[6]; g_edi = r[7];
+    MEM32(obj + 0x400C) = 0;                /* the loop: no movie, done at once */
+    sub_0001B9D0_gen();
+    MEM32(obj + 0x400C) = movie;
+    fprintf(stderr, "[LS] legal screen hidden (MC3_SKIP_MOVIES=hard): %u turns, %.1f s of boot load behind it\n",
+            turns, (ls_now() - t0) / 1e3);
+    return 1;
+}
+#endif
+
 void sub_0001B9D0(void)
 {
     const char *e = getenv("MC3_FILL_SKIP");
@@ -1219,6 +1281,9 @@ void sub_0001B9D0(void)
     t_ls_thread = 1;
     if (nv2a_gl_fill_freeze)
         nv2a_gl_fill_freeze(1);             /* the circle's in and out: no change of size */
+#ifdef __EMSCRIPTEN__
+    if (!legal_hidden(g_ecx))
+#endif
     sub_0001B9D0_gen();
     if (nv2a_gl_fill_freeze)
         nv2a_gl_fill_freeze(-1);

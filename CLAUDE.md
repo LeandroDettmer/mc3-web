@@ -728,7 +728,18 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   FrameNum = Frames, so the movie loop (Remix sub_003638A0) returns 3
   (ended) and the movie state goes on as after a whole movie. Opening
   failed (NULL HBINK) would not do: the movie state then requests state
-  0x11 instead. DUB uses the same hooks, not yet run there.
+  0x11 instead. DUB uses the same hooks, not yet run there. Browser only
+  (2026-11-11, untested in a browser): hard also hides the legal screen
+  (flash/legal_x.xbck, red, scrolling copyright text; the loading loop
+  sub_0001B9D0's first run): no timer, it lasts the boot load (main sets
+  +0x4004 via sub_0001AD50 and waits for the thread), then plays
+  StartOfTransitionOut -> EndOfTransitionOut. Players' logs: ~78 turns
+  (~2.6 s) warm, 5-25 s of disc waits under it cold. Now each turn is
+  input poll + BeginScene + Present + Sleep(24), no movie drawn, and the
+  stop leaves with +0x400C hidden (no transition-out); '[LS] legal screen
+  hidden ...: N turns, S s of boot load'; MC3_SKIP_LEGAL=0 shows it. The
+  cold wait stays: its reads (assets_x.dat ~287-310 MB, _3 ~75-132 MB,
+  _1 ~3 MB) are one 1 MiB block at a time under the guest lock.
   `MC3_AUTOSTART=cruise` (src/autostart.c, the page's "Start in Cruise",
   2026-11-05, owner test pending) presses from boot into Arcade, Cruise
   with the first profile: each press when its screen's Flash file has
