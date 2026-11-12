@@ -7,8 +7,8 @@ Design for three Free Roam (Online cruise) features in the Remix web build:
 - **4. Online race from the map.** Create or join a System Link race from the map.
   Both players go into it without touching the System Link menus, and come back to
   free roam after it.
-- **2. Street challenge (later).** Two nearby players flash headlights, the other
-  accepts with a button, and they run a short race.
+- **2. Street challenge.** A player near others invites them (up to 8 racers), they
+  join with a button, and they race on an event's course and grid.
 
 Everything below was read from the Remix disassembly
 (`work-remix/analysis/disasm/asm/text.asm`, strings.json, the XBE's data). Nothing
@@ -443,3 +443,38 @@ being PlayerPosDir's position; the challenged reads the event's .rac itself for 
 slots and headings (a v2 build drops v3 and the other way round). Start beacons only
 (no .rac): as before, 2.5 m to each side of the challenger facing the first beacon.
 '[CHALLENGE] grid: <event>: ... challenger (x, y, z) heading N deg, challenged ...'.
+
+Street race of up to 8 players (2026-11-12, untested in game; supersedes the headlight
+flash trigger above, keeps 1v1 as the 2-racer case). While we drive slower than 12 m/s
+within 40 m (height within 10 m) of 1+ driving players, the prompt box shows "Street
+race? N nearby players will be invited ... Press White [Q] (Flash) to invite"; White
+still toggles the headlights too, and while the prompt shows White is never the AI
+race's. The host sends INVITE (course as before + the player count) every 0.3 s to the
+up to 7 nearest; each invitee sees "<host> invites you to a race (N players)" and joins
+with White under 12 m/s (JOIN every 0.3 s) within 10 s. The window closes at 10 s,
+when every invitee still in has joined, or on the host's White ("start now"); none
+joined = "Nobody joined the race". Then GO goes to each racer every 0.3 s (u16 ms to
+the start, the racer count, every racer's roam id in slot order, the receiver's slot
+in arg) and NO late to the invitees who did not join (a JOIN after the window gets the
+same). Slots: 0 = the host on PlayerPosDir, k = the .rac's k-th Opponent PosDir after
+the checkpoints within 40 m of PlayerPosDir (all of them are read now, not just the
+first), else rows of two behind PlayerPosDir (odd slots 3.5 m to the +(up x dir) side,
+8 m a row); start beacons: 2.5 m to each side, rows 8 m apart. Everyone sends PROG
+(checkpoints, finish ms) to every other racer every 0.3 s (the host GO during the
+countdown). Places: finished by time, then still in, then checkpoints, then distance
+to the next checkpoint (peers' interpolated positions). Decided when every racer still
+in has finished, or when one is left 1 s past the latest finish (it is last), or at
+600 s (no finisher: cancelled); a racer gone or away 5 s, silent 5 s or saying NO is
+out (DNF); all others out: our result if we finished, else cancelled. The result shows
+place, time and every racer ("1 Ana 1:23.4 · 2 You 1:25.0 · 3 Bob DNF"). Messages are
+challenge v5 ('C', 5, op INVITE 1 / JOIN 2 / NO 3 / GO 4 / PROG 5): v4 and v5 builds
+drop each other's. '[CHALLENGE] we invite N players ...', '... joins', '... is out',
+'result: we are 2nd of 3: ...'.
+
+Passed checkpoint stayed up (fixed 2026-11-12, untested in game): the pass marked the
+flare as the checkpoint races do (`sub_001DFC00`: state 1, timer 0), but the per-frame
+tick that fades it is the race's vt+0x11C (`sub_001CCA20` -> each checkpoint's
+`sub_001C8D50` -> `sub_001C7740`: state 1 to 3 hidden, state 2 fades in to 0; the
+flare's scale `sub_001C77C0` = 1 - timer in state 1, timer in state 2), which only the
+checkpoint races' update (`sub_001D8F20`) calls; the cruise never does, so the passed
+flare stayed at full size. We call it every frame while our checkpoints are in.

@@ -10,7 +10,7 @@
 //   left half   thumb stick where the thumb lands: the left stick (steer, menus)
 //   d-pad       upper left (I J K L on the keyboard: map, music, hydraulics)
 //   right       Gas (right trigger), Brake (left trigger), A B X Y above them (Y: look back)
-//   top         Flash (White: headlights, street challenge), Back, Start, Black; L3 (special move) beside the d-pad
+//   top         Flash (White: headlights, street race invite/join), Back, Start, Black; L3 (special move) beside the d-pad
 // A finger slides from one button to another without letting go (Gas to Brake, A to X).
 (() => {
   'use strict';
@@ -33,7 +33,7 @@
     ['ls', 'L3', 'b', BIT.ls],
   ];
   const TITLES = { fa: 'A: handbrake, select', fb: 'B: two wheels', fx: 'X: nitrous', fy: 'Y: look back',
-                   white: 'Flash (White): headlights; flash a player near you to challenge, flash back to accept',
+                   white: 'Flash (White): headlights; near other players, invite them to a street race or join one',
                    black: 'Black: camera', ls: 'Left stick click: special move' };
   // the dashboard's high-beam symbol (a lamp, horizontal rays) on the White button
   const HIGH_BEAM = '<svg viewBox="0 0 24 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" '

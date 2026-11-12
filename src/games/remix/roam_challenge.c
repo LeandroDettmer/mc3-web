@@ -1,42 +1,49 @@
-/* roam_challenge.c -- Free Roam feature 2: a 1v1 street challenge inside the
- * cruise (docs/roam-races.md, F2).  No load, no menu: the two racers stay in
- * the Free Roam cruise, everyone else just sees two cars driving.
+/* roam_challenge.c -- Free Roam feature 2: a street race of 2 to RCH_RACERS
+ * players inside the cruise (docs/roam-races.md, F2).  No load, no menu: the
+ * racers stay in the Free Roam cruise, everyone else just sees cars driving.
  *
  * Included by recomp_manual.c after roam_tags.c (uses roam_call, roam_set_pose,
  * roam_races_*, rra_prompt, rra_coll, s_rra_race/s_rra_back, the map helpers
  * rmap_car_mat/rmap_f2u, tags_proj's camera, s_roam_seen).
  *
- * Flow (both players in the Free Roam cruise, driving):
- *  - The trigger is a headlight flash: White (Q; the touch pad's Flash), the
- *    game's own headlight toggle.  Nothing shows for merely being near someone.
- *    A flashes within RCH_NEAR m of B, both slower than RCH_SLOW: A builds a
- *    course and sends ASK (race id, course) to B every RCH_RESEND s.  Too fast
- *    or no course near: a short note, only then.  White near a player (held
- *    too) is the challenge's alone, never the AI race prompt's.
- *  - B sees "<A> flashed their lights at you!" with the course on its maps;
- *    flashing back (White) accepts (B slower than RCH_SLOW, A too) within
- *    RCH_ASK_S s.  The headlights are not shared (52-byte roam state): the
- *    ASK message is the signal.  Driving more than RCH_AWAY m away, a timeout
- *    or a busy B declines (NO).
- *  - A gets ACCEPT and sends GO (milliseconds left to the start) during the
- *    RCH_COUNT_S s countdown: both cars are put on the event's own start grid
- *    (the challenger on the .rac's PlayerPosDir, the challenged on its first
- *    Opponent's PosDir, each facing the .rac's direction) and held there; the
- *    game's own 3-2-1-GO (HUD message queue + countdown sound) where the HUD
- *    has it, else in the prompt box.
+ * Flow (every player in the Free Roam cruise, driving):
+ *  - Invite: while we drive slower than RCH_SLOW within RCH_NEAR m of other
+ *    driving players (status roam, height within 10 m), the prompt box offers
+ *    "Street race? N nearby players will be invited"; White (Q; the touch
+ *    pad's Flash button) confirms.  White is also the game's headlight toggle
+ *    (the press toggles them too).  While that prompt shows, White is ours, never
+ *    the AI race prompt's.  We build a course (no course near: a short note)
+ *    and send INVITE (race id, course, players) every RCH_RESEND s to the
+ *    up to RCH_RACERS - 1 nearest of them for RCH_ASK_S s.
+ *  - Each invitee sees "<host> invites you to a race (N players)" with the
+ *    course on its maps; White joins (slower than RCH_SLOW) within RCH_ASK_S s:
+ *    JOIN to the host every RCH_RESEND s.  A busy invitee answers NO; one more
+ *    than RCH_AWAY m from the host drops out.
+ *  - The window ends after RCH_ASK_S s, when every invitee still in has joined,
+ *    or when the host presses White again: with no one joined, "nobody joined";
+ *    else the host sends GO (milliseconds left to the start, the racers' ids in
+ *    grid order, the receiver's slot) to each joined racer during the
+ *    RCH_COUNT_S s countdown, and NO (late) to invitees who did not join.  Every
+ *    racer is put on the event's own start grid (slot 0, the host: the .rac's
+ *    PlayerPosDir; slot k: its k-th Opponent PosDir; each facing the .rac's
+ *    direction) and held there; the game's own 3-2-1-GO (HUD message queue +
+ *    countdown sound) where the HUD has it, else in the prompt box.
  *  - The race: the game's own checkpoints (below, "Native checkpoints"): the
- *    flare on the next one, the HUD's next-checkpoint arrow, the game's pass
- *    test and checkpoint sound; the course is on both maps (the race start
- *    icons are hidden meanwhile); the prompt box shows place, checkpoint,
- *    distance and time.  Each racer sends PROG (checkpoints, its finish time)
- *    to the other every RCH_RESEND s.  Without native checkpoints (another
- *    race object, MC3_ROAM_CHALLENGE=3) the old page marker and a RCH_CP_R m
- *    test stand in.
- *  - Result from the two finish times (each on its own clock from its GO; the
- *    GO messages carry the time left, so the clocks start within one trip).
- *    One finished and the other not within RCH_LATE s of that time: decided.
- *    Shown RCH_RESULT_S s, then Free Roam goes on.  Peer gone or not roaming
- *    for RCH_GONE_S s, our garage or a race load, or RCH_MAX_S s: cancelled.
+ *    flare on the next one (a passed one fades out), the HUD's next-checkpoint
+ *    arrow, the game's pass test and checkpoint sound; the course is on the
+ *    maps (the race start icons are hidden meanwhile); the prompt box shows
+ *    place, checkpoint, distance and time.  Each racer sends PROG (checkpoints,
+ *    its finish time) to every other racer every RCH_RESEND s.  Without native
+ *    checkpoints (another race object, MC3_ROAM_CHALLENGE=3) the old page
+ *    marker and a RCH_CP_R m test stand in.
+ *  - Places from the finish times (each on its own clock from its GO; the GO
+ *    messages carry the time left, so the clocks start within one trip), then
+ *    checkpoints.  Decided when every racer still in has finished, or when one
+ *    is left racing RCH_LATE s after the latest finish (it is last), or at
+ *    RCH_MAX_S s (the unfinished do not finish).  Shown RCH_RESULT_S s, then
+ *    Free Roam goes on.  A racer gone or not roaming for RCH_GONE_S s, silent
+ *    as long or saying NO is out (did not finish); all others out: cancelled
+ *    (our result if we finished).  Our garage or a race load: we leave (NO).
  *
  * Course: the game's own checkpoints of the city's nearest sprint or circuit
  * (roam_races list, start beacon within RCH_EVENT_M m).  The race's file is
@@ -50,15 +57,17 @@
  * (just before numcheckpoints in 1567 of 1576 files) count.  The course runs
  * from the event's checkpoint 0 to its last, as the game's race does (one lap
  * of a circuit); each side reads it from its own .rac.  Only if no file reads:
- * a chain of the city's race start beacons ahead of the challenger (on roads
- * too), RCH_COURSE_M m or RCH_MSG_CP checkpoints, sent in the ASK.
+ * a chain of the city's race start beacons ahead of the host (on roads too),
+ * RCH_COURSE_M m or RCH_MSG_CP checkpoints, sent in the INVITE.
  *
  * Each checkpoint keeps the .rac's four sizes (after x y z: +0x10C, +0x110
  * radius, +0x108 height, +0).  The start grid is the race's own: the player
- * slot at PlayerPosDir, the opponent slot at the first "Opponent { ... PosDir
- * x y z dx dy dz }" (3.5 m to the +(up x dir) side in 241 of 270 files; one
- * farther than RCH_OPP_M from the player slot, or none: RCH_OPP_W m to that
- * side).  dir is the direction of travel (the grid's back rows lie behind
+ * slot (the host's) at PlayerPosDir, slot k at the k-th "Opponent { ... PosDir
+ * x y z dx dy dz }" after the checkpoints (the first 3.5 m to the +(up x dir)
+ * side in 241 of 270 files; a PosDir farther than RCH_OPP_M from the player
+ * slot is skipped).  A slot the file has no opponent for stands in rows of
+ * two behind PlayerPosDir: odd slots RCH_OPP_W m to that side, every second
+ * slot RCH_ROW_M m further back.  dir is the direction of travel (the grid's back rows lie behind
  * it; dir points at checkpoint 0 in 739 of 787 files).  The loader
  * sub_001D4F20 stores the heading h = atan2(-dx, -dz), and the racer placement
  * (sub_001CBCA0 -> sub_002C8860, rotation sub_0008C2C0: local +z goes to
@@ -66,10 +75,11 @@
  * matrix row +0x28 points backwards (the engine's cars face -z), and
  * rch_grid_pose writes -dir there (until 2026-11-12 it wrote dir: both cars
  * stood turned around).  A slot whose dir points away from checkpoint 0
- * (dot < 0) is turned to face it.  Start beacons only: both slots RCH_GRID_W
- * m to each side of where the challenger stood, facing the first beacon.
+ * (dot < 0) is turned to face it.  Start beacons only: slots RCH_GRID_W m to
+ * each side of where the host stood (rows RCH_ROW_M m apart), facing the first
+ * beacon.
  *
- * Native checkpoints (both racers, each in its own world): the Free Roam
+ * Native checkpoints (every racer, each in its own world): the Free Roam
  * cruise's race object [[0x533E24]+4] (vtable 0x46B608) is an mcRaceBase with
  * no checkpoints.  The player's render (sub_002BE8E0) calls its vt+0x110
  * (sub_001CF3B0) each frame, which runs the flare (sub_001C8DB0) of every
@@ -88,7 +98,12 @@
  * (state 3 hidden -> 2); passing (the game's gate test sub_001D1510: radius
  * +0x110, height +0x108) does as the checkpoint races (sub_001DFC00): state
  * 1, +0x48, the bit, audio event 0x15 (sub_000233C0 on [0x4CBAD8]).  The
- * HUD's arrow asks race vt+0xE8 for the target: the cruise's is a stub
+ * flare's per-frame tick is the race's vt+0x11C (sub_001CCA20 -> each
+ * checkpoint's sub_001C8D50 -> sub_001C7740: state 1 passed fades out to 3
+ * hidden, 2 appearing fades in to 0 shown; scale sub_001C77C0); the checkpoint
+ * races call it from their update (sub_001D8F20), the cruise never does, so
+ * we call it every frame while ours are in (until 2026-11-12 a passed flare
+ * stayed up, frozen at full size).  The HUD's arrow asks race vt+0xE8 for the target: the cruise's is a stub
  * (sub_00129FA0), so the cruise vtable's slot points at the ordered races'
  * sub_001DF290 meanwhile (false with no checkpoints).  Countdown: the HUD
  * message queue [[player+0x58]+0x50] sub_000B6330(id: 2 "3", 1 "2", 0 "1",
@@ -98,40 +113,45 @@
  * cruise), so ours draw them in its colours (map tune [0x507508] +0x350 next,
  * +0x360 the one after, +0x370 finish).
  *
- * Messages (roam_send_msg, peer to peer, ROAM_MSG_MAX bytes): 'C', version 4,
- * op, arg, race id u32, then by op: ASK (arg = n) start line (x, y, z) f32
- * (PlayerPosDir's position), city u8, event u16, then only for event 0xFFFF
- * (start beacons) n x (x, y, z) f32; with an event the peer reads the course,
- * sizes and grid slots from its own .rac and declines (NO busy) when that
- * gives another count or start line; ACCEPT; NO (arg = reason); GO u16 ms to the start; PROG
- * (arg = checkpoints passed) finished u8, 3 pad, finish ms u32.  Anything
- * else, or another race id, is dropped (an ASK while busy is answered NO
- * busy).
+ * Messages (roam_send_msg, peer to peer, ROAM_MSG_MAX bytes): 'C', version 5
+ * (v4 builds drop ours, we drop theirs), op, arg, race id u32, then by op:
+ * INVITE (arg = n checkpoints) start line (x, y, z) f32 (PlayerPosDir's
+ * position), city u8, event u16, players u8 (invited + host), then only for
+ * event 0xFFFF (start beacons) n x (x, y, z) f32; with an event the invitee
+ * reads the course, sizes and grid slots from its own .rac and declines (NO
+ * busy) when that gives another count or start line; JOIN; NO (arg = reason:
+ * decline, busy, cancel, late); GO (arg = the receiver's slot) u16 ms to the
+ * start, racers u8, pad u8, racers x id u32 in slot order (slot 0, the host:
+ * 0, the sender); PROG (arg = checkpoints passed) finished u8, 3 pad, finish ms
+ * u32.  Anything else, or another race id, is dropped (an INVITE while busy is
+ * answered NO busy; two hosts inviting each other: the lower race id goes on).
  *
  * MC3_ROAM_CHALLENGE=0 turns it off, =2 native without the HUD/audio calls,
  * =3 without native checkpoints.  Log lines '[CHALLENGE]'. */
 
 #define RCH_NEAR       30.0f            /* m: a player this near can be challenged */
 #define RCH_AWAY       60.0f            /* m: before the start, farther apart than this = declined */
-#define RCH_SLOW       12.0f            /* m/s: both slower to challenge or accept */
-#define RCH_ASK_S      10.0             /* s a challenge waits */
+#define RCH_SLOW       12.0f            /* m/s: slower to invite (the host) or join (an invitee) */
+#define RCH_ASK_S      10.0             /* s an invite waits */
 #define RCH_COUNT_S    3.0              /* s of countdown */
 #define RCH_CP_R       25.0f            /* m: a checkpoint is reached (horizontal) */
 #define RCH_CP_DY      15.0f            /* m: and this near in height */
-#define RCH_GONE_S     5.0              /* s the opponent may be silent or away */
+#define RCH_GONE_S     5.0              /* s a racer may be silent or away before it is out */
 #define RCH_MAX_S      600.0            /* s: the race's time limit (a whole course: 14-29 checkpoints seen) */
-#define RCH_LATE       1.0              /* s past a finish without the other's: decided */
+#define RCH_LATE       1.0              /* s past the latest finish with one racer left: decided */
 #define RCH_RESULT_S   8.0              /* s the result stays */
 #define RCH_NOTE_S     3.5              /* s a notice stays */
 #define RCH_RESEND     0.3              /* s between repeats */
-#define RCH_MSG_CP     6                /* start beacons only: checkpoints an ASK carries (23 + 12 n <= ROAM_MSG_MAX) */
+#define RCH_RACERS     8                /* racers at most: the host + 7 (the game's 8 player slots, 7 remote cars) */
+#define RCH_ROW_M      8.0f             /* m between grid rows a .rac gives no opponent slot for */
+#define RCH_MSG_CP     6                /* start beacons only: checkpoints an INVITE carries (24 + 12 n <= ROAM_MSG_MAX) */
 #define RCH_COURSE_M   2000.0f          /* start beacons only: m of course (straight lines) */
 #define RCH_EVENT_M    1500.0f          /* m: an event's start this near gives its course */
 #define RCH_RAC_MAX    96               /* checkpoints read from a .rac at most */
 #define RCH_TOKENS     8000             /* tokens skipped at most looking for numcheckpoints */
 #define RCH_GRID_W     2.5f             /* m: start beacons only: each grid slot off the start line's middle */
-#define RCH_OPP_W      3.5f             /* m: the opponent slot beside PlayerPosDir when the .rac has none */
-#define RCH_OPP_M      8.0f             /* m: a first Opponent farther from PlayerPosDir is not beside it */
+#define RCH_OPP_W      3.5f             /* m: an odd slot beside PlayerPosDir when the .rac has no opponent for it */
+#define RCH_OPP_M      40.0f            /* m: an Opponent PosDir farther from PlayerPosDir is not on the grid */
 #define RCH_DIMS       4                /* sizes a checkpoint keeps (see above) */
 
 #define RCH_RACEP_VA   0x00533E24u      /* [+4] = the race object */
@@ -165,41 +185,52 @@ void sub_001C7690(void);                        /* checkpoint visual reset, this
 void sub_001D1510(void);                        /* race: passes checkpoint? thiscall (index, pos *, 1, float *d2), ret 0x10; al */
 void sub_000233C0(void);                        /* audio event, thiscall (id, player, 0, 0), ret 0x10; float */
 void sub_000B6330(void);                        /* HUD message queue: show, thiscall (id, 0, 0) */
+void sub_001CCA20(void);                        /* race vt+0x11C: each checkpoint's flare tick (sub_001C8D50), thiscall */
 
 static const float rch_dims_def[RCH_DIMS] = { 12.0f, 12.0f, 8.0f, 0.0f };
 
-enum { RCH_OP_ASK = 1, RCH_OP_ACCEPT = 2, RCH_OP_NO = 3, RCH_OP_GO = 4, RCH_OP_PROG = 5 };
-enum { RCH_NO_DECLINE = 1, RCH_NO_BUSY = 2, RCH_NO_CANCEL = 3 };
-enum { RCH_IDLE, RCH_ASKING, RCH_ASKED, RCH_ACCEPTED, RCH_COUNT, RCH_RACE, RCH_RESULT };
+enum { RCH_OP_INVITE = 1, RCH_OP_JOIN = 2, RCH_OP_NO = 3, RCH_OP_GO = 4, RCH_OP_PROG = 5 };
+enum { RCH_NO_DECLINE = 1, RCH_NO_BUSY = 2, RCH_NO_CANCEL = 3, RCH_NO_LATE = 4 };
+enum { RCH_IDLE, RCH_INVITING, RCH_INVITED, RCH_JOINED, RCH_COUNT, RCH_RACE, RCH_RESULT };
+
+typedef struct {                                /* a racer, by grid slot */
+    uint32_t id;                                /* its roam id; 0 = us */
+    char name[ROAM_NAME_MAX + 1];
+    int cps;                                    /* checkpoints passed */
+    double fin;                                 /* finish time, s from its GO (0 not yet) */
+    double heard, away;                         /* its last message; since when it is away (0 not) */
+    int out;                                    /* gone, silent or said NO: does not finish */
+} rch_racer;
 
 static struct {
     int st;
-    uint32_t race, peer;                        /* race id, the opponent's roam id */
-    int host;                                   /* 1: we challenged (we send GO) */
-    char name[ROAM_NAME_MAX + 1];
+    uint32_t race, peer;                        /* race id; invited/joined: the host's roam id */
+    int host;                                   /* 1: we invited (we send GO) */
+    char name[ROAM_NAME_MAX + 1];               /* invited/joined: the host's name */
+    int players;                                /* invited/joined: players the host invited, the host included */
+    struct { uint32_t id; char name[ROAM_NAME_MAX + 1]; int joined, out; } inv[RCH_RACERS - 1];  /* inviting: nearest first */
+    int ninv;
+    rch_racer rc[RCH_RACERS];                   /* count/race/result: the racers in slot order */
+    int nrc, me;                                /* their count, our slot */
     float cp[RCH_RAC_MAX][3];
     float dims[RCH_RAC_MAX][RCH_DIMS];
-    float grid[3];                              /* the start line (PlayerPosDir, or where the challenger stood) */
-    float slot[2][3], sdir[2][2];               /* grid slots (0 challenger, 1 challenged): position, forward x/z */
+    float grid[3];                              /* the start line (PlayerPosDir, or where the host stood) */
+    float slot[RCH_RACERS][3], sdir[RCH_RACERS][2];  /* grid slots (0 the host): position, forward x/z */
     unsigned ev_city, ev_index;                 /* the event the course is from (ev_index 0xFFFF none) */
     int ncp;
     float km;
     int said;                                   /* countdown: the last number shown (4 none) */
     int native;                                 /* the course is the game's checkpoints now */
-    double t0;                                  /* ASK: when sent/heard; COUNT/RACE: the start (GO) */
-    double tx, heard, away;                     /* last send, last message from the peer, since when it is away (0 not) */
+    double t0;                                  /* invite: when sent/heard; COUNT/RACE: the start (GO) */
+    double tx, heard, away;                     /* last send; invited/joined: the host's last message, away since */
     float hold[12];                             /* our car's matrix during the countdown */
     int held;
     int next;                                   /* our next checkpoint */
-    double fin;                                 /* our finish time, s from GO (0 not yet) */
-    int pcps;                                   /* the opponent's checkpoints passed */
-    double pfin;                                /* its finish time (0 not yet) */
-    int win;                                    /* RESULT: 1 won, 0 lost, 2 dead heat, -1 cancelled */
     double until;                               /* RESULT ends */
     int white_was;
     char note[RRA_TEXT];
     double note_until;
-    struct { uint32_t to, race; int left; uint8_t why; } no;    /* a NO still to repeat */
+    struct { uint32_t to[RCH_RACERS], race; int n, left; uint8_t why; double tx; } no;   /* NOs still to repeat */
 } s_rch;
 
 static int rch_mode(void)                       /* 0 off, 1 native, 2 native without HUD/audio calls, 3 no native */
@@ -241,13 +272,13 @@ static void rch_fmt_time(char *out, size_t n, double s)
 
 /* ---- the course ---- */
 
-/* A race's .rac as read: checkpoints (x y z + the RCH_DIMS sizes), PlayerPosDir and the first Opponent's PosDir
- * (x y z dx dy dz; has_* 0 none). */
+/* A race's .rac as read: checkpoints (x y z + the RCH_DIMS sizes), PlayerPosDir and the Opponents' PosDirs within
+ * RCH_OPP_M m of it, in file order (x y z dx dy dz; has_ppd 0 none). */
 typedef struct {
     uint16_t index; uint8_t city; int n;
     float cp[RCH_RAC_MAX][3 + RCH_DIMS];
-    int has_ppd, has_opd;
-    float ppd[6], opd[6];
+    int has_ppd, nopd;
+    float ppd[6], opd[RCH_RACERS - 1][6];
 } rch_rac;
 
 /* Reads "x y z dx dy dz" (two vectors, tokenizer vt+0x24) into pd; 1 when sane (dir not vertical). */
@@ -267,7 +298,7 @@ static int rch_posdir(uint32_t tok, uint32_t vt, uint32_t base, uint32_t vec, fl
     return pd[3] * pd[3] + pd[5] * pd[5] > 0.01f;
 }
 
-/* Race r's .rac (the race loader's way) into out: checkpoints, PlayerPosDir, the first Opponent's PosDir. */
+/* Race r's .rac (the race loader's way) into out: checkpoints, PlayerPosDir, the Opponents' PosDirs. */
 static void rch_load_rac(const roam_race *r, rch_rac *out, uint32_t esp)
 {
     uint32_t base = (esp - 0x1000u) & ~0xFu, dir = base, tok = base + 0x40u, buf = base + 0x100u, vec = base + 0x180u,
@@ -277,7 +308,7 @@ static void rch_load_rac(const roam_race *r, rch_rac *out, uint32_t esp)
     float (*cp)[3 + RCH_DIMS] = out->cp;
     char dname[64];
     const char *pre = "tune/race/", *kw_ppd = "PlayerPosDir", *kw_pd = "PosDir";
-    out->n = out->has_ppd = out->has_opd = 0;
+    out->n = out->has_ppd = out->nopd = 0;
     for (i = 0; kw_ppd[i]; i++)
         MEM8(s_ppd + i) = (uint8_t)kw_ppd[i];
     MEM8(s_ppd + i) = 0;
@@ -367,18 +398,22 @@ static void rch_load_rac(const roam_race *r, rch_rac *out, uint32_t esp)
                 roam_call(recomp_lookup(MEM32(vt + 4u)), tok, base, 2, a);
             }
         }
-        for (t = 0; t < RCH_TOKENS; t++) {      /* the first PosDir after them: Opponent 0's grid slot */
-            a[0] = s_pd; a[1] = 1;
+        for (t = 0, k = 0; t < RCH_TOKENS && out->nopd < RCH_RACERS - 1; t++) {  /* the PosDirs after them: */
+            a[0] = s_pd; a[1] = 1;                                          /* the Opponents' grid slots */
             if (roam_call(sub_0020F3C0, tok, base, 2, a) & 0xFFu) {
-                out->has_opd = rch_posdir(tok, vt, base, vec, out->opd);
-                break;
+                float *o = out->opd[out->nopd];
+                k++;
+                if (rch_posdir(tok, vt, base, vec, o) && out->has_ppd && rch_hd(o, out->ppd) < RCH_OPP_M &&
+                    fabsf(o[1] - out->ppd[1]) < 10.0f)
+                    out->nopd++;
+                continue;
             }
             a[0] = buf; a[1] = 0x80u;
             if (!roam_call(recomp_lookup(MEM32(vt + 4u)), tok, base, 2, a))
                 break;
         }
-        fprintf(stderr, "[CHALLENGE] course: %s/%s.rac: %d of %d checkpoints read; PlayerPosDir %s, opponent PosDir %s\n",
-                dname, r->name, n, want, out->has_ppd ? "yes" : "no", out->has_opd ? "yes" : "no");
+        fprintf(stderr, "[CHALLENGE] course: %s/%s.rac: %d of %d checkpoints read; PlayerPosDir %s, %d of %d opponent "
+                "PosDirs on the grid\n", dname, r->name, n, want, out->has_ppd ? "yes" : "no", out->nopd, k);
     } else
         fprintf(stderr, "[CHALLENGE] course: %s/%s.rac has no numcheckpoints\n", dname, r->name);
     roam_call(sub_001A2630, stream, base, 0, NULL);
@@ -404,27 +439,32 @@ static int rch_take(const rch_rac *rac)
     return s_rch.ncp;
 }
 
-/* Both grid slots: the race's own (rac's PlayerPosDir at s_rch.grid: the player slot there, the opponent's at its
- * first Opponent PosDir, else RCH_OPP_W m to the +(up x dir) side, as the game's opponent 0 stands), else the
- * start beacons' (RCH_GRID_W m to each side of s_rch.grid facing the first checkpoint, the challenger at -). */
+/* Every grid slot: the race's own (rac's PlayerPosDir at s_rch.grid: slot 0 there, slot k at the k-th Opponent
+ * PosDir; a slot without one in rows of two behind PlayerPosDir: odd slots RCH_OPP_W m to the +(up x dir) side, as
+ * the game's opponent 0 stands, every second slot RCH_ROW_M m further back), else the start beacons' (RCH_GRID_W m
+ * to each side of s_rch.grid facing the first checkpoint, slot 0 at -, rows RCH_ROW_M m apart). */
 static void rch_slots(const rch_rac *rac)
 {
-    float f[2], l;
+    float f[2], l, side, back;
     int k;
     if (rac && rac->has_ppd && rch_hd(rac->ppd, s_rch.grid) < 1.0f && fabsf(rac->ppd[1] - s_rch.grid[1]) < 1.0f) {
-        const float *o = rac->has_opd && rch_hd(rac->opd, rac->ppd) < RCH_OPP_M ? rac->opd : NULL;
-        for (k = 0; k < 2; k++) {
-            const float *pd = k && o ? o : rac->ppd;
+        l = sqrtf(rac->ppd[3] * rac->ppd[3] + rac->ppd[5] * rac->ppd[5]);
+        f[0] = rac->ppd[3] / l;
+        f[1] = rac->ppd[5] / l;
+        for (k = 0; k < RCH_RACERS; k++) {
+            const float *pd = k >= 1 && k - 1 < rac->nopd ? rac->opd[k - 1] : rac->ppd;
             l = sqrtf(pd[3] * pd[3] + pd[5] * pd[5]);
             s_rch.sdir[k][0] = pd[3] / l;
             s_rch.sdir[k][1] = pd[5] / l;
             memcpy(s_rch.slot[k], pd, sizeof s_rch.slot[0]);
+            if (k >= 1 && k - 1 >= rac->nopd) {
+                side = k & 1 ? RCH_OPP_W : 0.0f;
+                back = (float)(k / 2) * RCH_ROW_M;
+                s_rch.slot[k][0] += side * f[1] - back * f[0];  /* up x dir = (dz, 0, -dx) */
+                s_rch.slot[k][2] -= side * f[0] + back * f[1];
+            }
         }
-        if (!o) {
-            s_rch.slot[1][0] += RCH_OPP_W * s_rch.sdir[0][1];    /* up x dir = (dz, 0, -dx) */
-            s_rch.slot[1][2] -= RCH_OPP_W * s_rch.sdir[0][0];
-        }
-        for (k = 0; k < 2; k++)                 /* guard: a slot facing away from checkpoint 0 is turned around */
+        for (k = 0; k < RCH_RACERS; k++)        /* guard: a slot facing away from checkpoint 0 is turned around */
             if (s_rch.ncp > 0 && s_rch.sdir[k][0] * (s_rch.cp[0][0] - s_rch.slot[k][0]) +
                                  s_rch.sdir[k][1] * (s_rch.cp[0][2] - s_rch.slot[k][2]) < 0.0f) {
                 s_rch.sdir[k][0] = -s_rch.sdir[k][0];
@@ -437,12 +477,16 @@ static void rch_slots(const rch_rac *rac)
     f[1] = s_rch.cp[0][2] - s_rch.grid[2];
     if ((l = sqrtf(f[0] * f[0] + f[1] * f[1])) < 1.0f)
         f[0] = 0.0f, f[1] = 1.0f, l = 1.0f;
-    for (k = 0; k < 2; k++) {
-        s_rch.sdir[k][0] = f[0] / l;
-        s_rch.sdir[k][1] = f[1] / l;
-        s_rch.slot[k][0] = s_rch.grid[0] + (k ? RCH_GRID_W : -RCH_GRID_W) * f[1] / l;
+    f[0] /= l;
+    f[1] /= l;
+    for (k = 0; k < RCH_RACERS; k++) {
+        side = k & 1 ? RCH_GRID_W : -RCH_GRID_W;
+        back = (float)(k / 2) * RCH_ROW_M;
+        s_rch.sdir[k][0] = f[0];
+        s_rch.sdir[k][1] = f[1];
+        s_rch.slot[k][0] = s_rch.grid[0] + side * f[1] - back * f[0];
         s_rch.slot[k][1] = s_rch.grid[1];
-        s_rch.slot[k][2] = s_rch.grid[2] - (k ? RCH_GRID_W : -RCH_GRID_W) * f[0] / l;
+        s_rch.slot[k][2] = s_rch.grid[2] - side * f[0] - back * f[1];
     }
 }
 
@@ -572,6 +616,7 @@ static int rch_course(unsigned city, const float me[3], const float fwd[3], uint
 static void rch_put32(uint8_t *b, uint32_t v) { b[0] = (uint8_t)v; b[1] = (uint8_t)(v >> 8); b[2] = (uint8_t)(v >> 16); b[3] = (uint8_t)(v >> 24); }
 static uint32_t rch_get32(const uint8_t *b) { return (uint32_t)b[0] | (uint32_t)b[1] << 8 | (uint32_t)b[2] << 16 | (uint32_t)b[3] << 24; }
 
+/* One message to `to` (see the top); GO tells the receiver its slot `arg`. */
 static void rch_send(uint32_t to, uint32_t race, int op, int arg, double now)
 {
     uint8_t b[ROAM_MSG_MAX];
@@ -579,9 +624,9 @@ static void rch_send(uint32_t to, uint32_t race, int op, int arg, double now)
     float f;
     double left;
     memset(b, 0, sizeof b);
-    b[0] = 'C'; b[1] = 4; b[2] = (uint8_t)op; b[3] = (uint8_t)arg;
+    b[0] = 'C'; b[1] = 5; b[2] = (uint8_t)op; b[3] = (uint8_t)arg;
     rch_put32(b + 4, race);
-    if (op == RCH_OP_ASK) {
+    if (op == RCH_OP_INVITE) {
         b[3] = (uint8_t)s_rch.ncp;
         for (i = 0; i < 3; i++) {               /* the start line */
             memcpy(b + n, &s_rch.grid[i], 4);
@@ -590,6 +635,7 @@ static void rch_send(uint32_t to, uint32_t race, int op, int arg, double now)
         b[n++] = (uint8_t)s_rch.ev_city;
         b[n++] = (uint8_t)s_rch.ev_index;
         b[n++] = (uint8_t)(s_rch.ev_index >> 8);
+        b[n++] = (uint8_t)(s_rch.ninv + 1);     /* players: the invited + us */
         for (k = 0; s_rch.ev_index == 0xFFFFu && k < s_rch.ncp && k < RCH_MSG_CP; k++)  /* beacons: the checkpoints */
             for (i = 0; i < 3; i++) {
                 f = s_rch.cp[k][i];
@@ -600,14 +646,25 @@ static void rch_send(uint32_t to, uint32_t race, int op, int arg, double now)
         left = (s_rch.t0 - now) * 1000.0;
         k = left < 0.0 ? 0 : left > 60000.0 ? 60000 : (int)left;
         b[8] = (uint8_t)k; b[9] = (uint8_t)(k >> 8);
-        n = 10;
+        b[10] = (uint8_t)s_rch.nrc;
+        for (i = 0; i < s_rch.nrc; i++)         /* slot 0 (us, the host) goes as 0: the sender */
+            rch_put32(b + 12 + 4 * i, s_rch.rc[i].id);
+        n = 12 + 4 * s_rch.nrc;
     } else if (op == RCH_OP_PROG) {
         b[3] = (uint8_t)s_rch.next;
-        b[8] = s_rch.fin > 0.0;
-        rch_put32(b + 12, (uint32_t)(s_rch.fin * 1000.0 + 0.5));
+        b[8] = s_rch.rc[s_rch.me].fin > 0.0;
+        rch_put32(b + 12, (uint32_t)(s_rch.rc[s_rch.me].fin * 1000.0 + 0.5));
         n = 16;
     }
     roam_send_msg(to, b, n);
+}
+
+static void rch_send_racers(int op, double now)  /* to every racer still in but us (GO: each its slot) */
+{
+    int k;
+    for (k = 0; k < s_rch.nrc; k++)
+        if (k != s_rch.me && !s_rch.rc[k].out)
+            rch_send(s_rch.rc[k].id, s_rch.race, op, k, now);
 }
 
 static void rch_note(const char *text, double now)
@@ -616,14 +673,38 @@ static void rch_note(const char *text, double now)
     s_rch.note_until = now + RCH_NOTE_S;
 }
 
-/* Out of the race (state back to idle), the peer told `why` (0: nothing to tell). */
+/* NO `why` to each of ids (sent three times, rch_player). */
+static void rch_no_list(const uint32_t *ids, int n, int why)
+{
+    int k;
+    s_rch.no.n = 0;
+    for (k = 0; k < n && k < RCH_RACERS; k++)
+        if (ids[k])
+            s_rch.no.to[s_rch.no.n++] = ids[k];
+    s_rch.no.race = s_rch.race;
+    s_rch.no.why = (uint8_t)why;
+    s_rch.no.left = s_rch.no.n ? 3 : 0;
+    s_rch.no.tx = 0;
+}
+
+/* Out of the race (state back to idle), the others told `why` (0: nothing to tell). */
 static void rch_end(int why, const char *text, double now)
 {
-    if (why && s_rch.peer) {
-        s_rch.no.to = s_rch.peer;
-        s_rch.no.race = s_rch.race;
-        s_rch.no.why = (uint8_t)why;
-        s_rch.no.left = 3;
+    uint32_t ids[RCH_RACERS];
+    int n = 0, k;
+    if (why) {
+        if (s_rch.st == RCH_INVITING) {
+            for (k = 0; k < s_rch.ninv; k++)
+                if (!s_rch.inv[k].out)
+                    ids[n++] = s_rch.inv[k].id;
+        } else if (s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED) {
+            ids[n++] = s_rch.peer;
+        } else if (s_rch.st == RCH_COUNT || s_rch.st == RCH_RACE) {
+            for (k = 0; k < s_rch.nrc; k++)
+                if (k != s_rch.me && !s_rch.rc[k].out)
+                    ids[n++] = s_rch.rc[k].id;
+        }
+        rch_no_list(ids, n, why);
     }
     if (text) {
         rch_note(text, now);
@@ -648,22 +729,139 @@ static const roam_peer *rch_peer(uint32_t id)
 
 static float rch_speed(const float v[3]) { return sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]); }
 
-static void rch_result(double now)
+static const char *rch_ord(int place)
 {
-    char a[16], b[16], t[RRA_TEXT];
+    static const char *o[RCH_RACERS + 1] = { "-", "1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th" };
+    return place >= 1 && place <= RCH_RACERS ? o[place] : "-";
+}
+
+/* Racer k's distance to its next checkpoint (1e9 unknown). */
+static float rch_left(int k, const float me[3])
+{
+    const rch_racer *r = &s_rch.rc[k];
+    const roam_peer *pp;
+    if (r->cps >= s_rch.ncp)
+        return 0.0f;
+    if (k == s_rch.me)
+        return rch_hd(s_rch.cp[r->cps], me);
+    return (pp = rch_peer(r->id)) ? rch_hd(s_rch.cp[r->cps], pp->p) : 1e9f;
+}
+
+/* Racer a ahead of racer b: finished first (by time), then still in, then checkpoints, then distance to the next. */
+static int rch_ahead(int a, int b, const float me[3])
+{
+    const rch_racer *x = &s_rch.rc[a], *y = &s_rch.rc[b];
+    if ((x->fin > 0.0) != (y->fin > 0.0))
+        return x->fin > 0.0;
+    if (x->fin > 0.0)
+        return x->fin < y->fin;
+    if (x->out != y->out)
+        return !x->out;
+    if (x->cps != y->cps)
+        return x->cps > y->cps;
+    return rch_left(a, me) < rch_left(b, me);
+}
+
+/* The racers in place order into order[]; our place (1-based). */
+static int rch_rank(int order[RCH_RACERS], const float me[3])
+{
+    int i, j, t, place = 0;
+    for (i = 0; i < s_rch.nrc; i++) {
+        for (j = i, t = i; j > 0 && rch_ahead(t, order[j - 1], me); j--)
+            order[j] = order[j - 1];
+        order[j] = t;
+    }
+    for (i = 0; i < s_rch.nrc; i++)
+        if (order[i] == s_rch.me)
+            place = i + 1;
+    return place;
+}
+
+/* The standings, "1 Name 1:23.4, 2 You DNF ..." (names cut to 8 characters). */
+static void rch_standings(char *out, size_t cap, const int order[RCH_RACERS])
+{
+    char t[16];
+    size_t o = 0;
+    int i, w;
+    out[0] = 0;
+    for (i = 0; i < s_rch.nrc && o < cap; i++) {
+        const rch_racer *r = &s_rch.rc[order[i]];
+        rch_fmt_time(t, sizeof t, r->fin);
+        w = snprintf(out + o, cap - o, "%s%d %.8s %s", i ? " \xC2\xB7 " : "", i + 1,
+                     order[i] == s_rch.me ? "You" : r->name, r->fin > 0.0 ? t : "DNF");
+        if (w < 0)
+            break;
+        o += (size_t)w;
+    }
+}
+
+static void rch_result(const float me[3], double now)
+{
+    int order[RCH_RACERS], place;
+    char t[160];
     rch_nat_off();
     s_rch.st = RCH_RESULT;
     s_rch.until = now + RCH_RESULT_S;
-    if (s_rch.fin > 0.0 && s_rch.pfin > 0.0)
-        s_rch.win = s_rch.fin < s_rch.pfin ? 1 : s_rch.fin > s_rch.pfin ? 0 : 2;
-    else
-        s_rch.win = s_rch.fin > 0.0;
-    rch_fmt_time(a, sizeof a, s_rch.fin);
-    rch_fmt_time(b, sizeof b, s_rch.pfin);
-    snprintf(t, sizeof t, "result vs %s: %s (we %s, they %s, their checkpoints %d of %d)", s_rch.name,
-             s_rch.win == 1 ? "won" : s_rch.win == 2 ? "dead heat" : "lost", s_rch.fin > 0.0 ? a : "-",
-             s_rch.pfin > 0.0 ? b : "-", s_rch.pcps, s_rch.ncp);
-    fprintf(stderr, "[CHALLENGE] %s\n", t);
+    place = rch_rank(order, me);
+    rch_standings(t, sizeof t, order);
+    fprintf(stderr, "[CHALLENGE] result: we are %s of %d: %s\n", rch_ord(place), s_rch.nrc, t);
+}
+
+/* The countdown to t0 with nrc racers (ids in s_rch.rc[].id already, ours 0 at slot me). */
+static void rch_go(int nrc, int me, double t0, double now)
+{
+    const roam_peer *pp;
+    int k;
+    s_rch.st = RCH_COUNT;
+    s_rch.nrc = nrc;
+    s_rch.me = me;
+    s_rch.t0 = t0;
+    s_rch.held = 0;
+    s_rch.tx = 0;
+    for (k = 0; k < nrc; k++) {
+        rch_racer *r = &s_rch.rc[k];
+        r->cps = 0;
+        r->fin = 0.0;
+        r->heard = now;
+        r->away = 0.0;
+        r->out = 0;
+        if (k == me)
+            snprintf(r->name, sizeof r->name, "You");
+        else if ((pp = rch_peer(r->id)) != NULL)
+            snprintf(r->name, sizeof r->name, "%s", pp->name);
+        else if (!r->name[0])
+            snprintf(r->name, sizeof r->name, "Player");
+    }
+}
+
+/* The host: the window is over, the joined race (nearest first, slots 1..); the others hear NO late. */
+static void rch_host_go(double now)
+{
+    uint32_t late[RCH_RACERS];
+    int n = 1, nl = 0, k;
+    s_rch.rc[0].id = 0;
+    for (k = 0; k < s_rch.ninv; k++) {
+        if (s_rch.inv[k].out)
+            continue;
+        if (s_rch.inv[k].joined && n < RCH_RACERS) {
+            s_rch.rc[n].id = s_rch.inv[k].id;
+            snprintf(s_rch.rc[n].name, sizeof s_rch.rc[n].name, "%s", s_rch.inv[k].name);
+            n++;
+        } else
+            late[nl++] = s_rch.inv[k].id;
+    }
+    rch_no_list(late, nl, RCH_NO_LATE);
+    rch_go(n, 0, now + RCH_COUNT_S, now);
+    fprintf(stderr, "[CHALLENGE] %d joined of %d invited: countdown (%d racers)\n", n - 1, s_rch.ninv, n);
+}
+
+static int rch_racer_of(uint32_t id)            /* the slot of the racer with roam id `id` (not us), -1 none */
+{
+    int k;
+    for (k = 0; k < s_rch.nrc; k++)
+        if (k != s_rch.me && s_rch.rc[k].id == id)
+            return k;
+    return -1;
 }
 
 static void rch_recv(const float me[3], double now, uint32_t esp)
@@ -673,28 +871,31 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
     const roam_peer *pp;
     int n, op, k, i, ok;
     while ((n = roam_recv_msg(&from, b, sizeof b)) > 0) {
-        if (n < 8 || b[0] != 'C' || b[1] != 4)  /* v4: the whole course from the event's .rac; v3 builds are dropped */
+        if (n < 8 || b[0] != 'C' || b[1] != 5)  /* v5: invites of up to RCH_RACERS; v4 builds' messages are dropped */
             continue;
         op = b[2];
         race = rch_get32(b + 4);
-        if (op == RCH_OP_ASK) {
-            if (s_rch.st != RCH_IDLE && s_rch.peer == from && s_rch.race == race) {
+        if (op == RCH_OP_INVITE) {
+            if ((s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED) && s_rch.peer == from && s_rch.race == race) {
                 s_rch.heard = now;
                 continue;
             }
-            /* both challenged each other: the lower race id goes on */
-            if (s_rch.st == RCH_ASKING && s_rch.peer == from && race < s_rch.race)
-                s_rch.st = RCH_IDLE;
+            for (k = 0; s_rch.st == RCH_INVITING && k < s_rch.ninv && s_rch.inv[k].id != from; k++)
+                ;
+            /* two hosts inviting each other: the lower race id goes on (ours cancelled, our invitees told) */
+            if (s_rch.st == RCH_INVITING && k < s_rch.ninv && race < s_rch.race)
+                rch_end(RCH_NO_CANCEL, NULL, now);
             if (s_rch.st != RCH_IDLE) {
-                if (!(s_rch.st == RCH_ASKING && s_rch.peer == from))
+                if (!(s_rch.st == RCH_INVITING && k < s_rch.ninv))
                     rch_send(from, race, RCH_OP_NO, RCH_NO_BUSY, now);
                 continue;
             }
-            if (b[3] < 2 || n < 23 || !(pp = rch_peer(from)) || rch_hd(pp->p, me) > RCH_AWAY) {
+            if (b[3] < 2 || n < 24 || !(pp = rch_peer(from)) || rch_hd(pp->p, me) > RCH_AWAY) {
                 rch_send(from, race, RCH_OP_NO, RCH_NO_BUSY, now);
                 continue;
             }
-            /* start line (8), city (20), event (21); start beacons only (event 0xFFFF): the checkpoints (23) */
+            /* start line (8), city (20), event (21), players (23); start beacons only (event 0xFFFF): the
+             * checkpoints (24) */
             float g[3];
             const rch_rac *rac;
             ok = 1;
@@ -705,26 +906,26 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
             s_rch.ev_city = b[20];
             s_rch.ev_index = (unsigned)b[21] | (unsigned)b[22] << 8;
             if (ok && s_rch.ev_index != 0xFFFFu) {
-                /* our own read of the event's .rac, as the challenger took it (both sides read the same disc) */
+                /* our own read of the event's .rac, as the host took it (both sides read the same disc) */
                 rac = rch_rac_of(s_rch.ev_city, s_rch.ev_index, esp);
                 ok = rac && rac->has_ppd && rch_take(rac) == b[3] && rch_hd(g, s_rch.grid) < 1.0f &&
                      fabsf(g[1] - s_rch.grid[1]) < 1.0f;
                 if (!ok) {
-                    fprintf(stderr, "[CHALLENGE] ASK from %08X: event %u/%u: our .rac gives another course (%d of %d "
-                            "checkpoints), declined\n", (unsigned)from, s_rch.ev_city, s_rch.ev_index,
+                    fprintf(stderr, "[CHALLENGE] INVITE from %08X: event %u/%u: our .rac gives another course (%d of "
+                            "%d checkpoints), declined\n", (unsigned)from, s_rch.ev_city, s_rch.ev_index,
                             rac ? rac->n : -1, b[3]);
                     rch_send(from, race, RCH_OP_NO, RCH_NO_BUSY, now);
                     continue;
                 }
                 rch_slots(rac);
             } else if (ok) {
-                if (b[3] > RCH_MSG_CP || n < 23 + 12 * b[3]) {
+                if (b[3] > RCH_MSG_CP || n < 24 + 12 * b[3]) {
                     rch_send(from, race, RCH_OP_NO, RCH_NO_BUSY, now);
                     continue;
                 }
                 for (k = 0; k < b[3]; k++) {
                     for (i = 0; i < 3; i++) {
-                        memcpy(&s_rch.cp[k][i], b + 23 + 12 * k + 4 * i, 4);
+                        memcpy(&s_rch.cp[k][i], b + 24 + 12 * k + 4 * i, 4);
                         ok &= isfinite(s_rch.cp[k][i]) && fabsf(s_rch.cp[k][i]) < 20000.0f;
                     }
                     memcpy(s_rch.dims[k], rch_dims_def, sizeof s_rch.dims[0]);
@@ -739,57 +940,77 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
             }
             if (!ok)
                 continue;
-            s_rch.st = RCH_ASKED;
+            s_rch.st = RCH_INVITED;
             s_rch.race = race;
             s_rch.peer = from;
             s_rch.host = 0;
+            s_rch.players = b[23] < 2 ? 2 : b[23] > RCH_RACERS ? RCH_RACERS : b[23];
             snprintf(s_rch.name, sizeof s_rch.name, "%s", pp->name);
             s_rch.t0 = s_rch.heard = now;
+            s_rch.tx = 0;
             s_rch.away = 0;
-            fprintf(stderr, "[CHALLENGE] %s challenges us (race %08X, %d checkpoints, %.1f km)\n", s_rch.name,
-                    (unsigned)race, s_rch.ncp, s_rch.km);
+            fprintf(stderr, "[CHALLENGE] %s invites us (race %08X, %d players, %d checkpoints, %.1f km)\n", s_rch.name,
+                    (unsigned)race, s_rch.players, s_rch.ncp, s_rch.km);
             continue;
         }
-        if (s_rch.st == RCH_IDLE || from != s_rch.peer || race != s_rch.race)
+        if (s_rch.st == RCH_IDLE || race != s_rch.race)
             continue;
-        s_rch.heard = now;
-        switch (op) {
-        case RCH_OP_ACCEPT:
-            if (s_rch.st == RCH_ASKING) {
-                s_rch.st = RCH_COUNT;
-                s_rch.t0 = now + RCH_COUNT_S;
-                s_rch.held = 0;
-                s_rch.tx = 0;
-                fprintf(stderr, "[CHALLENGE] %s accepted: countdown\n", s_rch.name);
+        if (s_rch.st == RCH_INVITING) {         /* an invitee's answer */
+            for (k = 0; k < s_rch.ninv && s_rch.inv[k].id != from; k++)
+                ;
+            if (k == s_rch.ninv || s_rch.inv[k].out)
+                continue;
+            if (op == RCH_OP_JOIN && !s_rch.inv[k].joined) {
+                s_rch.inv[k].joined = 1;
+                fprintf(stderr, "[CHALLENGE] %s joins\n", s_rch.inv[k].name);
+            } else if (op == RCH_OP_NO) {
+                s_rch.inv[k].out = 1;
+                fprintf(stderr, "[CHALLENGE] %s can't race (NO %d)\n", s_rch.inv[k].name, b[3]);
             }
-            break;
-        case RCH_OP_GO:
-            if (s_rch.st == RCH_ACCEPTED && n >= 10) {
-                s_rch.st = RCH_COUNT;
-                s_rch.t0 = now + (b[8] | b[9] << 8) / 1000.0;
-                s_rch.held = 0;
-                fprintf(stderr, "[CHALLENGE] GO from %s: start in %d ms\n", s_rch.name, b[8] | b[9] << 8);
-            }
-            break;
-        case RCH_OP_NO: {
-            char t[RRA_TEXT];
-            snprintf(t, sizeof t, "%s %s\n\nFree Roam goes on", s_rch.name,
-                     b[3] == RCH_NO_BUSY ? "can't race now" : b[3] == RCH_NO_DECLINE ? "declined" : "left the race");
-            rch_end(0, t, now);
-            break; }
-        case RCH_OP_PROG:
-            if (n >= 16 && (s_rch.st == RCH_COUNT || s_rch.st == RCH_RACE || s_rch.st == RCH_RESULT)) {
-                s_rch.pcps = b[3] > s_rch.ncp ? s_rch.ncp : b[3];
-                if (b[8] && !s_rch.pfin) {
-                    s_rch.pfin = rch_get32(b + 12) / 1000.0;
-                    if (s_rch.pfin <= 0.0)
-                        s_rch.pfin = 0.001;
-                    fprintf(stderr, "[CHALLENGE] %s finished in %.2f s\n", s_rch.name, s_rch.pfin);
-                    if (s_rch.st == RCH_RESULT)
-                        rch_result(now);        /* both times known now: decided again */
+            continue;
+        }
+        if (s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED) {    /* the host's */
+            if (from != s_rch.peer)
+                continue;
+            s_rch.heard = now;
+            if (op == RCH_OP_GO && s_rch.st == RCH_JOINED && n >= 12 && b[10] >= 2 && b[10] <= RCH_RACERS &&
+                b[3] >= 1 && b[3] < b[10] && n >= 12 + 4 * b[10]) {
+                for (k = 0; k < b[10]; k++) {
+                    s_rch.rc[k].id = k == 0 ? from : k == b[3] ? 0 : rch_get32(b + 12 + 4 * k);
+                    s_rch.rc[k].name[0] = 0;
                 }
+                snprintf(s_rch.rc[0].name, sizeof s_rch.rc[0].name, "%s", s_rch.name);
+                rch_go(b[10], b[3], now + (b[8] | b[9] << 8) / 1000.0, now);
+                fprintf(stderr, "[CHALLENGE] GO from %s: %d racers, our slot %d, start in %d ms\n", s_rch.name,
+                        s_rch.nrc, s_rch.me, b[8] | b[9] << 8);
+            } else if (op == RCH_OP_NO) {
+                char t[RRA_TEXT];
+                snprintf(t, sizeof t, b[3] == RCH_NO_BUSY ? "%s can't race now\n\nFree Roam goes on"
+                         : b[3] == RCH_NO_LATE ? "%s's race started without you\n\nFree Roam goes on"
+                                               : "%s cancelled the race\n\nFree Roam goes on", s_rch.name);
+                rch_end(0, t, now);
             }
-            break;
+            continue;
+        }
+        /* counting down, racing, the result: a racer's */
+        if ((k = rch_racer_of(from)) < 0) {
+            if (op == RCH_OP_JOIN && s_rch.host && s_rch.st != RCH_RESULT)
+                rch_send(from, race, RCH_OP_NO, RCH_NO_LATE, now);  /* an invitee's JOIN after the window */
+            continue;
+        }
+        rch_racer *r = &s_rch.rc[k];
+        r->heard = now;
+        if (op == RCH_OP_PROG && n >= 16) {
+            r->cps = b[3] > s_rch.ncp ? s_rch.ncp : b[3];
+            if (b[8] && r->fin == 0.0) {
+                r->fin = rch_get32(b + 12) / 1000.0;
+                if (r->fin <= 0.0)
+                    r->fin = 0.001;
+                fprintf(stderr, "[CHALLENGE] %s finished in %.2f s\n", r->name, r->fin);
+            }
+        } else if (op == RCH_OP_NO && !r->out && r->fin == 0.0 && s_rch.st != RCH_RESULT) {
+            r->out = 1;
+            fprintf(stderr, "[CHALLENGE] %s left the race (NO %d)\n", r->name, b[3]);
         }
     }
 }
@@ -973,12 +1194,22 @@ static void rch_nat_pass(int k, double el, uint32_t top)
     rch_audio(0x15, top);
 }
 
-/* Our grid slot (rch_slots: challenger slot 0, challenged slot 1) facing its dir: the car's local +z (row +0x28)
- * is its back, so that row is -dir, as the game's racer placement turns it (sub_0008C2C0 with h = atan2(-dx, -dz));
- * the car's own matrix turned there (its handedness kept). */
+/* The flares' tick, as the checkpoint races' update (sub_001D8F20) runs it: race vt+0x11C (sub_001CCA20 -> each
+ * checkpoint's sub_001C8D50 -> sub_001C7740): a passed flare (state 1) fades out to hidden (3), the next one fades
+ * in (2 -> 0).  The cruise never calls it: a passed flare stayed up. */
+static void rch_nat_tick(uint32_t top)
+{
+    uint32_t R = rch_race();
+    if (s_nat.on && R == s_nat.race && MEM32(R + 0x28u) == s_nat.arr && MEM32(R + 0x24u) == s_nat.cnt)
+        roam_call(sub_001CCA20, R, top, 0, NULL);
+}
+
+/* Our grid slot (rch_slots: slot s_rch.me) facing its dir: the car's local +z (row +0x28) is its back, so that row
+ * is -dir, as the game's racer placement turns it (sub_0008C2C0 with h = atan2(-dx, -dz)); the car's own matrix
+ * turned there (its handedness kept). */
 static void rch_grid_pose(uint32_t mtx, float m[12])
 {
-    const float *f = s_rch.sdir[s_rch.host ? 0 : 1], *at = s_rch.slot[s_rch.host ? 0 : 1];
+    const float *f = s_rch.sdir[s_rch.me], *at = s_rch.slot[s_rch.me];
     float s, b[2] = { -f[0], -f[1] };          /* the +z row: backwards */
     int k;
     for (k = 0; k < 12; k++)
@@ -1001,20 +1232,48 @@ static const char *rch_ev_name(void)            /* the course's event, for the l
     return "start beacons";
 }
 
+/* The driving players we would invite: within RCH_NEAR m (height within 10 m), nearest first, at most
+ * RCH_RACERS - 1, into s_rch.inv (not committed: s_rch.ninv is set by the caller); their count. */
+static int rch_nearby(const float me[3])
+{
+    float dist[RCH_RACERS - 1], d;
+    int n = 0, i, j;
+    if (!s_roam_seen || roam_now() - s_roam_seen_t > 0.5)
+        return 0;
+    for (i = 0; i < s_roam_nseen; i++) {
+        const roam_peer *pp = &s_roam_seen[i];
+        if (pp->status != RC_ST_ROAM || (d = rch_hd(pp->p, me)) > RCH_NEAR || fabsf(pp->p[1] - me[1]) > 10.0f)
+            continue;
+        for (j = n < RCH_RACERS - 1 ? n++ : RCH_RACERS - 1; j > 0 && dist[j - 1] > d; j--)
+            if (j < RCH_RACERS - 1) {
+                dist[j] = dist[j - 1];
+                s_rch.inv[j] = s_rch.inv[j - 1];
+            }
+        if (j < RCH_RACERS - 1) {
+            dist[j] = d;
+            s_rch.inv[j].id = pp->id;
+            snprintf(s_rch.inv[j].name, sizeof s_rch.inv[j].name, "%s", pp->name);
+            s_rch.inv[j].joined = s_rch.inv[j].out = 0;
+        }
+    }
+    return n;
+}
+
 /* ---- the frame ---- */
 
-/* Each player's update (sub_002C1520) for slot 0, before rra_player; 1: the challenge owns the prompt and White
+/* Each player's update (sub_002C1520) for slot 0, before rra_player; 1: the street race owns the prompt and White
  * (rra_player then stays out). */
 static int rch_player(uint32_t p)
 {
     uint32_t setup = MEM32(ROAM_SETUP_VA), veh, mtx, coll, top = (g_esp - 0x400u) & ~0xFu;
     XBOX_INPUT_STATE st;
-    const roam_peer *pp = NULL, *near = NULL;
-    float me[3], fwd[3], v[3] = { 0 }, speed, d, nd = RCH_NEAR;
-    double now = roam_now(), el;
-    int white, press, i, k, go, place;
-    char text[RRA_TEXT] = "", t1[16], t2[16];
+    const roam_peer *pp = NULL;
+    float me[3], fwd[3], v[3] = { 0 }, speed;
+    double now = roam_now(), el, last;
+    int white, press, i, k, n, nj, nin, go, place, order[RCH_RACERS];
+    char text[RRA_TEXT] = "", t1[16], t2[160];
     const char *big;
+    rch_racer *mine;
     if (!rch_on() || !online_ram(p) || MEM32(p + 0x5Cu) != 0)
         return 0;
     if (!s_online || !roam_running() || !online_ram(setup) || MEM32(setup + 0x18u) != 0 || s_rra_race || s_rra_back ||
@@ -1036,25 +1295,44 @@ static int rch_player(uint32_t p)
     press = white && !s_rch.white_was;
     s_rch.white_was = white;
     rch_recv(me, now, g_esp);
-    if (s_rch.no.left > 0 && now - s_rch.tx >= RCH_RESEND / 3) {    /* a NO three times */
-        rch_send(s_rch.no.to, s_rch.no.race, RCH_OP_NO, s_rch.no.why, now);
+    if (s_rch.no.left > 0 && now - s_rch.no.tx >= RCH_RESEND / 3) {     /* each NO three times */
+        for (i = 0; i < s_rch.no.n; i++)
+            rch_send(s_rch.no.to[i], s_rch.no.race, RCH_OP_NO, s_rch.no.why, now);
         s_rch.no.left--;
-        s_rch.tx = now;
+        s_rch.no.tx = now;
     }
-    if (s_rch.st != RCH_IDLE && s_rch.st != RCH_RESULT) {
+    rch_nat_tick(top);
+    if (s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED) {    /* the host gone or away */
         pp = rch_peer(s_rch.peer);
         if (pp && pp->status == RC_ST_ROAM)
             s_rch.away = 0;
         else if (!s_rch.away)
             s_rch.away = now;
-        if ((s_rch.away && now - s_rch.away > RCH_GONE_S) ||
-            (s_rch.st >= RCH_COUNT && now - s_rch.heard > RCH_GONE_S)) {
-            if (s_rch.st == RCH_RACE && s_rch.fin > 0.0)
-                rch_result(now);                /* we finished; they never did */
-            else {
-                snprintf(text, sizeof text, "%s left the race\n\nFree Roam goes on", s_rch.name);
-                rch_end(RCH_NO_CANCEL, text, now);
+        if (s_rch.away && now - s_rch.away > RCH_GONE_S) {
+            snprintf(text, sizeof text, "%s left\n\nFree Roam goes on", s_rch.name);
+            rch_end(RCH_NO_CANCEL, text, now);
+        }
+    } else if (s_rch.st == RCH_COUNT || s_rch.st == RCH_RACE) {    /* racers gone, away or silent: out */
+        for (k = 0, n = 0; k < s_rch.nrc; k++) {
+            rch_racer *r = &s_rch.rc[k];
+            if (k == s_rch.me || r->out)
+                continue;
+            pp = rch_peer(r->id);
+            if (pp && pp->status == RC_ST_ROAM)
+                r->away = 0;
+            else if (!r->away)
+                r->away = now;
+            if (r->fin == 0.0 && ((r->away && now - r->away > RCH_GONE_S) || now - r->heard > RCH_GONE_S)) {
+                r->out = 1;
+                fprintf(stderr, "[CHALLENGE] %s is out (gone or silent %.0f s)\n", r->name, RCH_GONE_S);
             }
+            n += !r->out;
+        }
+        if (!n) {                               /* every other racer out */
+            if (s_rch.st == RCH_RACE && s_rch.rc[s_rch.me].fin > 0.0)
+                rch_result(me, now);
+            else
+                rch_end(0, "Everyone else left the race\n\nFree Roam goes on", now);
         }
     }
     switch (s_rch.st) {
@@ -1063,25 +1341,12 @@ static int rch_player(uint32_t p)
             rra_prompt(s_rch.note);
             return 1;
         }
-        if (!remix_driving() || !s_roam_seen || now - s_roam_seen_t > 0.5)
-            return 0;
-        for (i = 0; i < s_roam_nseen; i++)
-            if (s_roam_seen[i].status == RC_ST_ROAM && (d = rch_hd(s_roam_seen[i].p, me)) < nd &&
-                fabsf(s_roam_seen[i].p[1] - me[1]) < 10.0f) {
-                nd = d;
-                near = &s_roam_seen[i];
-            }
-        if (!near || !white)
-            return 0;                           /* no flash near anyone: the AI race prompt may show */
-        if (!press) {                           /* White still held after a flash near someone: not the AI race's */
-            rra_prompt("");
-            return 1;
-        }
-        if (speed > RCH_SLOW || rch_speed(near->v) > RCH_SLOW) {
-            snprintf(text, sizeof text, "Street race\nToo fast to challenge %s\nBoth slow down, then flash again",
-                     near->name);
-            rch_note(text, now);
-            rra_prompt(s_rch.note);
+        if (!remix_driving() || speed > RCH_SLOW || !(n = rch_nearby(me)))
+            return 0;                           /* no one near: the AI race prompt may show */
+        if (!press) {
+            snprintf(text, sizeof text, "Street race?\n%d nearby player%s will be invited\nPress White [Q] (Flash) to invite",
+                     n, n > 1 ? "s" : "");
+            rra_prompt(text);
             return 1;
         }
         if (!rch_course(MEM32(setup), me, fwd, g_esp)) {
@@ -1089,60 +1354,87 @@ static int rch_player(uint32_t p)
             rra_prompt(s_rch.note);
             return 1;
         }
-        s_rch.st = RCH_ASKING;
-        s_rch.peer = near->id;
+        s_rch.st = RCH_INVITING;
+        s_rch.ninv = n;
         s_rch.host = 1;
-        s_rch.race = (uint32_t)rand() ^ (uint32_t)(now * 1e6) ^ near->id;
+        s_rch.peer = 0;
+        s_rch.race = (uint32_t)rand() ^ (uint32_t)(now * 1e6) ^ s_rch.inv[0].id;
         if (!s_rch.race)
             s_rch.race = 1;
-        snprintf(s_rch.name, sizeof s_rch.name, "%s", near->name);
-        s_rch.t0 = s_rch.heard = now;
+        s_rch.t0 = now;
         s_rch.tx = 0;
-        s_rch.away = 0;
-        fprintf(stderr, "[CHALLENGE] we flash %s: challenge (race %08X, %d checkpoints, %.1f km)\n", s_rch.name,
+        fprintf(stderr, "[CHALLENGE] we invite %d player%s (race %08X, %d checkpoints, %.1f km):", n, n > 1 ? "s" : "",
                 (unsigned)s_rch.race, s_rch.ncp, s_rch.km);
+        for (k = 0; k < n; k++)
+            fprintf(stderr, " %s", s_rch.inv[k].name);
+        fprintf(stderr, "\n");
         return 1;
-    case RCH_ASKING:
-    case RCH_ASKED:
-    case RCH_ACCEPTED:
-        if (now - s_rch.t0 > RCH_ASK_S + (s_rch.st == RCH_ACCEPTED ? 3.0 : 0.0)) {
-            snprintf(text, sizeof text, s_rch.st == RCH_ASKING ? "No answer from %s\n\nFree Roam goes on"
-                                                              : "Challenge from %s expired\n\nFree Roam goes on",
+    case RCH_INVITING:
+        for (k = 0, nj = 0, nin = 0; k < s_rch.ninv; k++) {
+            if (!s_rch.inv[k].out && (pp = rch_peer(s_rch.inv[k].id)) != NULL &&
+                (pp->status != RC_ST_ROAM || rch_hd(pp->p, me) > RCH_AWAY)) {
+                s_rch.inv[k].out = 1;           /* left the cruise or drove off */
+                fprintf(stderr, "[CHALLENGE] %s is out of the invite (away)\n", s_rch.inv[k].name);
+            }
+            nin += !s_rch.inv[k].out;
+            nj += !s_rch.inv[k].out && s_rch.inv[k].joined;
+        }
+        if (nj && (press || nj == nin || now - s_rch.t0 >= RCH_ASK_S)) {
+            rch_host_go(now);
+            break;                              /* the countdown from the next frame */
+        }
+        if (!nin || now - s_rch.t0 >= RCH_ASK_S) {
+            rch_end(RCH_NO_DECLINE, nin ? "Nobody joined the race\n\nFree Roam goes on"
+                                        : "Nobody can race now\n\nFree Roam goes on", now);
+            return 1;
+        }
+        if (now - s_rch.tx >= RCH_RESEND) {
+            for (k = 0; k < s_rch.ninv; k++)
+                if (!s_rch.inv[k].out)
+                    rch_send(s_rch.inv[k].id, s_rch.race, RCH_OP_INVITE, 0, now);
+            s_rch.tx = now;
+        }
+        k = (int)(RCH_ASK_S - (now - s_rch.t0) + 0.99);
+        if (nj)
+            snprintf(text, sizeof text, "Street race \xC2\xB7 %d of %d joined\n%d checkpoints \xC2\xB7 %.1f km\nPress White [Q] to start now \xC2\xB7 %d s",
+                     nj, nin, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
+        else
+            snprintf(text, sizeof text, "Street race \xC2\xB7 %d invited\n%d checkpoints \xC2\xB7 %.1f km\nWaiting for players to join \xC2\xB7 %d s",
+                     nin, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
+        rra_prompt(text);
+        return 1;
+    case RCH_INVITED:
+    case RCH_JOINED:
+        if (now - s_rch.t0 > RCH_ASK_S + (s_rch.st == RCH_JOINED ? 3.0 : 0.0)) {
+            snprintf(text, sizeof text, s_rch.st == RCH_INVITED ? "Invite from %s expired\n\nFree Roam goes on"
+                                                                : "%s's race did not start\n\nFree Roam goes on",
                      s_rch.name);
             rch_end(RCH_NO_DECLINE, text, now);
             return 1;
         }
         if (pp && rch_hd(pp->p, me) > RCH_AWAY) {
-            snprintf(text, sizeof text, "Challenge %s\nToo far apart\nFree Roam goes on",
-                     s_rch.st == RCH_ASKING ? "cancelled" : "declined");
+            snprintf(text, sizeof text, "Too far from %s's race\n\nFree Roam goes on", s_rch.name);
             rch_end(RCH_NO_DECLINE, text, now);
             return 1;
         }
-        if (s_rch.st == RCH_ASKING && now - s_rch.tx >= RCH_RESEND) {
-            rch_send(s_rch.peer, s_rch.race, RCH_OP_ASK, 0, now);
-            s_rch.tx = now;
-        }
-        if (s_rch.st == RCH_ACCEPTED && now - s_rch.tx >= RCH_RESEND) {
-            rch_send(s_rch.peer, s_rch.race, RCH_OP_ACCEPT, 0, now);
+        if (s_rch.st == RCH_JOINED && now - s_rch.tx >= RCH_RESEND) {
+            rch_send(s_rch.peer, s_rch.race, RCH_OP_JOIN, 0, now);
             s_rch.tx = now;
         }
         k = (int)(RCH_ASK_S - (now - s_rch.t0) + 0.99);
-        if (s_rch.st == RCH_ASKING)
-            snprintf(text, sizeof text, "You flashed %s\n%d checkpoints \xC2\xB7 %.1f km\nWaiting for a flash back \xC2\xB7 %d s",
-                     s_rch.name, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
-        else if (s_rch.st == RCH_ACCEPTED)
-            snprintf(text, sizeof text, "Race vs %s\n%d checkpoints \xC2\xB7 %.1f km\nGet ready", s_rch.name, s_rch.ncp,
-                     s_rch.km);
-        else if (speed > RCH_SLOW || (pp && rch_speed(pp->v) > RCH_SLOW))
-            snprintf(text, sizeof text, "%s flashed their lights at you!\n%d checkpoints \xC2\xB7 %.1f km\nBoth slow down, then flash back \xC2\xB7 %d s",
-                     s_rch.name, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
+        if (s_rch.st == RCH_JOINED)
+            snprintf(text, sizeof text, "Race with %s (%d players)\n%d checkpoints \xC2\xB7 %.1f km\nJoined: waiting for the start",
+                     s_rch.name, s_rch.players, s_rch.ncp, s_rch.km);
+        else if (speed > RCH_SLOW)
+            snprintf(text, sizeof text, "%s invites you to a race (%d players)\n%d checkpoints \xC2\xB7 %.1f km\nSlow down to join \xC2\xB7 %d s",
+                     s_rch.name, s_rch.players, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
         else {
-            snprintf(text, sizeof text, "%s flashed their lights at you!\n%d checkpoints \xC2\xB7 %.1f km\nFlash back (White [Q]) to accept \xC2\xB7 %d s",
-                     s_rch.name, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
+            snprintf(text, sizeof text, "%s invites you to a race (%d players)\n%d checkpoints \xC2\xB7 %.1f km\nPress White [Q] (Flash) to join \xC2\xB7 %d s",
+                     s_rch.name, s_rch.players, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
             if (press) {
-                s_rch.st = RCH_ACCEPTED;
+                s_rch.st = RCH_JOINED;
                 s_rch.tx = 0;
-                fprintf(stderr, "[CHALLENGE] we accept %s's challenge\n", s_rch.name);
+                fprintf(stderr, "[CHALLENGE] we join %s's race\n", s_rch.name);
             }
         }
         rra_prompt(text);
@@ -1152,27 +1444,23 @@ static int rch_player(uint32_t p)
             rch_grid_pose(mtx, s_rch.hold);     /* our slot on the start line */
             s_rch.held = 1;
             s_rch.next = 0;
-            s_rch.fin = s_rch.pfin = 0;
-            s_rch.pcps = 0;
             s_rch.said = 4;
             s_rch.native = rch_nat_on(top);
             rch_audio(0xC, top);                /* the countdown sound */
-            fprintf(stderr, "[CHALLENGE] grid: %s: we are the %s; challenger (%.1f, %.1f, %.1f) heading %.0f deg, "
-                    "challenged (%.1f, %.1f, %.1f) heading %.0f deg (the game's atan2(-dx, -dz)); %.0f m from where "
-                    "we stood; %s checkpoints\n", rch_ev_name(), s_rch.host ? "challenger" : "challenged",
-                    s_rch.slot[0][0], s_rch.slot[0][1], s_rch.slot[0][2],
-                    atan2f(-s_rch.sdir[0][0], -s_rch.sdir[0][1]) * 57.29578f, s_rch.slot[1][0], s_rch.slot[1][1],
-                    s_rch.slot[1][2], atan2f(-s_rch.sdir[1][0], -s_rch.sdir[1][1]) * 57.29578f,
-                    rch_hd(&s_rch.hold[9], me), s_rch.native ? "the game's" : "page");
+            fprintf(stderr, "[CHALLENGE] grid: %s: %d racers, we are slot %d at (%.1f, %.1f, %.1f) heading %.0f deg "
+                    "(the game's atan2(-dx, -dz)); %.0f m from where we stood; %s checkpoints\n", rch_ev_name(),
+                    s_rch.nrc, s_rch.me, s_rch.slot[s_rch.me][0], s_rch.slot[s_rch.me][1], s_rch.slot[s_rch.me][2],
+                    atan2f(-s_rch.sdir[s_rch.me][0], -s_rch.sdir[s_rch.me][1]) * 57.29578f, rch_hd(&s_rch.hold[9], me),
+                    s_rch.native ? "the game's" : "page");
         }
-        if (s_rch.host && now - s_rch.tx >= RCH_RESEND) {
-            rch_send(s_rch.peer, s_rch.race, RCH_OP_GO, 0, now);
+        if (now - s_rch.tx >= RCH_RESEND) {     /* the host's GO, the others' PROG: everyone hears everyone */
+            rch_send_racers(s_rch.host ? RCH_OP_GO : RCH_OP_PROG, now);
             s_rch.tx = now;
         }
         if (now < s_rch.t0) {
             float zero[3] = { 0 };
             int left = (int)(s_rch.t0 - now) + 1, hud = 0;
-            roam_set_pose(veh, s_rch.hold, zero);   /* both wait on the grid */
+            roam_set_pose(veh, s_rch.hold, zero);   /* everyone waits on the grid */
             if (roam_running())
                 roam_teleport();                /* peers snap to it */
             if (left > 3)
@@ -1183,74 +1471,80 @@ static int rch_player(uint32_t p)
                 s_rch.native = s_rch.native | (hud << 1);
             }
             if (s_rch.native & 2)               /* the HUD counts: the box only says who */
-                snprintf(text, sizeof text, "Race vs %s\n%d checkpoints \xC2\xB7 %.1f km\nGet ready", s_rch.name,
-                         s_rch.ncp, s_rch.km);
+                snprintf(text, sizeof text, "Street race \xC2\xB7 %d racers\n%d checkpoints \xC2\xB7 %.1f km\nGet ready",
+                         s_rch.nrc, s_rch.ncp, s_rch.km);
             else
-                snprintf(text, sizeof text, RCH_BIG "%d\nRace vs %s \xC2\xB7 %d checkpoints\nGet ready", left, s_rch.name,
-                         s_rch.ncp);
+                snprintf(text, sizeof text, RCH_BIG "%d\nStreet race \xC2\xB7 %d racers \xC2\xB7 %d checkpoints\nGet ready",
+                         left, s_rch.nrc, s_rch.ncp);
             rra_prompt(text);
             return 1;
         }
         s_rch.st = RCH_RACE;
         s_rch.tx = 0;
         rch_hud(p, 3, top);                     /* GO */
-        fprintf(stderr, "[CHALLENGE] GO: race vs %s (HUD countdown %s)\n", s_rch.name,
+        fprintf(stderr, "[CHALLENGE] GO: %d racers (HUD countdown %s)\n", s_rch.nrc,
                 s_rch.native & 2 ? "the game's" : "not there: prompt");
         /* fall through */
     case RCH_RACE:
         el = now - s_rch.t0;
-        if (s_rch.fin == 0.0 && s_rch.next < s_rch.ncp &&
+        mine = &s_rch.rc[s_rch.me];
+        if (mine->fin == 0.0 && s_rch.next < s_rch.ncp &&
             (s_nat.on ? rch_nat_passed(mtx, top)
                       : rch_hd(s_rch.cp[s_rch.next], me) < RCH_CP_R && fabsf(s_rch.cp[s_rch.next][1] - me[1]) < RCH_CP_DY)) {
             rch_nat_pass(s_rch.next, el, top);
-            s_rch.next++;
+            mine->cps = ++s_rch.next;
             s_rch.tx = 0;                       /* tell now */
             fprintf(stderr, "[CHALLENGE] checkpoint %d of %d at %.2f s\n", s_rch.next, s_rch.ncp, el);
             if (s_rch.next == s_rch.ncp) {
-                s_rch.fin = el > 0.001 ? el : 0.001;
+                mine->fin = el > 0.001 ? el : 0.001;
                 rch_nat_off();                  /* the finish: flares and arrow gone */
-                fprintf(stderr, "[CHALLENGE] we finished in %.2f s\n", s_rch.fin);
+                fprintf(stderr, "[CHALLENGE] we finished in %.2f s\n", mine->fin);
             }
         }
         if (now - s_rch.tx >= RCH_RESEND) {
-            rch_send(s_rch.peer, s_rch.race, RCH_OP_PROG, 0, now);
+            rch_send_racers(RCH_OP_PROG, now);
             s_rch.tx = now;
         }
-        if ((s_rch.fin > 0.0 && (s_rch.pfin > 0.0 || el > s_rch.fin + RCH_LATE)) ||
-            (s_rch.pfin > 0.0 && s_rch.fin == 0.0 && el > s_rch.pfin)) {
-            rch_result(now);
+        /* decided: every racer still in finished, or one left RCH_LATE s after the latest finish, or the time limit */
+        for (k = 0, n = 0, last = 0.0; k < s_rch.nrc; k++) {
+            if (s_rch.rc[k].fin > last)
+                last = s_rch.rc[k].fin;
+            n += s_rch.rc[k].fin == 0.0 && !s_rch.rc[k].out;
+        }
+        if (!n || (n == 1 && last > 0.0 && el > last + RCH_LATE) || el > RCH_MAX_S) {
+            if (last == 0.0) {
+                rch_end(RCH_NO_CANCEL, "Race over: time limit\n\nFree Roam goes on", now);
+                return 1;
+            }
+            rch_result(me, now);
             break;
         }
-        if (el > RCH_MAX_S) {
-            rch_end(RCH_NO_CANCEL, "Race over: time limit\n\nFree Roam goes on", now);
-            return 1;
-        }
-        /* place: checkpoints, then distance to the next */
-        place = 1;
-        if (s_rch.fin == 0.0 && pp && s_rch.pcps >= s_rch.next) {
-            if (s_rch.pcps > s_rch.next || s_rch.pfin > 0.0)
-                place = 2;
-            else if (s_rch.next < s_rch.ncp && rch_hd(s_rch.cp[s_rch.next], pp->p) < rch_hd(s_rch.cp[s_rch.next], me))
-                place = 2;
-        }
+        place = rch_rank(order, me);
         rch_fmt_time(t1, sizeof t1, el);
         go = el < 1.0 && !(s_rch.native & 2);   /* the HUD said GO itself */
-        if (s_rch.fin > 0.0) {
-            rch_fmt_time(t2, sizeof t2, s_rch.fin);
-            snprintf(text, sizeof text, "Finished!\n%s\nWaiting for %s", t2, s_rch.name);
-        } else if (s_rch.next < s_rch.ncp)
-            snprintf(text, sizeof text, "%s%s\n%s %d/%d \xC2\xB7 %.0f m\n%s", go ? RCH_BIG : "",
-                     go ? "GO!" : place == 1 ? "1st" : "2nd",
+        if (mine->fin > 0.0) {
+            rch_fmt_time(t1, sizeof t1, mine->fin);
+            snprintf(text, sizeof text, "Finished! %s of %d\n%s\nWaiting for %d racer%s", rch_ord(place), s_rch.nrc, t1, n,
+                     n > 1 ? "s" : "");
+        } else {
+            if (go)
+                snprintf(t2, sizeof t2, RCH_BIG "GO!");
+            else
+                snprintf(t2, sizeof t2, "%s of %d", rch_ord(place), s_rch.nrc);
+            snprintf(text, sizeof text, "%s\n%s %d/%d \xC2\xB7 %.0f m\n%s", t2,
                      s_rch.next + 1 == s_rch.ncp ? "Finish" : "Checkpoint", s_rch.next + 1, s_rch.ncp,
                      rch_hd(s_rch.cp[s_rch.next], me), t1);
+        }
         rra_prompt(text);
         return 1;
     case RCH_RESULT:
         break;
     }
-    /* RESULT: keep telling our finish a while, then Free Roam */
+    if (s_rch.st != RCH_RESULT)                 /* the host's countdown starts next frame */
+        return 1;
+    /* RESULT: keep telling our finish a while (late finishers learn it), then Free Roam */
     if (now - s_rch.tx >= RCH_RESEND) {
-        rch_send(s_rch.peer, s_rch.race, RCH_OP_PROG, 0, now);
+        rch_send_racers(RCH_OP_PROG, now);
         s_rch.tx = now;
     }
     if (now > s_rch.until) {
@@ -1258,29 +1552,28 @@ static int rch_player(uint32_t p)
         s_rch.peer = 0;
         return 0;
     }
-    rch_fmt_time(t1, sizeof t1, s_rch.fin);
-    rch_fmt_time(t2, sizeof t2, s_rch.pfin);
+    mine = &s_rch.rc[s_rch.me];
+    place = rch_rank(order, me);
+    rch_standings(t2, 140, order);              /* the box holds RRA_TEXT bytes: room for the other lines */
+    rch_fmt_time(t1, sizeof t1, mine->fin);
     big = now < s_rch.until - (RCH_RESULT_S - 2.0) ? RCH_BIG : "";   /* big the first 2 s */
-    if (s_rch.win == 2)
-        snprintf(text, sizeof text, "%sDead heat!\nYou and %s: %s\nFree Roam goes on", big, s_rch.name, t1);
-    else if (s_rch.win == 1)
-        snprintf(text, sizeof text, "%sYou win!\nYou %s \xC2\xB7 %s %s\nFree Roam goes on", big, t1, s_rch.name,
-                 s_rch.pfin > 0.0 ? t2 : "did not finish");
-    else if (s_rch.fin > 0.0)
-        snprintf(text, sizeof text, "%s%s wins\n%s %s \xC2\xB7 you %s\nFree Roam goes on", big, s_rch.name, s_rch.name,
-                 t2, t1);
+    if (mine->fin == 0.0)
+        snprintf(text, sizeof text, "%sDid not finish\n%s\nFree Roam goes on", big, t2);
+    else if (place == 1 && s_rch.nrc > 1 && s_rch.rc[order[1]].fin == mine->fin)
+        snprintf(text, sizeof text, "%sDead heat! %s\n%s\nFree Roam goes on", big, t1, t2);
+    else if (place == 1)
+        snprintf(text, sizeof text, "%sYou win! %s\n%s\nFree Roam goes on", big, t1, t2);
     else
-        snprintf(text, sizeof text, "%s%s wins\n%s %s \xC2\xB7 you %d/%d checkpoints\nFree Roam goes on", big,
-                 s_rch.name, s_rch.name, t2, s_rch.next, s_rch.ncp);
+        snprintf(text, sizeof text, "%s%s of %d \xC2\xB7 %s\n%s\nFree Roam goes on", big, rch_ord(place), s_rch.nrc, t1, t2);
     rra_prompt(text);
     return 1;
 }
 
-/* The course is on our maps (preview while asked, then the race). */
+/* The course is on our maps (preview while invited, then the race). */
 static int rch_shown(void)
 {
-    return rch_on() && (s_rch.st == RCH_ASKING || s_rch.st == RCH_ASKED || s_rch.st == RCH_ACCEPTED ||
-                        s_rch.st == RCH_COUNT || (s_rch.st == RCH_RACE && s_rch.fin == 0.0));
+    return rch_on() && (s_rch.st == RCH_INVITING || s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED ||
+                        s_rch.st == RCH_COUNT || (s_rch.st == RCH_RACE && s_rch.rc[s_rch.me].fin == 0.0));
 }
 
 /* After sub_000BF850 (map): the course's checkpoints in place of the race start icons; 1 drawn (the start

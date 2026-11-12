@@ -463,11 +463,20 @@ generated files when the lift inputs did not change.
   and holds it 1.5 s, re-placed if it falls. '[RACE]' lines;
   MC3_ROAM_RACE=0 off, =2 Request(6) alone.
   Street challenge (feature 2, 2026-11-09, untested in game;
-  src/games/remix/roam_challenge.c, docs/roam-races.md F2): a headlight flash
-  (White = the game's headlight toggle; touch button 'Flash') within 30 m of a
-  player, both under 12 m/s, challenges; no prompt for merely being near
-  (2026-11-11, untested); the other accepts by flashing back within 10 s;
-  White near a player never also starts the AI race; the course is the nearest
+  src/games/remix/roam_challenge.c, docs/roam-races.md F2): up to 8 racers
+  (2026-11-12, untested in game; was a 1v1 headlight flash, flash back to
+  accept): driving under 12 m/s within 40 m (height 10 m) of 1+ driving
+  players, the prompt box offers 'Street race? N nearby players will be
+  invited'; White (Q, touch 'Flash'; still also the game's headlight toggle)
+  sends INVITE to the up to 7 nearest every 0.3 s for 10 s; each invitee
+  sees '<host> invites you to a race (N players)' and joins with White (under
+  12 m/s) within 10 s; the window closes at 10 s, when every invitee still in
+  joined, or on the host's White; nobody joined = a note; else GO to each
+  racer (its slot, every racer's id) and NO late to the rest; places from
+  finish times (each on its own clock from GO), then checkpoints; decided when
+  all still in finished, or one left 1 s past the latest finish (last), or at
+  600 s; a racer gone/away/silent 5 s or saying NO is out (DNF); the result
+  lists every racer. While that prompt shows, White never starts the AI race; the course is the nearest
   sprint/circuit's own checkpoints, read from its .rac at challenge time
   (tune/race/<city>/<event>.rac through the game's file system and text
   tokenizer: position + 4 sizes), the whole course from checkpoint 0 to the
@@ -475,15 +484,16 @@ generated files when the lift inputs did not change.
   cap: ASK v4 now sends city + event and each side reads the course from its
   own .rac, declining on another count or start line; only the start-beacon
   fallback still sends <= 6 points; time limit 600 s). Rework (2026-11-10,
-  untested in game): both cars go to the race's own start grid (2026-11-11,
-  untested: the .rac's PlayerPosDir for the challenger, its first Opponent
-  PosDir for the challenged, facing the .rac's dir; the course runs from
+  untested in game): every car goes to the race's own start grid (2026-11-11,
+  untested: the .rac's PlayerPosDir for the host, slot k its k-th Opponent
+  PosDir within 40 m (2026-11-12), else rows of two behind PlayerPosDir
+  (odd slots 3.5 m aside, 8 m a row), facing the .rac's dir; the course runs from
   checkpoint 0; the car matrix's row +0x28 is the car's back, not its front
   (the racer placement sub_001CBCA0 -> sub_002C8860 turns local +z to
   (sin h, cos h), h = atan2(-dx, -dz), i.e. -dir), so that row gets -dir:
   until 2026-11-12 (untested in game) both cars stood turned around; a slot
-  whose dir points away from checkpoint 0 is turned; ASK v4, the challenged reads the .rac itself; start beacons
-  only: 2.5 m to each side of the challenger) and are held there for the 3 s
+  whose dir points away from checkpoint 0 is turned; each invitee reads the .rac itself; start beacons
+  only: 2.5 m to each side of the host, rows 8 m apart) and are held there for the 3 s
   countdown;
   the checkpoints are the game's own: the Free Roam cruise's race object
   [[0x533E24]+4] (vt 0x46B608) is an mcRaceBase with none, and its per-player
@@ -497,7 +507,12 @@ generated files when the lift inputs did not change.
   and the empty one put back. We fill those (game new[]
   sub_001B3C60 + ctor sub_001CA0A0, as the .rac reader sub_001CDC80), racer
   record 0 (race+0x98) +0x34 target / +0x18 laps 1; pass = the game's gate
-  test sub_001D1510 + audio event 0x15; the HUD arrow (race vt+0xE8, a stub
+  test sub_001D1510 + audio event 0x15; the flares' tick is race vt+0x11C
+  (sub_001CCA20 -> sub_001C8D50 -> sub_001C7740: passed state 1 fades to 3
+  hidden, 2 fades in to 0; scale sub_001C77C0), called by the checkpoint
+  races' update sub_001D8F20 only, never in the cruise: a passed flare stayed
+  up at full size until 2026-11-12 (untested in game), now we call it each
+  frame while ours are in; the HUD arrow (race vt+0xE8, a stub
   in the cruise) through the cruise vtable slot pointed at sub_001DF290
   meanwhile; countdown = HUD message queue [[player+0x58]+0x50]
   sub_000B6330 + audio event 0xC. The game's map draws no race checkpoints
@@ -505,7 +520,8 @@ generated files when the lift inputs did not change.
   in the map tune's colours. Page marker roam_cp_box only as fallback.
   Prompt box (web/pre.js): left, above the minimap; '\x01' first = big and
   centred (countdown, GO, 2 s of result). Messages: roam core GAME record
-  (type 10, core 17, peer to peer, the hubs untouched; challenge v4).
+  (type 10, core 17, peer to peer, the hubs untouched; challenge v5 since
+  2026-11-12: INVITE/JOIN/NO/GO/PROG, v4 and v5 drop each other's).
   '[CHALLENGE]' lines; MC3_ROAM_CHALLENGE=0 off, =2 no HUD/audio calls,
   =3 no native checkpoints.
   Many cars (2026-11-09, untested in game; src/games/remix/roam_cars.c,
