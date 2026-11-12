@@ -623,6 +623,28 @@ generated files when the lift inputs did not change.
   player methods; until 2026-11-12, untested in game, every pause dimmed
   the peers beyond the slots); a cruise that goes on rebuilds them one per 0.25 s from 1 s
   later, each a short freeze (kept: safe over cheap).
+  Online career (2026-11-12, untested in game; MC3_CAREER_ONLINE=1, page
+  Settings 'Online career', default off, read at each cruise load, browser
+  only): the career's cruise (game mode 2 [0x53F2D4], race type 1) runs a
+  free-roam session of its own, s_career_roam, never s_online (that one
+  skips the career's saves sub_00022040 and swaps money and garage). roam_build
+  outside s_online goes to roam_career_load: the cruise starts or keeps the
+  session (room = career city, LOADING, ROAM at the first frame, no spawn
+  shift), no race-setup slots (s_roam_slots 0); the pool's standalone cars
+  build with builder slot 1, setup entry 1 borrowed (pad/viewport/controller
+  -1, put back) and the controller step's net trick only inside our builds
+  (s_roam_building; roam_bslots). A career state request other than 1-4 sends
+  EVENT (ROAM again if the cruise goes on, state 2 with an empty queue); a
+  career race/mission load EVENT, garage SHOP; a load outside game mode 2
+  closes the session (roam_stop). Blips through the same sub_000BF850 hook
+  (rmap_far). Water: the sub_000A5890 rule (only our car resets) covers it
+  too. Invites (street, group) answered NO busy; no AI-race prompt, no online
+  money (all s_online). 64 MB: no cars heap, the main heap's check decides
+  (blips only when it fails). Page: lan.career (set while where = career,
+  cleared by BYE or Free Roam) keeps versionCheck to the notice, no reload.
+  Open: whether a standalone car's player index 1 (no player 1 in the
+  career's manager) trips any game code; the players panel only reads the
+  Arcade full map's vtable (0x450900).
   Open: hub-distributed world settings, names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
   (nfsu2-web uses a grid), KIND_BUNDLE.

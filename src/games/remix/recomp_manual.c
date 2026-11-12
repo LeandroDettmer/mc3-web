@@ -2429,6 +2429,7 @@ static void online_car_picked(void);            /* the Online profile keeps the 
 static void roam_race_over(uint32_t esp);       /* free roam: which way RACE OVER came (roam_cars.c) */
 static void rra_state_request(uint32_t esp);    /* free roam: an AI race's way back (roam_race_ai.c) */
 static void fr_no_opponents(void);              /* free roam: the cruise without AI racers (below) */
+static void roam_career_request(uint32_t req);  /* Online career: our car hidden at a request (roam_game.c) */
 extern void sub_00020E40_gen(void);
 void sub_00020E40(void)
 {
@@ -2440,6 +2441,7 @@ void sub_00020E40(void)
     roam_room();                                 /* the city picked (free roam room), before the load */
     online_car_picked();                         /* a car picked on the setup screen, before the load */
     fr_no_opponents();
+    roam_career_request(MEM32(g_esp + 4));
     sub_00020E40_gen();
 }
 static uint32_t s_state_obj;                    /* for MC3_AUTOSTART (sub_0020B6F0) */
@@ -4049,11 +4051,12 @@ static void online_strings(void)
  * everyone near the menu over their own cruise (2026-11-10; the flash
  * pause_x.xbck read after '[roam] ... left', no RACE OVER line). There, only
  * our own car (player 0's) answers the test; any other reads "no reset" (its
- * pose is the peer's, whose own game resets it). */
+ * pose is the peer's, whose own game resets it). The career's cruise with
+ * Online career too: its other players' cars are standalone ones. */
 void sub_000A5890(void)
 {
     uint32_t flag = MEM8(g_ecx + 0xCu) & 1u, p0, veh0;
-    if (flag && MEM32(g_esp) == 0x000FFEECu && roam_free_cruise()) {
+    if (flag && MEM32(g_esp) == 0x000FFEECu && (roam_free_cruise() || roam_career_cruise())) {
         p0 = MEM32(MEM32(ROAM_PM_VA) + 8u);
         veh0 = online_ram(p0) ? MEM32(p0 + 0x14u) : 0;
         if (g_esi != veh0) {

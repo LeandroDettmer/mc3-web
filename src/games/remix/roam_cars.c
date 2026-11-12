@@ -228,6 +228,11 @@ static int roam_free_cruise(void)
     return s_online && MEM32(0x0050F14Cu) == 0 && s_roam_cruise && online_ram(MEM32(ROAM_PM_VA));
 }
 
+static int roam_career_cruise(void)             /* the career's cruise with Online career (roam_game.c) */
+{
+    return s_career_roam && s_roam_cruise && online_ram(MEM32(ROAM_PM_VA));
+}
+
 static void roam_racers_log(void)
 {
     uint32_t hold = MEM32(ROAM_RULES_VA), rules = online_ram(hold) ? MEM32(hold + 4u) : 0, racers = MEM32(ROAM_RACERS_VA);

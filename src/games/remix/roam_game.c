@@ -173,6 +173,30 @@ void xbox_gil_atomic(int d);                    /* xboxrecomp kernel_bridge.c: n
 static int s_roam_fake = -1, s_roam_slots, s_roam_swap_on = -1;
 static int s_roam_cruise;                       /* the Free Roam cruise is loaded (slots or not): roam_player runs */
 static int s_roam_cfg_loaded;                   /* entry 0's CarCfg sent again once the cruise runs */
+/* Online career (MC3_CAREER_ONLINE=1, browser only, read at each cruise load): the career's cruise (game mode 2,
+ * race type 1) runs a free-roam session of its own, never s_online (that one skips the career's saves and swaps
+ * its money and garage): our car and status go out, the city's players come in as standalone cars (no race-setup
+ * slots: s_roam_slots 0, builder slot 1 borrowed, roam_car_build) and map blips. Its races, missions and garage:
+ * status EVENT / SHOP, the standalone cars torn down as in Free Roam (roam_pool_pass), ROAM again at the next
+ * cruise frame; a load outside the career closes the session. No street or group races (every invite answered NO
+ * busy, roam_challenge.c), no AI-race prompts, no online money (all s_online). '[CAREER-ONLINE] ...' lines. */
+static int s_career_roam;                       /* the career's session is on (from its first cruise load) */
+static int s_career_ev;                         /* EVENT sent at a state request in the career cruise */
+static int s_roam_building;                     /* inside roam_car_build (roam_build_step) */
+static int roam_career_on(void)
+{
+#ifdef __EMSCRIPTEN__
+    const char *e = getenv("MC3_CAREER_ONLINE");
+    return e && e[0] == '1';
+#else
+    return 0;
+#endif
+}
+/* Builder slots a standalone car may name: the remote slots, else in the career cruise entry 1 (count stays 1). */
+static int roam_bslots(void)
+{
+    return s_roam_slots ? s_roam_slots : s_career_roam && s_roam_cruise ? 1 : 0;
+}
 /* A group race (roam_challenge.c invites, roam_race_ai.c loads it): the players racing the same event, in join order
  * (id[me] = 0, us). While on, its race load gets remote slots for them alone (roam_build), no standalone cars, and
  * the race ends as the game rules (no phase-7 hold). Off at the way back to the cruise. */
@@ -377,7 +401,7 @@ static int roam_room(void)
     static const char *const k_city[] = { "San Diego", "Atlanta", "Detroit", "Tokyo" };
     static int said = -1;
     uint32_t setup = MEM32(ROAM_SETUP_VA), city;
-    if (!s_online || !online_ram(setup))
+    if ((!s_online && !s_career_roam) || !online_ram(setup))
         return 0;
     city = MEM32(setup);
     if (city >= 14u || (int)city == said)
@@ -430,8 +454,18 @@ static void roam_begin(uint32_t cfg)
  * and sends the car bought here. */
 static void roam_garage(void)
 {
-    if (s_online && !roam_fake())
+    if ((s_online || s_career_roam) && !roam_fake())
         roam_status(RC_ST_SHOP);
+}
+
+/* A state request (sub_00020E40) in the career's cruise, not pause/resume (1-4): a race, a mission, the garage,
+ * the menus may follow, so the peers hide our car now (EVENT); roam_player shows it again if the cruise goes on. */
+static void roam_career_request(uint32_t req)
+{
+    if (!s_career_roam || !s_roam_cruise || (req >= 1u && req <= 4u))
+        return;
+    roam_status(RC_ST_EVENT);
+    s_career_ev = 1;
 }
 
 /* CarCfg dst = blob through the game's operator= (sub_00272010), with
@@ -617,7 +651,16 @@ static void roam_car_delete(uint32_t veh, uint32_t res, uint32_t top)
  * builder's dtor. The vehicle (0 none); *res its car cache reference. */
 static uint32_t roam_car_build(uint32_t cfg, uint32_t slot, uint32_t pad, uint32_t top, uint32_t *res)
 {
-    uint32_t setup = MEM32(ROAM_SETUP_VA), type = MEM32(setup + 0x18u), veh, a[6];
+    uint32_t setup = MEM32(ROAM_SETUP_VA), type = MEM32(setup + 0x18u), veh, a[6], i;
+    uint32_t e = setup + ROAM_ENTRY + slot * ROAM_ENTRY_SIZE, keep[3];
+    /* no remote slots (the career cruise): entry `slot` (past the count) is borrowed for the build with pad,
+     * viewport and controller -1, as a remote slot's, and put back after */
+    int borrow = !s_roam_slots && slot >= 1u && slot <= ROAM_SLOTS;
+    for (i = 0; borrow && i < 3; i++) {
+        keep[i] = MEM32(e + 0x10u + 4u * i);
+        MEM32(e + 0x10u + 4u * i) = 0xFFFFFFFFu;
+    }
+    s_roam_building = 1;
     a[0] = cfg + ROAM_CFG_NAME;                 /* name, 0, slot, CarCfg, flag, pad */
     a[1] = 0;
     a[2] = slot;
@@ -639,6 +682,9 @@ static uint32_t roam_car_build(uint32_t cfg, uint32_t slot, uint32_t pad, uint32
         roam_call(sub_000F2C00, MEM32(veh + 0x68u), top, 0, NULL);
     roam_call(sub_002CB2C0, top, top, 0, NULL);
     roam_cheap_off();
+    s_roam_building = 0;
+    for (i = 0; borrow && i < 3; i++)
+        MEM32(e + 0x10u + 4u * i) = keep[i];
     return online_ram(veh) ? veh : 0;
 }
 
@@ -653,9 +699,11 @@ static uint32_t roam_car_build(uint32_t cfg, uint32_t slot, uint32_t pad, uint32
 static void roam_build_step(recomp_func_t fn)
 {
     uint32_t setup = MEM32(ROAM_SETUP_VA), slot, net, me;
-    if (!s_roam_slots || !online_ram(g_ecx) || !online_ram(setup) || MEM8(setup + 0x108u) ||
+    /* no remote slots (the career cruise): our standalone cars' builds only, never the game's own */
+    int lim = s_roam_slots ? s_roam_slots : s_roam_building ? roam_bslots() : 0;
+    if (!lim || !online_ram(g_ecx) || !online_ram(setup) || MEM8(setup + 0x108u) ||
         MEM32(setup + 0x4Cu) != 1u + (uint32_t)s_roam_slots ||
-        (slot = MEM32(g_ecx + 0xE8u)) < 1u || slot > (uint32_t)s_roam_slots) {
+        (slot = MEM32(g_ecx + 0xE8u)) < 1u || slot > (uint32_t)lim) {
         fn();
         return;
     }
@@ -742,6 +790,48 @@ static void roam_pool_slot_init(int k, const uint8_t *look, const roam_peer *pp)
 static int roam_pool_fits(uint32_t left, int32_t car, uint32_t credit);
 static uint32_t roam_pool_cost(int32_t car);
 
+/* roam_build outside the Online session: Online career (s_career_roam). The career's cruise (game mode 2 [0x53F2D4],
+ * one local player with a car, race type 1) starts or keeps the session and sends LOADING (roam_player: ROAM at its
+ * first frame); any other career load (race, mission, garage) says EVENT / SHOP; a load outside the career closes
+ * it. No remote slots: the standalone cars come after the load (roam_pool_load), in the cars heap when there is one. */
+static void roam_career_load(uint32_t setup)
+{
+    uint32_t e0 = setup + ROAM_ENTRY, cfg0 = MEM32(e0 + 0x0Cu);
+    if (!roam_career_on() || MEM32(0x0053F2D4u) != 2u) {
+        if (s_career_roam) {
+            s_career_roam = 0;
+            roam_stop();
+            fprintf(stderr, "[CAREER-ONLINE] off: a load outside the career, session closed\n");
+        }
+        return;
+    }
+    if (MEM32(setup + 0x4Cu) != 1u || MEM8(setup + 0x108u) || MEM8(e0 + 0x26u) || SMEM32(e0 + 0x14u) < 0 ||
+        MEM32(setup + 0x18u) != 1u) {
+        if (s_career_roam) {
+            roam_status(MEM8(e0 + 0x26u) ? RC_ST_SHOP : RC_ST_EVENT);
+            fprintf(stderr, "[CAREER-ONLINE] career load (race type %u%s): our car hidden from the others\n",
+                    (unsigned)MEM32(setup + 0x18u), MEM8(e0 + 0x26u) ? ", garage" : "");
+        }
+        return;
+    }
+    if (!s_career_roam)
+        fprintf(stderr, "[CAREER-ONLINE] on: the career's cruise joins the city's free roam (no online money, "
+                        "no street races; the career saves as always)\n");
+    s_career_roam = 1;
+    s_career_ev = 0;
+    if (!online_ram(cfg0) || MEM32(cfg0) != ROAM_CFG_VT)
+        cfg0 = 0;
+    roam_room();
+    roam_begin(cfg0);
+    s_roam_cruise = roam_running();
+    s_roam_cfg_loaded = 0;
+    roam_status(RC_ST_LOADING);
+    if (s_roam_cruise)
+        roam_cheap();                           /* standalone cars in the cars heap (none at 64 MB: the main heap's check) */
+    fprintf(stderr, "[CAREER-ONLINE] cruise load (city %u): %s\n", (unsigned)MEM32(setup),
+            s_roam_cruise ? "session running, other players as standalone cars and blips" : "no session (link down?)");
+}
+
 static void roam_build(void)
 {
     uint32_t setup = MEM32(ROAM_SETUP_VA), e0 = setup + ROAM_ENTRY, cfg0, i;
@@ -753,8 +843,13 @@ static void roam_build(void)
     s_roam_slots = 0;
     s_roam_cruise = 0;
     s_roam_nhist = 0;
-    if (!s_online || !online_ram(setup))
+    if (!online_ram(setup))
         return;
+    if (!s_online) {
+        roam_career_load(setup);
+        return;
+    }
+    s_career_roam = 0;                          /* Free Roam's session from here on */
     /* The game keeps the race setup between cruises: a second Free Roam found
      * our own 1 + N here, failed the check below, and the game built N
      * undriven players on top of each other (hang). Undo our count first. */
@@ -1296,8 +1391,13 @@ static void roam_player(uint32_t p)
                     roam_send_cfg(MEM32(setup + ROAM_ENTRY + 0x0Cu));
             }
             roam_net(s);                        /* still RC_ST_LOADING on a first frame: peers keep our car hidden */
+            if (s_career_ev && !first && s_state_obj && MEM32(s_state_obj + 4u) == 2u && !MEM32(s_state_obj + 0x3Cu)) {
+                s_career_ev = 0;                /* the career's request left the cruise running: shown again */
+                roam_status(RC_ST_ROAM);
+            }
             if (first) {
-                if (roam_spawn_clear(veh, s))   /* off a peer parked on the start spot */
+                s_career_ev = 0;
+                if (!s_career_roam && roam_spawn_clear(veh, s))   /* off a peer parked on the start spot (not the career's) */
                     roam_send_local(s);
                 s_rep_at = now + 0.5;           /* slot reports: once parked, then 5 s later (roam_cars.c) */
                 s_rep_n = 2;

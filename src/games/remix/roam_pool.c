@@ -341,7 +341,7 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
     uint32_t setup = MEM32(ROAM_SETUP_VA), e = setup + ROAM_ENTRY + (uint32_t)k * ROAM_ENTRY_SIZE;
     uint32_t top = (g_esp - 0x400u) & ~0xFu, heap = roam_car_heap(), p = 0, pad = 0xFFFFFFFFu, cfg, veh, res, before, after;
     double t0 = roam_now();
-    if (!online_ram(setup) || !online_ram(heap) || !s_roam_slots)
+    if (!online_ram(setup) || !online_ram(heap) || !roam_bslots())
         return 0;
     if (roam_rc_slot(k)) {
         cfg = MEM32(e + 0x0Cu);
@@ -369,8 +369,9 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
          * its car was built. operator= (sub_00271E20) sets 0x3FFF; so do we
          * (bit 0x80: the wheel step, else bare rims). */
         MEM32(cfg + 8u) = 0x3FFFu;
-        /* a builder slot 1..s_roam_slots (several cars share one): its entry has pad/viewport/controller -1 */
-        c->bslot = 1u + (uint32_t)(k - s_roam_slots - 1) % (uint32_t)s_roam_slots;
+        /* a builder slot 1..roam_bslots() (several cars share one): its entry has pad/viewport/controller -1 (the
+         * career cruise, no slots: entry 1, borrowed by roam_car_build) */
+        c->bslot = 1u + (uint32_t)(k - s_roam_slots - 1) % (uint32_t)roam_bslots();
     }
     before = roam_heap_log(heap, NULL);
     veh = roam_car_build(cfg, c->bslot, pad, top, &res);
@@ -690,7 +691,7 @@ static void roam_pool_grow(double now)
         ;
     /* a new entry also needs room in the vehicle registry, sized at the cruise's load (roam_cars_registry) for
      * the Players shown of then: a live raise beyond it waits for the next load */
-    if (!s_roam_slots || (k == s_nrc && (s_nrc - 1 >= roam_cars_total() || s_nrc >= ROAM_RC_MAX
+    if (!roam_bslots() || (k == s_nrc && (s_nrc - 1 >= roam_cars_total() || s_nrc >= ROAM_RC_MAX
                                          || 8u + (uint32_t)s_nrc + 2u > cap))) {
         if (roam_cars_say(CARS_SAY_MAX))
             fprintf(stderr, "[ROAM] cars: all %d remote cars in use (Players shown %d, vehicle registry %u): the "
@@ -792,7 +793,7 @@ static void roam_pool_load(void)
     int32_t car;
     int i = 0, np, want = 0, cap = roam_cars_total() - s_roam_slots, built = 0;
     s_nrc = 1 + s_roam_slots;
-    if (!s_roam_slots || s_roam_fake || !roam_running() || cap <= 0)
+    if (!roam_bslots() || s_roam_fake || !roam_running() || cap <= 0)
         return;
     if (cap > ROAM_RC_MAX - s_nrc)
         cap = ROAM_RC_MAX - s_nrc;

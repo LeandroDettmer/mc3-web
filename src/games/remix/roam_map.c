@@ -74,15 +74,16 @@ void sub_000BB310(void);                        /* map blip, thiscall (float4 *c
 void sub_002BF570(void);                        /* GetPlayer, cdecl (index) */
 void sub_002C84D0(void);                        /* a player's car matrix, thiscall */
 
-static int rmap_on(void)
+static int rmap_env(void)                       /* MC3_ROAM_MAP, read once */
 {
     static int on = -1;
     if (on < 0) {
         const char *v = getenv("MC3_ROAM_MAP");
         on = !(v && v[0] == '0');
     }
-    return on && s_online;
+    return on;
 }
+static int rmap_on(void) { return rmap_env() && s_online; }
 
 static uint32_t rmap_f2u(float f) { uint32_t u; memcpy(&u, &f, 4); return u; }
 
@@ -307,7 +308,9 @@ static void rmap_far(uint32_t map, uint32_t top)
     uint32_t g = MEM32(RMAP_G_VA), vt, xf, buf, col, args[5], mat, saved;
     float rot[9], s, si;
     int n = 0, nf, nnear = 0, nseen, i, k;
-    if (!rmap_on() || !roam_running() || !online_ram(map) || !online_ram(g) || !online_ram(vt = MEM32(map)))
+    /* the players' blips: Free Roam, and the career's own maps with Online career (s_career_roam) */
+    if (!rmap_env() || !(s_online || s_career_roam) || !roam_running() || !online_ram(map) || !online_ram(g) ||
+        !online_ram(vt = MEM32(map)))
         return;
 #ifdef __EMSCRIPTEN__
     if (vt == RMAP_FULLMAP_VT) {

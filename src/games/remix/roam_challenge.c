@@ -1358,6 +1358,13 @@ static int rch_player(uint32_t p)
         !online_ram(mtx = MEM32(veh + 0x1Cu))) {
         if (s_rch.st != RCH_IDLE)               /* a race load, the garage, the menus: we are out */
             rch_end(RCH_NO_CANCEL, "cancelled: we left the cruise", now);
+        if (s_career_roam && roam_running()) {  /* Online career: no street or group races, every invite NO busy */
+            uint8_t b[ROAM_MSG_MAX];
+            uint32_t from;
+            while ((n = roam_recv_msg(&from, b, sizeof b)) > 0)
+                if (n >= 8 && b[0] == 'C' && b[1] == 5 && b[2] == RCH_OP_INVITE)
+                    rch_send(from, rch_get32(b + 4), RCH_OP_NO, RCH_NO_BUSY, now);
+        }
         return 0;
     }
     for (i = 0; i < 3; i++) {

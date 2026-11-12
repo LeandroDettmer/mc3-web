@@ -638,6 +638,7 @@
     { group: 'Online' },
     { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out. Changes live: lower hides the farthest; higher adds cars up to what the cruise loaded with, the rest at the next cruise.',
       opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
+    { key: 'MC3_CAREER_ONLINE', label: 'Online career', help: 'Your career\'s city with the other players in it: you see the players driving there (Free Roam and other online careers) as cars and on the map, and they see you. Your career, money and saves stay as always; no online money and no street races in the career. Applies on the next load.', opts: ONOFF('Off') },
     { key: 'MC3_NAMETAGS', label: 'Name tags', help: 'Each other player\'s name over their car in free roam (not hidden behind buildings). Changes live.', opts: ONOFF() },
     // page-only (web/rtc.js roamP2P; the game ignores it)
     { key: 'MC3_ROAM_P2P', label: 'Direct connections (P2P) in Free Roam', help: 'The nearest players\' cars come straight from their browsers, not through the server: lighter on the server. It shares your IP address with those players. Off: everything goes through the server. Changes live.', opts: ONOFF() },
@@ -969,7 +970,8 @@
     } catch {}
   }
   function versionTick() {
-    const online = !!(lan && (lan.roaming || lan.room));
+    // an online career (lan.career) is not reloaded: its progress since the last save would be lost; it gets the notice
+    const online = !!(lan && ((lan.roaming && !lan.career) || lan.room));
     const mode = online ? 'online' : verDismissed ? '' : 'offline';
     const host = $('canvas').parentNode;
     if (!verBox && mode && host) {
@@ -2001,7 +2003,13 @@
     const a = booted ? window.Module?.mc3Activity?.() : 0;
     return a === 0 ? 'loading' : a === 2 ? 'career' : a === 3 ? 'arcade' : 'menu';   // undefined (a game without it): menu
   }
-  setInterval(() => lan?.where?.(whereNow()), 2000);
+  setInterval(() => {
+    const w = whereNow();
+    lan?.where?.(w);
+    // Online career (MC3_CAREER_ONLINE): the free-roam session came from the career; it stays one until Free Roam
+    // ('arcade') or the session's BYE (lan.js)
+    if (lan?.roaming) { if (w === 'career') lan.career = true; else if (w === 'arcade') lan.career = false; }
+  }, 2000);
   function lanUp() {
     if (typeof mc3Lan !== 'function') {
       lan?.close(); lan = null; $('lan-status').textContent = '';
