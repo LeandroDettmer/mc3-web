@@ -451,12 +451,13 @@
           <h3>Profiles in this browser</h3>
           <div class="row">
             <button type="button" class="btn" id="saves-refresh">Refresh</button>
+            <button type="button" class="btn" id="saves-export">Export all saves</button>
             <label class="btn file-btn">Import save<input type="file" id="import" accept=".mc3,.mc3Remix,.gsx"></label>
           </div>
         </div>
         <ul class="profiles" id="profiles" aria-label="Profiles in this browser"></ul>
         <p class="msg" id="saves-msg" role="status"></p>
-        <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>. Download saves a profile (the Remix's is <code>.mc3Remix</code>, the DUB Edition's <code>.mc3</code>). Import takes one downloaded from this site (another browser or device) or, for the DUB Edition, from an Xbox, and signs it for the port; a file of the other game is refused; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
+        <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>; the game keeps the last two copies of each one and puts the newest good one back if a save is ever cut short. <b>Export all saves</b> downloads every profile, the online profile and those copies as one <code>.zip</code>: keep it somewhere safe. Download saves a profile (the Remix's is <code>.mc3Remix</code>, the DUB Edition's <code>.mc3</code>). Import takes one downloaded from this site (another browser or device) or, for the DUB Edition, from an Xbox, and signs it for the port; a file of the other game is refused; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
       </div>
 
       <div class="pane" role="tabpanel" data-pane="online" hidden>
@@ -1371,18 +1372,89 @@
     const name = file.name.replace(/\.mc3remix$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
     const folder = hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(name))).slice(0, 12).toUpperCase();
     try {
-      const dir = await titleDir(true);
-      let exists = true;
-      try { await dir.getDirectoryHandle(folder); } catch { exists = false; }
-      if (exists && !confirm(`A profile “${name}” is already in this browser. Replace it?`)) return;
-      const d = await dir.getDirectoryHandle(folder, { create: true });
-      for (const [n, bytes] of [[name + '.mc3Remix', out], ['SaveMeta.xbx', metaBytes(name)]]) {
-        const w = await (await d.getFileHandle(n, { create: true })).createWritable();
-        await w.write(bytes); await w.close();
-      }
+      if (!await writeProfile(name, folder, [[name + '.mc3Remix', out], ['SaveMeta.xbx', metaBytes(name)]])) return;
       savesMsg(`Imported ${name} (kept as it is).`);
     } catch (e) { savesMsg('Could not write the save: ' + e.message, true); }
     listSaves();
+  }
+  // Rotating copies, as the game keeps them (src/web_fs.c): OPFS backup/<the file's path>.bak1 (newest) and .bak2.
+  async function backupDir(...parts) {
+    let d = await navigator.storage.getDirectory();
+    for (const p of ['backup', ...parts]) d = await d.getDirectoryHandle(p, { create: true });
+    return d;
+  }
+  async function writeBytes(d, n, bytes) {     // createWritable replaces the file only at close(): never half a file
+    const w = await (await d.getFileHandle(n, { create: true })).createWritable();
+    await w.write(bytes); await w.close();
+  }
+  async function readBytes(d, n) {
+    try { return new Uint8Array(await (await (await d.getFileHandle(n)).getFile()).arrayBuffer()); } catch { return null; }
+  }
+  /** `bytes` become <name>.bak1 in folder `bak`, the old .bak1 .bak2 (nothing moves when .bak1 already holds them) */
+  async function keepCopy(bak, name, bytes) {
+    const old = await readBytes(bak, name + '.bak1');
+    if (old && old.length === bytes.length && old.every((x, i) => x === bytes[i])) return;
+    if (old) await writeBytes(bak, name + '.bak2', old);
+    await writeBytes(bak, name + '.bak1', bytes);
+  }
+  /** A profile's files into UDATA/54540079/<folder>. What they replace is kept as a backup copy first, and the import
+   * becomes the newest copy, so the game's checks at boot (src/web_fs.c) take it as the good one. false = not replaced. */
+  async function writeProfile(name, folder, files) {
+    const dir = await titleDir(true);
+    let exists = true;
+    try { await dir.getDirectoryHandle(folder); } catch { exists = false; }
+    if (exists && !confirm(`A profile “${name}” is already in this browser. Replace it? The old one is kept as a backup copy (Export all saves includes it).`)) return false;
+    const d = await dir.getDirectoryHandle(folder, { create: true }), bak = await backupDir('UDATA', TITLE, folder);
+    for (const [n, bytes] of files) {
+      const old = await readBytes(d, n);
+      if (old?.length) await keepCopy(bak, n, old);
+      await writeBytes(d, n, bytes);
+      await keepCopy(bak, n, bytes);
+    }
+    return true;
+  }
+  // Every save file in one .zip (stored, no compression; UTF-8 names): the profiles, the online profile, the backups.
+  function zipStore(files) {           // [{name, data: Uint8Array, time: Date}]
+    const parts = [], cent = [], enc = new TextEncoder();
+    let off = 0;
+    for (const f of files) {
+      const nm = enc.encode(f.name), crc = crc32(f.data), len = f.data.length, t = f.time;
+      const tm = t.getHours() << 11 | t.getMinutes() << 5 | t.getSeconds() >> 1;
+      const dt = Math.max(0, t.getFullYear() - 1980) << 9 | (t.getMonth() + 1) << 5 | t.getDate();
+      const h = new DataView(new ArrayBuffer(30)), c = new DataView(new ArrayBuffer(46));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x800, true);
+      h.setUint16(10, tm, true); h.setUint16(12, dt, true); h.setUint32(14, crc, true);
+      h.setUint32(18, len, true); h.setUint32(22, len, true); h.setUint16(26, nm.length, true);
+      c.setUint32(0, 0x02014b50, true); c.setUint16(4, 20, true); c.setUint16(6, 20, true); c.setUint16(8, 0x800, true);
+      c.setUint16(12, tm, true); c.setUint16(14, dt, true); c.setUint32(16, crc, true);
+      c.setUint32(20, len, true); c.setUint32(24, len, true); c.setUint16(28, nm.length, true); c.setUint32(42, off, true);
+      parts.push(h, nm, f.data); cent.push(c, nm);
+      off += 30 + nm.length + len;
+    }
+    const e = new DataView(new ArrayBuffer(22));
+    e.setUint32(0, 0x06054b50, true); e.setUint16(8, files.length, true); e.setUint16(10, files.length, true);
+    e.setUint32(12, cent.reduce((s, x) => s + x.byteLength, 0), true); e.setUint32(16, off, true);
+    return new Blob([...parts, ...cent, e], { type: 'application/zip' });
+  }
+  async function exportAll() {
+    if (!opfs) { savesMsg('No private storage in this browser here: nothing to export.', true); return; }
+    const files = [], root = await navigator.storage.getDirectory();
+    const walk = async (d, pre) => {
+      for await (const [n, h] of d.entries()) {
+        if (h.kind === 'directory') await walk(h, pre + n + '/');
+        else if (!n.endsWith('.tmp')) { const f = await h.getFile(); files.push({ name: pre + n, data: new Uint8Array(await f.arrayBuffer()), time: new Date(f.lastModified) }); }
+      }
+    };
+    try {
+      for (const top of ['UDATA', 'TDATA', 'online', 'backup']) {
+        let d;
+        try { d = await root.getDirectoryHandle(top); } catch { continue; }
+        await walk(d, top + '/');
+      }
+    } catch (e) { savesMsg('Could not read the saves: ' + (e.message || e), true); return; }
+    if (!files.length) { savesMsg('No saves in this browser yet.', true); return; }
+    saveFile(zipStore(files), `mc3-saves-${new Date().toISOString().slice(0, 10)}.zip`);
+    savesMsg(`Exported ${files.length} files: profiles, online profile and their backup copies.`);
   }
   async function importSave(file) {
     if (/\.gsx$/i.test(file.name)) { savesMsg('Memory-unit images (.gsx) are not read here yet: run make import-save FILE=… or import the profile\'s .mc3.', true); return; }
@@ -1402,31 +1474,25 @@
     const name = file.name.replace(/\.mc3$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
     const folder = hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(name))).slice(0, 12).toUpperCase();
     try {
-      const dir = await titleDir(true);
-      let exists = true;
-      try { await dir.getDirectoryHandle(folder); } catch { exists = false; }
-      if (exists && !confirm(`A profile “${name}” is already in this browser. Replace it?`)) return;
-      const d = await dir.getDirectoryHandle(folder, { create: true });
-      for (const [n, bytes] of [[name + '.mc3', out], ['SaveMeta.xbx', metaBytes(name)]]) {
-        const w = await (await d.getFileHandle(n, { create: true })).createWritable();
-        await w.write(bytes); await w.close();
-      }
+      if (!await writeProfile(name, folder, [[name + '.mc3', out], ['SaveMeta.xbx', metaBytes(name)]])) return;
       savesMsg(`Imported ${name} (signed for the port).`);
     } catch (e) { savesMsg('Could not write the save: ' + e.message, true); }
     listSaves();
   }
 
   // --- the Online profile: OPFS online/profile.bin, written by the game (src/games/remix/recomp_manual.c,
-  // "The Online profile"): 'MC3O', version 1, body size, CRC-32 of the body, cars; body = money + garage blob
-  const OPROF_MAGIC = 0x4F33434D, OPROF_VER = 1, OPROF_HDR = 20, OPROF_BODY = 4 + 0x18340;
+  // "The Online profile"): 'MC3O', version, body size, CRC-32 of the body, cars; body = money + garage blob, then
+  // (v2) the car picked, (v3) races won, (v4) lifetime drift points: 4 bytes each. Every version stays readable.
+  const OPROF_MAGIC = 0x4F33434D, OPROF_HDR = 20, OPROF_BODIES = [0, 4 + 0x18340, 8 + 0x18340, 12 + 0x18340, 16 + 0x18340];
   const oprofMsg = (t, bad) => { $('oprof-msg').textContent = t; $('oprof-msg').classList.toggle('bad', !!bad); };
   const crcTable = [...Array(256)].map((_, n) => { for (let k = 0; k < 8; k++) n = n & 1 ? 0xEDB88320 ^ (n >>> 1) : n >>> 1; return n >>> 0; });
   const crc32 = b => { let c = ~0; for (const x of b) c = crcTable[(c ^ x) & 255] ^ (c >>> 8); return ~c >>> 0; };
   function oprofCheck(data) {          // { money, cars }, or why not
-    if (data.length !== OPROF_HDR + OPROF_BODY) return `${data.length} bytes, an online profile has ${OPROF_HDR + OPROF_BODY}`;
-    const v = new DataView(data.buffer, data.byteOffset, data.length);
+    if (data.length < OPROF_HDR) return `${data.length} bytes, too short for an online profile`;
+    const v = new DataView(data.buffer, data.byteOffset, data.length), ver = v.getUint32(4, true);
     if (v.getUint32(0, true) !== OPROF_MAGIC) return 'not an MC3 online profile';
-    if (v.getUint32(4, true) !== OPROF_VER || v.getUint32(8, true) !== OPROF_BODY) return 'another version';
+    if (ver >= OPROF_BODIES.length) return `made by a newer version of the game (${ver}): reload the page to get it`;
+    if (!OPROF_BODIES[ver] || v.getUint32(8, true) !== OPROF_BODIES[ver] || data.length !== OPROF_HDR + OPROF_BODIES[ver]) return 'unknown layout';
     if (v.getUint32(12, true) !== crc32(data.subarray(OPROF_HDR))) return 'damaged (CRC)';
     return { money: v.getInt32(OPROF_HDR, true), cars: v.getUint32(16, true) };
   }
@@ -1441,7 +1507,7 @@
     try { file = await (await oprofFile(false)).getFile(); }
     catch { s.textContent = 'Online profile: none yet ($2,000,000 to start).'; return; }
     const r = oprofCheck(new Uint8Array(await file.arrayBuffer()));
-    s.textContent = typeof r === 'string' ? `Online profile: unreadable (${r}); the game starts a fresh one.`
+    s.textContent = typeof r === 'string' ? `Online profile: unreadable here (${r}); the game keeps the file and brings back its last good copy if it has one.`
       : `Online profile: $${r.money.toLocaleString('en-US')}, ${r.cars} car${r.cars === 1 ? '' : 's'} · saved ${new Date(file.lastModified).toLocaleString()}`;
   }
   async function oprofExport() {
@@ -1454,9 +1520,11 @@
     if (typeof r === 'string') { oprofMsg(`${file.name}: ${r}.`, true); return; }
     if (!confirm(`Replace this browser's online profile with ${file.name} ($${r.money.toLocaleString('en-US')}, ${r.cars} cars)?`)) return;
     try {
-      const w = await (await oprofFile(true)).createWritable();
+      const fh = await oprofFile(true), old = new Uint8Array(await (await fh.getFile()).arrayBuffer());
+      if (old.length) await keepCopy(await (await navigator.storage.getDirectory()).getDirectoryHandle('online'), 'profile.bin', old);
+      const w = await fh.createWritable();
       await w.write(data); await w.close();
-      oprofMsg('Imported: it counts from the next Free Roam.');
+      oprofMsg('Imported: it counts from the next Free Roam. The one it replaced is kept as a backup copy.');
     } catch (e) { oprofMsg('Could not write the profile: ' + (e.message || e), true); }
     oprofShow();
   }
@@ -2043,6 +2111,7 @@
   // Settings 'Direct connections (P2P) in Free Roam' (?MC3_ROAM_P2P=0 / =1 wins): on unless set to 0
   function roamP2P() { return (new URLSearchParams(location.search).get('MC3_ROAM_P2P') ?? settings.MC3_ROAM_P2P) !== '0'; }
   $('saves-refresh').onclick = () => { savesMsg(''); listSaves(); };
+  $('saves-export').onclick = exportAll;
   $('oprof-export').onclick = oprofExport;
   $('oprof-import').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) oprofImport(f); };
   $('import').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) importSave(f); };

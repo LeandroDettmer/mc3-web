@@ -11,7 +11,9 @@
  *   /opfs   the Origin Private File System: what the game writes.
  *           /game/UDATA and /game/TDATA (saves and settings: the toolkit maps
  *           Harddisk0\Partition1 onto the game folder, kernel_path.c) link
- *           into it, and MC3_SAVE_DIR (T:, U:, Z:) is /opfs/save.
+ *           into it, and MC3_SAVE_DIR (T:, U:, Z:) is /opfs/save. Profiles
+ *           live in /opfs/UDATA; their rotating copies in /opfs/backup
+ *           (save safety, below).
  *
  * The disc URL is MC3_DISC_URL (the page sets it, web/index.html), else
  * /disc. A MC3_GAME_DIR given (Node.js, NODERAWFS: the host's own files)
@@ -20,7 +22,9 @@
 #include <emscripten/em_asm.h>
 #include <emscripten/em_macros.h>
 #include <emscripten/wasmfs.h>
+#include <dirent.h>
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -93,6 +97,197 @@ static int mount_disc(const char *url)
     return n;
 }
 
+/* ── Save safety (2026-11-12): no release may damage or lose a player's save ──
+ *
+ * The game writes a profile in place (NtCreateFile with an overwrite
+ * disposition truncates it, kernel_file.c, then streams the bytes): a quota
+ * error or a closed tab mid-write leaves a short file. So before each career
+ * write (the Remix's sub_00022040 override) every profile file that changed
+ * since its last copy is kept, the last 2, under /opfs/backup/<same path>
+ * .bak1 (newest) / .bak2 (outside UDATA: the game never lists or deletes
+ * them), and at boot and after each write a main file that fails its checks
+ * gets the newest good copy back ('[SAVE] restored ...'; the bad one kept as
+ * .bad beside the copies). A missing main file is never restored: deleted in
+ * the game or on the page means deleted. The Online profile
+ * (recomp_manual.c) uses the same helpers with its own checks. Files are
+ * replaced through <file>.tmp + rename in one folder, never written in place. */
+#define WEB_SAVE_ROOT   WEB_OPFS_DIR "/UDATA"
+#define WEB_BACKUP_ROOT WEB_OPFS_DIR "/backup/UDATA"
+
+/* A whole file, malloc'd (NULL: none or unreadable; *n its size). */
+uint8_t *mc3_file_read(const char *path, size_t *n)
+{
+    FILE *f = fopen(path, "rb");
+    uint8_t *d = NULL;
+    long sz;
+    *n = 0;
+    if (!f)
+        return NULL;
+    if (fseek(f, 0, SEEK_END) == 0 && (sz = ftell(f)) >= 0 && fseek(f, 0, SEEK_SET) == 0 &&
+        (d = malloc(sz ? (size_t)sz : 1)) && fread(d, 1, (size_t)sz, f) == (size_t)sz)
+        *n = (size_t)sz;
+    else {
+        free(d);
+        d = NULL;
+    }
+    fclose(f);
+    return d;
+}
+
+/* `path` becomes d[0..n): written to <path>.tmp, then renamed over it, so a
+ * failed write leaves the old file whole. 1 = done. */
+int mc3_file_write(const char *path, const void *d, size_t n)
+{
+    char tmp[1024];
+    FILE *f;
+    int ok;
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    make_parents(tmp);
+    f = fopen(tmp, "wb");
+    ok = f && fwrite(d, 1, n, f) == n;
+    if (f)
+        ok = (fclose(f) == 0) && ok;
+    ok = ok && rename(tmp, path) == 0;
+    if (!ok)
+        unlink(tmp);
+    return ok;
+}
+
+/* d[0..n) (the current good file) becomes <base>.bak1, the old .bak1 .bak2;
+ * nothing moves when .bak1 already holds those bytes. 1 = a copy was made. */
+int mc3_backup_rotate(const char *base, const uint8_t *d, size_t n)
+{
+    char b1[1024], b2[1024];
+    size_t n1;
+    uint8_t *old;
+    int same;
+    snprintf(b1, sizeof b1, "%s.bak1", base);
+    snprintf(b2, sizeof b2, "%s.bak2", base);
+    old = mc3_file_read(b1, &n1);
+    same = old && n1 == n && !memcmp(old, d, n);
+    if (old && !same)
+        mc3_file_write(b2, old, n1);
+    free(old);
+    if (same)
+        return 0;
+    if (!mc3_file_write(b1, d, n)) {
+        fprintf(stderr, "[SAVE] backup of %s NOT written (storage full?)\n", base);
+        return 0;
+    }
+    return 1;
+}
+
+/* kernel_crypto.c (VOID __stdcall, UCHAR/ULONG = uint8_t/uint32_t; __stdcall is empty here) */
+void xbox_XcHMAC(const uint8_t *Key, uint32_t KeyLength, const uint8_t *Data1, uint32_t Data1Length,
+                 const uint8_t *Data2, uint32_t Data2Length, uint8_t *Digest);
+
+/* Last 20 bytes = HMAC-SHA1 of the rest under the port's all-zero key (the
+ * DUB Edition's .mc3, tools/save_import.py; the Remix's is not proven, so a
+ * file is held to it only when its backup passes it). */
+static int sig_ok(const uint8_t *d, size_t n)
+{
+    static const uint8_t zero[16];
+    uint8_t h[20];
+    if (n <= 20)
+        return 0;
+    xbox_XcHMAC(zero, sizeof zero, d, (uint32_t)(n - 20), NULL, 0, h);
+    return !memcmp(h, d + n - 20, 20);
+}
+
+/* A career file judged against its newest copy `r` (NULL: none): not empty,
+ * not shorter (the formats are fixed-size), the same 4-byte stamp, and
+ * signed when the copy is. */
+static int career_good(const uint8_t *d, size_t n, const uint8_t *r, size_t rn)
+{
+    if (!d || !n)
+        return 0;
+    if (!r || !rn)
+        return 1;
+    return n >= rn && (n < 4 || rn < 4 || !memcmp(d, r, 4)) && (!sig_ok(r, rn) || sig_ok(d, n));
+}
+
+/* backup: keep a copy of each good, changed file; else: restore each bad one */
+static void career_file(const char *path, const char *base, int backup)
+{
+    char b1[1024], b2[1024], bad[1024];
+    size_t n, n1, n2;
+    uint8_t *d = mc3_file_read(path, &n), *c1, *c2;
+    struct stat st;
+    if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        free(d);                                /* missing: deleted on purpose, never brought back */
+        return;
+    }
+    snprintf(b1, sizeof b1, "%s.bak1", base);
+    snprintf(b2, sizeof b2, "%s.bak2", base);
+    c1 = mc3_file_read(b1, &n1);
+    c2 = mc3_file_read(b2, &n2);
+    if (career_good(d, n, c1 ? c1 : c2, c1 ? n1 : n2)) {
+        if (backup)
+            mc3_backup_rotate(base, d, n);
+    } else if (!backup) {
+        const uint8_t *use = career_good(c1, n1, c2, n2) ? c1 : career_good(c2, n2, NULL, 0) ? c2 : NULL;
+        size_t un = use == c1 ? n1 : n2;
+        if (!use)
+            fprintf(stderr, "[SAVE] %s fails its checks (%u bytes) and has no good backup: left as it is\n", path,
+                    (unsigned)n);
+        else {
+            snprintf(bad, sizeof bad, "%s.bad", base);
+            if (d && n)
+                mc3_file_write(bad, d, n);      /* kept, never deleted */
+            if (mc3_file_write(path, use, un))
+                fprintf(stderr, "[SAVE] restored %s from backup (%s, %u bytes; the bad one, %u bytes, kept as %s)\n",
+                        path, use == c1 ? ".bak1" : ".bak2", (unsigned)un, (unsigned)n, bad);
+            else
+                fprintf(stderr, "[SAVE] %s fails its checks; restoring its backup failed (storage full?)\n", path);
+        }
+    }
+    free(d);
+    free(c1);
+    free(c2);
+}
+
+/* Every profile file: UDATA/<title>/<profile>/<file>. */
+static void career_walk(int backup)
+{
+    char t[512], p[768], path[1024], base[1024];
+    DIR *dt, *dp, *df;
+    struct dirent *et, *ep, *ef;
+    if (!(dt = opendir(WEB_SAVE_ROOT)))
+        return;
+    while ((et = readdir(dt))) {
+        if (et->d_name[0] == '.')
+            continue;
+        snprintf(t, sizeof t, "%s", et->d_name);
+        snprintf(p, sizeof p, WEB_SAVE_ROOT "/%s", t);
+        if (!(dp = opendir(p)))
+            continue;
+        while ((ep = readdir(dp))) {
+            char pd[1024];
+            if (ep->d_name[0] == '.')
+                continue;
+            snprintf(pd, sizeof pd, "%s/%s", p, ep->d_name);
+            if (!(df = opendir(pd)))
+                continue;
+            while ((ef = readdir(df))) {
+                size_t l = strlen(ef->d_name);
+                if (ef->d_name[0] == '.' || (l > 4 && !strcmp(ef->d_name + l - 4, ".tmp")))
+                    continue;
+                snprintf(path, sizeof path, "%s/%s", pd, ef->d_name);
+                snprintf(base, sizeof base, WEB_BACKUP_ROOT "/%s/%s/%s", t, ep->d_name, ef->d_name);
+                career_file(path, base, backup);
+            }
+            closedir(df);
+        }
+        closedir(dp);
+    }
+    closedir(dt);
+}
+
+/* Before the game writes a profile: copies of what changed. */
+void mc3_web_saves_backup(void) { career_walk(1); }
+/* At boot and after a write: bad files get their newest good copy back. */
+void mc3_web_saves_check(void) { career_walk(0); }
+
 /* Set from the OPFS backend's thread when its root could not be opened
  * (web/wasmfs_fetch.js, _wasmfs_opfs_init_root_directory). */
 static volatile int opfs_failed;
@@ -150,4 +345,5 @@ void mc3_web_fs_init(void)
     if (!getenv("MC3_SAVE_DIR"))
         setenv("MC3_SAVE_DIR", WEB_OPFS_DIR "/save", 1);
     fprintf(stderr, "[WEB] saves in " WEB_OPFS_DIR "\n");
+    mc3_web_saves_check();                      /* a profile cut short last time gets its copy back */
 }

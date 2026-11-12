@@ -17,6 +17,21 @@ with xboxrecomp; modelled on nfsu2-sw).
 
 ## Rules
 
+- **Players' saves are never damaged or lost by a release** (owner, 2026-11-12).
+  Save formats (career `UDATA/54540079/<id>/<name>.mc3Remix` + SaveMeta.xbx,
+  the Online profile `online/profile.bin` v1-v4, the garage blob 0x18340 B
+  at 0x53F308 that both carry raw) are versioned and backward compatible: a
+  new version only appends, every loader keeps reading every older version,
+  and a file it cannot read (newer, unknown, damaged) is kept, never reset,
+  deleted or rewritten (the Online loader refuses to save over a newer one).
+  Never delete or rewrite saves on upgrade. Writes go through `<file>.tmp` +
+  rename (web_fs.c `mc3_file_write`), never in place; the rotating copies
+  (`/opfs/backup/...`, `profile.bin.bak1/.bak2`) and the boot/after-write
+  restore stay. Garage, car list or CarCfg changes (the car-mods project,
+  mc3-web-carmod, included) must keep old saves loading. Any change that
+  touches a save, its format or its folders gets a migration note in its
+  commit and here. Cache code (disc_cache.js, the `cache` folder) touches
+  only its own OPFS folders, never `UDATA`, `TDATA`, `online`, `backup`, `save`.
 - Never commit game data (ISO, `default.xbe`, disc files) or generated C.
   Every path is relative to the repo root: the discs in `game*/`, everything
   generated in `work-<game>/` (both gitignored; tools/env.sh). No default
