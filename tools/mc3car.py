@@ -5,6 +5,7 @@
             [--parts stk|all|none] [--tex DIR ...] [--report]
   mc3car.py roundtrip <car folder>     decode + re-encode every mesh, compare
   mc3car.py build <spec.json>          new car from a .glb on a template car
+  mc3car.py check <folder|file.xbck>   Mesh / Group array / VB pointers shared by 2+ table slots
 
 <car folder> is resources/vehicle/<car>/ as tools/dave.py extracts it
 (assets_x.dat_2): <car>.xbck, <car>_o.xbck, <car>_g.xbck and one
@@ -82,6 +83,10 @@ for the 8-byte format at +8 (sub_000DDC50), so 0x00805EC1 is a stale
 handle. Format 0x59 = RAGE grcFvf position | normal | diffuse | texture0,
 stride 0x1C, 0x00044A02 the channel formats: the vertex's 4th dword is
 the diffuse colour (RGB ~0x80, alpha 0..14 = a zone index by position).
+The fixup runs once PER TABLE SLOT with no done-guard, so a Mesh (or its Group array or VB,
+which it rebases too) reached from two slots is rebased twice: garbage prim counts, a huge draw
+(the garage froze). Stock cars share none (check); every slot gets its own Mesh header, Group
+array and VB; vertices, indices, material array and prims may be shared.
 Nothing checks sizes or vertex counts: any layout with valid pointers
 loads. Mesh layout as the dev build wrote it (the writer copies it):
 header 0x20, u16 materials, [count] groups at align16(0x20 + 2n) + 4, VB
@@ -193,6 +198,51 @@ def place_mesh(img, m):
     ib = np.concatenate([s for g in m['groups'] for s in g['strips']]).astype('<u2').tobytes()
     vva = img.place(len(vb), lambda va: vb); iva = img.place(len(ib), lambda va: ib)
     return img.place(len(encode_mesh(m, 0, vva, iva)), lambda va: encode_mesh(m, va, vva, iva))
+
+
+def clone_mesh(img, va):
+    """A copy of the Mesh at va with its own header, Group array (+ count word) and VB header;
+    the vertices, indices, material array and prims stay shared (they are never rebased twice)."""
+    o = va - img.base; n = struct.unpack_from('<I', img.d, o + 8)[0]
+    h = list(struct.unpack_from('<I4s6I', img.d, o)); pg, pvb = h[4], h[6]
+    g = bytes(img.d[pg - img.base:pg - img.base + 0x18 * n]); vb = bytes(img.d[pvb - img.base:pvb - img.base + 12])
+    o_vb = 0x24 + 0x18 * n
+    def make(v):
+        h[4], h[6] = v + 0x24, v + o_vb
+        b = bytearray(b'\xcd' * (o_vb + 12))
+        struct.pack_into('<I4s6I', b, 0, *h); struct.pack_into('<I', b, 0x20, n)
+        b[0x24:o_vb] = g; b[o_vb:] = vb
+        return bytes(b)
+    return img.place(o_vb + 12, make)
+
+
+def unshare(img, slots):
+    """Every slot VA in slots gets its own Mesh: later slots pointing at a Mesh already seen get clone_mesh()."""
+    seen = set()
+    for sv in slots:
+        mp = struct.unpack_from('<I', img.d, sv - img.base)[0]
+        if not mp: continue
+        if mp in seen: img.put(sv, struct.pack('<I', clone_mesh(img, mp)))
+        else: seen.add(mp)
+
+
+def check(paths):
+    """Per car file: Mesh, Group array and VB pointers reached from 2+ slots (or meshes). Returns the count."""
+    files = [f for p in paths for f in (sorted(glob.glob(os.path.join(p, '*.xbck'))) if os.path.isdir(p) else [p])]
+    tot = 0
+    for f in files:
+        c = Chunk(f)
+        if c.kind == 0x16: continue
+        ts = mesh_tables(c)
+        if not ts: continue
+        ms = [e[0] for t in ts for e in t if e[0]]
+        dup = {'mesh': len(ms) - len(set(ms))}
+        for k, off in (('groups', 0x10), ('vb', 0x18)):
+            ps = [c.u32(m + off) for m in set(ms)]; dup[k] = len(ps) - len(set(ps))
+        n = sum(dup.values()); tot += n
+        print('%-40s %d slots: shared %s' % (os.path.basename(f), len(ms), ', '.join('%s %d' % kv for kv in dup.items()) if n else '0'))
+    print('total shared:', tot)
+    return tot
 
 
 def read_mesh(c, va):
@@ -893,6 +943,7 @@ def build(spec_path):
                     e = empty_mesh(bone); empties[bone] = img.place(len(encode_mesh(e, 0)), lambda va: encode_mesh(e, va))
                 img.put(slot, struct.pack('<I', empties[bone]))
             else: parts[name] = bone
+        unshare(img, [sl for sl, _, _, _ in slots])   # one Mesh, Group array and VB per slot (see the docstring)
         # the drawable's LOD group: tables H M L, 0, LOD distances, bucket masks, then the cull sphere
         # (x y z r) at +0x30; grown to hold the new car, never shrunk
         g = c.d.find(struct.pack('<4I', *sorted(c.find_vt(VT_TABLE)), 0)); sva = c.va(g) + 0x30
@@ -916,6 +967,7 @@ def build(spec_path):
 
 if __name__ == '__main__':
     if sys.argv[1:2] == ['roundtrip']: sys.exit(1 if roundtrip(sys.argv[2]) else 0)
+    if sys.argv[1:2] == ['check']: sys.exit(1 if check(sys.argv[2:]) else 0)
     if sys.argv[1:2] == ['build']: build(sys.argv[2]); sys.exit(0)
     ap = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     ap.add_argument('folder'); ap.add_argument('out')
