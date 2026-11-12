@@ -2,7 +2,7 @@
  * style). Included by recomp_manual.c after online_progress.c (uses s_online,
  * s_on_money, s_on_drift, online_money_va, online_garage_left, op_dollars,
  * ROAM_SETUP_VA); fed every frame by drift.c's drift_step (slip angle, speed,
- * wall hit), Drift mode on or off.
+ * hit test), Drift mode on or off.
  *
  * A drift: our car over DS_BETA deg of slip above DS_SPEED, on the ground
  * (not DS_AIR s in free fall), in a cruise (race type [[0x53F2E0]+0x18] == 0:
@@ -11,10 +11,11 @@
  * under the threshold (or at once when the car is stopped) and is banked x the
  * multiplier into the total (under DS_MIN points it is dropped quietly). A
  * drift that starts within DS_CHAIN s of the last bank chains: the chain's
- * points raise the multiplier one step per DS_STEP, x1..x5. A wall or car hit
- * (drift.c: speed lost faster than 15 m/s^2) or a spin-out (side-on past 90 deg
- * by DS_SPIN, on the other side from where the drift began: sign-free) loses
- * the drift and the chain ('Drift lost').
+ * points raise the multiplier one step per DS_STEP, x1..x5. Only a hit (wall,
+ * car, prop: drift.c's test, the velocity changing in the ground plane faster
+ * than tyres can) loses the drift and the chain ('Drift lost', '[DRIFT] lost:
+ * <what was measured>'). A spin is no loss (2026-11-12, owner): the slip drops
+ * as the car goes tail first and the drift banks.
  *
  * Money, browser only: in the Online session's cruise, each DS_PAY_PTS of the
  * lifetime total (s_on_drift, profile.bin version 4) pays $DS_PAY into
@@ -24,8 +25,8 @@
  *
  * HUD: drift_hud_box (seq; text "line\nline": the live drift / banked / lost,
  * then the progress; big: the payout), refilled and its seq bumped every frame
- * the car moves (paused: stale, the page hides it); web/pre.js shows it
- * bottom-centre. '[DRIFT] score: ...' per bank, lost drift and payout. */
+ * the car moves (paused: stale, the page hides it); web/pre.js shows it on
+ * the picture's left, above the race prompt box and the minimap. '[DRIFT] score: ...' per bank, lost drift and payout. */
 
 #define DS_BETA     10.0f           /* deg of slip: a drift */
 #define DS_SPEED    (30.0f / 3.6f)  /* m/s */
@@ -35,7 +36,6 @@
 #define DS_CHAIN    1.5f            /* s after a bank for the next drift to chain */
 #define DS_STEP     2500.0f         /* chain points per multiplier step */
 #define DS_MULT     5
-#define DS_SPIN     10.0f           /* deg past side-on: a spin-out */
 #define DS_MIN      100u            /* points: smaller drifts are dropped (ordinary cornering) */
 #define DS_PAY_PTS  10000u
 #define DS_PAY      10000u          /* $ */
@@ -44,7 +44,7 @@
 enum { DS_NONE, DS_BANKED, DS_LOST };
 static struct {
     int on;                         /* drifting (the grace time included) */
-    float pend, chain, below, since, a0, air, vy;
+    float pend, chain, below, since, air, vy;
     int what;                       /* the last event, shown for show s */
     float show, pay_show;
     uint32_t got, paid;
@@ -96,7 +96,7 @@ static void ds_bank(int money)
         online_garage_left();                   /* the profile saved now (money, drift total) */
 }
 
-static void drift_score(int car, float beta, float b180, float s, float vy, float dt, int hit, int frozen)
+static void drift_score(int car, float beta, float s, float vy, float dt, const char *hit, int frozen)
 {
     uint32_t setup = MEM32(ROAM_SETUP_VA), total;
     int money = 0, mult;
@@ -119,9 +119,8 @@ static void drift_score(int car, float beta, float b180, float s, float vy, floa
     s_ds.since += dt;
     s_ds.show -= dt;
     s_ds.pay_show -= dt;
-    if (s_ds.on && (hit || (s_ds.a0 < 90.0f ? b180 > 90.0f + DS_SPIN : b180 < 90.0f - DS_SPIN))) {
-        fprintf(stderr, "[DRIFT] score: drift lost (%s), %u pending x%d\n", hit ? "hit" : "spin-out",
-                (unsigned)s_ds.pend, ds_mult());
+    if (s_ds.on && hit) {
+        fprintf(stderr, "[DRIFT] lost: %s; %u pending x%d\n", hit, (unsigned)s_ds.pend, ds_mult());
         s_ds.on = 0;
         s_ds.pend = s_ds.chain = 0;
         s_ds.since = DS_CHAIN + 1.0f;
@@ -131,7 +130,6 @@ static void drift_score(int car, float beta, float b180, float s, float vy, floa
         float pts = DS_K * (beta > 60.0f ? 60.0f : beta) * s * dt;
         if (!s_ds.on) {
             s_ds.on = 1;
-            s_ds.a0 = b180;
             s_ds.pend = 0;
             if (s_ds.since > DS_CHAIN)
                 s_ds.chain = 0;

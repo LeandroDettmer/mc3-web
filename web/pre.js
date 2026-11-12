@@ -477,8 +477,10 @@ Module['mc3TouchPad'] = function (words) {
 })();
 
 // Drift score: src/games/remix/drift_score.c's drift_hud_box (seq, 96 bytes UTF-8 "DRIFT 1,240 x2\n6,300 / 10,000 ...",
-// 32 bytes the payout "+$10,000"), bumped every frame the car moves: a line bottom-centre of the picture while fresh,
-// the payout big in the middle. Main thread only.
+// 32 bytes the payout "+$10,000"), bumped every frame the car moves: shown while fresh on the HUD's left edge (the
+// race prompt box's left, 16:9 under Hor+) at 36% of the picture's height, the payout big just above it: clear of
+// the prompt box and the minimap below (was bottom-centre under the car, 2026-11-12); right of any touch button
+// under it (a phone's d-pad). Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
   var canvas = Module['canvas'], el = null, bigEl = null, seq = -1, seenAt = 0, I32 = null, shown = null, bigShown = null;
@@ -523,12 +525,19 @@ Module['mc3TouchPad'] = function (words) {
       if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
     }
     if (!(w > 0 && h > 0)) { el.style.display = bigEl.style.display = 'none'; return; }
-    var st = el.style, bs = bigEl.style;
+    var st = el.style, bs = bigEl.style, hw = Math.min(w, h * 16 / 9),
+        left = x + (w - hw) / 2 + hw * 0.055, top = y + h * 0.36, bt = y + h * 0.27,
+        bw = Math.max(el.offsetWidth, bigEl.offsetWidth) || w * 0.2, bb = top + (el.offsetHeight || h * 0.08);
+    document.querySelectorAll('.tc:not([hidden]) .tc-b').forEach(function (c) {
+      var q = c.getBoundingClientRect(), ql = q.left - L.left, qr = q.right - L.left;
+      if (q.width && ql < left + bw && qr > left && q.bottom - L.top > bt && q.top - L.top < bb) left = qr + 6;
+    });
     st.fontSize = Math.max(11, h * 0.026).toFixed(1) + 'px';
-    st.transform = 'translate(' + (x + w / 2).toFixed(1) + 'px,' + (y + h * 0.9).toFixed(1) + 'px) translate(-50%,-100%)';
+    st.textAlign = bs.textAlign = 'left';
+    st.transform = 'translate(' + left.toFixed(1) + 'px,' + top.toFixed(1) + 'px)';
     st.display = text ? '' : 'none';
-    bs.fontSize = Math.max(20, h * 0.08).toFixed(1) + 'px';
-    bs.transform = 'translate(' + (x + w / 2).toFixed(1) + 'px,' + (y + h * 0.38).toFixed(1) + 'px) translate(-50%,-50%)';
+    bs.fontSize = Math.max(18, h * 0.06).toFixed(1) + 'px';
+    bs.transform = 'translate(' + left.toFixed(1) + 'px,' + bt.toFixed(1) + 'px)';
     bs.display = big ? '' : 'none';
   }
   requestAnimationFrame(frame);

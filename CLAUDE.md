@@ -1065,11 +1065,18 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   slip > 10 deg above 30 km/h, not in free fall, race type 0 only; points/s
   = 0.6 x clamp(slip, 10, 60) x m/s; banked x mult after 1 s under (or
   stopped), mult x1..x5 per 2,500 chain points (next drift within 1.5 s);
-  speed lost > 15 m/s^2 (25 braking) or a spin-out (b180, the signed angle,
-  crosses side-on by 10 deg from the start's side) loses it; under 100
-  points dropped. Online (browser): each 10,000 of the lifetime total
+  only a hit loses it (fix untested in game: the first rules, speed lost
+  > 15 m/s^2 or a spin-out, fired mid-drift with no hit: a slide
+  decelerates that hard; a spin now just banks): drift.c's test, no game
+  collision signal used (none found), the velocity change in the body's
+  ground plane (up row removed: landings) > 60 m/s^2 in one frame or
+  > 45 over two (+20 braking/handbrake) and above the change along up;
+  the speed give-back skips the same frames; '[DRIFT] lost: hit, <dv,
+  accel, km/h, yaw rate, slip, brake>' per loss. Under 100 points dropped.
+  Online (browser): each 10,000 of the lifetime total
   (profile.bin v4, s_on_drift) pays $10,000 into +0xACC and saves. HUD
-  drift_hud_box -> web/pre.js bottom-centre (payout big, green). '[DRIFT]
+  drift_hud_box -> web/pre.js on the HUD's left edge at 36% height (payout
+  big, green, above it; right of touch buttons under it). '[DRIFT]
   score: ...'. Free fall assumes world y up (vertical speed falling > 7
   m/s^2 for 0.1 s).
   Online O1 (2026-11-08, single player, untested; src/games/remix/

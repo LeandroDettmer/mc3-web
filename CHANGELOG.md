@@ -67,3 +67,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Page:** After a new version is published, online players get a "reloading in 60 s" box; offline players get a dismissable notice.
 - **Free Roam:** Street race cars now face the course, and passed checkpoints fade as in the game's own races.
 - **Free Roam:** Nearby players show as cars far more reliably: pausing or opening the full map no longer removes their cars, and dropped links no longer leave them as dimmed arrows.
+- **Game:** Drift points now show on the left of the screen, and only a crash (wall, car or prop) loses a drift: hard slides and spins no longer do.

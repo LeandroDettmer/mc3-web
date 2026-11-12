@@ -46,11 +46,21 @@
  * (the environment's level, normal if that is off), 3 strong. Off: every
  * value back (if still ours). '[DRIFT]' lines: on/off, the car's layout once
  * per car, one line per drift of 0.5 s or more. Drift scoring (drift_score.c)
- * gets this frame's slip angle, speed and wall-hit test with the mode on or off. */
+ * gets this frame's slip angle, speed and hit test with the mode on or off.
+ *
+ * A hit (wall, car, prop): the velocity's change in the car's ground plane (the plane the tyres push in, normal =
+ * the body's up row; a landing pushes along it) faster than tyres can do: DH_A1 m/s^2 over one frame or DH_A2 over
+ * two (DH_BRAKE more while braking or on the handbrake), and larger than the change along up (a tilted landing).
+ * Tyres top out near StaticFric x g ~ 25 m/s^2. Until 2026-11-12 a speed drop over 15 m/s^2 counted: a slide
+ * decelerates that hard by itself, and 'Drift lost' fired mid-drift without a hit. */
 #include <math.h>
 
 static int online_ram(uint32_t va);
-static void drift_score(int car, float beta, float b180, float s, float vy, float dt, int hit, int frozen);
+static void drift_score(int car, float beta, float s, float vy, float dt, const char *hit, int frozen);
+
+#define DH_A1    60.0f      /* m/s^2 in the ground plane over one frame: a hit */
+#define DH_A2    45.0f      /* ... over two frames */
+#define DH_BRAKE 20.0f      /* ... more while braking or on the handbrake */
 
 typedef struct {
     float base;         /* rear grip factor when gripping (a little loose: a lift-off turns it) */
@@ -98,15 +108,16 @@ static void drift_step(void)
     static int env = -1, said = -1;
     static uint32_t seen;                       /* the body whose layout line went out */
     static uint32_t ics_last;                   /* the body, and its velocity as the frame left it (paused: unchanged) */
-    static float v_last[3];
+    static float v_last[3], dv_prev[3], dn_prev, dt_prev, wy_prev;
+    static char why[200];
     static float fr = 1.0f, kick_t, lift_t, thr_prev, beta_prev, speed_prev;
     static struct { float t, max, v0, g, kept, frmin; int cuts; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
     const drift_tune *t;
     int32_t l = mc3_live(MC3_LIVE_DRIFT);
     uint32_t pm = MEM32(0x00558814u), p, veh, sim, tf = 0, tb = 0, car, ph, ics = 0, c, in = 0;
-    float v[3], w[3], rt[3], up[3], bk[3], s = 0, beta = 0, b180 = 0, wy = 0, thr = 0, brk = 0, hb = 0, st = 0, dt, tgt,
+    float v[3], w[3], rt[3], up[3], bk[3], s = 0, beta = 0, wy = 0, thr = 0, brk = 0, hb = 0, st = 0, dt, tgt,
           amt;
-    int hit = 0, frozen = 0;
+    int hit = 0, frozen = 0;   /* hit: why[] says what was measured */
     int lvl, k;
     if (env < 0) {
         const char *e = getenv("MC3_DRIFT");
@@ -144,7 +155,7 @@ static void drift_step(void)
         kick_t = lift_t = 0;
         dr.t = 0;
         if (!tb) {
-            drift_score(0, 0, 0, 0, 0, 0, 0, 0);
+            drift_score(0, 0, 0, 0, 0, NULL, 0);
             return;
         }
     }
@@ -172,12 +183,40 @@ static void drift_step(void)
         s = sqrtf(s);
         /* sign-free: forward or back makes no difference to the angle (reversing straight is 0) */
         beta = s > 6.0f ? atan2f(fabsf(vl), fabsf(vf)) * 57.29578f : 0.0f;
-        b180 = s > 6.0f ? atan2f(fabsf(vl), -vf) * 57.29578f : 0.0f;   /* 0..180: past 90 the car goes tail first */
-        if (beta != beta || s != s || b180 != b180)
-            beta = b180 = s = 0;
+        if (beta != beta || s != s)
+            beta = s = 0;
         frozen = ics == ics_last && v[0] == v_last[0] && v[1] == v_last[1] && v[2] == v_last[2];
-        /* a wall or car: speed lost faster than 15 m/s^2 (25 while braking) */
-        hit = ics == ics_last && s - speed_prev < (brk > 0.3f ? -25.0f : -15.0f) * dt;
+        /* a hit (see the header): v_last is the velocity as the last frame left it, our own writes included */
+        if (ics == ics_last && !frozen) {
+            float dv[3], dn = 0, d1 = 0, d2 = 0, a1, a2, lim = brk > 0.3f || hb > 0.5f ? DH_BRAKE : 0.0f;
+            for (k = 0; k < 3; k++) {
+                dv[k] = v[k] - v_last[k];
+                dn += dv[k] * up[k];
+            }
+            for (k = 0; k < 3; k++) {
+                float p = dv[k] - dn * up[k], q = p + dv_prev[k];
+                d1 += p * p;
+                d2 += q * q;
+                dv_prev[k] = p;
+            }
+            d1 = sqrtf(d1);
+            d2 = sqrtf(d2);
+            a1 = d1 / dt;
+            a2 = d2 / (dt + dt_prev);
+            if ((a1 > DH_A1 + lim && d1 > fabsf(dn)) || (a2 > DH_A2 + lim && d2 > fabsf(dn + dn_prev))) {
+                hit = 1;
+                snprintf(why, sizeof why, "hit, %.1f m/s in the ground plane in 1 frame (%.0f m/s^2), %.1f in 2 "
+                         "(%.0f m/s^2), %.1f m/s along up; %.0f -> %.0f km/h, yaw rate %+.2f -> %+.2f rad/s, slip "
+                         "%.0f deg, brake %.1f handbrake %.1f", (double)d1, (double)a1, (double)d2, (double)a2,
+                         (double)dn, (double)(speed_prev * 3.6f), (double)(s * 3.6f), (double)wy_prev, (double)wy,
+                         (double)beta, (double)brk, (double)hb);
+            }
+            dn_prev = dn;
+            dt_prev = dt;
+        } else if (!frozen) {
+            dv_prev[0] = dv_prev[1] = dv_prev[2] = dn_prev = 0;
+            dt_prev = dt;
+        }
         if (ics != seen) {
             seen = ics;
             fprintf(stderr, "[DRIFT] car: mass %.0f, inertia up %.0f, yaw cap %.1f rad/s; front SteeringLimit %.3f, "
@@ -229,10 +268,10 @@ static void drift_step(void)
         /* speed: give back part of what the slide scrubbed off since its start. Measured on the slide's net change
          * (g, the game's own frame deltas summed), not per frame: giving back each frame's drop and keeping each
          * rise was a ratchet that turned the physics' frame-to-frame speed jitter into a steady gain. Braking,
-         * handbrake and wall hits (> 15 m/s^2) stay out of g; never above the speed at the slide's start. */
+         * handbrake and hits stay out of g; never above the speed at the slide's start. */
         if (beta > 6.0f && s > 8.0f && dr.t > 0) {
             float d = s - speed_prev, ns;
-            if (brk < 0.3f && hb < 0.5f && d > -15.0f * dt)
+            if (brk < 0.3f && hb < 0.5f && !hit)
                 dr.g += d;
             ns = s + (dr.g < 0 ? -dr.g * t->keep : 0.0f) - dr.kept;
             if (ns > s && ns > dr.v0)
@@ -270,11 +309,13 @@ static void drift_step(void)
         dr.t = 0;
     }
 score:
-    drift_score(ics != 0, beta, b180, s, ics ? v[1] : 0.0f, dt, hit, frozen);
+    drift_score(ics != 0, beta, s, ics ? v[1] : 0.0f, dt, hit ? why : NULL, frozen);
     if (ics) {
         ics_last = ics;
-        for (k = 0; k < 3; k++)
+        for (k = 0, wy_prev = 0; k < 3; k++) {
             v_last[k] = MEMF(ics + 0x44u + 4u * k);
+            wy_prev += MEMF(ics + 0x50u + 4u * k) * up[k];   /* after the yaw cut */
+        }
     }
     beta_prev = beta;
     speed_prev = s;
