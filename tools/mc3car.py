@@ -791,11 +791,13 @@ def hull(pos, paint=5, glass=7, n=6):
     return V, out
 
 
-def lod_meshes(groups_by_mat, vmax=3907, gmax=28):
+def lod_meshes(groups_by_mat, vmax=3907, gmax=28, last=()):
     """{material: (pos, nrm, uv, tris)} -> meshes [{'mats': [...], 'pos', 'nrm', 'uv', 'groups'}],
-    materials kept whole, at most vmax vertices and gmax groups a mesh."""
+    materials kept whole, at most vmax vertices and gmax groups a mesh. Materials in `last` (glass) come
+    after every other group: the game draws groups in order, and alpha-blended glass drawn before the
+    interior behind it is overwritten by it (no tint, no reflection)."""
     out, cur = [], None
-    for mi, (p, nr, uv, T) in sorted(groups_by_mat.items()):
+    for mi, (p, nr, uv, T) in sorted(groups_by_mat.items(), key=lambda kv: (kv[0] in last, kv[0])):
         strips = split_strips(T)
         if cur is None or len(cur['pos']) + len(p) > vmax or len(cur['groups']) + len(strips) > gmax:
             cur = {'pos': np.zeros((0, 3)), 'nrm': np.zeros((0, 3)), 'uv': np.zeros((0, 2)), 'groups': [], 'mats': []}; out.append(cur)
@@ -888,7 +890,7 @@ def build(spec_path):
             for mi in sorted({f[1] for f in F}):
                 T = np.array([f[0] for f in F if f[1] == mi]); used, loc = np.unique(T, return_inverse=True)
                 byMat[mi] = (V[used], nr[used], np.zeros((len(used), 2)), loc.reshape(-1, 3))
-        meshes = lod_meshes(byMat)
+        meshes = lod_meshes(byMat, last=sp.get('glass', []))   # spec 'glass': materials drawn last
         for m in meshes:
             m['vtx'] = np.zeros(len(m['pos']), VTX)
             m['vtx']['pos'], m['vtx']['nrm'], m['vtx']['uv'] = m['pos'], pack_normal(m['nrm']), m['uv']
