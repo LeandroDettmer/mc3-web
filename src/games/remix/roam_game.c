@@ -122,6 +122,7 @@
 #define ROAM_CAR_BYTES  (1000u << 10)   /* a car's share of that heap, rounded up (measured 780-850 KB) */
 #define ROAM_HEAP_KEEP  (3072u << 10)   /* left free after the cruise's cars (1259 KB was fatal, 4815 KB played) */
 #define ROAM_MAIN_HEAP_VA 0x005684A8u   /* the main heap object (sub_003670F0) */
+#define ROAM_K_ASK      48              /* links asked of the hub at least (was 32: a 33rd player in a city left pairs unlinked, dimmed blips) */
 #define ROAM_CHEAP_MB   48u             /* the cars heap at a 128 MB window (MC3_ROAM_HEAP_MB) */
 #define ROAM_CHEAP_LEFT (4u << 20)      /* window bytes left free above it */
 #define ROAM_CHEAP_KEEP (2048u << 10)   /* cars heap bytes kept free after one more car */
@@ -443,13 +444,13 @@ static void roam_begin(uint32_t cfg)
         rc_state st;
         if (!name || !*name)
             name = getenv("MC3_PLAYER_NAME");   /* the page's 'Your name' */
-        /* The links asked of the hub (MC3_ROAM_K overrides): 32 at least, more
+        /* The links asked of the hub (MC3_ROAM_K overrides): ROAM_K_ASK at least, more
          * than the cars we show. The hub links a pair only while both are under
          * their K, so a phone's 7 (MC3_ROAM_CARS 7) left every player beyond its
          * 7 nearest without its car and it without theirs, dimmed FAR blips
          * both ways (2026-11-11, 10 players in a city); a linked peer we have
          * no car for still gets a live blip. */
-        roam_set_k(roam_cars_total() > 32 ? roam_cars_total() : 32);
+        roam_set_k(roam_cars_total() > ROAM_K_ASK ? roam_cars_total() : ROAM_K_ASK);
         roam_start(name && *name ? name : "Player", 0);
         /* "Not placed yet" (the origin, status menus): the hub links only
          * players with a position, and ours used to come with the cruise's
