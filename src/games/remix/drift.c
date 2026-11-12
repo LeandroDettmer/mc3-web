@@ -11,7 +11,7 @@
  * stays loose (looser with throttle) through the drift, grips back past the
  * angle limit; the front gets more lock and a little more bite to catch it;
  * the yaw is cut past the limit (no spin-outs); and part of the speed a slide
- * scrubs off is given back.
+ * scrubs off is given back, never above the speed at the slide's start.
  *
  * Only player 0's vehicle ([[0x558814]+8]+0x14 = veh), so AI, traffic and
  * remote cars keep theirs; peers just see our pose. What it touches:
@@ -96,7 +96,7 @@ static void drift_step(void)
     static int env = -1, said = -1;
     static uint32_t seen;                       /* the body whose layout line went out */
     static float fr = 1.0f, kick_t, lift_t, thr_prev, beta_prev, speed_prev;
-    static struct { float t, max, v0, kept, frmin; int cuts; } dr;
+    static struct { float t, max, v0, g, kept, frmin; int cuts; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
     const drift_tune *t;
     int32_t l = mc3_live(MC3_LIVE_DRIFT);
     uint32_t pm = MEM32(0x00558814u), p, veh, sim, tf = 0, tb = 0, car, ph, ics = 0, c, in = 0;
@@ -211,21 +211,33 @@ static void drift_step(void)
             }
             dr.cuts++;
         }
-        /* speed: give back part of what the slide scrubbed off since the frame before (not a wall: < 15 m/s^2) */
-        if (beta > 6.0f && s > 8.0f && brk < 0.3f && hb < 0.5f && speed_prev > s && speed_prev - s < 15.0f * dt) {
-            float ns = s + (speed_prev - s) * t->keep, f = ns / s, m = MEMF(ics + 4u);
-            for (k = 0; k < 3; k++) {
-                MEMF(ics + 0x44u + 4u * k) = v[k] * f;
-                MEMF(ics + 0x2Cu + 4u * k) = v[k] * f * m;
+        /* speed: give back part of what the slide scrubbed off since its start. Measured on the slide's net change
+         * (g, the game's own frame deltas summed), not per frame: giving back each frame's drop and keeping each
+         * rise was a ratchet that turned the physics' frame-to-frame speed jitter into a steady gain. Braking,
+         * handbrake and wall hits (> 15 m/s^2) stay out of g; never above the speed at the slide's start. */
+        if (beta > 6.0f && s > 8.0f && dr.t > 0) {
+            float d = s - speed_prev, ns;
+            if (brk < 0.3f && hb < 0.5f && d > -15.0f * dt)
+                dr.g += d;
+            ns = s + (dr.g < 0 ? -dr.g * t->keep : 0.0f) - dr.kept;
+            if (ns > s && ns > dr.v0)
+                ns = s > dr.v0 ? s : dr.v0;
+            if (ns != s && ns > 0.0f) {
+                float f = ns / s, m = MEMF(ics + 4u);
+                for (k = 0; k < 3; k++) {
+                    MEMF(ics + 0x44u + 4u * k) = v[k] * f;
+                    MEMF(ics + 0x2Cu + 4u * k) = v[k] * f * m;   /* SetVel sub_003432B0: P = v x mass */
+                }
+                dr.kept += ns - s;
+                s = ns;
             }
-            dr.kept += ns - s;
-            s = ns;
         }
     }
-    /* one line per drift (10 deg and more, above 8 m/s, 0.5 s or longer) */
-    if (beta > 10.0f && s > 8.0f) {
+    /* one line per slide (6 deg and more, above 8 m/s, 0.5 s or longer) */
+    if (beta > 6.0f && s > 8.0f) {
         if (dr.t == 0) {
             dr.v0 = s;
+            dr.g = 0;
             dr.max = 0;
             dr.kept = 0;
             dr.cuts = 0;
@@ -236,10 +248,10 @@ static void drift_step(void)
         dr.frmin = fr < dr.frmin ? fr : dr.frmin;
     } else if (dr.t > 0) {
         if (dr.t >= 0.5f)
-            fprintf(stderr, "[DRIFT] drift %.1f s, max %.0f deg, %.0f -> %.0f km/h (%.1f km/h given back), rear grip "
-                            "min x%.2f, yaw cut %d frames, yaw rate %+.2f rad/s at the end\n", (double)dr.t,
-                    (double)dr.max, (double)(dr.v0 * 3.6f), (double)(s * 3.6f), (double)(dr.kept * 3.6f),
-                    (double)dr.frmin, dr.cuts, (double)wy);
+            fprintf(stderr, "[DRIFT] slide: start %.0f km/h, end %.0f km/h, give-back %.1f km/h; %.1f s, max %.0f deg, "
+                            "rear grip min x%.2f, yaw cut %d frames, yaw rate %+.2f rad/s at the end\n",
+                    (double)(dr.v0 * 3.6f), (double)(speed_prev * 3.6f), (double)(dr.kept * 3.6f), (double)dr.t,
+                    (double)dr.max, (double)dr.frmin, dr.cuts, (double)wy);
         dr.t = 0;
     }
     beta_prev = beta;
