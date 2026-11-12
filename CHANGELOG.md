@@ -76,3 +76,4 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** other players' cars show their tyres, not just the rims.
 - **Free Roam:** the map shows every player in the city, also while paused (some were missing).
 - **Free Roam:** a player shown on the map with no car in your world (away, or past your phone's car limit) has a dimmed blip.
+- **Page:** the in-game Settings window holds the important options in Graphics, Free Roam and Controls groups: renderer, resolution, screen shape, stretch, 60 fps, texture filtering, low-memory mode, FPS counter, Players shown, name tags, direct connections, game memory, touch controls. Each says whether it changes live or after a restart, and a Restart button brings the game back without the intro.

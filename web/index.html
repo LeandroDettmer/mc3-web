@@ -240,6 +240,13 @@
   #settings-dlg .dlg-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
   #settings-dlg .btn, #players-dlg .btn, #changelog-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
   #settings-dlg .pad-sel { flex: 1 1 160px; max-width: 100%; min-height: 40px; }
+  #settings-dlg h3 { margin: 20px 0 0; }
+  #settings-dlg .set > div { flex-basis: 220px; }
+  #settings-dlg .set select { min-width: 0; max-width: 100%; }
+  #ig-restart-msg { flex: 1 1 200px; min-width: 0; }
+  .ig-tag { display: inline-block; margin-left: 8px; padding: 0 6px; border: 1px solid var(--line); border-radius: var(--r);
+            font-size: 12px; line-height: 18px; font-weight: 400; color: var(--muted); vertical-align: middle; }
+  .ig-tag.live { color: var(--ok); border-color: var(--ok); }
   #run-status { display: block; color: var(--muted); font-size: 14px; word-break: break-word; }
   #run-status.bad { color: var(--bad); }
   .stage canvas { width: 100% !important; height: 100% !important; object-fit: contain; display: block; outline: none; min-height: 0;
@@ -455,24 +462,38 @@
 
 <div class="stage" id="stage" hidden>
   <div class="stage-bar">
-    <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: screen, controller, keys, log, quit">&#9881; Settings</button>
+    <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
   </div>
   <dialog id="settings-dlg" aria-label="Settings">
     <div class="dlg-head"><strong>Settings</strong><button type="button" class="btn" id="settings-close" aria-label="Close">Close</button></div>
     <span id="run-status" role="status">Loading…</span>
     <div class="dlg-row">
     <button type="button" class="btn" id="full">Fullscreen</button>
-    <select class="pad-sel" id="wide-sel" aria-label="Screen shape" title="Screen shape. Wide: fills the screen, the race shows more to the sides. 16:9: black bars, no widescreen view (WebGPU; changes live)"><option value="">Wide</option><option value="16:9">16:9</option><option value="21:9">21:9</option><option value="32:9">32:9</option></select>
-    <button type="button" class="btn" id="stretch-btn" aria-pressed="false" title="Fill the screen (distorts the picture)">Stretch</button>
-    <select class="pad-sel" id="pad-sel-bar" aria-label="Controller for this tab"></select>
-    <button type="button" class="btn" id="touch-btn" aria-pressed="false" title="On-screen controller (Settings: Touch controls)" hidden>Touch</button>
-    <button type="button" class="btn" id="fps-btn" aria-pressed="false" title="Show frames per second over the picture">FPS</button>
     <button type="button" class="btn" id="keys-btn" aria-expanded="false" aria-controls="keys-panel">Keys</button>
     <button type="button" class="btn" id="races-btn" aria-expanded="false" aria-controls="races-panel" hidden>Races</button>
     <button type="button" class="btn" id="players-btn" aria-haspopup="dialog" aria-controls="players-dlg">Players</button>
     <button type="button" class="btn" id="log-btn" aria-expanded="false" aria-controls="log">Log</button>
     <button type="button" class="btn" id="log-save">Save log</button>
     <button type="button" class="btn danger" id="quit">Quit</button>
+    </div>
+    <!-- the start page's Settings rows that matter while playing (renderIngame): the same store, marked live or restart -->
+    <h3>Graphics</h3>
+    <div class="dlg-row">
+    <button type="button" class="btn" id="stretch-btn" aria-pressed="false" title="Fill the screen (distorts the picture; changes live)">Stretch</button>
+    <button type="button" class="btn" id="fps-btn" aria-pressed="false" title="Show frames per second over the picture (changes live)">FPS counter</button>
+    </div>
+    <div id="ig-graphics"></div>
+    <h3>Free Roam</h3>
+    <div id="ig-roam"></div>
+    <h3>Controls</h3>
+    <div class="dlg-row">
+    <select class="pad-sel" id="pad-sel-bar" aria-label="Controller for this tab"></select>
+    <button type="button" class="btn" id="touch-btn" aria-pressed="false" title="On-screen controller (Settings: Touch controls)" hidden>Touch</button>
+    </div>
+    <div id="ig-controls"></div>
+    <div class="dlg-row">
+    <button type="button" class="btn" id="ig-restart" title="Reload the game with the intro skipped (back to Free Roam where you were)">Restart</button>
+    <span class="hint" id="ig-restart-msg" role="status">Settings marked “restart” apply after a restart.</span>
     </div>
   </dialog>
   <canvas id="canvas" tabindex="0" aria-label="Game" oncontextmenu="event.preventDefault()"></canvas>
@@ -570,26 +591,47 @@
     store.set('aspect169', 1);
   }
 
+  // one row of a setting; prefix keeps the ids apart (start page 'set-', in-game window 'ig-'); tag: in-game live/restart
+  function settingRow(s, prefix, tag) {
+    const row = document.createElement('div'), text = document.createElement('div');
+    const label = document.createElement('label'), help = document.createElement('p'), code = document.createElement('code');
+    const sel = document.createElement('select');
+    row.className = 'set';
+    label.className = 'set-label'; label.htmlFor = sel.id = prefix + s.key; label.textContent = s.label;
+    if (tag) { const t = document.createElement('span'); t.className = 'ig-tag ' + tag; t.textContent = tag; label.append(t); }
+    help.className = 'hint'; help.id = sel.id + '-help'; help.append(s.help + ' '); code.textContent = s.key; help.append(code);
+    sel.setAttribute('aria-describedby', help.id);
+    for (const [v, t] of s.opts) sel.add(new Option(t, v));
+    sel.value = settings[s.key] ?? '';
+    if (sel.value !== (settings[s.key] ?? '')) delete settings[s.key];   // a value no longer offered
+    sel.onchange = () => {
+      setSetting(s.key, sel.value);
+      if (tag === 'restart') $('ig-restart-msg').textContent = s.label + ' changed: press Restart to apply it.';
+    };
+    text.append(label, help);
+    row.append(text, sel);
+    return row;
+  }
   function renderSettings() {
     const body = $('settings-body');
     body.textContent = '';
     for (const s of SETTINGS) {
       if (s.group) { const h = document.createElement('h3'); h.textContent = s.group; body.append(h); continue; }
-      const row = document.createElement('div'), text = document.createElement('div');
-      const label = document.createElement('label'), help = document.createElement('p'), code = document.createElement('code');
-      const sel = document.createElement('select');
-      row.className = 'set';
-      label.className = 'set-label'; label.htmlFor = sel.id = 'set-' + s.key; label.textContent = s.label;
-      help.className = 'hint'; help.id = sel.id + '-help'; help.append(s.help + ' '); code.textContent = s.key; help.append(code);
-      sel.setAttribute('aria-describedby', help.id);
-      for (const [v, t] of s.opts) sel.add(new Option(t, v));
-      sel.value = settings[s.key] ?? '';
-      if (sel.value !== (settings[s.key] ?? '')) delete settings[s.key];   // a value no longer offered
-      sel.onchange = () => { setSetting(s.key, sel.value); };
-      text.append(label, help);
-      row.append(text, sel);
-      body.append(row);
+      body.append(settingRow(s, 'set-'));
     }
+  }
+  // In-game Settings window (2026-11-11): the rows a player changes while playing, from SETTINGS and the same store.
+  // Live ones apply at once (setSetting); the rest are what the game read at start: Restart (restartGame).
+  // Not offered: FXAA and sharpening (the WebGPU renderer never sets WgPresent.sharp / has no FXAA pass).
+  const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_ROAM_P2P']);
+  const INGAME = [
+    ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
+    ['ig-roam', ['MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_RAM_MB']],
+    ['ig-controls', ['MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
+  ];
+  function renderIngame() {
+    for (const [id, keys] of INGAME)
+      $(id).replaceChildren(...keys.map(k => settingRow(SETTINGS.find(s => s.key === k), 'ig-', LIVE.has(k) ? 'live' : 'restart')));
   }
   function setSetting(key, value) {
     if (value) settings[key] = value; else delete settings[key];
@@ -597,6 +639,7 @@
     $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
     if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
     if (key === 'MC3_ROAM_P2P' && lan?.rtc) lan.rtc.roamP2P = roamP2P();   // web/rtc.js, live
+    if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
     preview();
   }
 
@@ -1828,15 +1871,6 @@
   };
   setStretch(store.get('stretch', false));
   $('stretch-btn').onclick = () => { setStretch(!$('stage').classList.contains('stretch')); $('canvas').focus(); };
-  // Screen shape in the bar: the Settings row RECOMP_ASPECT, live (Module.mc3SetAspect, web/pre.js); '' = Auto = Wide
-  const syncWide = () => { $('wide-sel').value = settings.RECOMP_ASPECT || ''; };
-  syncWide();
-  $('wide-sel').onchange = () => {
-    setSetting('RECOMP_ASPECT', $('wide-sel').value);
-    renderSettings();
-    window.Module?.mc3SetAspect?.(settings.RECOMP_ASPECT || 'auto');
-    $('canvas').focus();
-  };
   // SDL names its window 'NV2A' (nv2a_gl.c SDL_CreateWindow), which Emscripten writes into the tab's title: keep ours
   const TAB_TITLE = document.title;
   new MutationObserver(() => { if (document.title !== TAB_TITLE) document.title = TAB_TITLE; })
@@ -1949,7 +1983,8 @@
   $('changelog-dlg').onclick = e => { if (e.target === e.currentTarget) e.currentTarget.close(); };
   // Settings dialog (the stage bar's only button). Keys / Races / Log / Fullscreen show something over the game: close it first.
   const dlg = $('settings-dlg');
-  $('settings-btn').onclick = () => { dlg.showModal(); $('settings-close').focus(); };
+  $('settings-btn').onclick = () => { renderIngame(); dlg.showModal(); $('settings-close').focus(); };
+  $('ig-restart').onclick = () => { if (confirm('Restart the game? Anything not saved in the game is lost.')) restartGame({ resume: true }); };
   $('settings-close').onclick = () => dlg.close();
   dlg.onclick = e => { if (e.target === dlg || e.target.closest('#keys-btn, #races-btn, #players-btn, #log-btn, #full')) dlg.close(); };   // the backdrop is the dialog itself
   dlg.onclose = () => $('canvas').focus();                // the game keeps the keys
