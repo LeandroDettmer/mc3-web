@@ -54,11 +54,22 @@
  * 1 s later, each build a short freeze: kept, the cheaper way to never leave
  * a car the game's teardown cannot see.
  *
+ * Car radius (2026-11-12, untested in game): a peer gets a car only within
+ * ROAM_RADIUS m of our car (3D; MC3_ROAM_RADIUS m, 0 off; off in a group
+ * race) and gives it back once beyond ROAM_RADIUS + ROAM_RADIUS_OUT m for
+ * ROAM_RADIUS_HOLD s (parked, free for the next peer coming in; a slot keeps
+ * its slot): a full city needs only the cars of the players around us, the
+ * rest are bright map blips (roam_map.c). The caps, the nearest rule and the
+ * nearest-first order work inside it. '[ROAM] radius: ...' on change.
+ *
  * '[ROAM] pool: N peers, C cars (S slots + T standalone), D dimmed, heap F KB'
  * every 30 s at most, when the counts change. */
 #define ROAM_RC_MAX    (ROAM_K_MAX + 1)
 #define ROAM_NEAR_GAIN 50.0f            /* m nearer */
 #define ROAM_NEAR_HOLD 3.0              /* s, held */
+#define ROAM_RADIUS      300.0f         /* m: a peer gets a car within (MC3_ROAM_RADIUS, 0 off) */
+#define ROAM_RADIUS_OUT  50.0f          /* m past it: the car goes back ... */
+#define ROAM_RADIUS_HOLD 3.0            /* ... after this long beyond (no churn at the edge) */
 #define ROAM_COSTS     64               /* models whose cost is kept */
 
 typedef struct roam_rc {
@@ -76,6 +87,7 @@ typedef struct roam_rc {
     uint8_t  here, away, live, want;    /* linked now; in its garage/loading/race; posed; rebuild with the peer's look */
     double   lost;                      /* when its peer dropped out */
     double   wait;                      /* no rebuild before (one refused for heap room) */
+    double   out;                       /* its peer beyond the car radius since (0: within) */
     uint32_t said;                      /* RC_SAY_* logged */
     roam_tyre tyre;
 } roam_rc;
@@ -94,6 +106,28 @@ static int s_ncost;
 static uint32_t s_cost_max;             /* the largest measured, 0 none */
 
 static int roam_rc_slot(int k) { return k >= 1 && k <= s_roam_slots; }
+
+/* The car radius in m, 0 off (MC3_ROAM_RADIUS; a group race shows its racers wherever they are). */
+static float roam_pool_radius(void)
+{
+    static float r = -1.0f;
+    if (r < 0.0f) {
+        const char *e = getenv("MC3_ROAM_RADIUS");
+        r = e && *e ? (float)atof(e) : ROAM_RADIUS;
+        if (!(r > 0.0f))
+            r = 0.0f;
+        fprintf(stderr, r > 0.0f ? "[ROAM] radius: remote cars for players within %.0f m\n"
+                                 : "[ROAM] radius: off (%.0f), every linked player may get a car\n", r);
+    }
+    return roam_group_race() ? 0.0f : r;
+}
+
+/* A peer dist m away is outside the car radius: no car for it, a bright blip without one. */
+static int roam_pool_beyond(float dist)
+{
+    float r = roam_pool_radius();
+    return r > 0.0f && dist > r;
+}
 
 static int roam_rc_say(roam_rc *c, uint32_t why)
 {
@@ -597,7 +631,7 @@ static void roam_rc_give(int k, const roam_peer *pp, const char *why)
     roam_rc *c = &s_rc[k];
     c->id = pp->id;
     c->live = c->away = c->want = 0;
-    c->wait = 0;
+    c->wait = c->out = 0;
     c->gen = 0;
     c->said = 0;
     snprintf(c->name, sizeof c->name, "%s", pp->name);
@@ -651,6 +685,7 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
     const char *pname;
     int at[ROAM_RC_MAX];                        /* entry k's peer index this frame */
     int i, k, best, bs, sc, ok, cand = -1, held = 0, lim = roam_cars_total(), kk = lim > 32 ? lim : 32;
+    float rad = roam_pool_radius();
     if (k_was && kk != k_was && roam_running())
         roam_set_k(kk);
     k_was = kk;
@@ -663,6 +698,19 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
             continue;
         for (i = 0; i < n && (used[i] || peers[i].id != c->id); i++)
             ;
+        if (i < n && rad > 0.0f && peers[i].dist > rad + ROAM_RADIUS_OUT) {
+            if (!c->out)
+                c->out = now;
+            else if (now - c->out >= ROAM_RADIUS_HOLD) {    /* beyond the radius: its car parked, free for another */
+                fprintf(stderr, "[ROAM] %s %d: %s parked (%.0f m, beyond the %.0f m car radius)\n",
+                        roam_rc_slot(k) ? "slot" : "car", k, c->name, peers[i].dist, rad);
+                c->id = 0;
+                c->here = c->live = 0;
+                c->out = 0;
+                continue;
+            }
+        } else
+            c->out = 0;
         if (i < n) {
             used[i] = 1;
             at[k] = i;
@@ -690,7 +738,7 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
         held--;
     }
     for (i = 0; i < n; i++) {
-        if (used[i])
+        if (used[i] || (rad > 0.0f && peers[i].dist > rad))  /* beyond the car radius: a blip only */
             continue;
         if (held >= lim) {
             if (cand < 0 && peers[i].status == RC_ST_ROAM)
@@ -1039,8 +1087,24 @@ static void roam_pool_log(double now)
             cur[roam_rc_slot(k) ? 1 : 2]++;
     for (i = 0; i < cur[0]; i++)
         if (s_roam_seen[i].status < RC_ST__N &&
-            (s_roam_seen[i].status != RC_ST_ROAM || !roam_pool_shows(s_roam_seen[i].id)))
+            (s_roam_seen[i].status != RC_ST_ROAM ||
+             (!roam_pool_shows(s_roam_seen[i].id) && !roam_pool_beyond(s_roam_seen[i].dist))))
             cur[3]++;
+    if (roam_pool_radius() > 0.0f) {            /* the car radius line: on change, 10 s apart at most */
+        static double rad_t = -1e9;
+        static int rad_said[2] = { -1, -1 };
+        int far = 0, in;
+        for (i = 0; i < cur[0]; i++)
+            far += roam_pool_beyond(s_roam_seen[i].dist);
+        in = cur[0] - far;
+        if ((in != rad_said[0] || far != rad_said[1]) && now - rad_t >= 10.0) {
+            rad_said[0] = in;
+            rad_said[1] = far;
+            rad_t = now;
+            fprintf(stderr, "[ROAM] radius: %d peers in %.0f m, %d cars, %d far\n", in, roam_pool_radius(),
+                    cur[1] + cur[2], far);
+        }
+    }
     if (!memcmp(cur, said, sizeof cur) || now - said_t < 30.0)
         return;
     memcpy(said, cur, sizeof cur);

@@ -616,7 +616,13 @@ generated files when the lift inputs did not change.
   cruise, with 0 remote slots too (s_roam_cruise; a low-heap phone used to
   send nothing, the others never saw it). '[ROAM] pool: N peers, C cars (S
   slots + T standalone), D dimmed, heap F KB' every 30 s at most, when it
-  changes. A phone (64 MB, main heap 47 MB,
+  changes. Car radius (2026-11-12, untested in game): a peer gets a car only
+  within 300 m of ours (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
+  a group race) and gives it back (parked, reused) after 3 s beyond 350 m;
+  beyond the radius a carless driving peer is a bright blip, not dimmed;
+  the load's cars (roam_build, roam_pool_load) ignore it (our position may
+  be stale then), the net loop parks them; '[ROAM] radius: N peers in R m,
+  C cars, F far'. A phone (64 MB, main heap 47 MB,
   8.5 MB free at load) fits 4 remote slots ('[ROAM] heap: 4 remote cars
   fit', ~800-950 KB each, ~3.7 MB left; 1.26 MB was fatal), and only
   peers at load + 2 of them (alone at load: 2). Logs '[ROAM] cars: ...'. Cars heap

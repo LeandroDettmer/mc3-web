@@ -330,7 +330,9 @@ static void rmap_far(uint32_t map, uint32_t top)
         if (rmap_shown(seen[i].status)) {
             memcpy(dot[n].p, seen[i].p, sizeof dot[n].p);
             memcpy(dot[n].q, seen[i].q, sizeof dot[n].q);
-            dot[n++].far = seen[i].status != RC_ST_ROAM || !rmap_has_car(seen[i].id);   /* away or no car: dimmed */
+            /* dimmed: away, or no car within the car radius (beyond it no car is the rule: a bright blip) */
+            dot[n++].far = seen[i].status != RC_ST_ROAM ||
+                           (!rmap_has_car(seen[i].id) && !roam_pool_beyond(seen[i].dist));
         }
     nnear = n;
     nf = roam_far(far, ROAM_FAR_MAX);
@@ -351,7 +353,7 @@ static void rmap_far(uint32_t map, uint32_t top)
         said_t = roam_now();
         for (i = k = 0; i < nnear; i++)
             k += dot[i].far;
-        fprintf(stderr, "[roam] map: %d linked (%d dimmed: away or no car) + %d far player(s) drawn as blips (%s; %d "
+        fprintf(stderr, "[roam] map: %d linked (%d dimmed: away or no car in the radius) + %d far player(s) drawn as blips (%s; %d "
                         "peers, hub far list %d)\n",
                 nnear, k, n - nnear, vt == RMAP_FULLMAP_VT ? "full map" : "minimap", nseen, nf);
     }
