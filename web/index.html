@@ -203,6 +203,10 @@
   .online-now { margin: 0 0 20px; padding: 12px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r); }
   .on-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; line-height: 20px; }
   .on-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(155, 224, 138, .6); animation: on-pulse 2s infinite; }
+  .boot-load { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: #fff; font: 600 15px/1.3 system-ui, sans-serif; pointer-events: none; z-index: 2; }
+  .boot-load[hidden] { display: none; }
+  .boot-load::before { content: ''; width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: boot-spin .9s linear infinite; }
+  @keyframes boot-spin { to { transform: rotate(360deg); } }
   @keyframes on-pulse { 70% { box-shadow: 0 0 0 8px rgba(155, 224, 138, 0); } 100% { box-shadow: 0 0 0 0 rgba(155, 224, 138, 0); } }
   @media (prefers-reduced-motion: reduce) { .on-dot { animation: none; } }
   .on-head b, .on-mode b { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; color: var(--gold);
@@ -461,6 +465,7 @@
 </dialog>
 
 <div class="stage" id="stage" hidden>
+  <div class="boot-load" id="boot-load" role="status" hidden>Loading the game…</div>
   <div class="stage-bar">
     <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
   </div>
@@ -1332,6 +1337,8 @@
   function out(text) {
     logN++; logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
     if (/^\s*\[roam\] status /.test(text)) roamT = performance.now();
+    // Skip intro hides the legal screen (recomp_manual.c legal_hidden): a Loading box instead of a black picture
+    if (/^\s*\[LS\] legal screen hidden/.test(text)) $('boot-load').hidden = /: boot load running/.test(text) ? false : true;
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
     // '[WEB] memory:' lines are the memory ladder's own (a refused size is retried smaller, web/pre.js): not fatal
     // the worker refused WebGL 2 (not through the page thread): the next start draws through the page (play())
@@ -1347,6 +1354,7 @@
   // A failure over the picture (2026-11-09: a TV showed a silent black screen and has no console): what
   // happened, why, and the log's last 20 lines. The first failure only; a click closes it.
   function failShow(title, why) {
+    $('boot-load').hidden = true;
     if (failBox) return;
     runStatus(title + ': ' + why, true);
     const m = failBox = document.createElement('div');

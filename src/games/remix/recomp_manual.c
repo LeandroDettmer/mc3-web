@@ -1246,6 +1246,7 @@ static int legal_hidden(uint32_t obj)
     if (runs++ || !s || strcmp(s, "hard") || (l && l[0] == '0') || !movie || MEM8(obj + 0x4004))
         return 0;                           /* not the legal screen, or not skipping */
     t0 = ls_now();
+    fprintf(stderr, "[LS] legal screen hidden: boot load running\n");   /* the page shows its Loading box (index.html) */
     r[0] = g_eax; r[1] = g_ecx; r[2] = g_edx; r[3] = g_ebx;
     r[4] = g_esp; r[5] = g_ebp; r[6] = g_esi; r[7] = g_edi;
     while (!MEM8(obj + 0x4004)) {
