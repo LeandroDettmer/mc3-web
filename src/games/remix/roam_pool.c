@@ -319,14 +319,20 @@ static uint32_t roam_pool_cache_for(int k)
     return roam_xcache_pick();
 }
 
-/* The vehicle registry's cars (its fullest list) and *cap its capacity (0 unread). */
+/* The vehicle registry's cars and *cap its capacity (0 unread). A list of k
+ * bytes per capacity holds k/4 entries a car (base Add sub_0035D500: +0x40 one
+ * per wheel, 4 a car), so each list's count is read in cars, rounded up, and
+ * the fullest taken (its raw count, 12 for 3 cars, logged as 12/10). */
 static uint32_t roam_reg_used(uint32_t *cap)
 {
-    uint32_t reg = MEM32(ROAM_REG_VA), n = 0, i;
+    uint32_t reg = MEM32(ROAM_REG_VA), n = 0, i, per, c;
     *cap = online_ram(reg) ? MEM32(reg + ROAM_REG_CAP) : 0;
-    for (i = 0; *cap && i < sizeof s_roam_reg_lists / sizeof s_roam_reg_lists[0]; i++)
-        if (MEM32(reg + s_roam_reg_lists[i].arr - 4u) > n)
-            n = MEM32(reg + s_roam_reg_lists[i].arr - 4u);
+    for (i = 0; *cap && i < sizeof s_roam_reg_lists / sizeof s_roam_reg_lists[0]; i++) {
+        per = s_roam_reg_lists[i].k / 4u;
+        c = (MEM32(reg + s_roam_reg_lists[i].arr - 4u) + per - 1u) / per;
+        if (c > n)
+            n = c;
+    }
     return n;
 }
 
@@ -882,9 +888,11 @@ static void roam_pool_grow(double now)
      * the Players shown of then: a live raise beyond it waits for the next load */
     if (!roam_bslots() || (k == s_nrc && (s_nrc - 1 >= roam_cars_total() || s_nrc >= ROAM_RC_MAX
                                          || 8u + (uint32_t)s_nrc + 2u > cap))) {
-        if (roam_cars_say(CARS_SAY_MAX))
+        if (roam_cars_say(CARS_SAY_MAX)) {
             fprintf(stderr, "[ROAM] cars: all %d remote cars in use (Players shown %d, vehicle registry %u): the "
                             "nearest get them (logged once)\n", s_nrc - 1, roam_cars_total(), (unsigned)cap);
+            roam_pool_capacity("all in use");
+        }
         s_pool_full = 1;
         s_pool_next = now + 2.0;
         return;

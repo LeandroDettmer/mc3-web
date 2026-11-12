@@ -89,7 +89,9 @@ capacity 10 at +0x7C, 18 lists {count, array} (arrays +8..+0x78, +0x84,
 sub_002CBAE0, sub_001FB040, sub_002CBC40, sub_002BDEC0) loop by count. 8
 player cars use 8 of 10: any extra car needs it enlarged. **Done**
 (roam_cars.c, MC3_ROAM_CARS=N: capacity 8 + N + 2, arrays repointed into
-the contiguous window, contents copied).
+the contiguous window, contents copied; at every cruise load since
+2026-11-12, Players shown 7 too: phones stayed at 10, and the pool's grow,
+which wants 8 + entries + 2 places, never built a standalone car there).
 
 **Minimap blips.** The walker sub_000BF850 -> sub_000BE140 (gated on
 [[veh+0xC]+0x12D]) draws each blip with sub_000BB310 (ecx = minimap, ret
@@ -243,7 +245,9 @@ cars (roam_cars.c: s_car, roam_cars_net, roam_car_make, roam_nearest).
   with [0x50A08C] swapped around roam_car_build and roam_car_delete; the
   game's cache keeps its own cars and the slots'. Before each build:
   a free entry (a rebuild: its old car's entry, freed first) and, for a
-  new car, a vehicle registry place (its fullest list < capacity); else
+  new car, a vehicle registry place (its fullest list < capacity, counted
+  in cars: a list of k bytes per capacity holds k/4 entries a car, +0x40
+  4 wheels each; the raw count read 3 cars as '12/10'); else
   the build waits (pool full: the nearest rule, blips) and nothing is
   touched. '[ROAM] cars: capacity: car cache N/16, remote car caches
   N/48, vehicle registry N/M (when)' after every build and on a refusal.

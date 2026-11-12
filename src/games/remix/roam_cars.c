@@ -76,11 +76,14 @@ static int roam_cars_total(void)
 }
 
 /* Before the cruise's cars are built: registry capacity >= 8 players + the
- * standalone cars. Once per game (later calls find it big enough). */
+ * standalone cars. Every cruise load, whatever Players shown is: at 7 (phones)
+ * it stayed 10, so the pool's grow (8 + entries + 2 places) never built a
+ * standalone car (the Online career: none at all). Later calls find it big
+ * enough unless Players shown went up. */
 static void roam_cars_registry(void)
 {
     uint32_t reg = MEM32(ROAM_REG_VA), cap, want, i, old, neu, k;
-    if (roam_cars_total() <= ROAM_SLOTS || !online_ram(reg))
+    if (!online_ram(reg))
         return;
     cap = MEM32(reg + ROAM_REG_CAP);
     want = 8u + (uint32_t)roam_cars_total() + 2u;
