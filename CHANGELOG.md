@@ -54,7 +54,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Stability:** Fixed two causes of the game freezing for good; iPhones and iPads start with less memory so tabs stop closing.
 - **Graphics:** Phones whose GPU froze with WebGPU (Mali, older Adreno) use WebGL, and any device where WebGPU failed uses WebGL from its next start.
 
-## 2026-11-12 (f5b20be)
+## 2026-11-12 (cb94a9f)
 
 - **Game:** Drift mode (Settings: Off, On or Strong): tap the handbrake, or lift off the throttle with the wheel turned, and the back steps out; the throttle holds the angle and counter-steering catches it. Works on every car in Free Roam, races and career; other players see your drift. A Drift button in the top-right bar switches it.
 - **Game:** Drift points, with Drift mode on or off: slide hard (20 degrees or more, 50 km/h or more) for at least 1.5 seconds to bank points (more for a wider angle and more speed), chain drifts for up to x5, and hitting a wall or spinning out loses the drift. In Free Roam Online every 10,000 points pays $10,000, kept in your Online profile.
