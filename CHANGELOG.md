@@ -3,99 +3,66 @@
 What changed for players, oldest first: the start page's Changelog button shows this file (the deploy's stage script
 copies it next to index.html).
 
-Each day with a release gets one section: `## <date> (<commit>)`, the commit being the last one the release brings, so
-the next section covers the commits after it. A second release on the same day adds its lines to that day's section
-and moves its commit on. One line per change, in plain text, as `- **Area:** what changed`, written for players: new
-things and noticeable improvements first, smaller fixes last. Left out: the server's insides, logs, tests, docs and
-the recompilation toolkit's internals. The page header always shows the first release, 9 November 2026; each later day adds its section at the end, dated that day.
+Each day with a release gets one section: `## <date> (<commit>)`, the commit being the last one the release brings.
+A second release on the same day adds its lines to that day's section and moves its commit on. One short line per
+player-visible change, as `- **Area:** what changed`, most interesting first. No logs, addresses, settings names or
+internals. The page header shows the first release (9 November 2026); each later day adds its section at the end.
 
 ## 2026-11-09 (a749352)
 
 - **Game:** Midnight Club 3: DUB Edition Remix runs in the browser, with sound, music, movies, saves and keyboard or controller.
 - **Online:** Free Roam: cruise a city with other players, who show as cars with name tags and as blips on the map.
-- **Online:** Online Races: make or join a race room from the page (invite link, optional password); the game's System Link sees only that room.
-- **Online:** Online is the first item of the main menu. Online play keeps its own profile, starting with $2,000,000; your career save is not touched.
-- **Online:** The page shows who is playing now and lists the players.
-- **Online:** Nicknames are unique among the players online; the page asks for one before Play.
-- **Free Roam:** Race from a start point on the map against the AI, then go back to your spot in the cruise.
-- **Free Roam:** Challenge a nearby player to a street race: start grid, countdown and the game's own checkpoints.
-- **Free Roam:** More cars shown at once (up to 32 with 128 MB of game memory), with your car's tyres and paint.
-- **Free Roam:** Garages and race starts show on the maps; away players keep a dimmed blip at their last place.
+- **Online:** Online Races: make or join a race room from the page (invite link, optional password).
+- **Online:** Online is the first item of the main menu, with its own profile starting at $2,000,000; your career save is not touched.
+- **Online:** The page shows who is playing now. Nicknames are unique among online players.
+- **Free Roam:** Race the AI from a start point on the map, then go back to your spot in the cruise.
+- **Free Roam:** Challenge a nearby player to a street race, with a start grid, countdown and the game's own checkpoints.
+- **Free Roam:** Up to 32 cars shown at once on a PC, with their tyres and paint; garages and race starts show on the maps.
 - **Graphics:** WebGPU renderer, much faster than WebGL (the cruise runs at 30 fps); WebGL stays as the fallback.
-- **Graphics:** Widescreen (Wide, 16:9, 21:9, 32:9) shows more to the sides; Stretch fills the screen.
-- **Graphics:** Optional 60 fps races (experimental).
-- **Phones and TVs:** On-screen touch controls, full screen and landscape on Play.
-- **Phones and TVs:** A low-memory mode starts the game on TVs, iPhones and small devices, and a box tells you why when it cannot start.
-- **Loading:** The game files are downloaded once and kept in the browser; the rest loads quietly in the background.
-- **Page:** New look in the game's colours, a Settings window, a key list by action, a Skip intro option and a saves import for Xbox saves.
-- **Page:** Release date and this changelog at the top.
+- **Graphics:** Widescreen (16:9, 21:9, 32:9) shows more to the sides; Stretch fills the screen. Optional 60 fps races (experimental).
+- **Phones and TVs:** On-screen touch controls, full screen and landscape on Play, and a low-memory mode for TVs, iPhones and small devices.
+- **Loading:** The game files are downloaded once and kept in the browser.
+- **Page:** New look, a Settings window, a key list by action, a Skip intro option and Xbox save import.
 
 ## 2026-11-10 (379853a)
 
-- **Crashes:** after a crash, Restart brings the game back quickly without the intro movies; when the graphics device is lost it restarts with WebGL.
-- **Crashes:** a crash in the online Free Roam offers Back to Free Roam: the game goes straight back to the cruise, at the city and spot you were.
-- **Crashes:** crashes, freezes and closed tabs now send their log by themselves, so they can be fixed.
-- **Free Roam:** joining while another player sits on the start spot no longer puts your car inside theirs.
-- **Free Roam:** other players' cars no longer show without tyres.
-- **Online:** the players box says Career instead of Elsewhere.
-- **Free Roam:** no more invisible cars at the start spot that you could crash into.
-- **iPhone:** no more false "Out of memory" box at start.
-- **Loading:** a slow first start no longer shows "No picture" too soon.
-- **Free Roam:** another player falling into the sea no longer opens the Restart Cruise menu for everyone.
-- **Online:** your own nick is never refused when you come back; another player still can't take it.
-- **Online:** the player counts update with far fewer requests.
-- **iPhone:** Restart waits for the memory of the last run instead of failing; a crash in the Online menu fixed.
-- **Free Roam:** the city screen no longer shows the online count, so the game stops asking the server for it.
-- **Free Roam:** A on the city screen starts the cruise; the time, weather, pedestrians and traffic screen is skipped.
-- **Online:** opening the site in a second tab no longer drops the game tab out of Free Roam (players stopped seeing each other).
-- **Free Roam:** no more crash ("Heap overrun") when the cruise loads with many players: a PC now gives the game 128 MB.
-- **Free Roam:** no more nameless Eclipses parked at the start.
-- **Free Roam:** a player driving near you gets a car even when players in the garage or the menus held the car slots.
-- **Free Roam:** every player in your city shows on the map, and the full map (I) lists the players on its side.
-- **Firefox:** the game shows a picture again instead of a black screen (it now draws with WebGL there).
-- **Free Roam:** no more red Eclipses driving around the city: the cruise had AI racers since the options screen was skipped.
-- **Free Roam:** the minimap and the full map show every player of your city, not just the 20 nearest, and their places update every second.
-- **Free Roam:** no more freeze when another player's car changes while you cruise.
-- **Free Roam:** cars of nearby players come straight from their browser (P2P, with Cloudflare's TURN behind strict routers): smoother, and the server only relays what cannot connect. Settings: "Direct connections (P2P) in Free Roam".
-- **Free Roam:** every player in your city is on the map now, not only the 20 nearest; each city has a server of its own.
-- **Free Roam:** San Diego only for now, so everyone meets in the same city.
+- **Free Roam:** Cars of nearby players come straight from their browser (P2P): smoother, with the server only relaying what cannot connect. Each city has its own server.
+- **Free Roam:** Every player in your city shows on the minimap and the full map (I), which also lists them, updated every second.
+- **Free Roam:** A on the city screen starts the cruise at once, in San Diego, where everyone meets.
+- **Free Roam:** Fixed crashes when the cruise loads with many players, and freezes when another player's car changes.
+- **Free Roam:** Fixed cars inside yours at the start, cars without tyres, invisible cars, and stray AI Eclipses.
+- **Free Roam:** Another player falling into the sea no longer opens the Restart Cruise menu for everyone.
+- **Crashes:** Restart brings the game back quickly without the intro; a crash in Free Roam offers Back to Free Roam at your city and spot.
+- **Firefox:** The game shows a picture again instead of a black screen.
+- **iPhone:** No more false "Out of memory" box at start, and Restart works after a crash.
+- **Online:** Opening the site in a second tab no longer drops your game out of Free Roam.
 
 ## 2026-11-11 (5be444b)
 
-- **Free Roam:** the cars your device can show now go to the players nearest you: a player driving close by takes the car of one far away (after 3 s, at least 50 m nearer), so phones no longer show far cars while the ones next to you are dim arrows.
-- **Free Roam:** street races start with a headlight flash: flash (White, Q) near a player to challenge, flash back to accept; nothing pops up just for being near someone. On phones the White button is now Flash.
-- **Free Roam:** street races start on the race's own start grid, side by side and facing the road, and run from its first checkpoint.
-- **Free Roam:** players in the same city no longer miss each other after a server hiccup: the page keeps reconnecting to the city.
-- **Free Roam:** a notice shows when the connection to the other players is lost, and offers a reload if it does not come back.
-- **Saves:** your Remix career profiles now show in Saves with a Download button, and "Import save" takes a profile downloaded from this site (another browser or device); on phones, Download opens the share sheet (Save to Files, AirDrop, Mail).
-- **Stability:** fixed two causes of the game freezing for good (a controller timing bug and a sound chip wait, e.g. when the music changes).
-- **Stability:** iPhones and iPads start with less memory, which should stop many tabs from closing on their own.
-- **Graphics:** phones whose GPU froze the game with WebGPU (Mali, older Adreno) draw with WebGL, and any device where WebGPU froze or was lost uses WebGL from its next start.
-- **Loading:** the background download now also fills cars, the city map and the career's movies, so fewer stalls in career and Free Roam.
-- **Page:** a "Report a bug" button opens a bug report on GitHub with the details filled in.
-- **Online:** the main menu's Online item shows how many players are in Free Roam and loads the San Diego cruise at once, in your profile's car (hold White / Q while picking it for Online Races).
-- **Free Roam:** other players' cars show their tyres, not just the rims.
-- **Free Roam:** the map shows every player in the city, also while paused (some were missing).
-- **Free Roam:** a player shown on the map with no car in your world (away, or past your phone's car limit) has a dimmed blip.
-- **Page:** the in-game Settings window holds the important options in Graphics, Free Roam and Controls groups: renderer, resolution, screen shape, stretch, 60 fps, texture filtering, low-memory mode, FPS counter, Players shown, name tags, direct connections, game memory, touch controls. Each says whether it changes live or after a restart, and a Restart button brings the game back without the intro.
-- **Free Roam:** players on phones no longer cut others out of view: everyone links to their 32 nearest players (a car 'appearing from nowhere' was a missing link).
-- **Loading:** music track changes no longer freeze the game on a first visit: the background download fetches the start of every song first (kept in memory where the browser gives no room, e.g. an incognito tab), and the rest of a song is fetched ahead while it plays.
-- **Loading:** the start page's 'Download the whole game now' button is back: the whole disc kept in the browser, no waits for the network in game.
-- **Free Roam:** another player riding a motorbike no longer freezes your game for good when their bike appears mid-cruise: it shows as a car until your next cruise load.
-- **Free Roam:** street races use the game's own checkpoints at last (the flares, the race arrow and the checkpoint sound, not the page's marker) and run the race's whole course, not just its first 2 km. Both racers need this version.
-- **Loading:** with "Skip intro" on, the red legal screen at start is gone too: the game loads behind a "Loading the game…" spinner, a little sooner (the screen no longer takes time from the loading, nor plays its way out). On a first visit most of that wait is the game's data coming over the network.
+- **Free Roam:** Street races use the game's own checkpoints and run the race's whole course, starting side by side on the race's own grid. Challenge by flashing (White, Q; Flash on phones) near a player, flash back to accept.
+- **Free Roam:** The nearest players get the cars your device can show, and everyone links to their 32 nearest, so cars no longer appear from nowhere.
+- **Free Roam:** Players on the map with no car in your world have a dimmed blip, also while paused.
+- **Free Roam:** A notice shows when the connection to other players is lost, and the page keeps reconnecting.
+- **Free Roam:** Another player's motorbike no longer freezes your game; it shows as a car until your next cruise load.
+- **Online:** The main menu's Online item shows how many players are in Free Roam and loads the San Diego cruise at once, in your profile's car (hold White / Q for Online Races).
+- **Saves:** Your Remix career profiles show in Saves with Download, and Import save takes a profile from another browser or device.
+- **Page:** The in-game Settings window holds the important options in Graphics, Free Roam and Controls groups, with a Restart button.
+- **Page:** A Report a bug button opens a bug report with the details filled in.
+- **Loading:** Music track changes no longer freeze the game on a first visit; the background download fetches cars, the city map and career movies too.
+- **Loading:** The "Download the whole game now" button is back.
+- **Loading:** With Skip intro on, the red legal screen is gone too, and the game loads behind a spinner.
+- **Stability:** Fixed two causes of the game freezing for good; iPhones and iPads start with less memory so tabs stop closing.
+- **Graphics:** Phones whose GPU froze with WebGPU (Mali, older Adreno) use WebGL, and any device where WebGPU failed uses WebGL from its next start.
 
 ## 2026-11-12 (9ce8569)
 
-- **Page:** a "Map" button in the bar next to Settings and Drift opens and closes the game's full map (it presses d-pad up for you, like I on the keyboard); works with or without the touch controls.
-- **Free Roam:** with the full map open, an "Online progress" panel sits beside the players list: races won, the latest unlock (or last prize) and the next unlock with wins to go.
-- **Page:** more of the in-game Settings change without a restart: resolution, anisotropic filtering and mipmaps (WebGPU), 60 fps (at once, mid-drive too), Players shown (lower hides the farthest cars at once), keyboard as pad 1, touch controls and their opacity. Renderer, game memory, low-memory mode and texture detail bias still need Restart.
-- **Page:** the in-game Settings window is laid out anew: sections on the left (Game, Graphics, Free Roam, Controls, Info; tabs on top on a narrow phone), one short line per option (tap or focus it for the whole text), a quiet live / restart mark, and Restart and Close always at the bottom, Restart lit up once an option that needs it changed. Keyboard works inside it now (Tab, arrows, Enter, Esc).
-- **Free Roam:** street races start with both cars facing the course (they stood turned around on the grid).
-- **Free Roam:** street races for up to 8 players: stop or drive slowly near other players and the box offers "Street race? N nearby players will be invited"; press White (Q, or Flash on touch) to invite them all, and each one joins with White within 10 seconds. Everyone who joined starts on the race's own grid, and the result lists every racer's place and time. Two players still race one on one the same way. Every racer needs this version.
-- **Free Roam:** in a street race a checkpoint you pass now fades away as in the game's own races, and the next one shows (the passed one stayed up).
-- **Free Roam:** opening the pause menu or the full map no longer removes the nearby players' cars (they came back one by one after the resume, a dimmed arrow meanwhile); when the game's memory is full, the nearest players get the cars instead of some players never getting one.
-- **Page:** after a new version is published, a running page notices within a minute: online players (Free Roam, race rooms) get a "reloading in 60 s" box with a Reload now button and are reloaded, offline players only a dismissable notice.
-- **Game:** Drift mode (Settings, Off by default, On or Strong, changes live) is now a drift assist on your own car: tap the handbrake, or lift off the throttle with the wheel turned, and the back steps out; the throttle holds the angle, counter-steering catches it (more steering lock while sliding), the car no longer spins out at normal angles and keeps most of its speed. Strong: easier, wider angles. Every car, in Free Roam, races and career. Other players see your car drift; theirs are not changed.
-- **Game:** a Drift button in the top-right bar, next to Settings, shows Drift: On or Off and switches Drift mode (the same setting as in Settings, changes live).
-- **Online:** races in Free Roam pay off: 1st, 2nd and 3rd place win $25,000, $12,000 and $6,000 (street races pay more with more racers), and wins unlock, one by one, the driving abilities (Nitro, Slingshot, Burnout, Two-wheel driving, In-air control, Zone/Agro/Roar) and the Pearlescent and Color-shift paints. Kept in your Online profile; your career is not touched.
+- **Game:** Drift mode (Settings: Off, On or Strong): tap the handbrake, or lift off the throttle with the wheel turned, and the back steps out; the throttle holds the angle and counter-steering catches it. Works on every car in Free Roam, races and career; other players see your drift. A Drift button in the top-right bar switches it.
+- **Online:** Free Roam races pay off: 1st, 2nd and 3rd win $25,000, $12,000 and $6,000, and wins unlock Nitro, Slingshot, Burnout, Two-wheel driving, In-air control, Zone/Agro/Roar and the Pearlescent and Color-shift paints. Kept in your Online profile.
+- **Free Roam:** Street races for up to 8 players: stop near others, press White (Q, or Flash on touch) to invite them all, and each joins with White within 10 seconds. The result lists every racer's place and time.
+- **Free Roam:** An Online progress panel beside the players list on the full map shows races won, your latest unlock and the next one.
+- **Page:** A Map button next to Settings and Drift opens and closes the full map, with or without touch controls.
+- **Page:** More Settings change without a restart (resolution, filtering, 60 fps, Players shown, keyboard, touch controls), in a new layout with keyboard support.
+- **Page:** After a new version is published, online players get a "reloading in 60 s" box; offline players get a dismissable notice.
+- **Free Roam:** Street race cars now face the course, and passed checkpoints fade as in the game's own races.
+- **Free Roam:** Pausing or opening the full map no longer removes nearby players' cars.
+- **Game:** Drift mode no longer makes the car faster while sliding.

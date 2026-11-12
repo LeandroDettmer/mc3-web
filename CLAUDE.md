@@ -105,6 +105,8 @@ docs/web/PLAYING.md.
   servers) take the CPU and GPU from the owner's game.
 - nfsu2-web code reused (MIT) carries a credit to th0mk in the file header
   and in NOTICE.md.
+- CHANGELOG.md is player-facing: one short line per player-visible change; no
+  logs, addresses, env names or internals.
 - Several agents share one tree and one build folder: small commits of
   your own hunks only (`git add -p` is unavailable to agents: stage whole
   files you alone touched, or ask); never commit another agent's hunks.
