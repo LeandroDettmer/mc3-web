@@ -68,4 +68,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Street race cars now face the course, and passed checkpoints fade as in the game's own races.
 - **Free Roam:** Nearby players show as cars far more reliably: pausing or opening the full map no longer removes their cars, and dropped links no longer leave them as dimmed arrows.
 - **Game:** Drift points now show on the left of the screen, and only a crash (wall, car or prop) loses a drift: hard slides and spins no longer do.
-- **Online:** Online career (Settings, off by default): your career's city shows the other players driving there, from Free Roam or their own careers, as cars and on the map, and they see you. Your career, money and saves are untouched; no street races or online money in the career.
+- **Online:** Online career (Settings, off by default): your career's city shows the other players driving there, from Free Roam or their own careers, as cars and on the map, and they see you, nick tags over their cars included. Your career, money and saves are untouched; no street races or online money in the career.

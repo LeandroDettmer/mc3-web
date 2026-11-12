@@ -221,7 +221,7 @@ static void roam_tags_view(uint32_t vp, uint32_t ret)
         return;                                 /* not a camera applying itself */
     if (trace < 0)
         trace = tags_env("MC3_ROAM_TRACE", 0);
-    if (!s_online || !roam_running() || roam_fake() || !remix_driving()) {
+    if (!(s_online || (s_career_roam && s_roam_cruise)) || !roam_running() || roam_fake() || !remix_driving()) {
         if (s_tags.n) {
             s_tags.n = 0;
             s_tags.seq++;
