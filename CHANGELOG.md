@@ -81,3 +81,4 @@ the recompilation toolkit's internals. The page header always shows the first re
 - **Free Roam:** players on phones no longer cut others out of view: everyone links to their 32 nearest players (a car 'appearing from nowhere' was a missing link).
 - **Loading:** music track changes no longer freeze the game on a first visit: the background download fetches the start of every song first (kept in memory where the browser gives no room, e.g. an incognito tab), and the rest of a song is fetched ahead while it plays.
 - **Loading:** the start page's 'Download the whole game now' button is back: the whole disc kept in the browser, no waits for the network in game.
+- **Free Roam:** another player riding a motorbike no longer freezes your game for good when their bike appears mid-cruise: it shows as a car until your next cruise load.

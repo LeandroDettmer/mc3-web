@@ -113,7 +113,7 @@ static uint32_t s_car_cost;                     /* heap bytes the last car took 
 static double s_cars_next;                      /* no build/rebuild before */
 static uint32_t s_cars_said;                    /* reasons already logged */
 enum { CARS_SAY_HEAP = 1, CARS_SAY_MAX = 2, CARS_SAY_POOL = 4, CARS_SAY_PHYS = 8, CARS_SAY_FAIL = 16,
-       CARS_SAY_PAGEIN = 32 };
+       CARS_SAY_PAGEIN = 32, CARS_SAY_BIKE = 64 };
 
 /* Remote cars shown at most, slots included: MC3_ROAM_CARS, else by the window. */
 static int roam_cars_total(void)
@@ -391,10 +391,24 @@ static int roam_car_make(int i, const uint8_t look[ROAM_CFG_SIZE], int mid)
         memcpy((char *)XBOX_PTR(top), name, strlen(name) + 1);
         car = (int32_t)roam_call(sub_0026A6A0, 0, top, 1, &a);
     }
+    if (mid && roam_car_bike(car))              /* its rider would freeze the game (roam_car_bike) */
+        car = -1;
     if (car >= 0 && roam_cars_cache_ok(car))
         memcpy((uint8_t *)XBOX_PTR(cfg), look, ROAM_CFG_SIZE);
-    else                                        /* no look, unknown car or the model cache full: ours */
+    else {                                      /* no look, unknown car, a bike or the model cache full: ours */
         memcpy((uint8_t *)XBOX_PTR(cfg), (uint8_t *)XBOX_PTR(cfg0), ROAM_CFG_SIZE);
+        car = -1;
+    }
+    if (mid && car < 0 && (name = roam_cfg_name((const uint8_t *)XBOX_PTR(cfg))) && strlen(name) < 0x100u) {
+        a = top;                                /* ours is a bike too: no car now */
+        memcpy((char *)XBOX_PTR(top), name, strlen(name) + 1);
+        if (roam_car_bike((int32_t)roam_call(sub_0026A6A0, 0, top, 1, &a))) {
+            if (roam_cars_say(CARS_SAY_BIKE))
+                fprintf(stderr, "[ROAM] cars: car %d: no motorbike is built in the running cruise (its rider waits "
+                                "for the city's streaming to stop) and ours is one: not built (logged once)\n", i);
+            return 0;
+        }
+    }
     MEM32(cfg) = ROAM_CFG_VT;
     /* +8 is the CarCfg's dirty mask: a record carries the sender's, 0 once
      * its car was built and updated. operator= (sub_00271E20) sets 0x3FFF; so

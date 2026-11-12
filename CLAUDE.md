@@ -378,7 +378,7 @@ generated files when the lift inputs did not change.
   whose peer has another CarCfg is rebuilt (roam_swap, 2026-11-09,
   untested: async read via the car cache sub_00105CA0 as the garage does,
   then out of the world sub_000FFB40 + delete as the player dtor, build as
-  the player ctor; one at a time; MC3_ROAM_SWAP=0 off). Garage round trip
+  the player ctor; one at a time; MC3_ROAM_SWAP=0 off; no motorbike mid-cruise, 2026-11-11: its rider, sub_002CBF70 -> sub_00117880, loops on Sleep(1) until every streamed resource is idle, never in a running cruise -- main frozen for good on an iPhone; roam_car_bike, the old car stands in; a swap waits for 2 MB of heap). Garage round trip
   (2026-11-09, untested): the session stays (roam_stop only in
   online_leave); state 5 (sub_00021A60) sets status RC_ST_SHOP, a cruise
   load RC_ST_LOADING, the first cruise frame RC_ST_ROAM + teleport + entry

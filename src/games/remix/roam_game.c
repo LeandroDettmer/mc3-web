@@ -141,6 +141,8 @@
 #define ROAM_PAGEIN_VA  0x00500F10u     /* the page-in context stack's top (sub_00105A40 pushes; 0: none) */
 #define ROAM_FACTORY_VA 0x0050A088u     /* the model instance the next page-in takes (sub_00105830 clears it) */
 #define ROAM_RESCTX_VA  0x0052B494u     /* the resource context the garage builds cars under (sub_0013C8E0) */
+#define ROAM_CARTAB_VA  0x00557EB0u     /* the car table, 40 B a car: +8 class (sub_00269CC0: 5/6/7/0xA a bike) */
+#define ROAM_SWAP_KEEP  (2u << 20)      /* heap bytes free before a swap (it frees the old car first) */
 #define ROAM_CFG_NAME   0xE3u           /* CarCfg +0xE3: the car's name (sub_00269410) */
 #define ROAM_HOLD       3.0             /* s a slot stays its peer's after the peer drops out */
 #define ROAM_TAU        0.1f            /* s, pose error decay */
@@ -200,7 +202,8 @@ static struct {                                 /* the one swap in flight, slot 
 } s_swap;
 static uint32_t s_roam_said[ROAM_SLOTS + 1];    /* by slot: swap-path reasons already logged (ROAM_SAY_*) */
 enum { ROAM_SAY_OFF = 1, ROAM_SAY_BUSY = 2, ROAM_SAY_AWAY = 4, ROAM_SAY_NOREC = 8, ROAM_SAY_NONAME = 16,
-       ROAM_SAY_NOCAR = 32, ROAM_SAY_FULL = 64, ROAM_SAY_NOREAD = 128, ROAM_SAY_SLOW = 256, ROAM_SAY_BADREC = 512 };
+       ROAM_SAY_NOCAR = 32, ROAM_SAY_FULL = 64, ROAM_SAY_NOREAD = 128, ROAM_SAY_SLOW = 256, ROAM_SAY_BADREC = 512,
+       ROAM_SAY_BIKE = 1024, ROAM_SAY_HEAP = 2048 };
 
 static int roam_say(int k, uint32_t why)        /* 1 the first time reason why comes up for slot k */
 {
@@ -298,6 +301,25 @@ static int roam_fake(void)                      /* MC3_ROAM_FAKE, read once */
 }
 
 static const char *roam_cfg_name(const uint8_t blob[ROAM_CFG_SIZE]);
+static uint32_t roam_heap_log(uint32_t h, const char *when);
+
+/* A motorbike (the car table's class, as sub_00269CC0 tests it). Its build
+ * adds the rider (sub_002CBF70 -> sub_00117880), which loops on Sleep(1)
+ * (0x00117A00-0x00117A39) until the rider's resource is in and every
+ * streamed resource in the tables [0x509E20..] is idle (sub_000F16F0):
+ * true at a load, never in the running cruise, where the city streams and
+ * our build holds the main thread (2026-11-11, iPhone: vp_ducati_ss1000_04
+ * swapped into a slot, main frozen for good, guest lock free). So no bike
+ * is built mid-cruise: the slot or car keeps a stand-in, the next load
+ * builds the bike. */
+static int roam_car_bike(int32_t car)
+{
+    uint32_t t = MEM32(ROAM_CARTAB_VA), c;
+    if (car < 0 || !online_ram(t))
+        return 0;
+    c = MEM32(t + 40u * (uint32_t)car + 8u);
+    return c == 5u || c == 6u || c == 7u || c == 0xAu;
+}
 
 /* Our car to every peer: the CarCfg at cfg, its vtable word zeroed (each
  * receiver puts its own). The core sends only a changed record. */
@@ -553,7 +575,7 @@ static uint32_t roam_cache_slot(int32_t car, int pending)
  * (sub_00105B80) loads it synchronously through the archive (sub_00105AA0),
  * as at the cruise's load: a short hitch (a ~330 KB model). A read already
  * pending in the cache (none of ours) is still waited for. 0 if it cannot
- * start now. */
+ * start now; -1 never in this cruise (a motorbike, roam_car_bike). */
 static int roam_swap_start(int k)
 {
     uint32_t top = (g_esp - 0x400u) & ~0xFu, a[1] = { top };
@@ -571,6 +593,13 @@ static int roam_swap_start(int k)
         if (roam_say(k, ROAM_SAY_NOCAR))
             fprintf(stderr, "[ROAM] slot %d: swap waits: car '%s' not in the car list\n", k, name);
         return 0;
+    }
+    if (roam_car_bike(car)) {                   /* -1: no swap until the peer's next car record */
+        if (roam_say(k, ROAM_SAY_BIKE))
+            fprintf(stderr, "[ROAM] slot %d: %s rides %s, a motorbike: not built in the running cruise (its rider "
+                            "waits for the city's streaming to stop), the slot's car stands in until the next load\n",
+                    k, s_roam_peer[k].name, name);
+        return -1;
     }
     fprintf(stderr, "[ROAM] slot %d: building %s (car %d) for %s\n", k, name, (int)car, s_roam_peer[k].name);
     s_swap.slot = k;
@@ -842,8 +871,17 @@ static int roam_swap(uint32_t p, int k)
         }
         if (now < s_swap.retry)
             return 0;
+        /* the old car is freed before the new one is built, but in blocks
+         * the new one may not fit: a heap overrun is fatal */
+        if (!s_cheap && (h = roam_heap_log(MEM32(ROAM_HEAP_VA), NULL)) < ROAM_SWAP_KEEP) {
+            if (roam_say(k, ROAM_SAY_HEAP))
+                fprintf(stderr, "[ROAM] slot %d: swap waits: heap %u KB free, %u KB wanted\n", k,
+                        (unsigned)(h >> 10), (unsigned)(ROAM_SWAP_KEEP >> 10));
+            s_swap.retry = now + 2.0;
+            return 0;
+        }
         s_roam_want[k] = 0;
-        if (!roam_swap_start(k)) {
+        if (!roam_swap_start(k)) {              /* -1 (a bike): want stays 0 */
             s_roam_want[k] = 1;                 /* no free cache slot or no answer: later */
             s_swap.retry = now + 2.0;
         }
