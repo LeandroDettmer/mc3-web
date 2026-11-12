@@ -562,6 +562,27 @@ def _nearest(a, b):
     return out
 
 
+# Longest strip a group may have. Stock cars (94, every .xbck) top out at 2,096 indices a group;
+# D3D (DrawIndexedVertices sub_00417820) copies a group's indices into the push buffer inline,
+# 0x1FF dwords per reservation, with no kick-off in between, and a 14,409-index group froze
+# the garage for good: MakeSpace sub_00416710 -> fence wait sub_004165A0 waited (0x004166F4,
+# event device+0x1DCC) on a fence the GPU could never reach. Stay inside the stock range.
+MAX_STRIP = 2048
+
+
+def split_strips(T):
+    """Triangles -> strips of at most MAX_STRIP indices (consecutive triangles batched)."""
+    out, i, B = [], 0, MAX_STRIP // 2
+    while i < len(T):
+        b = B
+        while True:
+            s = stripify(T[i:i + b])
+            if len(s) <= MAX_STRIP: break
+            b = b * 3 // 4
+        out.append(s); i += b
+    return out
+
+
 def empty_mesh(bone, mat=1):
     """One vertex, one degenerate strip: draws nothing (for slots the new car has no part for)."""
     return {'hdr': bytes([0, 0, bone, 0x1C]), 'vtx': np.zeros(1, VTX),
@@ -599,16 +620,18 @@ def build(spec_path):
         for m in ms:
             t = (np.clip(m['uv'], 0, 1) * [W, H] - [x0, y0]) / [x1 - x0, y1 - y0]
             m['uv'] = (np.array([cx, cy]) + 2 + np.clip(t, 0, 1) * (cs - 4)) / A   # 2-texel inset against bleeding
-    # one body mesh: a group (one strip) per target material
+    # one body mesh: groups (one strip each) per target material, each strip at most MAX_STRIP indices
     groups, vs, base = [], [], 0
     for mi in sorted({m['to'] for m in src}):
         tris = []
         for m in (m for m in src if m['to'] == mi):
             tris.append(m['tris'] + base); vs.append(m); base += len(m['pos'])
-        T = np.concatenate(tris); s = stripify(T)
+        T = np.concatenate(tris); got = set()
+        for s in split_strips(T):
+            got |= {_canon(t) for t in strip_tris(s.tolist())}
+            groups.append({'mat': mi, 'desc': DESC, 'strips': [s]})
         want = {_canon(tuple(int(v) for v in t)) for t in T if len(set(t)) == 3}
-        assert {_canon(t) for t in strip_tris(s.tolist())} == want, 'stripify lost triangles'
-        groups.append({'mat': mi, 'desc': DESC, 'strips': [s]})
+        assert got == want, 'stripify lost triangles'
     pos = np.concatenate([m['pos'] for m in vs])
     vtx = np.zeros(len(pos), VTX)
     vtx['pos'], vtx['nrm'], vtx['uv'] = pos, pack_normal(np.concatenate([m['nrm'] for m in vs])), np.concatenate([m['uv'] for m in vs])
