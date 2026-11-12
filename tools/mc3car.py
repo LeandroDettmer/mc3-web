@@ -160,16 +160,18 @@ def decode_mesh(c, va):
     return {'hdr': hdr, 'groups': groups, 'vtx': vtx, 'idx_off': pidx - va}
 
 
-def encode_mesh(m, va):
-    """Bytes of mesh m placed at va (layout as the dev build's; m['idx_off'] if given)."""
+def encode_mesh(m, va, vva=None, iva=None):
+    """Bytes of mesh m placed at va (layout as the dev build's; m['idx_off'] if given). With vva / iva
+    the vertices / indices are not in the bytes but at those VAs (place_mesh())."""
     gs = m['groups']; n = len(gs)
     o_cnt = _al(0x20 + 2 * n); o_grp = o_cnt + 4; o_vb = o_grp + 0x18 * n; o_vd = _al(o_vb + 12)
-    o_prim = o_vd + VTX.itemsize * len(m['vtx'])
-    o_idx = m.get('idx_off') or _al(o_prim + 4 * n + 8 * sum(len(g['strips']) for g in gs))
+    o_prim = o_vd + (0 if vva else VTX.itemsize * len(m['vtx']))
+    o_end = o_prim + 4 * n + 8 * sum(len(g['strips']) for g in gs)
+    o_idx = m.get('idx_off') or _al(o_end)
     idx = np.concatenate([s for g in gs for s in g['strips']]).astype('<u2')
     if len(idx) > 0xFFFF or len(m['vtx']) > 0x10000: raise ValueError('mesh too big for u16 indices')
-    out = bytearray(b'\xcd' * (o_idx + 2 * len(idx)))   # ends with the indices: the next object may be 4-aligned
-    struct.pack_into('<I4s6I', out, 0, VT_MESH, m['hdr'], n, va + 0x20, va + o_grp, 0, va + o_vb, va + o_idx)
+    out = bytearray(b'\xcd' * (o_end if iva else o_idx + 2 * len(idx)))   # ends with the indices: the next object may be 4-aligned
+    struct.pack_into('<I4s6I', out, 0, VT_MESH, m['hdr'], n, va + 0x20, va + o_grp, 0, va + o_vb, iva or va + o_idx)
     struct.pack_into('<%dH' % n, out, 0x20, *[g['mat'] for g in gs])
     struct.pack_into('<I', out, o_cnt, n)
     p, first = o_prim, 0
@@ -178,10 +180,19 @@ def encode_mesh(m, va):
         struct.pack_into('<I', out, p, len(g['strips'])); p += 4   # new[] count
         for s in g['strips']:
             struct.pack_into('<HHI', out, p, first, len(s), 0); p += 8; first += len(s)
-    struct.pack_into('<3I', out, o_vb, 1, (va + o_vd) & 0x7FFFFFFF, 0)   # D3DVertexBuffer, Data physical
-    out[o_vd:o_prim] = np.asarray(m['vtx'], VTX).tobytes()
-    out[o_idx:o_idx + 2 * len(idx)] = idx.tobytes()
+    struct.pack_into('<3I', out, o_vb, 1, (vva or va + o_vd) & 0x7FFFFFFF, 0)   # D3DVertexBuffer, Data physical
+    if not vva: out[o_vd:o_prim] = np.asarray(m['vtx'], VTX).tobytes()
+    if not iva: out[o_idx:o_idx + 2 * len(idx)] = idx.tobytes()
     return bytes(out)
+
+
+def place_mesh(img, m):
+    """Mesh m into img's freed holes (Img.place), vertices, indices and the rest each where it fits:
+    the loader fixes every pointer field on its own, so the arrays need not follow the header."""
+    vb = np.asarray(m['vtx'], VTX).tobytes()
+    ib = np.concatenate([s for g in m['groups'] for s in g['strips']]).astype('<u2').tobytes()
+    vva = img.place(len(vb), lambda va: vb); iva = img.place(len(ib), lambda va: ib)
+    return img.place(len(encode_mesh(m, 0, vva, iva)), lambda va: encode_mesh(m, va, vva, iva))
 
 
 def read_mesh(c, va):
@@ -232,6 +243,18 @@ class Img:
     def add(s, make):
         """make(va) -> bytes; placed 16-aligned at the end (0x80 for textures: pass a lambda that pads)."""
         s.d += b'\xcd' * (-len(s.d) % 16); va = s.base + len(s.d); s.d += make(va); return va
+    holes = ()
+    def free(s, va, n):
+        """[va, va+n) holds nothing referenced any more: 0xCD it and let place() reuse it."""
+        s.put(va, b'\xcd' * n); s.holes = sorted(list(s.holes) + [[va, va + n]])
+    def place(s, n, make):
+        """make(va) -> n bytes, in the smallest freed hole that holds it 16-aligned, else at the end."""
+        fit = [h for h in s.holes if _al(h[0]) + n <= h[1]]
+        if not fit: return s.add(make)
+        h = min(fit, key=lambda h: h[1] - h[0]); va = _al(h[0])
+        s.put(va, make(va)); s.holes.remove(h)
+        s.holes = sorted(s.holes + [x for x in ([h[0], va], [va + n, h[1]]) if x[1] - x[0] >= 16])
+        return va
     def blob(s):
         s.d += b'\xcd' * (-len(s.d) % 16); struct.pack_into('<I', s.h, 0xC, len(s.d)); return bytes(s.h + s.d)
     def save(s, path):
@@ -269,12 +292,18 @@ def move_bones(img, bones, targets, keep=()):
 
 def put_texture(img, c, va, im):
     """Overwrite the texels of the embedded texture at va (a texture param's +0xC) with im,
-    scaled to its size and compressed to its DXT format."""
+    scaled to its size and compressed to its DXT format. An opaque im in a DXT5 texture turns it
+    into DXT1 (the D3D format word; the texture object's +6 byte is not the format: the 350Z has
+    3 on a DXT1, 9 and 1 on DXT5s, so it stays) and frees the second half of its texels."""
     tv = next(v for v in range(va, va + 0x100, 4) if c.u32(v) == 0x00040001 and c.inside(c.u32(v + 4) | 0x80000000))
     data, fmt = c.u32(tv + 4), c.u32(tv + 12)
     cf, w, h, mips = (fmt >> 8) & 0xFF, 1 << ((fmt >> 20) & 0xF), 1 << ((fmt >> 24) & 0xF), (fmt >> 16) & 0xF
     if mips != 1: raise NotImplementedError('shortcut: one mip level only (the 350Z trim has one)')
-    b = io.BytesIO(); im.convert('RGBA').resize((w, h), Image.LANCZOS).save(b, 'DDS', pixel_format={0x0C: 'DXT1', 0x0F: 'DXT5'}[cf])
+    im = im.convert('RGBA').resize((w, h), Image.LANCZOS)
+    if cf == 0x0F and np.asarray(im)[..., 3].min() == 255:
+        cf = 0x0C; img.put(tv + 12, struct.pack('<I', fmt & ~0xFF00 | 0x0C00))
+        img.free((data | 0x80000000) + w * h // 2, w * h // 2)
+    b = io.BytesIO(); im.save(b, 'DDS', pixel_format={0x0C: 'DXT1', 0x0F: 'DXT5'}[cf])
     img.put(data | 0x80000000, b.getvalue()[128:128 + w * h // (2 if cf == 0x0C else 1)])
     return w, h, cf
 
@@ -589,11 +618,149 @@ def empty_mesh(bone, mat=1):
             'groups': [{'mat': mat, 'desc': DESC, 'strips': [np.zeros(3, np.uint16)]}]}
 
 
+def decimate(P, TW, wpos, targets, seam=100.0, unmapped=1e-4, weight=None):
+    """Quadric edge collapse (Garland-Heckbert, half-edge: a vertex moves onto a neighbour, so
+    every position stays on the source surface). P welded positions; TW triangles as wedge ids
+    (a wedge = one position + one set of attributes: uv, normal, material); wpos[w] its position.
+    Open edges, material edges and uv/normal seams carry penalty planes (seam x |edge|^2), so
+    silhouettes, outlines and seams go last; a collapse that would leave a wedge of the moving
+    vertex without a counterpart on the target costs `unmapped` more and copies its attributes.
+    weight: per-triangle factor on its quadrics (shapes to keep). targets: triangle counts, descending. Returns ([tris as wedge ids per target], wsrc): wedge w
+    has the attributes of source wedge wsrc[w] and the position wpos[w] (wpos grows in place)."""
+    import heapq
+    TW = [list(t) for t in TW]; wsrc = list(range(len(wpos)))
+    TP = np.array([[wpos[w] for w in t] for t in TW])
+    a, b, c = P[TP[:, 0]], P[TP[:, 1]], P[TP[:, 2]]
+    fn = np.cross(b - a, c - a); ar = np.linalg.norm(fn, axis=1)
+    pl = np.concatenate([fn / np.maximum(ar, 1e-20)[:, None], np.zeros((len(fn), 1))], 1)
+    pl[:, 3] = -np.sum(pl[:, :3] * a, 1)
+    Q = np.zeros((len(P), 4, 4))
+    wt = np.ones(len(TW)) if weight is None else np.asarray(weight, np.float64)
+    K = (0.5 * ar * wt)[:, None, None] * pl[:, :, None] * pl[:, None, :]
+    for k in range(3): np.add.at(Q, TP[:, k], K)
+    sides = {}
+    for t, (tp, tw) in enumerate(zip(TP.tolist(), TW)):
+        for k in range(3):
+            i, j = tp[k], tp[(k + 1) % 3]
+            sides.setdefault((min(i, j), max(i, j)), []).append((t, tw[k] if i < j else tw[(k + 1) % 3], tw[(k + 1) % 3] if i < j else tw[k]))
+    for (i, j), ss in sides.items():
+        if len(ss) == 2 and ss[0][1:] == ss[1][1:]: continue   # inner edge, same wedges both sides
+        e = P[j] - P[i]
+        for t, _, _ in ss:
+            n = np.cross(e, pl[t, :3]); ln = np.linalg.norm(n)
+            if ln < 1e-12: continue
+            p = np.append(n / ln, -np.dot(n / ln, P[i])); k = seam * wt[t] * np.dot(e, e) * np.outer(p, p)
+            Q[i] += k; Q[j] += k
+    vt = [set() for _ in P]
+    for t, tp in enumerate(TP.tolist()):
+        for v in tp: vt[v].add(t)
+    alive, nalive, ver = [True] * len(TW), len(TW), [0] * len(P)
+    Ph = np.concatenate([P, np.ones((len(P), 1))], 1)
+
+    def corner(t, v): return next(k for k in range(3) if wpos[TW[t][k]] == v)
+    PL = P.tolist()   # plain floats: numpy on 3-vectors costs more than the arithmetic
+
+    def nrm(a, b, c):
+        ux, uy, uz = b[0] - a[0], b[1] - a[1], b[2] - a[2]; vx, vy, vz = c[0] - a[0], c[1] - a[1], c[2] - a[2]
+        return uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx
+
+    def cost(u, v):
+        shared = vt[u] & vt[v]
+        if not shared: return None
+        for t in vt[u] - shared:
+            p = [PL[wpos[w]] for w in TW[t]]; n0 = nrm(*p); p[corner(t, u)] = PL[v]; n1 = nrm(*p)
+            d, l0, l1 = sum(x * y for x, y in zip(n0, n1)), sum(x * x for x in n0), sum(x * x for x in n1)
+            if l1 < 1e-6 * l0 or d < 0 or d * d < 0.09 * l0 * l1: return None   # flip or sliver
+        mp = {TW[t][corner(t, u)] for t in shared}
+        miss = len({TW[t][corner(t, u)] for t in vt[u] - shared} - mp)
+        h = Ph[v]; return float(h @ (Q[u] + Q[v]) @ h) + unmapped * miss
+
+    heap = []
+    def push(u, v):
+        cst = cost(u, v)
+        if cst is not None: heapq.heappush(heap, (cst, u, v, ver[u], ver[v]))
+    for (i, j) in sides: push(i, j); push(j, i)
+    out = []
+    for target in targets:
+        while nalive > target and heap:
+            cst, u, v, vu, vv = heapq.heappop(heap)
+            if vu != ver[u] or vv != ver[v]: continue
+            now = cost(u, v)
+            if now is None: continue
+            if now > cst + 1e-9 * abs(cst) + 1e-30: heapq.heappush(heap, (now, u, v, vu, vv)); continue
+            shared = vt[u] & vt[v]
+            mp = {TW[t][corner(t, u)]: TW[t][corner(t, v)] for t in shared}
+            for t in shared:
+                alive[t] = False; nalive -= 1
+                for w in TW[t]: vt[wpos[w]].discard(t)
+            for t in list(vt[u]):
+                k = corner(t, u); w = TW[t][k]
+                if w not in mp:   # no counterpart on v: same attributes, v's position
+                    mp[w] = len(wpos); wpos.append(v); wsrc.append(wsrc[w])
+                TW[t][k] = mp[w]; vt[v].add(t)
+            vt[u] = set(); Q[v] += Q[u]; ver[u] += 1; ver[v] += 1
+            nb = {wpos[w] for t in vt[v] for w in TW[t]} - {v}
+            for n in nb: push(v, n); push(n, v)
+        out.append(np.array([TW[t] for t in range(len(TW)) if alive[t]], np.int64).reshape(-1, 3))
+    return out, wsrc
+
+
+def hull(pos, paint=5, glass=7, n=6):
+    """Low LOD: the car lofted through n cross-sections along z, each a hexagon (bottom, shoulder,
+    roof corners) from the vertices around it; sides, roof and end caps, no floor.
+    Upper sides are glass where the cabin stands (more than 0.25 m over the shoulder)."""
+    z0, z1 = pos[:, 2].min(), pos[:, 2].max(); L = z1 - z0
+    secs = []
+    for s in np.linspace(0, 1, n):
+        zc = z0 + L * min(max(s, 0.04), 0.96)
+        q = pos[np.abs(pos[:, 2] - zc) < 0.08 * L]
+        w, yb, yt = np.percentile(np.abs(q[:, 0]), 99), np.percentile(q[:, 1], 1), np.percentile(q[:, 1], 99)
+        side = q[np.abs(q[:, 0]) > 0.9 * w]; ys = min(np.percentile(side[:, 1], 95) if len(side) else yt, yt)
+        top = q[q[:, 1] > ys + 0.6 * (yt - ys)]; wt = np.percentile(np.abs(top[:, 0]), 95) if len(top) > 4 else w * 0.7
+        z = z0 + L * s
+        secs.append(np.array([[-w, yb, z], [-w, ys, z], [-wt, yt, z], [wt, yt, z], [w, ys, z], [w, yb, z]]))
+    V, F = [], []   # F: (vertex ids CCW out, material)
+    def quad(p, mat):
+        k = len(V); V.extend(p); F.append(((k, k + 1, k + 2), mat)); F.append(((k, k + 2, k + 3), mat))
+    for a, b in zip(secs, secs[1:]):   # z grows from a to b
+        cab = (a[2, 1] + b[2, 1]) / 2 - (a[1, 1] + b[1, 1]) / 2 > 0.25
+        for i in range(5):
+            mat = glass if cab and i in (1, 3) else paint
+            quad([a[i], a[i + 1], b[i + 1], b[i]], mat)
+    for s, flip in ((secs[0], True), (secs[-1], False)):   # caps: front (z min) faces -z
+        k = len(V); V.extend(s)
+        for i in range(1, 5):
+            F.append(((k, k + i + 1, k + i) if not flip else (k, k + i, k + i + 1), paint))
+    V = np.array(V); out = []
+    for (i, j, k), mat in F:   # orient each face away from the car's axis
+        nrm = np.cross(V[j] - V[i], V[k] - V[i]); cen = (V[i] + V[j] + V[k]) / 3 - [0, (V[:, 1].min() + V[:, 1].max()) / 2, (z0 + z1) / 2]
+        out.append(((i, j, k) if np.dot(nrm, cen) >= 0 else (i, k, j), mat))
+    return V, out
+
+
+def lod_meshes(groups_by_mat, vmax=3907, gmax=28):
+    """{material: (pos, nrm, uv, tris)} -> meshes [{'mats': [...], 'pos', 'nrm', 'uv', 'groups'}],
+    materials kept whole, at most vmax vertices and gmax groups a mesh."""
+    out, cur = [], None
+    for mi, (p, nr, uv, T) in sorted(groups_by_mat.items()):
+        strips = split_strips(T)
+        if cur is None or len(cur['pos']) + len(p) > vmax or len(cur['groups']) + len(strips) > gmax:
+            cur = {'pos': np.zeros((0, 3)), 'nrm': np.zeros((0, 3)), 'uv': np.zeros((0, 2)), 'groups': [], 'mats': []}; out.append(cur)
+        b = len(cur['pos'])
+        cur['groups'] += [{'mat': mi, 'desc': DESC, 'strips': [(s.astype(np.int64) + b).astype(np.uint16)]} for s in strips]
+        cur['pos'] = np.concatenate([cur['pos'], p]); cur['nrm'] = np.concatenate([cur['nrm'], nr])
+        cur['uv'] = np.concatenate([cur['uv'], uv]); cur['mats'].append(mi)
+    return out
+
+
 def build(spec_path):
     """New car from a .glb on a template car (see the spec: .scratch, per car). Every template file
-    (<t>.xbck, _o, _g) keeps its object graph; the new body mesh goes at the end of the image and the
-    body table entries point at it, unused slots get empty meshes, bones move, the trim texture is
-    replaced by an atlas, null part slots get empty part files."""
+    (<t>.xbck, _o, _g) keeps its object graph. The .glb is welded and decimated (decimate()) to each
+    spec 'lods' entry's triangle count ('hull': a box loft instead), split into meshes of at most a
+    stock car's vertices and groups and put in that LOD's table slots; every template mesh not kept
+    is freed and the new meshes fill those holes first (file sizes stay the template's). Unused slots
+    get empty meshes, bones move, the trim texture becomes an atlas (DXT1 when opaque), the cull
+    sphere grows to the new body, null part slots get empty part files."""
     sp = json.load(open(spec_path))
     tpl, out, car = sp['template'], sp['out'], sp['car']
     tname = os.path.basename(os.path.normpath(tpl))
@@ -620,28 +787,62 @@ def build(spec_path):
         for m in ms:
             t = (np.clip(m['uv'], 0, 1) * [W, H] - [x0, y0]) / [x1 - x0, y1 - y0]
             m['uv'] = (np.array([cx, cy]) + 2 + np.clip(t, 0, 1) * (cs - 4)) / A   # 2-texel inset against bleeding
-    # one body mesh: groups (one strip each) per target material, each strip at most MAX_STRIP indices
-    groups, vs, base = [], [], 0
-    for mi in sorted({m['to'] for m in src}):
-        tris = []
-        for m in (m for m in src if m['to'] == mi):
-            tris.append(m['tris'] + base); vs.append(m); base += len(m['pos'])
-        T = np.concatenate(tris); got = set()
-        for s in split_strips(T):
-            got |= {_canon(t) for t in strip_tris(s.tolist())}
-            groups.append({'mat': mi, 'desc': DESC, 'strips': [s]})
-        want = {_canon(tuple(int(v) for v in t)) for t in T if len(set(t)) == 3}
-        assert got == want, 'stripify lost triangles'
-    pos = np.concatenate([m['pos'] for m in vs])
-    vtx = np.zeros(len(pos), VTX)
-    vtx['pos'], vtx['nrm'], vtx['uv'] = pos, pack_normal(np.concatenate([m['nrm'] for m in vs])), np.concatenate([m['uv'] for m in vs])
-    body = {'hdr': bytes([0, 0, 0, 0x1C]), 'groups': groups, 'vtx': vtx}
-    lo, hi = np.percentile(pos, 0.2, 0), np.percentile(pos, 99.8, 0)   # robust box (an antenna is not the car)
+    # weld (positions 0.1 mm; a wedge = position + uv + normal + material), decimate to each LOD
+    Vp = np.concatenate([m['pos'] for m in src]); Vn = np.concatenate([m['nrm'] for m in src])
+    Vuv = np.concatenate([m['uv'] for m in src]); Vm = np.concatenate([np.full(len(m['pos']), m['to']) for m in src])
+    offs = np.cumsum([0] + [len(m['pos']) for m in src])
+    Vt = np.concatenate([m['tris'] + o for m, o in zip(src, offs)])
+    _, first, pid = np.unique(np.round(Vp / 1e-4).astype(np.int64), axis=0, return_index=True, return_inverse=True)
+    pid = pid.ravel(); P = Vp[first]
+    # materials whose shader reads no texture by uv (spec 'nouv': plain, envmap, procedural paint) drop it
+    Vuv[np.isin(Vm, sp.get('nouv', []))] = 0
+    # normals: at one position, uv and material, those within 60 degrees become one (averaged)
+    Vn = Vn / np.maximum(np.linalg.norm(Vn, axis=1, keepdims=True), 1e-9)
+    _, grp = np.unique(np.concatenate([pid[:, None], np.round(Vuv / 1e-4), Vm[:, None]], 1).astype(np.int64), axis=0, return_inverse=True)
+    cl, heads = np.zeros(len(Vp), np.int64), {}
+    for i in np.argsort(grp.ravel(), kind='stable').tolist():
+        hs = heads.setdefault(int(grp.ravel()[i]), [])
+        k = next((h for h in hs if Vn[h] @ Vn[i] > 0.5), None)
+        if k is None: hs.append(i); k = i
+        cl[i] = k
+    acc = np.zeros_like(Vn); np.add.at(acc, cl, Vn); Vn = acc[cl]
+    _, wfirst, wid = np.unique(cl, return_index=True, return_inverse=True); wid = wid.ravel()
+    tp = pid[Vt]; ok = (tp[:, 0] != tp[:, 1]) & (tp[:, 1] != tp[:, 2]) & (tp[:, 0] != tp[:, 2])
+    wpos = pid[wfirst].tolist()
+    lods = sp['lods']
+    prot = sp.get('protect', {})   # {material: quadric weight}: lights keep their shapes longer
+    res, wsrc = decimate(P, wid[Vt][ok], wpos, [l['tris'] for l in lods if 'tris' in l],
+                         weight=[prot.get(str(mi), 1.0) for mi in Vm[Vt[ok][:, 0]]])
+    wsrc, wpos = np.array(wsrc), np.array(wpos)
+    lo, hi = np.percentile(Vp, 0.2, 0), np.percentile(Vp, 99.8, 0)   # robust box (an antenna is not the car)
     hi[0] = max(hi[0], -lo[0]); lo[0] = -hi[0]
-    ntri = sum(len(strip_tris(g['strips'][0].tolist())) for g in groups)
-    print('body: %d tris, %d vertices, %d groups (materials %s), box %s .. %s' % (
-        ntri, len(vtx), len(groups), [g['mat'] for g in groups], lo.round(3).tolist(), hi.round(3).tolist()))
-    parts, pbase = {}, Chunk(glob.glob(os.path.join(tpl, 'vroot_*.xbck'))[0]).base
+    built, it = [], iter(res)
+    for l in lods:
+        byMat = {}
+        if 'tris' in l:
+            T = next(it); tm = Vm[wfirst[wsrc[T[:, 0]]]]
+            for mi in np.unique(tm):
+                used, loc = np.unique(T[tm == mi], return_inverse=True); s = wfirst[wsrc[used]]
+                a = np.concatenate([P[wpos[used]], Vn[s], Vuv[s]], 1)   # collapses leave equal copies: one each
+                _, one, back = np.unique(np.round(a / 1e-5).astype(np.int64), axis=0, return_index=True, return_inverse=True)
+                byMat[int(mi)] = (a[one, :3], a[one, 3:6], a[one, 6:], back.ravel()[loc].reshape(-1, 3))
+        else:   # 'hull': [paint, glass] materials of a box loft of the whole source
+            V, F = hull(Vp, l['hull'][0], l['hull'][1])
+            nr = np.zeros((len(V), 3))
+            for (i, j, k), _ in F: nr[[i, j, k]] = np.cross(V[j] - V[i], V[k] - V[i])
+            for mi in sorted({f[1] for f in F}):
+                T = np.array([f[0] for f in F if f[1] == mi]); used, loc = np.unique(T, return_inverse=True)
+                byMat[mi] = (V[used], nr[used], np.zeros((len(used), 2)), loc.reshape(-1, 3))
+        meshes = lod_meshes(byMat)
+        for m in meshes:
+            m['vtx'] = np.zeros(len(m['pos']), VTX)
+            m['vtx']['pos'], m['vtx']['nrm'], m['vtx']['uv'] = m['pos'], pack_normal(m['nrm']), m['uv']
+            m['vmat'] = np.concatenate([np.full(len(byMat[mi][0]), mi) for mi in m['mats']])
+        built.append(meshes)
+        print('LOD %s: %d tris; %s' % (l['slots'], sum(len(t[3]) for t in byMat.values()), ', '.join(
+            'mesh %d verts %d groups (longest strip %d)' % (len(m['pos']), len(m['groups']), max(len(g['strips'][0]) for g in m['groups']))
+            for m in meshes)))
+    parts, pbase, zoned = {}, Chunk(glob.glob(os.path.join(tpl, 'vroot_*.xbck'))[0]).base, False
     for suf in sp.get('files', ['', '_o', '_g']):
         tf = os.path.join(tpl, tname + suf + '.xbck'); c = Chunk(tf); img = Img(tf)
         bones = read_skeleton(c)
@@ -649,11 +850,22 @@ def build(spec_path):
         for t in sorted(c.find_vt(VT_TABLE)):
             n = c.u('2H', t + 4)[1]; pm, pn, pb = c.u('3I', t + 8)
             slots += [(pm + 4 * i, c.u32(pm + 4 * i), c.cstr(c.u32(pn + 4 * i)), c.u32(pb + 4 * i)) for i in range(n)]
-        if 'col' not in sp:   # diffuse (zone in alpha) from the template body's nearest vertex, in box units
-            tb = decode_mesh(c, next(mp for _, mp, name, _ in slots if re.search(sp['body'], name)))['vtx']
-            tp = tb['pos'].astype(np.float64); tl, th = tp.min(0), tp.max(0)
-            sp['col'] = tb['col'][_nearest((pos - lo) / (hi - lo), (tp - tl) / (th - tl))]
-        vtx['col'] = sp['col']
+        if not zoned:   # diffuse (zone in alpha): the template body's nearest vertex of the same material, in box units
+            tm = [decode_mesh(c, mp) for _, mp, name, _ in slots if mp and re.search(sp['zone_from'], name)]
+            tv = np.concatenate([m['vtx'] for m in tm]); tmat = np.full(len(tv), -1); b = 0
+            for m in tm:
+                for g in m['groups']:
+                    for s in g['strips']: tmat[b + s.astype(np.int64)] = g['mat']
+                b += len(m['vtx'])
+            tq = (tv['pos'].astype(np.float64) - tv['pos'].min(0)) / (tv['pos'].max(0) - tv['pos'].min(0))
+            for meshes in built:
+                for m in meshes:
+                    q = (m['pos'] - lo) / (hi - lo); col = tv['col'][_nearest(q, tq)]
+                    for mi in np.unique(m['vmat']):
+                        sel, ts = m['vmat'] == mi, tmat == mi
+                        if ts.any(): col[sel] = tv['col'][ts][_nearest(q[sel], tq[ts])]
+                    m['vtx']['col'] = col
+            zoned = True
         targets = {}
         for rx, op, v in sp['bones']:
             for k, b in enumerate(bones):
@@ -663,27 +875,38 @@ def build(spec_path):
                               else w + [v[0] * np.sign(w[0]), v[1], v[2]])   # add: x outward
         keep = [(mp, mp + len(encode_mesh(decode_mesh(c, mp), mp))) for _, mp, name, _ in slots if mp and re.search(sp['keep'], name)]
         moved = move_bones(img, bones, targets, keep)
-        body_va = img.add(lambda va: encode_mesh(body, va))
-        empties = {}
+        for mp in sorted({mp for _, mp, _, _ in slots if mp} - {a for a, _ in keep}):   # every mesh the new car drops
+            img.free(mp, len(encode_mesh(decode_mesh(c, mp), mp)))
+        tva = next(t for m in materials(c) for n, t in m['texs'] if n == sp['atlas']['param'] and t)
+        tw, th, cf = put_texture(img, c, tva, atlas)
+        filled, empties = set(), {}
+        for l, meshes in zip(lods, built):
+            ss = [s for s in slots if re.search(l['slots'], s[2])]
+            if len(meshes) > len(ss): raise ValueError('%s: %d meshes, %d slots' % (l['slots'], len(meshes), len(ss)))
+            for m, (slot, _, name, bone) in zip(meshes, ss):
+                img.put(slot, struct.pack('<I', place_mesh(img, {'hdr': bytes([0, 0, bone, 0x1C]), 'groups': m['groups'], 'vtx': m['vtx']})))
+                filled.add(slot)
         for slot, mp, name, bone in slots:
-            if re.search(sp['body'], name): img.put(slot, struct.pack('<I', body_va))
-            elif re.search(sp['low'], name):   # the template's low LOD, stretched to the new box
-                L = decode_mesh(c, mp); p = L['vtx']['pos'].astype(np.float64)
-                L['vtx']['pos'] = (p - p.min(0)) / (p.max(0) - p.min(0)) * (hi - lo) + lo
-                img.put(mp, encode_mesh(L, mp))
-            elif re.search(sp['keep'], name): pass
-            elif mp:
-                if bone not in empties: empties[bone] = img.add(lambda va: encode_mesh(empty_mesh(bone), va))
+            if slot in filled or re.search(sp['keep'], name): continue
+            if mp:
+                if bone not in empties:
+                    e = empty_mesh(bone); empties[bone] = img.place(len(encode_mesh(e, 0)), lambda va: encode_mesh(e, va))
                 img.put(slot, struct.pack('<I', empties[bone]))
             else: parts[name] = bone
-        tva = next(t for m in materials(c) for n, t in m['texs'] if n == sp['atlas']['param'] and t)
-        put_texture(img, c, tva, atlas)
+        # the drawable's LOD group: tables H M L, 0, LOD distances, bucket masks, then the cull sphere
+        # (x y z r) at +0x30; grown to hold the new car, never shrunk
+        g = c.d.find(struct.pack('<4I', *sorted(c.find_vt(VT_TABLE)), 0)); sva = c.va(g) + 0x30
+        sph = np.array(c.u('4f', sva))
+        r = 1.02 * max(float(np.linalg.norm(m['pos'] - sph[:3], axis=1).max()) for ms in built for m in ms)
+        if r > sph[3]: img.put(sva + 12, struct.pack('<f', r))
         for a, b in sp.get('rename', []):
             if len(a) != len(b): raise ValueError('rename %s: same length only' % a)
             img.d = bytearray(img.d.replace(a.encode() + b'\0', b.encode() + b'\0'))
         img.save(os.path.join(out, car + suf + '.xbck'))
-        print('%s%s.xbck: %d bytes (template %d); %d bones moved, %d empty meshes' % (
-            car, suf, len(img.d) + 0x80, len(c.d) + 0x80, len(moved), len(empties)))
+        print('%s%s.xbck: %d bytes (template %d); %d bones moved, %d empty meshes, atlas %dx%d %s, '
+              'cull sphere r %.3f -> %.3f, %d B of holes left' % (
+              car, suf, len(img.d) + 0x80, len(c.d) + 0x80, len(moved), len(empties), tw, th,
+              {0x0C: 'DXT1', 0x0F: 'DXT5'}[cf], sph[3], max(r, sph[3]), sum(h[1] - h[0] for h in img.holes)))
     for name, bone in parts.items():
         p = Img(base=pbase, kind=0x16); p.add(lambda va: encode_mesh(empty_mesh(bone), va)); p.save(os.path.join(out, name + '.xbck'))
     print('%d empty part files' % len(parts))
