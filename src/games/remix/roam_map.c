@@ -283,19 +283,12 @@ static int rmap_shown(uint8_t st)
     return st < RC_ST__N;
 }
 
-/* Peer id has a car drawn in our world: its slot's (roam_game.c) or its standalone car (roam_cars.c), driven.
- * None in our AI race (a race load has no slots), for a peer the heap had no room for (64 MB profile: slots
- * only), or one away: its blip is then dimmed like a far player's, not the bright one of a car on the road. */
+/* Peer id has a car drawn in our world, driven (the pool's, roam_pool.c). None in our AI race (a race load has
+ * no slots), for a peer the heap had no room for, or one away: its blip is then dimmed like a far player's, not
+ * the bright one of a car on the road. */
 static int rmap_has_car(uint32_t id)
 {
-    int k;
-    for (k = 1; k <= s_roam_slots; k++)
-        if (s_roam_peer[k].id == id)
-            return s_roam_peer[k].here && !s_roam_peer[k].away;
-    for (k = 0; k < s_ncar; k++)
-        if (s_car[k].id == id && s_car[k].veh)
-            return s_car[k].here && !s_car[k].away;
-    return 0;
+    return roam_pool_shows(id);
 }
 
 /* After sub_000BF850 (map, the game's player blips); top: the caller's esp at the call (scratch goes below it).

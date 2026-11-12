@@ -1765,8 +1765,8 @@ void sub_003636A0(void) { cam_call(31, 0x003636A0u, sub_003636A0_gen); }
 extern void sub_00198E90_gen(void);
 void sub_00198E90(void) { cam_call(32, 0x00198E90u, sub_00198E90_gen); }
 extern void sub_002BDEC0_gen(void);
-static void roam_cars_frame(void);             /* free roam: standalone cars after the step (roam_cars.c) */
-void sub_002BDEC0(void) { cam_call(33, 0x002BDEC0u, sub_002BDEC0_gen); roam_cars_frame(); }
+static void roam_pool_frame(void);              /* free roam: remote cars after the step (roam_pool.c) */
+void sub_002BDEC0(void) { cam_call(33, 0x002BDEC0u, sub_002BDEC0_gen); roam_pool_frame(); }
 extern void sub_002C1520_gen(void);
 static void roam_player(uint32_t p);            /* free roam (O3), roam_game.c */
 static void rra_player(uint32_t p);             /* free roam: AI race prompt, start, pose back (roam_race_ai.c) */
@@ -2475,7 +2475,7 @@ static void activity_update(uint32_t obj)
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_activity_box(void) { return (uintptr_t)&s_activity; }
 #endif
 static void online_garage_left(void);           /* the Online profile is saved (below) */
-static void roam_cars_pass(uint32_t obj, int after); /* free roam: standalone cars (roam_cars.c) */
+static void roam_pool_pass(uint32_t obj, int after); /* free roam: remote cars at state requests (roam_pool.c) */
 #ifdef __EMSCRIPTEN__
 static void fr_direct_pass(uint32_t obj);       /* Online: the deferred cruise load (below) */
 #endif
@@ -2487,9 +2487,9 @@ void sub_00020EC0(void)
 #ifdef __EMSCRIPTEN__
     fr_direct_pass(obj);                        /* Online's Request(6), outside the menu's Flash dispatch */
 #endif
-    roam_cars_pass(obj, 0);                     /* standalone cars out before a cruise teardown (roam_cars.c) */
+    roam_pool_pass(obj, 0);                     /* standalone cars out before a cruise teardown (roam_pool.c) */
     sub_00020EC0_gen();
-    roam_cars_pass(obj, 1);
+    roam_pool_pass(obj, 1);
     activity_update(obj);
     if (state_trace_on() && MEM32(obj + 4) != before)
         fprintf(stderr, "[STATE] %u -> %u\n", before, MEM32(obj + 4));
@@ -3939,6 +3939,7 @@ static void online_strings(void)
 /* ── Free roam (O3): remote players as cars in the Online cruise ── */
 #include "roam_game.c"
 #include "roam_cars.c"                          /* MC3_ROAM_CARS: room for standalone remote cars */
+#include "roam_pool.c"                          /* free roam: the remote cars pool (who drives which car, builds) */
 #include "roam_races.c"                         /* free roam: the cities' race start points (roam_races.h) */
 #include "roam_race_ai.c"                       /* free roam: an AI race from a start point, then back (feature 3) */
 #include "roam_map.c"                           /* Online cruise: garage icons, race start points, players' blips */
@@ -4042,7 +4043,7 @@ void sub_000FA070(void)
 /* The player manager is made ([0x558814], ctor sub_002BE100, one player
  * per race-setup entry): the Online cruise gets its remote slots first. */
 extern void sub_002BE2C0_gen(void);
-void sub_002BE2C0(void) { roam_cars_registry(); roam_build(); sub_002BE2C0_gen(); roam_built(); roam_cars_load(); }
+void sub_002BE2C0(void) { roam_cars_registry(); roam_build(); sub_002BE2C0_gen(); roam_built(); roam_pool_load(); }
 
 /* The car builder's controller step (builder vtable 0x476940): a remote
  * slot's car gets its controller as System Link's remote cars do

@@ -60,7 +60,7 @@
  * sub_00026370 fills the same entries), our vtable put back; with no peer
  * yet it gets ours.
  *
- * Mid-session car swap (roam_swap): when a slot's peer has a CarCfg other
+ * Mid-session car swap (roam_pool.c's queue): when a slot's peer has a CarCfg other
  * than the one the slot was built with (a later join, a new peer on the
  * slot, a garage visit), the slot's car is rebuilt in the running cruise,
  * one slot at a time:
@@ -92,16 +92,14 @@
  *    player ctor sub_002BFE50 does (builder sub_002CB270 on the stack,
  *    sub_002CBC40, whose cache acquire loads the model;
  *    sub_001240F0; builder dtor), then snapped onto the peer's pose.
- * This runs in the player's update (sub_002C1520's hook), before the
- * registry steps the vehicles; the player manager loop re-reads +0x14.
+ * This runs after the physics step (roam_pool_job, sub_002BDEC0's hook),
+ * the new car parked and hidden until the slot's next update snaps it.
  * Not redone: the per-class ability object (sub_002BF920, player +0xC8)
  * keeps the slot's first car class. MC3_ROAM_SWAP=0 turns swaps off.
  *
- * A peer keeps its slot while it is among the nearest and for ROAM_HOLD s
- * after it drops out (parked meanwhile); a new peer takes a free slot built
- * with its exact CarCfg, else one with its car, else any free slot, else a
- * held one. A linked peer with no slot and no car that stays 50 m nearer
- * than a slot's peer takes that slot (roam_nearest, roam_cars.c).
+ * Who drives which slot, the swap queue, the heap check and the nearest
+ * rule are the remote cars pool's (roam_pool.c), slots and standalone cars
+ * alike.
  *
  * Pose correction: the game's (sub_002C0540) with its smoothing settings
  * changed from 0.02*d per frame and a 20 m snap to an exponential decay
@@ -142,7 +140,6 @@
 #define ROAM_FACTORY_VA 0x0050A088u     /* the model instance the next page-in takes (sub_00105830 clears it) */
 #define ROAM_RESCTX_VA  0x0052B494u     /* the resource context the garage builds cars under (sub_0013C8E0) */
 #define ROAM_CARTAB_VA  0x00557EB0u     /* the car table, 40 B a car: +8 class (sub_00269CC0: 5/6/7/0xA a bike) */
-#define ROAM_SWAP_KEEP  (2u << 20)      /* heap bytes free before a swap (it frees the old car first) */
 #define ROAM_CFG_NAME   0xE3u           /* CarCfg +0xE3: the car's name (sub_00269410) */
 #define ROAM_HOLD       3.0             /* s a slot stays its peer's after the peer drops out */
 #define ROAM_TAU        0.1f            /* s, pose error decay */
@@ -174,44 +171,8 @@ void sub_001B3DF0(void);                        /* heap init, thiscall (base, si
 void xbox_gil_atomic(int d);                    /* xboxrecomp kernel_bridge.c: no other guest thread inside */
 
 static int s_roam_fake = -1, s_roam_slots, s_roam_swap_on = -1;
+static int s_roam_cruise;                       /* the Free Roam cruise is loaded (slots or not): roam_player runs */
 static int s_roam_cfg_loaded;                   /* entry 0's CarCfg sent again once the cruise runs */
-static int32_t s_roam_car[ROAM_SLOTS + 1];      /* by slot: the car it was built with */
-static uint8_t s_roam_cfgb[ROAM_SLOTS + 1][ROAM_CFG_SIZE]; /* by slot: the CarCfg it was built with (vtable 0) */
-static uint32_t s_roam_gen[ROAM_SLOTS + 1];     /* by slot: its peer's cfg_gen last compared */
-static uint8_t s_roam_want[ROAM_SLOTS + 1];     /* by slot: its peer's CarCfg differs, rebuild */
-static struct {                                 /* by slot, id 0 = none */
-    uint32_t id;
-    char name[ROAM_NAME_MAX + 1];
-    float m[12], vel[3];
-    uint8_t ctl[ROAM_CTL], has_ctl;             /* has_ctl 0: the peer sends no inputs */
-    uint8_t live;                               /* 0: snap its car to the pose first */
-    uint8_t here;                               /* 0: dropped out of the nearest, slot held (parked) */
-    uint8_t away;                               /* 1: in its garage (RC_ST_SHOP): slot held, car parked, hidden */
-    double lost;                                /* when it dropped out */
-} s_roam_peer[ROAM_SLOTS + 1];
-/* A parked slot's car out of the physics level (roam_slot_phys, roam_cars.c):
- * the car it was checked for and 1 in, 0 out, -1 not found (left as built). */
-static uint32_t s_slot_veh[ROAM_SLOTS + 1];
-static int32_t s_slot_phys[ROAM_SLOTS + 1];
-static void roam_slot_phys(int k, uint32_t veh, int on);
-static struct {                                 /* the one swap in flight, slot 0 = none */
-    int slot;
-    int32_t car;                                /* its cache key */
-    double t0, retry;
-    uint8_t blob[ROAM_CFG_SIZE];
-} s_swap;
-static uint32_t s_roam_said[ROAM_SLOTS + 1];    /* by slot: swap-path reasons already logged (ROAM_SAY_*) */
-enum { ROAM_SAY_OFF = 1, ROAM_SAY_BUSY = 2, ROAM_SAY_AWAY = 4, ROAM_SAY_NOREC = 8, ROAM_SAY_NONAME = 16,
-       ROAM_SAY_NOCAR = 32, ROAM_SAY_FULL = 64, ROAM_SAY_NOREAD = 128, ROAM_SAY_SLOW = 256, ROAM_SAY_BADREC = 512,
-       ROAM_SAY_BIKE = 1024, ROAM_SAY_HEAP = 2048 };
-
-static int roam_say(int k, uint32_t why)        /* 1 the first time reason why comes up for slot k */
-{
-    if (k < 0 || k > ROAM_SLOTS || (s_roam_said[k] & why))
-        return 0;
-    s_roam_said[k] |= why;
-    return 1;
-}
 static roam_pose s_roam_hist[ROAM_HIST];
 static unsigned s_roam_nhist;
 static double s_roam_tlast;
@@ -221,7 +182,6 @@ static int s_roam_nseen;
 static double s_roam_seen_t;                    /* when (roam_now) */
 static double s_rep_at;                         /* roam_cars.c: when the next slot report is due (0 none) */
 static int s_rep_n;                             /* reports left after s_rep_at's */
-static void roam_park_inst(uint32_t veh, int idx);      /* roam_cars.c: a car's drawn matrix 30 km off */
 
 /* A lifted function called from here: ecx = this, args pushed right to
  * left below top, a 0 return address; eax back, the caller's registers put
@@ -319,6 +279,15 @@ static int roam_car_bike(int32_t car)
         return 0;
     c = MEM32(t + 40u * (uint32_t)car + 8u);
     return c == 5u || c == 6u || c == 7u || c == 0xAu;
+}
+
+static int32_t roam_car_index(const char *name)  /* the car list's index of a vp_ name (sub_0026A6A0), -1 none */
+{
+    uint32_t top = (g_esp - 0x400u) & ~0xFu, a = top;
+    if (!name || strlen(name) >= 0x100u)
+        return -1;
+    memcpy((char *)XBOX_PTR(top), name, strlen(name) + 1);
+    return (int32_t)roam_call(sub_0026A6A0, 0, top, 1, &a);
 }
 
 /* Our car to every peer: the CarCfg at cfg, its vtable word zeroed (each
@@ -471,13 +440,6 @@ static const char *roam_cfg_name(const uint8_t blob[ROAM_CFG_SIZE])
     return s[0] && memchr(s, 0, ROAM_CFG_SIZE - ROAM_CFG_NAME) ? s : NULL;
 }
 
-static int32_t roam_cfg_car(const uint8_t blob[ROAM_CFG_SIZE]) /* +4, the car index; -1 often */
-{
-    int32_t car;
-    memcpy(&car, blob + ROAM_CFG_CAR, 4);
-    return car;
-}
-
 /* A peer's CarCfg into blob (exactly ROAM_CFG_SIZE bytes); 1 if it is one
  * with a car name. Only the name counts: the car builder, the model read and
  * sub_0026A6A0 all go by it, while the index at +4 is written only by the
@@ -497,117 +459,6 @@ static int roam_peer_rec(uint32_t id, uint8_t blob[ROAM_CFG_SIZE + 4])
 static int roam_cfg_same(const uint8_t *a, const uint8_t *b)
 {
     return !memcmp(a + 0xA, b + 0xA, ROAM_CFG_SIZE - 0xA);
-}
-
-/* A slot for a peer that turns up mid-cruise: a free one built with its
- * exact CarCfg, else with its car, else any free one, else one held for a
- * peer that dropped out; 0 if none (all driven). */
-static int roam_pick_slot(uint32_t id)
-{
-    uint8_t blob[ROAM_CFG_SIZE + 4];
-    int ok = roam_peer_rec(id, blob), car = ok ? roam_cfg_car(blob) : -1, k, best = 0, score = -1, sc;
-    for (k = 1; k <= s_roam_slots; k++) {
-        if (s_roam_peer[k].id && s_roam_peer[k].here)
-            continue;
-        sc = s_roam_peer[k].id ? 0 : 1;
-        if (sc && ok)
-            sc = roam_cfg_same(blob, s_roam_cfgb[k]) ? 3
-                 : car >= 0 && s_roam_car[k] == car ? 2 : 1;
-        if (sc > score) {
-            score = sc;
-            best = k;
-        }
-    }
-    return best;
-}
-
-/* The peer's CarCfg against the one the slot was built with, when the
- * peer sends a new one (cfg_gen): a different one asks for a rebuild. */
-static void roam_cfg_check(int k, const roam_peer *pp)
-{
-    uint8_t blob[ROAM_CFG_SIZE + 4];
-    int len;
-    if (!pp->cfg_gen || pp->cfg_gen == s_roam_gen[k])
-        return;
-    if (!roam_peer_rec(pp->id, blob)) {
-        /* not marked compared: looked at again next frame, logged once */
-        if (roam_say(k, ROAM_SAY_BADREC)) {
-            len = roam_peer_cfg(pp->id, blob, ROAM_CFG_SIZE + 4);
-            fprintf(stderr, "[ROAM] slot %d: %s's car record unusable (%d B, want %u, or no car name): no swap\n", k,
-                    pp->name, len, (unsigned)ROAM_CFG_SIZE);
-        }
-        return;
-    }
-    s_roam_gen[k] = pp->cfg_gen;
-    s_roam_said[k] &= ~(uint32_t)ROAM_SAY_BADREC;
-    s_roam_want[k] = !roam_cfg_same(blob, s_roam_cfgb[k]);
-    for (len = 0xA; len < (int)ROAM_CFG_SIZE && blob[len] == s_roam_cfgb[k][len]; len++)
-        ;                                       /* the first byte that differs, for the log */
-    fprintf(stderr, "[ROAM] slot %d: %s's car record %u: %s (car %d), slot built with %s (car %d): %s",
-            k, pp->name, (unsigned)pp->cfg_gen, roam_cfg_name(blob), (int)roam_cfg_car(blob),
-            roam_cfg_name(s_roam_cfgb[k]) ? roam_cfg_name(s_roam_cfgb[k]) : "?", (int)s_roam_car[k],
-            s_roam_want[k] ? "differs, swap queued" : "the same, no swap");
-    if (s_roam_want[k])
-        fprintf(stderr, " (first at +0x%X: %02X, built %02X)", (unsigned)len, blob[len], s_roam_cfgb[k][len]);
-    fprintf(stderr, "\n");
-}
-
-/* The car cache slot holding car (key byte 0, as the player builder asks):
- * pending = its async read not yet claimed; 0 if none. */
-static uint32_t roam_cache_slot(int32_t car, int pending)
-{
-    uint32_t cache = MEM32(ROAM_CACHE_VA), s, i;
-    if (!online_ram(cache))
-        return 0;
-    for (i = 0; i < 16; i++) {
-        s = cache + 0x10u * i;
-        if (SMEM32(s) == car && !MEM8(s + 8u) && (MEM8(s + 0xAu) != 0) == pending)
-            return s;
-    }
-    return 0;
-}
-
-/* Start the swap of slot k: the peer's CarCfg kept, the rebuild done on
- * the slot's next update. The model is not read ahead: the garage's async
- * read (sub_00105CA0 -> sub_00212570) opens loose files only
- * ("resources\vehicle\<n>\<n>.xbck", 0xC0000034 in the port), while the
- * models sit in assets_x.dat_2; so the builder's cache acquire
- * (sub_00105B80) loads it synchronously through the archive (sub_00105AA0),
- * as at the cruise's load: a short hitch (a ~330 KB model). A read already
- * pending in the cache (none of ours) is still waited for. 0 if it cannot
- * start now; -1 never in this cruise (a motorbike, roam_car_bike). */
-static int roam_swap_start(int k)
-{
-    uint32_t top = (g_esp - 0x400u) & ~0xFu, a[1] = { top };
-    uint8_t blob[ROAM_CFG_SIZE + 4];
-    const char *name;
-    int32_t car;
-    if (!roam_peer_rec(s_roam_peer[k].id, blob) || !(name = roam_cfg_name(blob))) {
-        if (roam_say(k, ROAM_SAY_NOREC))
-            fprintf(stderr, "[ROAM] slot %d: swap waits: %s's car record gone or unusable\n", k, s_roam_peer[k].name);
-        return 0;
-    }
-    memcpy((char *)XBOX_PTR(top), name, strlen(name) + 1);
-    car = (int32_t)roam_call(sub_0026A6A0, 0, top, 1, a);
-    if (car < 0) {
-        if (roam_say(k, ROAM_SAY_NOCAR))
-            fprintf(stderr, "[ROAM] slot %d: swap waits: car '%s' not in the car list\n", k, name);
-        return 0;
-    }
-    if (roam_car_bike(car)) {                   /* -1: no swap until the peer's next car record */
-        if (roam_say(k, ROAM_SAY_BIKE))
-            fprintf(stderr, "[ROAM] slot %d: %s rides %s, a motorbike: not built in the running cruise (its rider "
-                            "waits for the city's streaming to stop), the slot's car stands in until the next load\n",
-                    k, s_roam_peer[k].name, name);
-        return -1;
-    }
-    fprintf(stderr, "[ROAM] slot %d: building %s (car %d) for %s\n", k, name, (int)car, s_roam_peer[k].name);
-    s_swap.slot = k;
-    s_swap.car = car;
-    s_swap.t0 = roam_now();
-    memcpy(s_swap.blob, blob, ROAM_CFG_SIZE);
-    memset(s_swap.blob, 0, 4);
-    return 1;
 }
 
 /* Free Roam's cars heap: a second heap of the game's own type (ctor
@@ -697,9 +548,6 @@ static void roam_cheap_check(void)
                 (unsigned)MEM32(ROAM_MAIN_HEAP_VA));
 }
 
-/* Slot k's car rebuilt with blob (its model read and pending in the cache):
- * the old one out and deleted as a quitting peer's and the player dtor's,
- * the new one built as the player ctor builds it. 0 if not done. */
 /* Around a car built or deleted mid-cruise (on 1, back on 0; not nested).
  * The garage's way (sub_0013C8E0, and sub_00150DE0 around its cars'
  * deletes): the resource context [[0x52B494]] +0x14/+0x18/+0x1C into
@@ -776,149 +624,6 @@ static uint32_t roam_car_build(uint32_t cfg, uint32_t slot, uint32_t pad, uint32
     return online_ram(veh) ? veh : 0;
 }
 
-static int roam_rebuild(uint32_t p, int k, const uint8_t blob[ROAM_CFG_SIZE])
-{
-    uint32_t setup = MEM32(ROAM_SETUP_VA), e0 = setup + ROAM_ENTRY, e = e0 + (uint32_t)k * ROAM_ENTRY_SIZE;
-    uint32_t cfg = MEM32(e + 0x0Cu), veh = MEM32(p + 0x14u), res = MEM32(p + 0x10u);
-    uint32_t top = (g_esp - 0x400u) & ~0xFu;    /* the builder (0xF0 B) here, the calls' stack below */
-    if (!online_ram(setup) || !online_ram(cfg) || MEM32(cfg) != ROAM_CFG_VT || cfg == MEM32(e0 + 0x0Cu) ||
-        !online_ram(veh) || !roam_build_ctx(1))
-        return 0;
-    roam_slot_phys(k, veh, 1);                  /* the game's removal below expects it in the level */
-    roam_call(sub_000FFB40, veh, top, 0, NULL); /* physics level, drawing, vehicle registry */
-    roam_car_delete(veh, res, top);
-    MEM32(p + 0x14u) = 0;
-    MEM32(p + 0x10u) = 0;
-    roam_cfg_set(cfg, blob);
-    veh = roam_car_build(cfg, (uint32_t)k, MEM32(e + 0x10u), top, &res);
-    MEM32(p + 0x14u) = veh;
-    MEM32(p + 0x10u) = res;
-    roam_build_ctx(0);
-    s_roam_car[k] = SMEM32(cfg + ROAM_CFG_CAR);
-    memcpy(s_roam_cfgb[k], blob, ROAM_CFG_SIZE);
-    s_roam_gen[k] = 0;                          /* its peer compared again with the new car */
-    s_roam_want[k] = 0;
-    s_roam_peer[k].live = 0;                    /* snapped onto the peer's pose next */
-    return online_ram(veh);
-}
-
-/* MC3_ROAM_SWAPTEST=S (test hook, with MC3_ROAM_FAKE): every S seconds the
- * next fake slot is rebuilt mid-cruise with the next car of a list, as a
- * peer's car change does: swaps of driven, drawn cars in one browser. */
-static void roam_swaptest(int k)
-{
-    static const char *const cars[] = { "vp_d_f355_98", "vp_d_yukon_05", "vp_supra_98", "vp_jetta_03",
-                                        "vp_clk_gtr_03", "vp_murcielago_04", "vp_golfr32_04", "vp_eclipse_04" };
-    static double next;
-    static int every = -1, n;
-    uint32_t top = (g_esp - 0x400u) & ~0xFu, a = top;
-    const char *name;
-    int32_t car;
-    double now = roam_now();
-    if (every < 0) {
-        const char *e = getenv("MC3_ROAM_SWAPTEST");
-        every = e ? atoi(e) : 0;
-        next = now + every;
-    }
-    if (every <= 0 || now < next || k != 1 + n % s_roam_slots)
-        return;
-    next = now + every;
-    name = cars[n++ % (int)(sizeof cars / sizeof *cars)];
-    memcpy((char *)XBOX_PTR(top), name, strlen(name) + 1);
-    if ((car = (int32_t)roam_call(sub_0026A6A0, 0, top, 1, &a)) < 0)
-        return;
-    memcpy(s_swap.blob, s_roam_cfgb[k], ROAM_CFG_SIZE);
-    memset(s_swap.blob + ROAM_CFG_NAME, 0, ROAM_CFG_SIZE - ROAM_CFG_NAME);
-    memcpy(s_swap.blob + ROAM_CFG_NAME, name, strlen(name));
-    memcpy(s_swap.blob + ROAM_CFG_CAR, &car, 4);
-    s_swap.slot = k;
-    s_swap.car = car;
-    s_swap.t0 = now;
-    fprintf(stderr, "[ROAM] slot %d: building %s (car %d) for MC3_ROAM_SWAPTEST\n", k, name, (int)car);
-}
-
-/* Slot k's part of the swap, in its player's update: start one when its
- * peer's CarCfg differs and none is in flight, else finish ours once the
- * model is read. 1 when the car was rebuilt (player +0x14 is new). */
-static int roam_swap(uint32_t p, int k)
-{
-    uint32_t s, h, ev, top;
-    double now;
-    if (s_roam_swap_on < 0) {
-        const char *e = getenv("MC3_ROAM_SWAP");
-        s_roam_swap_on = !(e && e[0] == '0');
-    }
-    if (s_roam_fake && !s_swap.slot)
-        roam_swaptest(k);
-    if (!s_roam_want[k] || s_roam_fake) {
-        if (s_swap.slot != k)
-            return 0;
-    } else if (!s_roam_swap_on) {
-        if (roam_say(k, ROAM_SAY_OFF))
-            fprintf(stderr, "[ROAM] slot %d: other car, but swaps are off (MC3_ROAM_SWAP=0)\n", k);
-        return 0;
-    } else if (s_swap.slot && s_swap.slot != k) {
-        if (roam_say(k, ROAM_SAY_BUSY))
-            fprintf(stderr, "[ROAM] slot %d: swap waits for slot %d's\n", k, s_swap.slot);
-        return 0;
-    }
-    now = roam_now();
-    if (!s_swap.slot) {
-        if (!s_roam_peer[k].id || !s_roam_peer[k].here) {
-            if (roam_say(k, ROAM_SAY_AWAY))
-                fprintf(stderr, "[ROAM] slot %d: swap waits: its peer is not among the nearest now\n", k);
-            return 0;
-        }
-        if (now < s_swap.retry)
-            return 0;
-        /* the old car is freed before the new one is built, but in blocks
-         * the new one may not fit: a heap overrun is fatal */
-        if (!s_cheap && (h = roam_heap_log(MEM32(ROAM_HEAP_VA), NULL)) < ROAM_SWAP_KEEP) {
-            if (roam_say(k, ROAM_SAY_HEAP))
-                fprintf(stderr, "[ROAM] slot %d: swap waits: heap %u KB free, %u KB wanted\n", k,
-                        (unsigned)(h >> 10), (unsigned)(ROAM_SWAP_KEEP >> 10));
-            s_swap.retry = now + 2.0;
-            return 0;
-        }
-        s_roam_want[k] = 0;
-        if (!roam_swap_start(k)) {              /* -1 (a bike): want stays 0 */
-            s_roam_want[k] = 1;                 /* no free cache slot or no answer: later */
-            s_swap.retry = now + 2.0;
-        }
-        return 0;
-    }
-    /* a read of this car pending in the cache: wait for it; else the build loads it */
-    s = roam_cache_slot(s_swap.car, 1);
-    h = s ? MEM32(s + 0xCu) : 0;
-    ev = online_ram(h) ? MEM32(h + 0xCu) : 0;
-    top = (g_esp - 0x100u) & ~0xFu;
-    if (ev && !(roam_call(sub_001A1AD0, 0, top, 1, &ev) & 0xFFu)) {
-        if (now - s_swap.t0 > 5.0 && roam_say(k, ROAM_SAY_SLOW))
-            fprintf(stderr, "[ROAM] slot %d: car %d still reading after %.0f s\n", k, (int)s_swap.car, now - s_swap.t0);
-        return 0;                               /* still reading: the old car drives on */
-    }
-    /* another thread inside a page-in: next frame (3 s at most, in case the top is left set) */
-    if (MEM32(ROAM_PAGEIN_VA) && now - s_swap.t0 < 3.0) {
-        if (roam_say(k, ROAM_SAY_NOREAD))
-            fprintf(stderr, "[ROAM] slot %d: swap waits: a resource page-in is in flight ([0x500F10] %08X)\n", k,
-                    (unsigned)MEM32(ROAM_PAGEIN_VA));
-        return 0;
-    }
-    s_swap.slot = 0;
-    if (!roam_rebuild(p, k, s_swap.blob)) {
-        fprintf(stderr, "[ROAM] slot %d: rebuild failed (setup %08X, entry CarCfg %08X, car %08X)\n", k,
-                (unsigned)MEM32(ROAM_SETUP_VA),
-                (unsigned)MEM32(MEM32(ROAM_SETUP_VA) + ROAM_ENTRY + (uint32_t)k * ROAM_ENTRY_SIZE + 0x0Cu),
-                (unsigned)MEM32(p + 0x14u));
-        return 0;
-    }
-    s_roam_said[k] = 0;
-    fprintf(stderr, "[ROAM] slot %d: %s car %s (swapped) read in %.0f ms (load + build %.0f ms)\n", k,
-            s_roam_peer[k].id ? s_roam_peer[k].name : "-", roam_cfg_name(s_swap.blob), (now - s_swap.t0) * 1e3,
-            (roam_now() - now) * 1e3);
-    return 1;
-}
-
 /* A car-builder step (ecx = the builder, vtable 0x476940: +0xE8 slot, +0xEC
  * pad) run for one of our remote slots with the race setup saying network
  * race, our slot 0 local (+0x108 = 1, +0x3D8 = 0), as System Link builds a
@@ -984,6 +689,7 @@ static uint32_t roam_car_heap(void)
     return s_cheap ? s_cheap : MEM32(ROAM_HEAP_VA);
 }
 
+static void roam_pool_cost_note(int32_t car, uint32_t bytes);   /* roam_pool.c */
 /* After the player manager is built: the margin left, and what each car took. */
 static void roam_built(void)
 {
@@ -995,6 +701,8 @@ static void roam_built(void)
     if (heap1 < heap0)
         fprintf(stderr, "[ROAM] the cruise's %d cars took %u KB, about %u KB each\n", 1 + s_roam_slots,
                 (unsigned)((heap0 - heap1) >> 10), (unsigned)(((heap0 - heap1) / (1u + (uint32_t)s_roam_slots)) >> 10));
+    if (heap1 < heap0)                          /* a model not measured yet costs the most measured */
+        roam_pool_cost_note(-1, (heap0 - heap1) / (1u + (uint32_t)s_roam_slots));
     if (main0 && (main1 = roam_heap_log(MEM32(ROAM_MAIN_HEAP_VA), "after the cruise's cars (main)")))
         fprintf(stderr, "[ROAM] main heap: %d KB taken meanwhile (other threads; the cars are in the cars heap)\n",
                 (int)(main0 - main1) / 1024);
@@ -1011,6 +719,10 @@ static int roam_nslots(int np)
 
 /* Before the player manager is built (sub_002BE2C0). */
 static int s_roam_last_n;                        /* the 1 + N we wrote into the race setup */
+static void roam_pool_reset(void);              /* roam_pool.c: the remote cars table */
+static void roam_pool_slot_init(int k, const uint8_t *look, const roam_peer *pp);
+static int roam_pool_fits(uint32_t left, int32_t car, uint32_t credit);
+static uint32_t roam_pool_cost(int32_t car);
 
 static void roam_build(void)
 {
@@ -1019,18 +731,10 @@ static void roam_build(void)
     roam_peer peers[ROAM_SLOTS];
     int n, np = 0, k = 0, nrec = 0;
     roam_fake();
+    roam_pool_reset();                          /* before s_roam_slots: a left-over standalone car is found by it */
     s_roam_slots = 0;
-    memset(s_roam_car, 0xFF, sizeof s_roam_car);
+    s_roam_cruise = 0;
     s_roam_nhist = 0;
-    memset(s_roam_peer, 0, sizeof s_roam_peer);
-    memset(s_slot_veh, 0, sizeof s_slot_veh);   /* a new car may reuse an old one's address */
-    memset(s_roam_cfgb, 0, sizeof s_roam_cfgb);
-    memset(s_roam_gen, 0, sizeof s_roam_gen);
-    memset(s_roam_want, 0, sizeof s_roam_want);
-    memset(s_roam_said, 0, sizeof s_roam_said);
-    /* shortcut: a swap still reading when the cruise ends leaves its pending
-     * cache slot behind (claimed by the next build of that car, else held). */
-    memset(&s_swap, 0, sizeof s_swap);
     if (!s_online || !online_ram(setup))
         return;
     /* The game keeps the race setup between cruises: a second Free Roam found
@@ -1056,6 +760,12 @@ static void roam_build(void)
     if (roam_room() && roam_running())
         fprintf(stderr, "[ROAM] the city changed at the load: no peers of it known yet\n");
     roam_begin(cfg0);                           /* the car this load builds for us */
+    /* The Free Roam cruise, slots or not: roam_player sends our state from its
+     * first frame. With 0 slots (a low-heap phone) it used to return before
+     * roam_net: no pose and no status ever went out, the others never saw us. */
+    s_roam_cruise = s_roam_fake || roam_running();
+    s_roam_cfg_loaded = 0;
+    roam_status(RC_ST_LOADING);                 /* peers keep our car hidden until the cruise runs (roam_player) */
     if (s_roam_fake)
         n = s_roam_fake;
     else if (roam_running()) {
@@ -1076,16 +786,25 @@ static void roam_build(void)
     /* A game heap is fixed and its overrun is fatal: a second cruise with 6
      * remote cars left 1259 KB of the 47 MB main heap and died on an 84 KB
      * request ("Heap overrun", 2026-11-10); 2 cars left 4815 KB and played.
-     * Each car (ours too) takes ~780-850 KB: build only what fits with
-     * ROAM_HEAP_KEEP left over (ROAM_CHEAP_KEEP in the cars heap, where only
-     * cars live). The nearest peers keep their slots; MC3_ROAM_SLOTS skips it. */
+     * Build only what fits by the pool's one check (roam_pool_fits: each
+     * model's measured cost, ROAM_HEAP_KEEP left over, ROAM_CHEAP_KEEP in the
+     * cars heap, where only cars live), ours first. The nearest peers keep
+     * their slots; MC3_ROAM_SLOTS skips it. */
     if (s_roam_heap0 && !s_roam_fake && !getenv("MC3_ROAM_SLOTS")) {
-        uint32_t keep = s_cheap ? ROAM_CHEAP_KEEP : ROAM_HEAP_KEEP;
-        uint32_t fit = s_roam_heap0 > keep ? (s_roam_heap0 - keep) / ROAM_CAR_BYTES : 0;
-        int room = fit > 1u ? (int)fit - 1 : 0;   /* our own car comes out of it too */
+        int32_t car0 = cfg0 ? roam_car_index(roam_cfg_name((const uint8_t *)XBOX_PTR(cfg0))) : -1, car;
+        uint32_t left = s_roam_heap0, c0 = roam_pool_cost(car0);
+        int room;
+        left = left > c0 ? left - c0 : 0;       /* our own car comes out of it too */
+        for (room = 0; room < n; room++) {
+            car = room < np && roam_peer_rec(peers[room].id, blob) ? roam_car_index(roam_cfg_name(blob)) : car0;
+            if (!roam_pool_fits(left, car, 0))
+                break;
+            left -= roam_pool_cost(car);
+        }
         if (n > room) {
             fprintf(stderr, "[ROAM] heap: %d remote car%s fit (of %d asked), %u KB free, %u KB kept\n", room,
-                    room == 1 ? "" : "s", n, (unsigned)(s_roam_heap0 >> 10), (unsigned)(keep >> 10));
+                    room == 1 ? "" : "s", n, (unsigned)(s_roam_heap0 >> 10),
+                    (unsigned)((s_cheap ? ROAM_CHEAP_KEEP : ROAM_HEAP_KEEP) >> 10));
             n = room;
             if (np > n)
                 np = n;
@@ -1101,6 +820,7 @@ static void roam_build(void)
         MEM32(e + 0x10u) = MEM32(e + 0x14u) = MEM32(e + 0x18u) = 0xFFFFFFFFu;
         /* the entry keeps its own CarCfg (a shared one would be freed twice) */
         if (cfg0 && cfg != cfg0 && online_ram(cfg) && MEM32(cfg) == ROAM_CFG_VT) {
+            const roam_peer *pp = NULL;
             MEM32(e + 0x0Cu) = cfg;
             while (k < np && !roam_peer_rec(peers[k].id, blob)) {
                 fprintf(stderr, "[ROAM] at load: %s (id %08X) has no usable car record yet (gen %u)\n",
@@ -1108,32 +828,22 @@ static void roam_build(void)
                 k++;
             }
             if (k < np) {                       /* the slot is this peer's from the start */
-                s_roam_peer[i].id = peers[k].id;
-                s_roam_peer[i].here = 1;
-                s_roam_gen[i] = peers[k].cfg_gen;
-                snprintf(s_roam_peer[i].name, sizeof s_roam_peer[i].name, "%s", peers[k].name);
-                roam_quat_mat(peers[k].q, s_roam_peer[i].m);
-                memcpy(s_roam_peer[i].m + 9, peers[k].p, sizeof peers[k].p);
-                memcpy(s_roam_peer[i].vel, peers[k].v, sizeof peers[k].v);
-                fprintf(stderr, "[ROAM] slot %u: %s car %s (built) car %d id %08X\n", (unsigned)i, peers[k].name,
-                        roam_cfg_name(blob), (int)roam_cfg_car(blob), (unsigned)peers[k].id);
-                k++;
+                pp = &peers[k++];
+                fprintf(stderr, "[ROAM] slot %u: %s car %s (built) id %08X\n", (unsigned)i, pp->name,
+                        roam_cfg_name(blob), (unsigned)pp->id);
             } else
                 memcpy(blob, (uint8_t *)XBOX_PTR(cfg0), ROAM_CFG_SIZE);
             roam_cfg_set(cfg, blob);
-            memcpy(s_roam_cfgb[i], blob, ROAM_CFG_SIZE);
-            memset(s_roam_cfgb[i], 0, 4);
-        } else
+            roam_pool_slot_init((int)i, blob, pp);
+        } else {
             fprintf(stderr, "[ROAM] slot %u: no CarCfg of its own (%08X, ours %08X): our car, no swaps\n",
                     (unsigned)i, (unsigned)cfg, (unsigned)cfg0);
-        if (online_ram(MEM32(e + 0x0Cu)))
-            s_roam_car[i] = SMEM32(MEM32(e + 0x0Cu) + ROAM_CFG_CAR);
+            roam_pool_slot_init((int)i, NULL, NULL);
+        }
     }
     MEM32(setup + 0x4Cu) = 1u + (uint32_t)n;
     s_roam_slots = n;
     s_roam_last_n = n;
-    s_roam_cfg_loaded = 0;
-    roam_status(RC_ST_LOADING);                 /* peers keep our car hidden until the cruise runs (roam_player) */
     fprintf(stderr, "[ROAM] cruise with %d remote car%s (slots 1-%d, %s; %d peer%s known at load, %d with a car record)\n",
             n, n == 1 ? "" : "s", n, s_roam_fake ? "MC3_ROAM_FAKE: our path, 1-3 s late" : "free roam peers", np,
             np == 1 ? "" : "s", nrec);
@@ -1169,27 +879,6 @@ static uint8_t roam_away(uint8_t st)            /* a peer whose car is parked an
     return st == RC_ST_SHOP || st == RC_ST_LOADING || st == RC_ST_MENUS || st == RC_ST_EVENT;
 }
 
-static void roam_peer_take(int k, const roam_peer *pp)
-{
-    uint8_t away = roam_away(pp->status);
-    if (away != s_roam_peer[k].away) {
-        s_roam_peer[k].away = away;
-        s_roam_peer[k].live = 0;                /* snapped onto its pose when it comes back */
-        fprintf(stderr, "[ROAM] slot %d: %s %s\n", k, pp->name,
-                !away ? "drives again: car shown"
-                : pp->status == RC_ST_SHOP    ? "is in the garage: car hidden, slot kept"
-                : pp->status == RC_ST_LOADING ? "is loading: car hidden, slot kept"
-                : pp->status == RC_ST_EVENT   ? "is in an AI race: car hidden, slot kept"
-                                              : "is in the menus (not placed yet): car hidden, slot kept");
-    }
-    roam_quat_mat(pp->q, s_roam_peer[k].m);
-    memcpy(s_roam_peer[k].m + 9, pp->p, sizeof pp->p);
-    memcpy(s_roam_peer[k].vel, pp->v, sizeof pp->v);
-    s_roam_peer[k].has_ctl = pp->ext_len == ROAM_CTL;
-    if (s_roam_peer[k].has_ctl)
-        memcpy(s_roam_peer[k].ctl, pp->ext, ROAM_CTL);
-}
-
 /* Our controller's inputs packed as System Link's sender packs them
  * (sub_002C9570, local branch) into controller +0x6C: +0x28's button bits
  * (24; bit 0x10 nitro, its index + 1 in the top byte), the 0..1 axes
@@ -1214,29 +903,9 @@ static void roam_ctl_pack(uint32_t c, uint8_t out[ROAM_CTL])
     out[11] = MEM8(c + 0x54u);
 }
 
-/* Our car to free roam, and the nearest peers into the slots: a peer keeps
- * its slot while it stays among the nearest (in any order) and ROAM_HOLD s
- * after it drops out, so a car at the edge of the hub's nearest K comes
- * back on the same slot with the same car; newcomers take roam_pick_slot's. */
-static int roam_cars_owns(uint32_t id);          /* roam_cars.c: a standalone car is this peer's */
-static void roam_cars_net(const roam_peer *peers, int n, const uint8_t *used, double now);
-static void roam_nearest(const roam_peer *peers, int n, uint8_t *used, double now);  /* roam_cars.c */
-
-/* Slot k is pp's from now on (a newcomer, or a hand-over to a nearer peer):
- * snapped onto its pose, its car record compared (a different one queues a swap). */
-static void roam_slot_give(int k, const roam_peer *pp)
-{
-    s_roam_peer[k].id = pp->id;
-    s_roam_peer[k].here = 1;
-    s_roam_peer[k].live = 0;
-    s_roam_peer[k].away = 0;
-    snprintf(s_roam_peer[k].name, sizeof s_roam_peer[k].name, "%s", pp->name);
-    s_roam_gen[k] = 0;
-    s_roam_want[k] = 0;
-    s_roam_said[k] = 0;
-    roam_peer_take(k, pp);
-    roam_cfg_check(k, pp);
-}
+/* Our car to free roam, and the linked peers to the remote cars pool
+ * (roam_pool.c). Our state goes out first, whatever cars we have. */
+static void roam_pool_net(const roam_peer *peers, int n, double now);
 
 static void roam_send_local(const roam_pose *me)
 {
@@ -1255,44 +924,15 @@ static void roam_send_local(const roam_pose *me)
 
 static void roam_net(const roam_pose *me)
 {
-    static roam_peer peers[ROAM_K_MAX];         /* all the hub links us with: slots first, the rest standalone */
-    uint8_t used[ROAM_K_MAX] = { 0 };
-    int n, i, k;
-    double now = me->t;
+    static roam_peer peers[ROAM_K_MAX];         /* all the hub links us with, nearest first */
+    int n;
     roam_send_local(me);
     n = roam_peers(peers, ROAM_K_MAX);
     s_roam_seen = peers;                        /* a second roam_peers a frame would upset its blend clock */
     s_roam_nseen = n;
-    s_roam_seen_t = now;
-    for (k = 1; k <= s_roam_slots; k++) {
-        if (!s_roam_peer[k].id)
-            continue;
-        for (i = 0; i < n && (used[i] || peers[i].id != s_roam_peer[k].id); i++)
-            ;
-        if (i == n) {                           /* dropped out: parked, slot held a while */
-            if (s_roam_peer[k].here) {
-                s_roam_peer[k].here = 0;
-                s_roam_peer[k].lost = now;
-            } else if (now - s_roam_peer[k].lost > ROAM_HOLD)
-                s_roam_peer[k].id = 0;
-            s_roam_peer[k].live = 0;
-            continue;
-        }
-        used[i] = 1;
-        s_roam_peer[k].here = 1;
-        roam_peer_take(k, &peers[i]);
-        roam_cfg_check(k, &peers[i]);
-    }
+    s_roam_seen_t = me->t;
     if (!s_roam_fake)
-        roam_nearest(peers, n, used, now);      /* a nearer peer without a car takes a far one's */
-    for (i = 0; i < n; i++)
-        if (!used[i] && !roam_cars_owns(peers[i].id) && (k = roam_pick_slot(peers[i].id)) > 0) {
-            used[i] = 1;
-            roam_slot_give(k, &peers[i]);
-            fprintf(stderr, "[ROAM] slot %d: %s (id %08X)%s\n", k, peers[i].name, (unsigned)peers[i].id,
-                    s_roam_want[k] ? ", other car: swap queued" : "");
-        }
-    roam_cars_net(peers, n, used, now);         /* the rest: standalone cars */
+        roam_pool_net(peers, n, me->t);         /* who drives which remote car (roam_pool.c) */
 }
 
 /* SetMatrix and SetVel on a player's car, as sub_002C0540 does. */
@@ -1567,17 +1207,14 @@ static int roam_spawn_clear(uint32_t veh, roam_pose *s)
 }
 
 /* Each player's update (sub_002C1520, thiscall), before the game's own:
- * slot 0 (ours, updated first) is recorded and sent, slots 1..n are driven
- * through the game's network-remote path (roam_remote); a slot without a
- * peer is parked with a plain SetMatrix/SetVel, and a car new to its pose
- * is snapped there first. */
+ * slot 0 (ours, updated first) is recorded and sent, in every Free Roam
+ * cruise (no remote slots too); slots 1..n are the pool's (roam_pool_slot). */
+static void roam_pool_slot(uint32_t p, int k, double now);
 static void roam_player(uint32_t p)
 {
     uint32_t slot, veh, mtx, car, phys, coll, c, k;
-    float m[12], vel[3];
-    uint8_t ctl[ROAM_CTL], has_ctl = 1;
     double now;
-    if (!s_roam_slots || !online_ram(p))
+    if (!s_roam_cruise || !online_ram(p))
         return;
     slot = MEM32(p + 0x5Cu);
     veh = MEM32(p + 0x14u);
@@ -1628,60 +1265,5 @@ static void roam_player(uint32_t p)
         }
         return;
     }
-    roam_swap(p, (int)slot);                    /* may rebuild the car: +0x14 read again */
-    if (!online_ram(veh = MEM32(p + 0x14u)))
-        return;
-    {
-        static roam_tyre tyre[ROAM_SLOTS + 1];
-        roam_tyres(&tyre[slot], veh, "slot", (int)slot);
-    }
-    if (s_roam_fake) {
-        float side = (slot & 1u) ? 3.0f : -3.0f;
-        double delay = 1.0 + (s_roam_fake > 1 ? 2.0 * (slot - 1) / (s_roam_fake - 1) : 0.0);
-        if (!roam_hist_at(now - delay, m, vel, ctl))
-            return;                             /* stays on its starting spot until then */
-        for (k = 0; k < 3; k++)
-            m[9 + k] += m[k] * side;            /* right row */
-    } else if (s_roam_peer[slot].id && s_roam_peer[slot].here && !s_roam_peer[slot].away) {
-        memcpy(m, s_roam_peer[slot].m, sizeof m);
-        memcpy(vel, s_roam_peer[slot].vel, sizeof vel);
-        memcpy(ctl, s_roam_peer[slot].ctl, ROAM_CTL);
-        has_ctl = s_roam_peer[slot].has_ctl;
-    } else {                                    /* parked far away, under the map, hidden */
-        /* The minimap pins a blip beyond its radius onto its rim (sub_000B95B0,
-         * hud_map vtable 0x450850 +0x94), so distance alone leaves a ghost
-         * blip at the rim. [[veh+0xC]+0x12D] is the car's "drawn" flag
-         * (enable/disable sub_0010E7C0/sub_0010E760): at 0 the car is not
-         * drawn and the blip (sub_000BE140) and HUD icons (sub_000BE5C0)
-         * skip it. Parked from the first frame: before our history exists
-         * the slots still sit on the start spot, so take our car's matrix.
-         * Out of the physics level too: parked there, the 2 spare slots'
-         * cars still blocked our car on the start spot, unseen (2026-11-10). */
-        uint32_t p0 = MEM32(MEM32(0x558814u) + 8u), v0, m0;
-        roam_show(veh, 0);
-        roam_slot_phys((int)slot, veh, 0);
-        if (s_roam_nhist)
-            memcpy(m, s_roam_hist[(s_roam_nhist - 1) % ROAM_HIST].m, sizeof m);
-        else if (online_ram(p0) && online_ram(v0 = MEM32(p0 + 0x14u)) && online_ram(m0 = MEM32(v0 + 0x1Cu)))
-            for (k = 0; k < 12; k++)
-                m[k] = MEMF(m0 + 0x10u + 4u * k);
-        else
-            return;
-        m[9] += 30000.0f + 50.0f * (float)slot;  /* 30 km off in x, apart per slot */
-        m[10] -= 500.0f;
-        vel[0] = vel[1] = vel[2] = 0.0f;
-        s_roam_peer[slot].live = 0;
-        roam_set_pose(veh, m, vel);
-        roam_park_inst(veh, (int)slot);         /* out of the level nothing else moves what is drawn (roam_cars.c) */
-        return;
-    }
-    c = MEM32(veh + 4u);
-    if (!s_roam_peer[slot].live) {
-        roam_set_pose(veh, m, vel);
-        roam_slot_phys((int)slot, veh, 1);
-        roam_show(veh, 1);
-        s_roam_peer[slot].live = 1;
-    }
-    roam_trace(slot, veh, c, m, vel, has_ctl ? ctl : NULL, now);
-    roam_remote(p, c, m, vel, has_ctl && online_ram(c) && MEM32(c + 0x60u) == slot ? ctl : NULL);
+    roam_pool_slot(p, (int)slot, now);          /* driven or parked (roam_pool.c) */
 }

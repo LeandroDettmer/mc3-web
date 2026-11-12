@@ -65,28 +65,13 @@ static uint32_t s_icon_seen[64];                /* render objects the game marke
 static int s_icon_nseen, s_icon_in;
 static int32_t s_icon_col;                      /* the colour the game gave a remote slot (0 until seen) */
 
-/* The vehicle of slot k (0 none). */
-static uint32_t tags_slot_veh(int k)
-{
-    uint32_t pm = MEM32(ROAM_PM_VA), p;
-    if (!online_ram(pm) || !online_ram(p = MEM32(pm + 8u + 4u * (uint32_t)k)))
-        return 0;
-    return online_ram(MEM32(p + 0x14u)) ? MEM32(p + 0x14u) : 0;
-}
-
 /* Remote cars driven now: their vehicles and names, at most max. */
 static int tags_cars(uint32_t *veh, const char **name, int max)
 {
-    int n = 0, j;
-    for (j = 1; j <= s_roam_slots && n < max; j++)
-        if (s_roam_peer[j].id && s_roam_peer[j].here && !s_roam_peer[j].away && s_roam_peer[j].live &&
-            (veh[n] = tags_slot_veh(j)) != 0)
-            name[n++] = s_roam_peer[j].name;
-    for (j = 0; j < s_ncar && n < max; j++)
-        if (s_car[j].veh && s_car[j].id && s_car[j].here && !s_car[j].away && s_car[j].live) {
-            veh[n] = s_car[j].veh;
-            name[n++] = s_car[j].name;
-        }
+    int n = 0, k;
+    for (k = 1; k < s_nrc && n < max; k++)
+        if (roam_rc_driven(&s_rc[k]) && s_rc[k].live && (veh[n] = roam_rc_veh(k)) != 0)
+            name[n++] = s_rc[k].name;
     return n;
 }
 
@@ -100,7 +85,7 @@ static void roam_icon_seen(uint32_t r, uint32_t sp)
     if (s_icon_nseen < (int)(sizeof s_icon_seen / sizeof s_icon_seen[0]))
         s_icon_seen[s_icon_nseen++] = r;
     for (k = 1; k <= s_roam_slots; k++)
-        if (s_roam_peer[k].id && (v = tags_slot_veh(k)) != 0 && MEM32(v + 0xCu) == r)
+        if (s_rc[k].id && (v = roam_rc_veh(k)) != 0 && MEM32(v + 0xCu) == r)
             s_icon_col = (int32_t)MEM32(sp + 4u);
 }
 
