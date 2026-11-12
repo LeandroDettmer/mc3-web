@@ -12,7 +12,7 @@ near him; nothing should be raised just to show far players.
 | Game car cache | 16 entries | `[0x50A08C]`, ctor `sub_00103B40`, get `sub_00105B80` | was hit: 17th car of any kind froze the game | Fixed 3ff3f9a: standalone cars take entries from our own caches (now 80). Player builder `sub_002CB2D0` asks key 0, so no sharing by model. |
 | Remote car caches (ours) | 80 entries | `roam_pool.c` | 30 at peak | Plenty. |
 | Vehicle registry | 42 (raised from 10) | `roam_cars.c` (`sub_002BE2C0` override) | 33 at peak | Raised at every cruise load since ebb9294 (phones stayed at 10 before). The registry list holds 4 entries per car; count cars as `ceil(count / (k/4))`. |
-| Particle emitters | 256, ~9 per car | particle manager | **hit**: car 27 broke (XQUE58, PC, 33 cars) | Being fixed (scout icall-35dc7b). Cap remote cars below it, or give each standalone car fewer emitters. |
+| Particle emitters | 256, ~9 per car | particle manager | **hit**: car 27 broke (XQUE58, PC, 33 cars) | Fixed 5cbf2f1: manager `[0x4D6308]` (256 ptrs at +4, count +0x404), add `sub_00033A00` has no bounds check, each car adds 9 (`sub_001167A0`); a new car is built only if count + its cost + 24 <= 256, so ~24 remote cars at most. Capacity log shows `particle emitters N/256`. |
 | Remote cars shown | `MC3_ROAM_CARS`: 32 on PC (128 MB), 7 on phones/low-mem | `roam_cars.c` | 32 once (PC) | Slots included. |
 | Car radius | 250 m (`MC3_ROAM_RADIUS`, 0 off), give back after 3 s beyond 300 m | `roam_pool.c` ROAM_RADIUS | n/a | Matches the game's own traffic fade (250 m, `0x4AFD18`). Players beyond it are map blips only (no car, no draw cost). Lowering it saves a few draws and MB, but more players cross the edge, and each crossing builds a car (a short hitch). |
 | Player slots | 8 (us + 7) | `GetPlayer sub_002BF570` (209 callers), `sub_002BDC00` unrolled 8x | n/a | Not worth raising; standalone cars have replaced slots for more cars. |
@@ -58,8 +58,9 @@ K 32. One DO is one thread: near one core at ~40 players in one city.
 
 ## 4. What can be done, by priority
 
-1. **Particle emitters (256)**: cap so no client passes ~26 remote cars, or
-   fewer emitters per standalone car. In progress (icall-35dc7b).
+1. **Particle emitters (256)**: done in 5cbf2f1 (budget check, ~24 remote cars
+   at most). To show more: fewer emitters per standalone car, or a larger
+   emitter array (the manager is fixed-size in .data: needs a relocation).
 2. **Firebase transfer**: done in 6dfea33 (config.json poll 5 min, visible tab
    only); also check whether the project is on Spark or Blaze.
 3. **City DO load at 40+ players in one city** (Worker deploy, drops everyone):
