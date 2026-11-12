@@ -36,21 +36,33 @@ near him; nothing should be raised just to show far players.
 
 ## 3. Server and cost limits (Cloudflare, Firebase)
 
-Analytics could not be read (the token lacks Account Analytics: Read and
-Billing: Read), so these are *estimates* at 132 online / 25 in Free Roam, for 24 h.
+**Real usage (owner's Billing > Billable usage, cycle Oct 26 - Nov 25, 18 days
+observed, 2026-11-12): the account is on Workers Paid ($5/month) and every
+product is inside its included amount: $0.00 usage cost, projected $0.00.**
 
-| Item | Estimate / day | Free limit / day | If paid |
+| Product | Used (18 days) | Included / month | Over-quota price |
 |---|---|---|---|
-| Durable Object requests (city + switch; 20 WebSocket messages = 1 request) | 1.7-9.5 M | 100 k | ~$8-43 / month |
-| Durable Object duration | 35-54 k GB-s | 13 k GB-s | ~$15 / month |
-| Worker requests | 20-55 k | 100 k | within |
-| Firebase Hosting transfer | 300-400 MB (config.json poll was ~150 MB) | 360 MB (Spark) | Blaze: pay as you go |
-| TURN egress | ~0.37 GB (owner's dashboard: 366 MB egress, 619 MB ingress) | 1 TB / month | $0.05 / GB |
+| Durable Objects requests | 336.56 k | 1 M | $0.15 / M |
+| Durable Objects duration | 18.27 k GB-s | 400 k GB-s | $12.50 / M GB-s |
+| Workers requests | 681.96 k | 10 M | $0.30 / M |
+| Workers CPU | 781.63 k ms | 30 M ms | $0.02 / M ms |
+| R2 class B operations | 1.52 M | 10 M | $0.36 / M |
+| R2 class A operations | 6.51 k | 1 M | $4.50 / M |
+| R2 storage | 4.34 GB-month | 10 GB-month | $0.015 / GB-month |
+| Realtime (TURN) bandwidth | 0.14 GB | 1,000 GB | $0.05 / GB |
 
-The city DOs kept answering past the free request limit, so the account is
-probably on Workers Paid; confirm in the dashboard (Workers & Pages -> Plans).
-Over a free limit, Cloudflare and Firebase Spark do not bill: requests fail
-until the daily reset (00:00 UTC), i.e. the online or the site goes down.
+The closest is DO requests (34% after 18 days, most of it in the last two days
+of 100+ players): even 3 M in a month costs ~$0.30 over the $5. Over-quota
+prices above are from memory, check them in the dashboard.
+
+The earlier *estimates* (1.7-9.5 M DO requests a day) were far too high: the
+WebSocket message rate per player and the relay share were overestimated.
+Read billing instead of estimating: Billing > Billable usage, or a token with
+Account Analytics: Read + Billing: Read in `.deploy/.cf.env`.
+
+Firebase Hosting: check Spark vs Blaze in the Firebase console (Usage and
+billing). Spark allows 360 MB/day of transfer and goes down past it; the
+config.json poll (was ~150 MB/day at 130 players) is cut to every 5 min in 6dfea33.
 
 City DO CPU: San Diego with 26 players takes ~2.7 k incoming messages/s
 (~100 relayed frames/s per player without P2P); ~6.8 k at 40 players with
