@@ -21,15 +21,16 @@
  * here: shown as <donor>'.
  *
  * Sender guard (mods_net_send_cfg, from roam_send_cfg): our car is a mod car
- * when its index is >= the stock count (the Vehicle blocks of the archive's
- * own vehicle.lst, counted when mods/ replaces it; 0 = no mods vehicle.lst,
- * every car stock). Then peers with a roam core >= 19 (RC_CORE_CFG2: they
+ * when a car list in mods/ defines it (content.lst, the downloadable-content
+ * list; or vehicle.lst past the archive copy's Vehicle blocks) or its index is
+ * >= the stock count (that count, or the list's size when content.lst is
+ * first read; none without mods/: every car sent as it is). Then peers with a roam core >= 19 (RC_CORE_CFG2: they
  * have the receiver guard) get our CarCfg + a trailer 'MODD' + the donor's
  * name (24 B), and older cores (no guard; a 0x108-byte record only) get the
  * donor's stock CarCfg (roam_set_cfg2).
  *
  * Donor per mod car: an optional line 'Donor <vp_ name>' inside the mod's
- * Vehicle block in mods/tune/vehicle/vehicle.lst. It is read and cut out here
+ * Vehicle block in mods/content.lst (or mods/tune/vehicle/vehicle.lst). It is read and cut out here
  * before the game parses the file (whether the game's reader skips unknown
  * keys was not checked); none: vp_350z_04. */
 
@@ -39,9 +40,9 @@
 #define MN_REC           (ROAM_CFG_SIZE + 4u + MN_NAME)
 #define MN_SHOWROOM      0x00541700u             /* showroom CarCfg i at + i*0x108 (127) */
 
-static int s_mn_stock;                           /* stock cars (archive vehicle.lst); 0: unknown, all stock */
-static struct { char name[32], donor[32]; } s_mn_donor[MODS_CARS];
-static int s_mn_ndonor;
+static int s_mn_stock;                           /* stock cars; 0: unknown */
+static struct { char name[32], donor[32]; } s_mn_mod[MODS_CARS];   /* mod cars (and Donor lines) */
+static int s_mn_nmod;
 
 /* A line's first token after its key ("Name   vp_x" -> "vp_x"), into out. */
 static void mn_token(const uint8_t *a, const uint8_t *b, char *out, size_t size)
@@ -109,17 +110,23 @@ static int mn_archive_cars(uint32_t name)
     return cars;
 }
 
-/* mods/tune/vehicle/vehicle.lst as it is served (mods_dev_open, inside the
- * device's Open): the stock count from the archive's copy, each Vehicle
- * block's 'Donor' line kept and cut out. Returns the new length. */
-static uint32_t mods_net_vehicles(uint8_t *d, uint32_t n)
+/* A car list from mods/ as it is served (mods_dev_open, inside the device's
+ * Open): tune/vehicle/vehicle.lst (content 0: the stock count from the
+ * archive's copy, its blocks past it are mod cars) or content.lst (content 1:
+ * downloadable content, every block a mod car; the stock count is the car
+ * list's size when it is first opened, after vehicle.lst). Each mod car and
+ * each block with a 'Donor' line is kept (that line cut out). Returns the
+ * new length. */
+static uint32_t mods_net_vehicles(uint8_t *d, uint32_t n, int content)
 {
     uint32_t r = 0, w = 0;
-    int depth = 0, veh = 0, cars = 0;
+    int depth = 0, veh = 0, cars = 0, mods = 0;
     char name[32] = "", donor[32] = "";
 
-    s_mn_stock = mn_archive_cars(MEM32(g_esp + 4));
-    s_mn_ndonor = 0;
+    if (!content)
+        s_mn_stock = mn_archive_cars(MEM32(g_esp + 4));
+    else if (!s_mn_stock)
+        s_mn_stock = MEM16(0x00557EB4u);
     while (r < n) {
         uint32_t e = r, a, b;
         int cut = 0;
@@ -142,9 +149,13 @@ static uint32_t mods_net_vehicles(uint8_t *d, uint32_t n)
         for (uint32_t i = a; i < b; i++)
             depth += d[i] == '{' ? 1 : d[i] == '}' ? -1 : 0;
         if (veh && depth == 0 && memchr(d + a, '}', b - a)) {
-            if (name[0] && donor[0] && s_mn_ndonor < MODS_CARS) {
-                memcpy(s_mn_donor[s_mn_ndonor].name, name, sizeof name);
-                memcpy(s_mn_donor[s_mn_ndonor++].donor, donor, sizeof donor);
+            int mod = content || (s_mn_stock > 0 && cars > s_mn_stock), i;
+            for (i = 0; i < s_mn_nmod && strcmp(s_mn_mod[i].name, name); i++) {}
+            if (name[0] && (mod || donor[0]) && i < MODS_CARS) {
+                snprintf(s_mn_mod[i].name, sizeof s_mn_mod[i].name, "%s", name);
+                snprintf(s_mn_mod[i].donor, sizeof s_mn_mod[i].donor, "%s", donor[0] ? donor : MN_DEFAULT_DONOR);
+                s_mn_nmod += i == s_mn_nmod;
+                mods++;
             }
             veh = 0;
         }
@@ -154,22 +165,28 @@ static uint32_t mods_net_vehicles(uint8_t *d, uint32_t n)
         }
         r = e;
     }
-    fprintf(stderr, "[MOD] vehicle.lst: %d cars, %d stock (the archive's)%s, %d donor lines\n", cars, s_mn_stock,
-            s_mn_stock ? "" : " -- unknown: every car is sent as it is", s_mn_ndonor);
+    fprintf(stderr, "[MOD] %s: %d cars, %d mod cars (donor: their 'Donor' line, else %s); stock cars %d%s\n",
+            content ? "content.lst" : "vehicle.lst", cars, mods, MN_DEFAULT_DONOR, s_mn_stock,
+            s_mn_stock ? "" : " (unknown: only the cars named in mods/ count as mod cars)");
     return w;
 }
 
-/* A mod car (by our car list's index): one the stock list does not have. */
-static int mods_net_is_mod(int32_t car)
+/* A mod car: one a car list in mods/ defines, or past the stock cars. */
+static int mods_net_is_mod(const char *name)
 {
+    int32_t car;
+    for (int i = 0; name && i < s_mn_nmod; i++)
+        if (!strcmp(s_mn_mod[i].name, name))
+            return 1;
+    car = name ? roam_car_index(name) : -1;
     return s_mn_stock > 0 && car >= s_mn_stock;
 }
 
 static const char *mn_donor_of(const char *name)
 {
-    for (int i = 0; name && i < s_mn_ndonor; i++)
-        if (!strcmp(s_mn_donor[i].name, name))
-            return s_mn_donor[i].donor;
+    for (int i = 0; name && i < s_mn_nmod; i++)
+        if (!strcmp(s_mn_mod[i].name, name))
+            return s_mn_mod[i].donor;
     return MN_DEFAULT_DONOR;
 }
 
@@ -251,7 +268,7 @@ static void mods_net_send_cfg(const uint8_t blob[ROAM_CFG_SIZE])
     uint8_t rec[MN_REC], old[ROAM_CFG_SIZE];
     const char *name = roam_cfg_name(blob), *donor, *got;
 
-    if (!name || !mods_net_is_mod(roam_car_index(name))) {
+    if (!name || !mods_net_is_mod(name)) {
         roam_set_cfg(blob, ROAM_CFG_SIZE);
         return;
     }
@@ -301,11 +318,11 @@ static void mn_sl_send(void)
         slot = self;
     if (mask == 0xCAFEBABEu)
         mask = 1u << (host & 31u);
-    if (s_mn_stock > 0 && online_ram(src) && MEM32(src) == ROAM_CFG_VT
+    if ((s_mn_stock > 0 || s_mn_nmod) && online_ram(src) && MEM32(src) == ROAM_CFG_VT
         && !(self == host && self != 0xFFFFFFFFu && slot == self && mask == 1u << (host & 31u))) {
         memcpy(name, (const char *)XBOX_PTR(src + ROAM_CFG_NAME), 22);
         name[22] = 0;
-        if (mods_net_is_mod(roam_car_index(name)) && (cfg = mn_showroom(mn_donor_of(name)))) {
+        if (mods_net_is_mod(name) && (cfg = mn_showroom(mn_donor_of(name)))) {
             static char said[23];
             if (strcmp(said, name)) {
                 snprintf(said, sizeof said, "%s", name);
