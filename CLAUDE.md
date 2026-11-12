@@ -459,17 +459,27 @@ generated files when the lift inputs did not change.
   White near a player never also starts the AI race; the course is the nearest
   sprint/circuit's own checkpoints, read from its .rac at challenge time
   (tune/race/<city>/<event>.rac through the game's file system and text
-  tokenizer: position + 4 sizes), ~2 km, at most 6. Rework (2026-11-10,
+  tokenizer: position + 4 sizes), the whole course from checkpoint 0 to the
+  last (2026-11-11, untested in game; was ~2 km / at most 6, the ASK's 96-byte
+  cap: ASK v4 now sends city + event and each side reads the course from its
+  own .rac, declining on another count or start line; only the start-beacon
+  fallback still sends <= 6 points; time limit 600 s). Rework (2026-11-10,
   untested in game): both cars go to the race's own start grid (2026-11-11,
   untested: the .rac's PlayerPosDir for the challenger, its first Opponent
   PosDir for the challenged, facing the .rac's dir; the course runs from
-  checkpoint 0; ASK v3, the challenged reads the .rac itself; start beacons
+  checkpoint 0; ASK v4, the challenged reads the .rac itself; start beacons
   only: 2.5 m to each side of the challenger) and are held there for the 3 s
   countdown;
   the checkpoints are the game's own: the Free Roam cruise's race object
   [[0x533E24]+4] (vt 0x46B608) is an mcRaceBase with none, and its per-player
   draw (vt+0x110 sub_001CF3B0, from the player render sub_002BE8E0) runs the
-  flare of each checkpoint in race+0x24/+0x28; we fill those (game new[]
+  flare of each checkpoint in race+0x24/+0x28. The cruise's .rac has
+  numcheckpoints 0 and its reader sub_001CDC80 new[]s 4 + 0x120 n bytes
+  anyway, so +0x28 is a non-null empty array (count 0 at -4): until
+  2026-11-11 that made every challenge refuse ('the cruise has its own (0),
+  page marker instead', 12 player sessions); now it is kept aside, ours
+  (sized to the course) goes in, and at the end ours is freed (sub_001B3CD0)
+  and the empty one put back. We fill those (game new[]
   sub_001B3C60 + ctor sub_001CA0A0, as the .rac reader sub_001CDC80), racer
   record 0 (race+0x98) +0x34 target / +0x18 laps 1; pass = the game's gate
   test sub_001D1510 + audio event 0x15; the HUD arrow (race vt+0xE8, a stub
@@ -480,7 +490,7 @@ generated files when the lift inputs did not change.
   in the map tune's colours. Page marker roam_cp_box only as fallback.
   Prompt box (web/pre.js): left, above the minimap; '\x01' first = big and
   centred (countdown, GO, 2 s of result). Messages: roam core GAME record
-  (type 10, core 17, peer to peer, the hubs untouched; challenge v3).
+  (type 10, core 17, peer to peer, the hubs untouched; challenge v4).
   '[CHALLENGE]' lines; MC3_ROAM_CHALLENGE=0 off, =2 no HUD/audio calls,
   =3 no native checkpoints.
   Many cars (2026-11-09, untested in game; src/games/remix/roam_cars.c,
