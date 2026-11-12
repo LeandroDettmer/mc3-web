@@ -957,22 +957,23 @@
     }
   }
   // New version published (2026-11-12): the deploy's stage script stamps config.json "version" (commit hash). While a game
-  // runs the page re-reads it every 60 s and when the tab turns visible. Different and non-empty: online (Free Roam or a
-  // race room) a box counts 60 s and reloads (old clients speak old protocols); offline (career progress may be unsaved)
-  // only a dismissable notice. No version (local dev) = off.
-  let verNew = false, verBox = null, verTxt = null, verBtn = null, verEnd = 0, verMode = '', verDismissed = false;
+  // runs the page re-reads it every 60 s and when the tab turns visible. Different and non-empty: every player gets a
+  // dismissable notice. Only when config.json "reload" equals that version (a protocol-breaking deploy, RELOAD=1 at stage)
+  // do online players (Free Roam or a race room) get a 60 s reload box. An online career (lan.career) keeps the notice:
+  // its progress since the last save would be lost. No version (local dev) = off.
+  let verNew = false, verForce = false, verBox = null, verTxt = null, verBtn = null, verEnd = 0, verMode = '', verDismissed = false;
   async function versionCheck() {
     if (!playing || verNew || !cfg?.version) return;
     try {
       const r = await fetch('config.json', { cache: 'no-store' });
-      const v = r.ok ? (await r.json()).version : '';
-      if (v && v !== cfg.version) { verNew = true; setInterval(versionTick, 1000); versionTick(); }
+      const j = r.ok ? await r.json() : {};
+      if (j.version && j.version !== cfg.version) { verNew = true; verForce = j.reload === j.version; setInterval(versionTick, 1000); versionTick(); }
     } catch {}
   }
   function versionTick() {
-    // an online career (lan.career) is not reloaded: its progress since the last save would be lost; it gets the notice
     const online = !!(lan && ((lan.roaming && !lan.career) || lan.room));
-    const mode = online ? 'online' : verDismissed ? '' : 'offline';
+    const force = verForce && online;
+    const mode = force ? 'force' : verDismissed ? '' : 'notice';
     const host = $('canvas').parentNode;
     if (!verBox && mode && host) {
       verBox = document.createElement('div');
@@ -988,12 +989,12 @@
     if (!verBox) return;
     if (mode !== verMode) {
       verMode = mode;
-      verEnd = online ? Date.now() + 60000 : 0;
+      verEnd = force ? Date.now() + 60000 : 0;
       verBox.style.display = mode ? '' : 'none';
-      verBtn.textContent = online ? 'Reload now' : 'Dismiss';
-      verBtn.onclick = online ? () => location.reload() : () => { verDismissed = true; versionTick(); };
+      verBtn.textContent = force ? 'Reload now' : 'Dismiss';
+      verBtn.onclick = force ? () => location.reload() : () => { verDismissed = true; versionTick(); };
     }
-    if (online) {
+    if (force) {
       const s = Math.max(0, Math.ceil((verEnd - Date.now()) / 1000));
       verTxt.textContent = `New version published - reloading in ${s} s`;
       if (!s) location.reload();

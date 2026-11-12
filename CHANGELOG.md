@@ -64,7 +64,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** An Online progress panel beside the players list on the full map shows races won, your latest unlock and the next one.
 - **Page:** A Map button next to Settings and Drift opens and closes the full map, with or without touch controls.
 - **Page:** More Settings change without a restart (resolution, filtering, 60 fps, Players shown, keyboard, touch controls), in a new layout with keyboard support.
-- **Page:** After a new version is published, online players get a "reloading in 60 s" box; offline players get a dismissable notice.
+- **Page:** After a new version is published, players get a dismissable notice; only updates that need it reload online players, after a "reloading in 60 s" box.
 - **Free Roam:** Street race cars now face the course, and passed checkpoints fade as in the game's own races.
 - **Free Roam:** Nearby players show as cars far more reliably: pausing or opening the full map no longer removes their cars, and dropped links no longer leave them as dimmed arrows.
 - **Game:** Drift points now show on the left of the screen, and only a crash (wall, car or prop) loses a drift: hard slides and spins no longer do.
