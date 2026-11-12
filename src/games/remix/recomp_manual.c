@@ -4053,11 +4053,12 @@ static void online_strings(void)
  * pause_x.xbck read after '[roam] ... left', no RACE OVER line). There, only
  * our own car (player 0's) answers the test; any other reads "no reset" (its
  * pose is the peer's, whose own game resets it). The career's cruise with
- * Online career too: its other players' cars are standalone ones. */
+ * Online career too: its other players' cars are standalone ones. And a race's
+ * ghosts (roam_ghost_veh): parked 500 m under us they read "in the sea". */
 void sub_000A5890(void)
 {
     uint32_t flag = MEM8(g_ecx + 0xCu) & 1u, p0, veh0;
-    if (flag && MEM32(g_esp) == 0x000FFEECu && (roam_free_cruise() || roam_career_cruise())) {
+    if (flag && MEM32(g_esp) == 0x000FFEECu && (roam_free_cruise() || roam_career_cruise() || roam_ghost_veh(g_esi))) {
         p0 = MEM32(MEM32(ROAM_PM_VA) + 8u);
         veh0 = online_ram(p0) ? MEM32(p0 + 0x14u) : 0;
         if (g_esi != veh0) {

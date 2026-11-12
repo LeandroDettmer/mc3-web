@@ -696,6 +696,30 @@ generated files when the lift inputs did not change.
   it). '[ROAM] race: sending pose during ...'. Open: one-sided collision
   (cruisers hit the racer's drawn car, the racer feels nothing); players
   panel '(racing)' (the switch push has no bits).
+  Race ghosts (P2, 2026-11-12, untested in game; s_roam_ghosts, roam_pool.c
+  roam_ghost_*): in that race (not a group race) the racer sees the other
+  players as cars. Only with a cars heap (128 MB window; 64 MB / phones off),
+  MC3_RACE_GHOSTS=0 off. Built at the race's load only (roam_pool_load ->
+  roam_ghost_load): the 6 nearest linked players (Players shown fewer, not
+  in menus or garage) with a car record, standalone cars, builder slot 1
+  borrowed as in the career cruise (roam_bslots), our car caches; stops at
+  the heap or capacity check, a failed build or 2 s of builds; each taken
+  out of the physics level at once (not out: dropped), fixed to its peer for
+  the race (no hand-over, rebuild or later build: a player without one is a
+  bright blip). Not a player, not a racer: the vehicle registry is walked
+  only by the vehicle update (sub_002BDEC0), adds (builder sub_002CBC40 /
+  sub_002CBAE0, AI sub_001FB040), removes (sub_000FFB40 / FFBA0) and the
+  garage (sub_0013CA70) -- no AI or race loop -- and racers, HUD places,
+  arrows and results come from the player manager and racer records. Posed
+  after the physics step (roam_ghost_frame: SetMatrix/SetVel + the drawn
+  matrix [veh+0x1C]+0x10, inputs via sub_002C9570), parked when its peer is
+  away or unlinked; the water rule (sub_000A5890) answers "no reset" for
+  ghosts (a parked one is 500 m under us: the pause menu for slot 1). Name
+  tags and bright blips come with the pool's driven entries. Teardown: the
+  standalone cars' drop at the race's first state request other than pause
+  (roam_pool_pass: race over, Request(6)/(8), restart); a restart's reload
+  builds them again. '[ROAM] race ghosts: N built at load (cap, heap) ...'.
+  Open: a standalone car's player index 1 in a race (as the career's).
   Open: hub-distributed world settings, names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
   (nfsu2-web uses a grid), KIND_BUNDLE.

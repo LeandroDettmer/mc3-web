@@ -175,6 +175,12 @@ static int s_roam_cruise;                       /* the Free Roam cruise is loade
 /* A race with the session on (Free Roam's AI race, an Online career race; roam_race_load): s_roam_cruise too, 0 slots,
  * our pose and status go out with ROAM_BIT_RACE, nothing comes in but blips (no remote cars, pool and spawn rule off). */
 static int s_roam_race;
+/* Race ghosts (with s_roam_race; roam_ghosts_want): the other players as standalone cars in our race, built at its
+ * load only (roam_pool_load -> roam_ghost_load, builder slot 1 borrowed as in the career cruise), out of the physics
+ * level (nothing collides with them), no player and no racer record (HUD places, arrows, AI, results and saves never
+ * see them), posed after the physics step (roam_ghost_frame); dropped with the standalone cars at the race's first
+ * state request other than pause (roam_pool_pass), a restart's reload builds them again. */
+static int s_roam_ghosts;
 /* rc_state.bits: racing (an AI, career or group race). The status stays RC_ST_ROAM: cores before it drop a SNAP or
  * FAR with a status >= RC_ST__N (roam_core.c), so a new status would hide the racer from them altogether. */
 #define ROAM_BIT_RACE 0x40u
@@ -204,7 +210,7 @@ static int roam_career_on(void)
 /* Builder slots a standalone car may name: the remote slots, else in the career cruise entry 1 (count stays 1). */
 static int roam_bslots(void)
 {
-    return s_roam_slots ? s_roam_slots : s_career_roam && s_roam_cruise && !s_roam_race ? 1 : 0;
+    return s_roam_slots ? s_roam_slots : (s_career_roam && s_roam_cruise && !s_roam_race) || s_roam_ghosts ? 1 : 0;
 }
 /* A group race (roam_challenge.c invites, roam_race_ai.c loads it): the players racing the same event, in join order
  * (id[me] = 0, us). While on, its race load gets remote slots for them alone (roam_build), no standalone cars, and
@@ -830,6 +836,18 @@ static void roam_career_join(uint32_t setup, const char *when)
             s_roam_cruise ? "session running, other players as standalone cars and blips" : "no session (link down?)");
 }
 
+/* Race ghosts for this race load: a cars heap (128 MB window; 64 MB and phones: none, off), MC3_RACE_GHOSTS not 0,
+ * not a group race (its slots show its racers). NULL: on, else why off. */
+static const char *roam_ghosts_want(void)
+{
+    const char *e = getenv("MC3_RACE_GHOSTS");
+    if (e && e[0] == '0')
+        return "MC3_RACE_GHOSTS=0";
+    if (s_roam_fake > 0 || roam_group_race())
+        return "fake players or a group race";
+    return roam_cheap() ? NULL : "no cars heap (64 MB)";
+}
+
 /* A race load with us driving (Free Roam's AI race, an Online career race): the session stays on with no remote cars
  * (no slots, no standalone cars, the pool off); roam_player sends our pose from the race's first frame, status ROAM +
  * ROAM_BIT_RACE, so the others see our car racing where we are (the race is in the same city's world coordinates).
@@ -837,14 +855,17 @@ static void roam_career_join(uint32_t setup, const char *when)
 static int roam_race_load(uint32_t setup, const char *what)
 {
     uint32_t e0 = setup + ROAM_ENTRY;
+    const char *off;
     if (!roam_running() || MEM32(setup + 0x4Cu) != 1u || MEM8(setup + 0x108u) || MEM8(e0 + 0x26u) ||
         SMEM32(e0 + 0x14u) < 0)
         return 0;
     s_roam_cruise = s_roam_race = 1;
     s_roam_cfg_loaded = 0;                      /* our car record again at the race's first frame */
     roam_status(RC_ST_LOADING);                 /* peers hide our car until the race runs (roam_player: ROAM) */
-    fprintf(stderr, "[ROAM] race: sending pose during %s (race type %u; others see us racing)\n", what,
-            (unsigned)MEM32(setup + 0x18u));
+    off = roam_ghosts_want();
+    s_roam_ghosts = !off;                       /* roam_pool_load builds them after the player manager */
+    fprintf(stderr, "[ROAM] race: sending pose during %s (race type %u; others see us racing); race ghosts %s%s\n", what,
+            (unsigned)MEM32(setup + 0x18u), off ? "off: " : "on", off ? off : "");
     return 1;
 }
 
@@ -885,7 +906,7 @@ static void roam_build(void)
     roam_fake();
     roam_pool_reset();                          /* before s_roam_slots: a left-over standalone car is found by it */
     s_roam_slots = 0;
-    s_roam_cruise = s_roam_race = 0;
+    s_roam_cruise = s_roam_race = s_roam_ghosts = 0;
     s_roam_nhist = 0;
     if (!online_ram(setup))
         return;
@@ -1079,6 +1100,7 @@ static void roam_ctl_pack(uint32_t c, uint8_t out[ROAM_CTL])
 /* Our car to free roam, and the linked peers to the remote cars pool
  * (roam_pool.c). Our state goes out first, whatever cars we have. */
 static void roam_pool_net(const roam_peer *peers, int n, double now);
+static void roam_ghost_net(const roam_peer *peers, int n, double now);
 
 static void roam_send_local(const roam_pose *me)
 {
@@ -1105,8 +1127,11 @@ static void roam_net(const roam_pose *me)
     s_roam_seen = peers;                        /* a second roam_peers a frame would upset its blend clock */
     s_roam_nseen = n;
     s_roam_seen_t = me->t;
-    if (s_roam_fake || s_roam_race)             /* a race: our pose out, no remote cars in */
+    if (s_roam_fake || s_roam_race) {           /* a race: our pose out; only its ghosts (built at load) follow peers */
+        if (s_roam_race && s_roam_ghosts && s_roam_fake <= 0)
+            roam_ghost_net(peers, n, me->t);
         return;
+    }
     if (roam_group_race()) {                    /* a group race: its slots show the players racing with us only */
         static roam_peer mates[ROAM_GROUP_MAX];
         int i, m = 0;

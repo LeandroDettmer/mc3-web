@@ -75,4 +75,5 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Cars are built only for players within about 300 m of you; farther players show as normal blips on the map, so a full city no longer runs out of cars for the players around you.
 - **Free Roam:** Players in an AI race, or in an Online career race, now show to the others as a car racing where they are (bright on the map) instead of vanishing; street race invites skip them.
 - **Game:** Safari 17 on a Mac no longer crashes a few seconds after Play.
+- **Free Roam:** In an AI race or an Online career race on a PC, the other players nearby show as ghost cars: you see them driving and their name tags, but they never get in your way.
 - **Free Roam:** The full map's players list now splits your city into Free Roam and Online career players, each with a count (and the start page's players list does the same).

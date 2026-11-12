@@ -994,8 +994,130 @@ static void roam_pool_slot_init(int k, const uint8_t *look, const roam_peer *pp)
     memcpy(c->vel, pp->v, sizeof pp->v);
 }
 
+/* ── Race ghosts (s_roam_ghosts, roam_game.c) ──
+ *
+ * At the race's load only: the ROAM_GHOSTS nearest linked players (Players
+ * shown fewer) with a car record, each a standalone car with its own look,
+ * taken out of the physics level at once (still in it: dropped, no ghost),
+ * fixed to its peer for the race (no hand-over, no rebuild, no build later: a
+ * player without one stays a blip). Builds stop at the heap or capacity
+ * check, a failed build, or ROAM_GHOST_LOAD s of builds (the load's freeze). */
+#define ROAM_GHOSTS     6               /* ghosts at most in a race */
+#define ROAM_GHOST_LOAD 2.0             /* s of ghost builds at a race load at most */
+
+static void roam_ghost_load(const roam_peer *peers, int np)
+{
+    uint8_t blob[ROAM_CFG_SIZE + 4];
+    uint32_t top = (g_esp - 0x400u) & ~0xFu;
+    int32_t car;
+    int i, built = 0, norec = 0, cap = roam_cars_total() < ROAM_GHOSTS ? roam_cars_total() : ROAM_GHOSTS;
+    double t0 = roam_now();
+    const char *stop = "every linked player";
+    for (i = 0; i < np; i++) {
+        roam_rc *c = &s_rc[s_nrc];
+        if (built >= cap) {
+            stop = "the cap";
+            break;
+        }
+        if (roam_now() - t0 >= ROAM_GHOST_LOAD) {
+            stop = "the build time cap";
+            break;
+        }
+        if (peers[i].status == RC_ST_MENUS || peers[i].status == RC_ST_SHOP || peers[i].status >= RC_ST__N)
+            continue;                           /* not placed, or back in another car: a blip */
+        if (!roam_pool_look(peers[i].id, blob, &car, 0, 0)) {
+            norec++;                            /* no car record (yet): a blip, never ours stood in */
+            continue;
+        }
+        if (!roam_pool_room(car, 0, "a race ghost")) {
+            stop = "the heap";
+            break;
+        }
+        if (!roam_pool_fit(s_nrc, "a race ghost")) {
+            stop = "capacity";
+            break;
+        }
+        if (!roam_rc_make(s_nrc, blob, car, 0)) {
+            stop = "a failed build";
+            break;
+        }
+        roam_veh_phys(c->veh, &c->phys, 0, top);
+        if (c->phys != 0) {                     /* a car others could hit: none */
+            roam_rc_drop(c, 0);
+            stop = "the physics level (car not taken out)";
+            break;
+        }
+        roam_rc_give(s_nrc, &peers[i], " (race ghost)");
+        s_nrc++;
+        built++;
+    }
+    fprintf(stderr, "[ROAM] race ghosts: %d built at load (cap %d, %s %u KB free) in %.0f ms; %d players linked, %d "
+                    "without a car record; stopped at %s\n", built, cap, s_cheap ? "cars heap" : "heap",
+            (unsigned)(roam_heap_log(roam_car_heap(), NULL) >> 10), (roam_now() - t0) * 1e3, np, norec, stop);
+}
+
+/* veh is one of our race's ghosts (sub_000A5890's water rule: a parked one sits 500 m under us, "in the sea", and
+ * the vehicle update would open the pause menu for its builder slot in our race). */
+static int roam_ghost_veh(uint32_t veh)
+{
+    int k;
+    for (k = 1; s_roam_ghosts && veh && k < s_nrc; k++)
+        if (s_rc[k].veh == veh)
+            return 1;
+    return 0;
+}
+
+/* In our player's update (roam_net) during a race: each ghost follows its own peer, parked while it is not linked. */
+static void roam_ghost_net(const roam_peer *peers, int n, double now)
+{
+    int i, k;
+    for (k = 1; k < s_nrc; k++) {
+        roam_rc *c = &s_rc[k];
+        if (!c->id || !c->veh)
+            continue;
+        for (i = 0; i < n && peers[i].id != c->id; i++)
+            ;
+        if (i < n)
+            roam_rc_take(k, &peers[i]);
+        else if (c->here) {
+            c->here = c->live = 0;
+            c->lost = now;
+        }
+    }
+}
+
+/* After the physics step: each driven ghost on its peer's pose, body and drawn matrix both (out of the physics level
+ * nothing syncs them), its inputs into its controller (wheels, steering); never into the physics level. */
+static void roam_ghost_frame(void)
+{
+    uint32_t veh, mtx, cc, i;
+    int k;
+    for (k = 1; k < s_nrc; k++) {
+        roam_rc *c = &s_rc[k];
+        if (!(veh = c->veh))
+            continue;
+        roam_tyres(&c->tyre, veh, "ghost", k);
+        if (!roam_rc_driven(c)) {
+            roam_rc_park(k, veh);
+            continue;
+        }
+        roam_set_pose(veh, c->m, c->vel);
+        if (online_ram(mtx = MEM32(veh + 0x1Cu)))
+            for (i = 0; i < 12; i++)
+                MEMF(mtx + 0x10u + 4u * i) = c->m[i];
+        if (!c->live) {
+            roam_show(veh, 1);
+            c->live = 1;
+        }
+        cc = MEM32(veh + 4u);
+        if (c->has_ctl && online_ram(cc) && MEM32(cc + 0x60u) == c->bslot)
+            roam_remote(0, cc, c->m, c->vel, c->ctl);
+    }
+}
+
 /* After the cruise's player cars are built (sub_002BE2C0): standalone cars
- * for the peers known now that no slot took, + ROAM_SPARE. */
+ * for the peers known now that no slot took, + ROAM_SPARE. A race: its
+ * ghosts instead. */
 static void roam_pool_load(void)
 {
     static roam_peer peers[ROAM_K_MAX];
@@ -1008,6 +1130,11 @@ static void roam_pool_load(void)
     if (cap > ROAM_RC_MAX - s_nrc)
         cap = ROAM_RC_MAX - s_nrc;
     np = roam_peers(peers, ROAM_K_MAX);
+    if (s_roam_race) {
+        if (s_roam_ghosts)
+            roam_ghost_load(peers, np);
+        return;
+    }
     for (i = 0; i < np; i++)
         want += !roam_pool_of(peers[i].id);
     if (want)                                   /* spares only once the slots are full: a free slot takes a newcomer first */
@@ -1170,8 +1297,13 @@ static void roam_pool_frame(void)
     int i, k;
     roam_flow_watch();
     roam_career_live();
-    if (!s_roam_cruise || s_roam_race || !s_roam_nhist || !online_ram(MEM32(ROAM_PM_VA)))
-        return;                                 /* a race (s_roam_race): no remote cars, no queue */
+    if (!s_roam_cruise || !s_roam_nhist || !online_ram(MEM32(ROAM_PM_VA)))
+        return;
+    if (s_roam_race) {                          /* a race: its ghosts only (built at load), no queue */
+        if (s_roam_ghosts)
+            roam_ghost_frame();
+        return;
+    }
     now = roam_now();
     if (s_rep_at && now >= s_rep_at) {
         roam_pool_report(s_rep_n == 2 ? "load + 0.5 s" : "load + 5 s");
