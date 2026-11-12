@@ -1308,6 +1308,31 @@ static int rch_nearby(const float me[3], float reach)
     return n;
 }
 
+/* Late joiners: while the invite window is open, a driving player who came within RCH_NEAR m since White gets
+ * appended to s_rch.inv (never one already listed: joined, out or NO stay as they are); max RCH_RACERS - 1. */
+static void rch_late(const float me[3])
+{
+    int i, k;
+    if (!s_roam_seen || roam_now() - s_roam_seen_t > 0.5)
+        return;
+    for (i = 0; i < s_roam_nseen && s_rch.ninv < RCH_RACERS - 1; i++) {
+        const roam_peer *pp = &s_roam_seen[i];
+        float d;
+        if (pp->status != RC_ST_ROAM || (pp->bits & ROAM_BIT_RACE) || (d = rch_hd(pp->p, me)) > RCH_NEAR ||
+            fabsf(pp->p[1] - me[1]) > RCH_DY)
+            continue;
+        for (k = 0; k < s_rch.ninv && s_rch.inv[k].id != pp->id; k++)
+            ;
+        if (k < s_rch.ninv)
+            continue;
+        s_rch.inv[k].id = pp->id;
+        snprintf(s_rch.inv[k].name, sizeof s_rch.inv[k].name, "%s", pp->name);
+        s_rch.inv[k].joined = s_rch.inv[k].out = 0;
+        s_rch.ninv++;
+        fprintf(stderr, "[CHALLENGE] late invite: %s (%.0f m)\n", s_rch.inv[k].name, d);
+    }
+}
+
 /* ---- group race (roam_race_ai.c): the same invite, then every racer loads the event with its AI ---- */
 
 /* The event's first two prompt lines ("Sprint · Downtown", "Easy · 7 opponents") into d1, d2. */
@@ -1505,6 +1530,7 @@ static int rch_player(uint32_t p)
         fprintf(stderr, "\n");
         return 1;
     case RCH_INVITING:
+        rch_late(me);
         for (k = 0, nj = 0, nin = 0; k < s_rch.ninv; k++) {
             if (!s_rch.inv[k].out && (pp = rch_peer(s_rch.inv[k].id)) != NULL &&
                 (pp->status != RC_ST_ROAM || rch_hd(pp->p, me) > RCH_AWAY)) {
