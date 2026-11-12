@@ -358,7 +358,7 @@ Module['mc3SaveResult'] = function (n) {
 // 16:9); hidden without a list (web/server's switch has none). Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
-  var canvas = Module['canvas'], el = null, pel = null, pshown = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
+  var canvas = Module['canvas'], el = null, pel = null, pshown = null, rel = null, rshown = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
   var CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'], ROWS = 24;   // free-roam room ids 0..3 (web/index.html)
   var me = String((Module['mc3Env'] || {}).MC3_PLAYER_NAME || '').toLowerCase();
   if (!canvas) return;
@@ -382,7 +382,7 @@ Module['mc3SaveResult'] = function (n) {
     var lan = Module['mc3Lan'], list = lan && lan.players && Array.isArray(lan.players.list) ? lan.players.list : null;
     var open = now - seenAt <= 400, show = open && !!list;   // map closed, paused or gone; no list: players hidden
     if (!show) el.style.display = 'none';
-    if (!open) { if (pel) pel.style.display = 'none'; return; }
+    if (!open) { if (pel) pel.style.display = 'none'; if (rel) rel.style.display = 'none'; return; }
     var roam = (list || []).filter(function (p) { return p && p.mode == 'roam'; }), mine = [], other = [];
     roam.forEach(function (p) { (p.city === here ? mine : other).push(p); });
     var key = here + '|' + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : ''); }).join('\u0002');
@@ -419,7 +419,7 @@ Module['mc3SaveResult'] = function (n) {
     if (!canvas.parentNode.classList.contains('stretch')) {
       if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
     }
-    if (!(w > 0 && h > 0)) { el.style.display = 'none'; if (pel) pel.style.display = 'none'; return; }
+    if (!(w > 0 && h > 0)) { el.style.display = 'none'; if (pel) pel.style.display = 'none'; if (rel) rel.style.display = 'none'; return; }
     var st = el.style, pad = Math.max(8, h * 0.02), fs = Math.max(10, h * 0.022).toFixed(1) + 'px', right = x + w - pad;
     st.fontSize = fs;
     st.maxWidth = (w * 0.2).toFixed(0) + 'px';
@@ -428,32 +428,82 @@ Module['mc3SaveResult'] = function (n) {
     if (show) st.display = '';
     // Online progress panel (src/games/remix/online_progress.c roam_progress_box: online, wins, "Latest\nNext"),
     // to the left of the players panel (the right edge when that is hidden), same top.
-    if (typeof _roam_progress_box != 'function') return;
-    var pb = _roam_progress_box() >>> 2;
-    if (!I32[pb]) { if (pel) pel.style.display = 'none'; return; }   // not the Online session
-    if (!pel) {
-      pel = document.createElement('div');
-      pel.style.cssText = el.style.cssText;
-      pel.style.whiteSpace = 'normal';
-      canvas.parentNode.append(pel);
+    var gap = Math.max(6, h * 0.015), edge = right - (show ? el.offsetWidth + gap : 0), top = (y + h * 0.1).toFixed(1);
+    var pb = typeof _roam_progress_box == 'function' ? _roam_progress_box() >>> 2 : 0;
+    if (!pb || !I32[pb]) { if (pel) pel.style.display = 'none'; }   // not the Online session
+    else {
+      if (!pel) {
+        pel = document.createElement('div');
+        pel.style.cssText = el.style.cssText;
+        pel.style.whiteSpace = 'normal';
+        canvas.parentNode.append(pel);
+      }
+      var pe = (pb + 2) << 2, pend = pe + 160;
+      while (pe < pend && HEAPU8[pe]) pe++;
+      var lines = new TextDecoder().decode(HEAPU8.slice((pb + 2) << 2, pe)).split('\n'), ptext = I32[pb + 1] + '|' + lines.join('|');
+      if (ptext !== pshown) {
+        pshown = ptext;
+        pel.textContent = '';
+        pel.append(row('Online progress', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
+        pel.append(row('Races won: ' + I32[pb + 1]));
+        pel.append(row('Latest: ' + lines[0], 'opacity:.85'));
+        pel.append(row(lines[1] ? 'Next: ' + lines[1] : 'Everything unlocked', 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
+      }
+      var ps = pel.style;
+      ps.fontSize = fs;
+      ps.width = (w * 0.2).toFixed(0) + 'px';
+      ps.maxHeight = (h * 0.8).toFixed(0) + 'px';
+      ps.transform = 'translate(' + edge.toFixed(1) + 'px,' + top + 'px) translateX(-100%)';
+      ps.display = '';
+      edge -= pel.offsetWidth + gap;
     }
-    var pe = (pb + 2) << 2, pend = pe + 160;
-    while (pe < pend && HEAPU8[pe]) pe++;
-    var lines = new TextDecoder().decode(HEAPU8.slice((pb + 2) << 2, pe)).split('\n'), ptext = I32[pb + 1] + '|' + lines.join('|');
-    if (ptext !== pshown) {
-      pshown = ptext;
-      pel.textContent = '';
-      pel.append(row('Online progress', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
-      pel.append(row('Races won: ' + I32[pb + 1]));
-      pel.append(row('Latest: ' + lines[0], 'opacity:.85'));
-      pel.append(row(lines[1] ? 'Next: ' + lines[1] : 'Everything unlocked', 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
+    // Race panel (src/games/remix/roam_challenge.c roam_race_box: mode 1 our race / 2 players racing near, '\n' lines,
+    // '\t' columns), left of the progress panel; hidden with nothing to show.
+    var rb = typeof _roam_race_box == 'function' ? _roam_race_box() >>> 2 : 0, rmode = rb ? I32[rb] : 0;
+    if (!rmode) { if (rel) rel.style.display = 'none'; return; }
+    if (!rel) {
+      rel = document.createElement('div');
+      rel.style.cssText = el.style.cssText;
+      rel.style.whiteSpace = 'normal';
+      canvas.parentNode.append(rel);
     }
-    var ps = pel.style, gap = Math.max(6, h * 0.015);
-    ps.fontSize = fs;
-    ps.width = (w * 0.2).toFixed(0) + 'px';
-    ps.maxHeight = (h * 0.8).toFixed(0) + 'px';
-    ps.transform = 'translate(' + (right - (show ? el.offsetWidth + gap : 0)).toFixed(1) + 'px,' + (y + h * 0.1).toFixed(1) + 'px) translateX(-100%)';
-    ps.display = '';
+    var re = (rb + 1) << 2, rend = re + 700;
+    while (re < rend && HEAPU8[re]) re++;
+    var rtext = new TextDecoder().decode(HEAPU8.slice((rb + 1) << 2, re));
+    if (rtext !== rshown) {
+      rshown = rtext;
+      rel.textContent = '';
+      var rl = rtext.split('\n'), hd = rl[0].split('\t');
+      if (rmode == 1) {
+        rel.append(row('Race · ' + hd[2], 'font-size:1.1em;letter-spacing:.03em'));
+        rel.append(row(hd[0] + (hd[1] && hd[1] != 'start beacons' ? ' · ' + hd[1] : ''), 'color:#ffd24a;font-size:.85em;margin-bottom:.2em'));
+        rl.slice(1).forEach(function (l) {
+          var c = l.split('\t'), d = document.createElement('div');
+          d.style.cssText = 'display:flex;gap:.5em;white-space:nowrap';
+          [c[0] ? c[0] + '.' : '', c[1], c[2], c[3]].forEach(function (t, i) {
+            var s = document.createElement('span');
+            s.textContent = t || '';
+            if (i == 0) s.style.minWidth = '1.2em';
+            if (i == 1) { s.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis'; if (c[1] == 'You') s.style.color = '#7fd4ff'; }
+            if (i == 3) s.style.cssText = 'font-size:.85em;color:' + (/DNF|out/.test(t || '') ? '#ff8a7a' : '#ffd24a');
+            d.append(s);
+          });
+          rel.append(d);
+        });
+      } else {
+        rel.append(row(hd[0], 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
+        rl.slice(1).forEach(function (l) {
+          var c = l.split('\t');
+          rel.append(row('⚑ ' + c[0] + (c[1] == 'street' ? ' · street race' : ' · race'), String(c[0]).toLowerCase() == me ? 'color:#7fd4ff' : ''));
+        });
+      }
+    }
+    var rs = rel.style;
+    rs.fontSize = fs;
+    rs.width = (w * 0.22).toFixed(0) + 'px';
+    rs.maxHeight = (h * 0.8).toFixed(0) + 'px';
+    rs.transform = 'translate(' + edge.toFixed(1) + 'px,' + top + 'px) translateX(-100%)';
+    rs.display = '';
   }
   requestAnimationFrame(frame);
 })();

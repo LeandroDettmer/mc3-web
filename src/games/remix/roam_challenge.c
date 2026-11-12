@@ -249,6 +249,7 @@ static struct {
     double black_t;                             /* Black held since (0 not held, or held before a quit was offered) */
     int black_was;
 } s_rch;
+static float s_rch_pos[3];                      /* our car's position at the last frame (the Race panel's live places) */
 
 /* What quitting does now (Black held RCH_QUIT_S s, or the page's button): RCH_Q_*. */
 enum { RCH_Q_NONE, RCH_Q_CANCEL, RCH_Q_LEAVE, RCH_Q_GIVEUP, RCH_Q_DECLINE };
@@ -1472,6 +1473,72 @@ static int rch_marked(uint32_t id)
     return 0;
 }
 
+#ifdef __EMSCRIPTEN__
+/* Read by the page (web/pre.js, the Race panel beside the full map): mode (0 hidden, 1 our race, 2 players racing near
+ * us), then UTF-8 lines joined by '\n'. Mode 1: "Street race\t<event>\t<our status>", then one row per racer
+ * "<place>\t<name>\t<k/N>\t<mark>" (place and k/N empty before the start; mark: host, joined, invited, out, DNF, a finish
+ * time). Mode 2: "Racing now", then "<name>\t<race|street>". Refilled by each call of the getter; no wire data of its own
+ * (the peers' rc_state bits 0x40/0x80 and our race's JOIN/PROG state). */
+static struct { int32_t mode; char text[700]; } s_rch_box;
+EMSCRIPTEN_KEEPALIVE uintptr_t roam_race_box(void)
+{
+    char *o = s_rch_box.text, *end = s_rch_box.text + sizeof s_rch_box.text - 80, t[16];
+    const char *status = "";
+    int order[RCH_RACERS], i, k, n = 0;
+    o[0] = 0;
+    s_rch_box.mode = 0;
+    if (!rch_on() || !s_online)
+        return (uintptr_t)&s_rch_box;
+#define RB(...) (o += snprintf(o, (size_t)(s_rch_box.text + sizeof s_rch_box.text - o), __VA_ARGS__))
+    switch (s_rch.st) {
+    case RCH_INVITING: status = "Inviting"; break;
+    case RCH_INVITED: status = "Invited"; break;
+    case RCH_JOINED: status = "Joined"; break;
+    case RCH_COUNT: status = "Starting"; break;
+    case RCH_RACE: status = s_rch.rc[s_rch.me].fin > 0.0 ? "Finished" : "Racing"; break;
+    case RCH_RESULT: status = "Result"; break;
+    }
+    if (s_rch.st != RCH_IDLE) {
+        s_rch_box.mode = 1;
+        RB("%s\t%s\t%s", s_rch.ai ? "Group race" : "Street race",
+           s_rch.ai && s_rch.air ? s_rch.air->name : rch_ev_name(), status);
+        if (s_rch.st == RCH_INVITING) {
+            RB("\n\t%s\t\thost", "You");
+            for (k = 0; k < s_rch.ninv && o < end; k++)
+                RB("\n\t%s\t\t%s", s_rch.inv[k].name, s_rch.inv[k].out ? "out" : s_rch.inv[k].joined ? "joined" : "invited");
+        } else if (s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED) {
+            RB("\n\t%s\t\thost\n\t%s\t\t%s", s_rch.name, "You", s_rch.st == RCH_JOINED ? "joined" : "invited");
+        } else {
+            rch_rank(order, s_rch_pos);
+            for (i = 0; i < s_rch.nrc && o < end; i++) {
+                const rch_racer *r = &s_rch.rc[order[i]];
+                if (r->fin > 0.0)
+                    rch_fmt_time(t, sizeof t, r->fin);
+                else
+                    t[0] = 0;
+                RB("\n%d\t%s\t%d/%d\t%s%s", i + 1, order[i] == s_rch.me ? "You" : r->name, r->cps, s_rch.ncp,
+                   r->fin > 0.0 ? t : r->out || s_rch.st == RCH_RESULT ? "DNF" : "", order[i] == 0 ? " host" : "");
+            }
+        }
+        return (uintptr_t)&s_rch_box;
+    }
+    if (!s_roam_seen || roam_now() - s_roam_seen_t > 0.5)
+        return (uintptr_t)&s_rch_box;
+    for (i = 0; i < s_roam_nseen && n < 8; i++) {
+        const roam_peer *pp = &s_roam_seen[i];
+        if (!(pp->bits & (ROAM_BIT_RACE | ROAM_BIT_STREET)))
+            continue;
+        if (!n)
+            RB("Racing now");
+        RB("\n%s\t%s", pp->name, pp->bits & ROAM_BIT_STREET ? "street" : "race");
+        n++;
+    }
+    s_rch_box.mode = n ? 2 : 0;
+#undef RB
+    return (uintptr_t)&s_rch_box;
+}
+#endif
+
 /* ---- the frame ---- */
 
 /* Each player's update (sub_002C1520) for slot 0, before rra_player; 1: the street race owns the prompt and White
@@ -1512,6 +1579,7 @@ static int rch_player(uint32_t p)
     for (i = 0; i < 3; i++) {
         me[i] = MEMF(mtx + 0x34u + 4u * i);
         fwd[i] = -MEMF(mtx + 0x28u + 4u * i);  /* row +0x28 is the car's back (rch_grid_pose) */
+        s_rch_pos[i] = me[i];
     }
     if ((coll = rra_coll(veh)) != 0)
         for (i = 0; i < 3; i++)
