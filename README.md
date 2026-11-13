@@ -104,8 +104,12 @@ licences: [NOTICE.md](NOTICE.md).
 
 ## License
 
-MIT ([LICENSE](LICENSE)). The vendored toolkit in `xboxrecomp/` is MIT too, with LGPL-2.1 parts extracted from xemu (see
-[NOTICE.md](NOTICE.md)). This repository contains no game code or data.
+mc3-web's own code is under the GNU AGPL-3.0 ([LICENSE](LICENSE)), plus one extra term. If you ship or host a copy,
+modified or not, you must show "Based on mc3-web by Leandro Dettmer" with a link to this repository where its users can
+see it. If you host a modified copy, you must also publish its source. The terms are in
+[NOTICE.md](NOTICE.md#additional-terms-agpl-30-section-7). The code from mcdub3-nx (Laure Ladastra) stays MIT
+([LICENSES/MIT.txt](LICENSES/MIT.txt)). The vendored toolkit in `xboxrecomp/` is MIT too, with LGPL-2.1 parts extracted
+from xemu (see [NOTICE.md](NOTICE.md)). This repository contains no game code or data.
 
 ## Legal
 

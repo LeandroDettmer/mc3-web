@@ -47,6 +47,9 @@ with xboxrecomp; modelled on nfsu2-sw).
   changes (ADR 0002). Note upstreamable fixes in
   docs/upstream.md (patch or issue, and which upstream: xboxrecomp or nfsu2-sw).
 - nfsu2-sw's `src/` is unlicensed: read it for ideas, don't copy it.
+- Our code is AGPL-3.0 with a section 7(b) attribution term (ADR 0012, NOTICE.md): the page's Credits tab keeps
+  "Based on mc3-web by Leandro Dettmer" + the source link. Third-party parts keep their licences
+  (mcdub3-nx MIT in LICENSES/MIT.txt, xboxrecomp MIT/LGPL, nfsu2-web MIT).
 - The toolkit is our fork without upstream history (ADR 0007): take an
   upstream fix as a patch (`git format-patch` upstream, `git am
   --directory=xboxrecomp` here), committed in our name with the original
