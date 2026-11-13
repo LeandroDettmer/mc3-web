@@ -98,3 +98,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Phones:** New touch layout: a big Handbrake button above Brake, beside Gas, with Nitro, Two wheels and Look back over them; Flash, Back, Start and Black sit together top left, away from the Settings, Drift and Map buttons, which are bigger.
 - **Free Roam:** A race invite now has an Accept button beside Decline, and shows how many players already joined.
 - **Online career:** In a career race on a PC, the other online players nearby now show as cars (ghosts you drive through), not only as map blips; up to 12, following the players near you as you drive across the city.
+- **Online:** Pick your country's flag on the start page (Brazil by default): it shows before your name over your car and in the full map's players list.
+- **Page:** The start page shows your nick and flag up top and what the game offers online; the changelog opens as "What's new", newest first.
+- **Saves:** Importing a Remix profile you downloaded no longer makes it read "damaged": it goes back where the game looks for it.
+- **Game:** A slow connection on the first start no longer ends in "No picture after 90 s" while the game files are still arriving.
