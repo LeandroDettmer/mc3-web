@@ -5,10 +5,29 @@ this repository. The game itself is not in it: this repository contains no game 
 
 ## This project
 
-- **mc3-web** (this fork): the browser port, its start page, its tooling and its documentation are MIT, as
-  [LICENSE](LICENSE) says. Maintained by Leandro Dettmer.
-- **mcdub3-nx** by Laure Ladastra: the native port this repository forks, with its history. MIT, the same
-  [LICENSE](LICENSE). Source: <https://github.com/laureladastra/mcdub3-nx>.
+- **mc3-web** (this fork) by Leandro Dettmer: the browser port, its start page, its server, its tooling and its
+  documentation. From 2026-11-13: GNU Affero General Public License v3.0 ([LICENSE](LICENSE)) with the additional
+  terms below. Copies of earlier commits that someone already received stay under MIT
+  ([LICENSES/MIT.txt](LICENSES/MIT.txt)).
+- **mcdub3-nx** by Laure Ladastra: the native port this repository forks, with its history. Her code stays MIT,
+  Copyright (c) 2026 Laure Ladastra ([LICENSES/MIT.txt](LICENSES/MIT.txt)). Source:
+  <https://github.com/laureladastra/mcdub3-nx>.
+
+### Additional terms (AGPL-3.0 section 7)
+
+These terms apply to Leandro Dettmer's code in this repository.
+
+1. **Attribution (section 7(b)).** Any copy, modified or not, that you convey, or that you let users interact
+   with over a network (a hosted page, for example), must show this notice where users can see it. It belongs on the
+   start page, or on a credits/about screen that the start page links to:
+
+   > Based on mc3-web by Leandro Dettmer — https://github.com/LeandroDettmer/mc3-web
+
+2. **Origin (section 7(c)).** A modified version must be marked as modified. Do not present it as the original
+   mc3-web.
+
+3. **Source.** Section 13 also applies. If you run a modified version over a network, offer its users that
+   version's complete source, for example through a link on the page.
 
 ## The browser renderer: nfsu2-web
 

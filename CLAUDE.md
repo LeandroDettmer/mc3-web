@@ -27,7 +27,16 @@ with xboxrecomp; modelled on nfsu2-sw).
   Never delete or rewrite saves on upgrade. Writes go through `<file>.tmp` +
   rename (web_fs.c `mc3_file_write`), never in place; the rotating copies
   (`/opfs/backup/...`, `profile.bin.bak1/.bak2`) and the boot/after-write
-  restore stay. Garage, car list or CarCfg changes (the car-mods project,
+  restore stay. Dated snapshots (2026-11-13, web_fs.c
+  mc3_web_saves_snapshot, untested in a browser): at boot, newest 2+ days
+  old or none -> every save passing its checks copied to
+  `/opfs/backup/snap/<YYYY-MM-DD>[-N]/` (UDATA/... + online/profile.bin,
+  snapshot.txt last: without it, cut short and removed); then those dated
+  over 7 days before today go, never the newest (browser clock; a future
+  date does not count for the 2 days). '[SAVE] snapshot ...'; MC3_SNAP_TEST=1
+  takes one each boot. The Saves tab lists, downloads and restores them
+  (before Play; the current saves go into a snapshot first). The game only
+  copies; a save is rewritten only by the player's Restore. Garage, car list or CarCfg changes (the car-mods project,
   mc3-web-carmod, included) must keep old saves loading. Any change that
   touches a save, its format or its folders gets a migration note in its
   commit and here. Cache code (disc_cache.js, the `cache` folder) touches
@@ -47,6 +56,9 @@ with xboxrecomp; modelled on nfsu2-sw).
   changes (ADR 0002). Note upstreamable fixes in
   docs/upstream.md (patch or issue, and which upstream: xboxrecomp or nfsu2-sw).
 - nfsu2-sw's `src/` is unlicensed: read it for ideas, don't copy it.
+- Our code is AGPL-3.0 with a section 7(b) attribution term (ADR 0012, NOTICE.md): the page's Credits tab keeps
+  "Based on mc3-web by Leandro Dettmer" + the source link. Third-party parts keep their licences
+  (mcdub3-nx MIT in LICENSES/MIT.txt, xboxrecomp MIT/LGPL, nfsu2-web MIT).
 - The toolkit is our fork without upstream history (ADR 0007): take an
   upstream fix as a patch (`git format-patch` upstream, `git am
   --directory=xboxrecomp` here), committed in our name with the original
@@ -84,6 +96,15 @@ docs/web/PLAYING.md.
 
 ### Rules (browser)
 
+- Page/pre-js code that runs at load never touches `HEAP*`, `wasmMemory` or
+  an export before `runtimeInitialized` (check that first, inside try):
+  `HEAPU8` is a getter that reads `wasmMemory.buffer`, and before the
+  runtime is up it throws in every browser. 2026-11-13: a74e205's
+  hidden-tab word did, and the game failed to start for every new player
+  (Chrome and Safari, ~40 logs in 20 min) until 09da696.
+- Nothing reaches production that the owner has not run on :3000: a
+  commit made after his test goes back to :3000 first, even a small one
+  (a74e205 shipped untested and broke every start).
 - Every browser-only change sits behind `__EMSCRIPTEN__` (or a web-only
   file); native builds keep byte-for-byte the same behaviour.
 - Agents develop; the owner tests in his own Chrome. Agents do not run
@@ -573,7 +594,13 @@ generated files when the lift inputs did not change.
   invitees: '<host> cancelled the race'), an invitee declines or leaves (NO
   decline), a racer not yet finished gives up (NO decline: the others mark
   it out, DNF; our checkpoints go, the cruise's empty array back); the
-  prompt's last line says so; '[CHALLENGE] cancel|give up ...'. Markers:
+  prompt's last line says so; '[CHALLENGE] cancel|give up ...'. Auto give up
+  (2026-11-13, untested in game): a racer not finished that is 1000 m farther
+  from its next checkpoint than its closest since the last one, or 120 s
+  without a checkpoint, gives up as Black does (before, one who just drove off
+  kept 0x80, its gold flag and the others' wait up to the 600 s limit; the
+  bits and the INVITE/JOIN/GO memory clear on every other exit path).
+  Markers:
   rc_state.bits 0x80 (ROAM_BIT_STREET, roam_game.c; builds before it test
   0x40 only) while hosting a race someone joined, joined, counting down or
   racing; name tags (roam_tags.c) of players with 0x40/0x80, or known from
@@ -854,6 +881,23 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   RECOMP_GPU, RECOMP_RAM_MB, MC3_LOWMEM (renderer and memory layout are
   set at boot) and RECOMP_GL_LOD_BIAS (in every fragment shader's text and
   the OPFS pipeline list's keys: live would recompile every pipeline).
+- **Hidden tab** (2026-11-12, untested in a browser): browsers throttle a
+  hidden page's timers and rAF, never its workers, so a minimised game ran
+  on at 30 fps (slow PCs, hot iPhones). web/pre.js writes document.hidden
+  into xbox_page_hidden_box (kernel_bridge.c); while 1 the vblank runs at
+  8 Hz (VBLANK_HIDDEN_US): D3D flips at 4 fps, game in slow motion (fixed
+  1/30 s steps), renderer and GPU a seventh of the work; shown again, the
+  schedule restarts at once (no burst of owed vblanks). audio.js suspends
+  the AudioContext (the APU waits on a full queue) and resumes on visible
+  (index.html's unlock kick skips hidden); wasmfs_fetch.js idle() holds the
+  background fill. Stays alive: the roam core's own net thread (rc_tick on
+  its clock: snapshots, keepalive), the sockets, net.js's TX pump (a bell
+  rung during a drain loops by microtask now, not setTimeout 0: a hidden
+  tab clamps that to 1 s, and Chrome's intensive throttling, possible once
+  the page is silent, to 1 a minute). Wake Lock is taken again on visible
+  (touch.js). Peers see our car crawl. A System Link race also slows for
+  the hidden player. The render thread still draws the 4 fps (dropping
+  frames would miss one-time render-to-texture work done while hidden).
 - **Builds**: tools/build_web.sh uses ccache when installed (WSL:
   ~/.cache/ccache-mc3, CCACHE_BASEDIR = repo, so build folders share it;
   CCACHE=0 off). Builds on /mnt/e are slow; one relift per round.

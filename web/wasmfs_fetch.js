@@ -117,8 +117,11 @@ addToLibrary({
     // the music bank, and how much of each track's start is fetched first: two of the Remix's 352 KB stream packets
     const MUSIC = BANKS[0], HEAD_BYTES = 0xB0000, STREAM = /\.xwb$/i;
     let netReads = 0, lastNet = 0, prefetching = false;   // the game's own reads on the network, when the last ended
+    // the page's tab is hidden (web/pre.js -> xbox_page_hidden_box): the background fill waits
+    const hidden = () => typeof _xbox_page_hidden_box == 'function'
+      && Atomics.load(new Int32Array(HEAPU8.buffer), _xbox_page_hidden_box() >>> 2) !== 0;
     const idle = async () => {      // until the game has had no read of its own on the network for IDLE_MS
-      while (netReads > 0 || performance.now() - lastNet < IDLE_MS) await new Promise(r => setTimeout(r, IDLE_MS));
+      while (netReads > 0 || performance.now() - lastNet < IDLE_MS || hidden()) await new Promise(r => setTimeout(r, IDLE_MS));
     };
     const bgRuns = new Set();       // the background fill's requests in progress (fetchRun)
     // A game read that waited SLOW_MS or more (the guest thread that asked stood still meanwhile; a free-roam car

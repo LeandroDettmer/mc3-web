@@ -30,6 +30,7 @@
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #define WEB_GAME_DIR "/game"
@@ -206,7 +207,10 @@ static int career_good(const uint8_t *d, size_t n, const uint8_t *r, size_t rn)
     return n >= rn && (n < 4 || rn < 4 || !memcmp(d, r, 4)) && (!sig_ok(r, rn) || sig_ok(d, n));
 }
 
-/* backup: keep a copy of each good, changed file; else: restore each bad one */
+static void snap_copy(const char *path, const uint8_t *d, size_t n);
+
+/* backup 1: keep a copy of each good, changed file; 2: a good file goes into
+ * the dated snapshot (snap_copy); 0: restore each bad one */
 static void career_file(const char *path, const char *base, int backup)
 {
     char b1[1024], b2[1024], bad[1024];
@@ -222,8 +226,12 @@ static void career_file(const char *path, const char *base, int backup)
     c1 = mc3_file_read(b1, &n1);
     c2 = mc3_file_read(b2, &n2);
     if (career_good(d, n, c1 ? c1 : c2, c1 ? n1 : n2)) {
-        if (backup)
+        if (backup == 2)
+            snap_copy(path, d, n);
+        else if (backup)
             mc3_backup_rotate(base, d, n);
+    } else if (backup == 2) {
+        fprintf(stderr, "[SAVE] snapshot: %s fails its checks, left out\n", path);
     } else if (!backup) {
         const uint8_t *use = career_good(c1, n1, c2, n2) ? c1 : career_good(c2, n2, NULL, 0) ? c2 : NULL;
         size_t un = use == c1 ? n1 : n2;
@@ -288,6 +296,171 @@ void mc3_web_saves_backup(void) { career_walk(1); }
 /* At boot and after a write: bad files get their newest good copy back. */
 void mc3_web_saves_check(void) { career_walk(0); }
 
+/* ── Dated snapshots (2026-11-13): on top of the rotating copies above ──
+ *
+ * At boot, after the check above, when the newest snapshot is 2 days old or
+ * more (or there is none), every save that passes its checks is copied into
+ * /opfs/backup/snap/<YYYY-MM-DD>/ (UDATA/<title>/<profile>/<file> and
+ * online/profile.bin, the same paths as in /opfs), then snapshot.txt is
+ * written last: a folder without it was cut short and is removed. A save
+ * that fails its checks is left out, never copied. Then snapshots dated
+ * more than 7 days before today are removed, but never the newest one (a
+ * clock set wrong, forward or back, never empties the folder). Dates are the
+ * browser's local clock; folders dated after today do not count for the 2
+ * days. The page's Saves tab lists, downloads and restores them (its restore
+ * first keeps the current saves as a snapshot "<date>-N"). MC3_SNAP_TEST=1
+ * takes one at every boot. Only backup/snap is ever written or removed here. */
+#define WEB_SNAP_ROOT WEB_OPFS_DIR "/backup/snap"
+#define SNAP_EVERY_DAYS 2
+#define SNAP_KEEP_DAYS  7
+uint32_t rc_crc32(const uint8_t *p, uint32_t n);    /* xboxrecomp/src/net/roam/roam_core.c */
+
+static char s_snap_dir[256];
+static int s_snap_files, s_snap_failed;
+
+/* one good save file -> the snapshot, at its path under /opfs */
+static void snap_copy(const char *path, const uint8_t *d, size_t n)
+{
+    char dst[1024];
+    if (s_snap_failed)
+        return;
+    snprintf(dst, sizeof dst, "%s%s", s_snap_dir, path + strlen(WEB_OPFS_DIR));
+    if (mc3_file_write(dst, d, n))
+        s_snap_files++;
+    else
+        s_snap_failed = 1;
+}
+
+/* rm -r, for backup/snap only */
+static void rm_tree(const char *path)
+{
+    char p[1024];
+    struct dirent *e;
+    struct stat st;
+    DIR *dir = opendir(path);
+    if (dir) {
+        while ((e = readdir(dir))) {
+            if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+                continue;
+            snprintf(p, sizeof p, "%s/%s", path, e->d_name);
+            if (stat(p, &st) == 0 && S_ISDIR(st.st_mode))
+                rm_tree(p);
+            else
+                unlink(p);
+        }
+        closedir(dir);
+        rmdir(path);
+    }
+}
+
+/* "YYYY-MM-DD..." -> days since 1970-01-01, -1 if not a date */
+static long snap_day(const char *name)
+{
+    int y, m, d;
+    long era, yoe, doy;
+    if (sscanf(name, "%4d-%2d-%2d", &y, &m, &d) != 3 || y < 1970 || m < 1 || m > 12 || d < 1 || d > 31)
+        return -1;
+    y -= m <= 2;                                /* days_from_civil (H. Hinnant) */
+    era = y / 400;
+    yoe = y - era * 400;
+    doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    return era * 146097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719468;
+}
+
+static void mc3_web_saves_snapshot(void)
+{
+    char name[64], p[1024];
+    long today, newest = -1, newest_past = -1, day;
+    int have_today = 0, k, force;
+    const char *test = getenv("MC3_SNAP_TEST");
+    time_t now = time(NULL);                    /* the browser's clock (Date.now) */
+    struct dirent *e;
+    struct stat st;
+    DIR *dir;
+
+    force = test && test[0] && strcmp(test, "0");
+    strftime(name, sizeof name, "%Y-%m-%d", localtime(&now));
+    today = snap_day(name);
+    mkdir(WEB_OPFS_DIR "/backup", 0777);
+    mkdir(WEB_SNAP_ROOT, 0777);
+    if ((dir = opendir(WEB_SNAP_ROOT))) {       /* the snapshots there; half-written ones go */
+        while ((e = readdir(dir))) {
+            if (e->d_name[0] == '.')
+                continue;
+            snprintf(p, sizeof p, WEB_SNAP_ROOT "/%s/snapshot.txt", e->d_name);
+            if (stat(p, &st) != 0) {
+                snprintf(p, sizeof p, WEB_SNAP_ROOT "/%s", e->d_name);
+                rm_tree(p);
+                fprintf(stderr, "[SAVE] snapshot %s was cut short: removed\n", e->d_name);
+                continue;
+            }
+            if ((day = snap_day(e->d_name)) < 0)
+                continue;
+            if (day > newest)
+                newest = day;
+            if (day <= today && day > newest_past)
+                newest_past = day;
+            have_today |= day == today;
+        }
+        closedir(dir);
+    }
+
+    if (force || (!have_today && (newest_past < 0 || today - newest_past >= SNAP_EVERY_DAYS))) {
+        char base[64];
+        uint8_t *d;
+        size_t n;
+        uint32_t h[4] = { 0 };
+        snprintf(base, sizeof base, "%s", name);
+        snprintf(s_snap_dir, sizeof s_snap_dir, WEB_SNAP_ROOT "/%s", name);
+        for (k = 2; stat(s_snap_dir, &st) == 0; k++) {  /* a second one today (the test switch) */
+            snprintf(name, sizeof name, "%s-%d", base, k);
+            snprintf(s_snap_dir, sizeof s_snap_dir, WEB_SNAP_ROOT "/%s", name);
+        }
+        s_snap_files = s_snap_failed = 0;
+        career_walk(2);
+        /* the Online profile: 'MC3O', its size, its CRC (recomp_manual.c online_profile_check) */
+        if ((d = mc3_file_read(WEB_OPFS_DIR "/online/profile.bin", &n))) {
+            if (n >= 20)
+                memcpy(h, d, sizeof h);
+            if (n >= 20 && h[0] == 0x4F33434Du && n - 20 == h[2] && h[3] == rc_crc32(d + 20, h[2]))
+                snap_copy(WEB_OPFS_DIR "/online/profile.bin", d, n);
+            else
+                fprintf(stderr, "[SAVE] snapshot: " WEB_OPFS_DIR "/online/profile.bin fails its checks, left out\n");
+            free(d);
+        }
+        if (s_snap_files && !s_snap_failed) {
+            char txt[64];
+            int tn = snprintf(txt, sizeof txt, "files %d\n", s_snap_files);
+            snprintf(p, sizeof p, "%s/snapshot.txt", s_snap_dir);
+            s_snap_failed = !mc3_file_write(p, txt, (size_t)tn);
+        }
+        if (!s_snap_files) {
+            rm_tree(s_snap_dir);
+            fprintf(stderr, "[SAVE] snapshot: no saves yet, none taken\n");
+        } else if (s_snap_failed) {
+            rm_tree(s_snap_dir);
+            fprintf(stderr, "[SAVE] snapshot %s NOT written (storage full?): the saves and their copies are as"
+                    " they were\n", name);
+        } else {
+            fprintf(stderr, "[SAVE] snapshot %s: %d files in " WEB_SNAP_ROOT "\n", name, s_snap_files);
+            if (today > newest)
+                newest = today;
+        }
+    }
+
+    if (newest >= 0 && (dir = opendir(WEB_SNAP_ROOT))) {   /* older than 7 days, never the newest */
+        while ((e = readdir(dir))) {
+            if (e->d_name[0] == '.' || (day = snap_day(e->d_name)) < 0 || day >= newest ||
+                today - day <= SNAP_KEEP_DAYS)
+                continue;
+            snprintf(p, sizeof p, WEB_SNAP_ROOT "/%s", e->d_name);
+            rm_tree(p);
+            fprintf(stderr, "[SAVE] snapshot %s removed (%ld days old)\n", e->d_name, today - day);
+        }
+        closedir(dir);
+    }
+}
+
 /* Set from the OPFS backend's thread when its root could not be opened
  * (web/wasmfs_fetch.js, _wasmfs_opfs_init_root_directory). */
 static volatile int opfs_failed;
@@ -346,4 +519,5 @@ void mc3_web_fs_init(void)
         setenv("MC3_SAVE_DIR", WEB_OPFS_DIR "/save", 1);
     fprintf(stderr, "[WEB] saves in " WEB_OPFS_DIR "\n");
     mc3_web_saves_check();                      /* a profile cut short last time gets its copy back */
+    mc3_web_saves_snapshot();                   /* every 2 days, kept 7 */
 }

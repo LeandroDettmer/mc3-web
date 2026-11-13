@@ -3241,6 +3241,20 @@ static long long vb_now_us(void)
 static long long     s_vb_next_us;                /* when the next vblank is due */
 static volatile LONG s_vb_count;                  /* vblanks delivered */
 
+#if defined(__EMSCRIPTEN__)
+/* A hidden tab (minimised, another tab, a locked phone): web/pre.js writes
+ * 1 here on the page's visibilitychange, 0 when it shows again. Browsers
+ * throttle a hidden page's timers and rAF, not its workers: the game ran on
+ * at 30 fps, every core busy, the GPU drawing for nobody (a slow PC, a hot
+ * iPhone; 2026-11-12). While it is set the vblank runs at 8 Hz: D3D flips
+ * at 4 fps, so the game, renderer and GPU do a seventh of the work. Game
+ * logic goes on in slow motion (MC3 steps a fixed 1/30 s a frame); the roam
+ * core's net thread keeps its own clock, so Free Roam links stay up. */
+#define VBLANK_HIDDEN_US 125000
+static volatile int32_t s_page_hidden;
+EMSCRIPTEN_KEEPALIVE uintptr_t xbox_page_hidden_box(void) { return (uintptr_t)&s_page_hidden; }
+#endif
+
 /* Vblanks delivered so far: the GPU's frame clock, for RECOMP_FLIP_VBLANK
  * (nv2a_pb_exec.c). */
 uint32_t xbox_vblank_count(void)
@@ -3280,6 +3294,22 @@ static void kernel_vblank_tick(void)
     now = vb_now_us();
     if (!s_vb_next_us)
         s_vb_next_us = now;
+#if defined(__EMSCRIPTEN__)
+    {
+        static int32_t was;
+        int32_t hidden = __atomic_load_n(&s_page_hidden, __ATOMIC_RELAXED);
+        if (hidden != was) {                      /* shown again: a vblank now, */
+            was = hidden;                         /* no burst of owed ones */
+            s_vb_next_us = now;
+        }
+        if (hidden) {
+            if (now < s_vb_next_us)
+                return;
+            s_vb_next_us = now + VBLANK_HIDDEN_US;
+            goto raise;
+        }
+    }
+#endif
     if (now < s_vb_next_us)
         return;
     /* A late tick catches up (the next one is due at once) rather than
@@ -3291,6 +3321,9 @@ static void kernel_vblank_tick(void)
         s_vb_next_us = now + VBLANK_PERIOD_US;    /* far behind: restart here */
     else
         s_vb_next_us += VBLANK_PERIOD_US;         /* on time or catching up */
+#if defined(__EMSCRIPTEN__)
+raise:
+#endif
     InterlockedIncrement(&s_vb_count);
 
     if (!xbox_GetConnectedInterrupt(NV2A_VECTOR))
