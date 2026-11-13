@@ -296,7 +296,13 @@ generated files when the lift inputs did not change.
   2026-11-12, every iPhone ran 40 before, each a JS heap; '[WEB] workers: N'
   logs each new peak), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
   MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=0, no 60 fps, light
-  filtering. Failures show a box over the picture with the reason and the
+  filtering. Loading overlay (2026-11-13, untested in a browser; index.html bootStart/bootWhat, #boot-load,
+  page-only, no wasm access): from Play to the first frame (mc3Frames > 0, polled 250 ms) a box over the
+  picture: the .wasm download MB (bytes counted through a TransformStream into compileStreaming;
+  Content-Length is the encoded size, past it no total), 'Starting the game', then 'Reading game files:
+  <file> (N MB in)' from the '[WEB] disc wait' lines (a line a second, reads >= 100 ms only), and the
+  first-start-is-slower note. Real disc MB/blocks would need wasmfs_fetch.js to post counters on the
+  'mc3-disc' channel (a wasm relink). Failures show a box over the picture with the reason and the
   log's last 20 lines (index.html failShow: abort, page errors before the
   runtime is up, '[WGPU] device lost', '[GL] WebGL context lost', out of
   memory lines, no frame 90 s after the runtime is up; runtime not up 5 min
