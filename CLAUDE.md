@@ -84,6 +84,15 @@ docs/web/PLAYING.md.
 
 ### Rules (browser)
 
+- Page/pre-js code that runs at load never touches `HEAP*`, `wasmMemory` or
+  an export before `runtimeInitialized` (check that first, inside try):
+  `HEAPU8` is a getter that reads `wasmMemory.buffer`, and before the
+  runtime is up it throws in every browser. 2026-11-13: a74e205's
+  hidden-tab word did, and the game failed to start for every new player
+  (Chrome and Safari, ~40 logs in 20 min) until 09da696.
+- Nothing reaches production that the owner has not run on :3000: a
+  commit made after his test goes back to :3000 first, even a small one
+  (a74e205 shipped untested and broke every start).
 - Every browser-only change sits behind `__EMSCRIPTEN__` (or a web-only
   file); native builds keep byte-for-byte the same behaviour.
 - Agents develop; the owner tests in his own Chrome. Agents do not run
