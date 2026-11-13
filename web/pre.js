@@ -8,6 +8,20 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
     if (/^(RECOMP_|MC3_)/.test(k)) ENV[k] = String(env[k]);
 });
 
+// A lost WebGL context answers getShaderInfoLog / getProgramInfoLog with null, and this Emscripten's
+// glGetShaderInfoLog / glGetProgramInfoLog / glGetProgramiv(INFO_LOG_LENGTH) take its .length (stringToUTF8):
+// "Cannot read properties of null (reading 'length')" killed the GL thread, 'A game thread crashed' (Android Mali,
+// Chrome 156/157, 31 logs 2026-11-12/13, after 10-77 s GPU stalls). An empty log instead: the renderer then finds
+// the context lost (nv2a_gl.c gl_lost) and logs '[GL] WebGL context lost', the page's 'Graphics context lost' box.
+// Every thread (the GL thread is a pthread; the page thread when proxied).
+[typeof WebGL2RenderingContext == 'function' && WebGL2RenderingContext,
+ typeof WebGLRenderingContext == 'function' && WebGLRenderingContext].forEach(function (C) {
+  if (C) ['getShaderInfoLog', 'getProgramInfoLog'].forEach(function (n) {
+    var f = C.prototype[n];
+    if (f) C.prototype[n] = function (o) { var r = f.call(this, o); return r == null ? '' : r; };
+  });
+});
+
 // The wasm memory, made here on the page thread (workers get it from the runtime). CMakeLists.txt links 256 MB
 // at least, growth to 2 GB. A PC gets 2 GB up front and never grows (as the old fixed 2 GB); a browser that
 // cannot set that aside (32-bit Chrome) gets the first of 1 GB, 512 MB, 256 MB that it gives and grows from

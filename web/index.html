@@ -1027,7 +1027,14 @@
   // the start with the 'could not start' box.
   function moduleWasm(app) {
     const t0 = performance.now(), ms = () => Math.round(performance.now() - t0) + ' ms';
-    const fail = (step, e) => { const m = `${step} ${app}.wasm failed: ${e?.message || e}`; out('[WEB] module: ' + m); failShow('The game could not start', m); };
+    // A browser without shared wasm memory (Samsung Internet 14 = Chrome 87, 2026-11-12: 'invalid memory limits
+    // flags (enable via --experimental-wasm-threads)') can never run it: say so instead of the compiler's words.
+    const fail = (step, e) => {
+      const m = `${step} ${app}.wasm failed: ${e?.message || e}`; out('[WEB] module: ' + m);
+      if (/experimental-wasm-threads|invalid memory limits flags/.test(m))
+        failShow('Browser too old', 'This browser is too old to run the game. Update it, or play in a recent Chrome, Edge, Firefox or Safari.');
+      else failShow('The game could not start', m);
+    };
     return (imports, done) => {
       out(`[WEB] module: fetching ${app}.wasm`);
       fetch(moduleFile(app + '.wasm'), { credentials: 'include' }).then(r => {

@@ -279,7 +279,16 @@ generated files when the lift inputs did not change.
   log's last 20 lines (index.html failShow: abort, page errors before the
   runtime is up, '[WGPU] device lost', '[GL] WebGL context lost', out of
   memory lines, no frame 90 s after the runtime is up; runtime not up 5 min
-  after Play). Crash tracing (2026-11-10, untested in a browser): every
+  after Play). WebGL context lost under a GPU stall (Android Mali, Chrome
+  156/157, 2026-11-12, fix untested on a phone): 10-77 s frames, then every
+  shader 'failed' with an empty log, then Emscripten's glGet*InfoLog took
+  .length of the lost context's null log ('Cannot read properties of null
+  (reading 'length')', GL thread dead, 'A game thread crashed', 31 logs;
+  not prewarm: the web build has no program list). pre.js makes those
+  getters return '' and nv2a_gl.c gl_lost() logs '[GL] WebGL context lost'
+  at the first failed compile/link and compiles nothing more. A browser
+  without wasm threads (Samsung Internet 14 = Chrome 87) gets a 'Browser
+  too old' box. Crash tracing (2026-11-10, untested in a browser): every
   failure box, page error after boot (no box, 3 a session), freeze (15 s
   without a new frame, tab visible) and killed tab (log tail + heartbeat
   in localStorage every 5 s, cleared on pagehide, sent on the next visit)
