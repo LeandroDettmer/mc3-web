@@ -102,3 +102,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Page:** The start page shows your nick and flag up top and what the game offers online; the changelog opens as "What's new", newest first.
 - **Saves:** Importing a Remix profile you downloaded no longer makes it read "damaged": it goes back where the game looks for it.
 - **Game:** A slow connection on the first start no longer ends in "No picture after 90 s" while the game files are still arriving.
+- **Free Roam:** A full city no longer drops everyone at once at peak times, and after a drop the game reconnects in a few seconds without everyone retrying together.
