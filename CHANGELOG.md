@@ -103,3 +103,5 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Saves:** Importing a Remix profile you downloaded no longer makes it read "damaged": it goes back where the game looks for it.
 - **Game:** A slow connection on the first start no longer ends in "No picture after 90 s" while the game files are still arriving.
 - **Free Roam:** A full city no longer drops everyone at once at peak times, and after a drop the game reconnects in a few seconds without everyone retrying together.
+- **Free Roam:** Another player's car no longer jumps forward or back when you get close to it.
+- **Free Roam:** Fixed a freeze in a full city, when many players come and go around you.
