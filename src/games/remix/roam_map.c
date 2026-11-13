@@ -272,8 +272,15 @@ static void rmap_races(uint32_t map, uint32_t top)
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 /* Read by the page (web/pre.js, the players panel beside the full map): seq +1
- * each frame the full map draws in Free Roam, our city (roam room; -1 unknown). */
-static struct { volatile int32_t seq; int32_t city; } s_rmap_big;
+ * each frame the full map draws in Free Roam, our city (roam room; -1 unknown),
+ * then n linked players with a flag: name (25 bytes) + flag code (7), 32 bytes each. */
+#define RMAP_WHO_MAX 64
+static struct {
+    volatile int32_t seq;
+    int32_t city, n;
+    struct { char name[ROAM_NAME_MAX + 1]; char flag[ROAM_FLAG_MAX + 1]; } who[RMAP_WHO_MAX];
+} s_rmap_big;
+_Static_assert(sizeof s_rmap_big.who[0] == 32, "web/pre.js reads 32-byte rows");
 EMSCRIPTEN_KEEPALIVE uintptr_t roam_bigmap_box(void) { return (uintptr_t)&s_rmap_big; }
 #endif
 
@@ -326,6 +333,17 @@ static void rmap_far(uint32_t map, uint32_t top)
         nseen = s_roam_nseen;
     } else
         nseen = roam_peers(seen = live, ROAM_K_MAX);
+#ifdef __EMSCRIPTEN__
+    if (vt == RMAP_FULLMAP_VT) {                /* the players panel's flags: the linked peers' (the FAR list has none) */
+        for (i = k = 0; i < nseen && k < RMAP_WHO_MAX; i++)
+            if (seen[i].flag[0]) {
+                snprintf(s_rmap_big.who[k].name, sizeof s_rmap_big.who[k].name, "%s", seen[i].name);
+                snprintf(s_rmap_big.who[k].flag, sizeof s_rmap_big.who[k].flag, "%s", seen[i].flag);
+                k++;
+            }
+        s_rmap_big.n = k;
+    }
+#endif
     for (i = 0; i < nseen; i++)
         if (rmap_shown(seen[i].status)) {
             memcpy(dot[n].p, seen[i].p, sizeof dot[n].p);

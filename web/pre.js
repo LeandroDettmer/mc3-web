@@ -338,10 +338,23 @@ Module['mc3SaveResult'] = function (n) {
   Module['mc3SetPad'] = function (n) { want = n | 0; if (!timer) put(); };
 })();
 
+// A player's country flag as a small picture (flags.png from tools/flags_sheet.mjs: 48x36 flags, 16 a row, in the
+// order of Module.mc3Flags, the page's FLAG_CODES); em-sized, so it follows the text's size. Unknown code: null.
+Module['mc3FlagEl'] = function (code) {
+  var i = (Module['mc3Flags'] || []).indexOf(code);
+  if (i < 0 || typeof document != 'object') return null;
+  var f = document.createElement('span');
+  f.style.cssText = 'display:inline-block;width:1.3333em;height:1em;margin-right:.3em;vertical-align:-.12em;' +
+    'border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.6);background:url(flags.png) no-repeat;background-size:21.3333em auto;' +
+    'background-position:' + (-(i % 16) * 1.3333) + 'em ' + (-Math.floor(i / 16)) + 'em';
+  return f;
+};
+
 // Name tags: other players' names over their cars in free roam, on the game's own opponent arrow. src/games/remix/
 // roam_tags.c publishes, each frame of the main camera, where each driven remote car's arrow tip is on the picture
-// (roam_tags_box: seq, n, picture width / height, the arrow's colour 0xRRGGBB, then n x 40 bytes: u, v (0..1), the
-// arrow's alpha (it fades in from 25 to 100 m and out from 200 to 300 m), name); drawn here over the canvas at the
+// (roam_tags_box: seq, n, picture width / height, the arrow's colour 0xRRGGBB, then n x 48 bytes: u, v (0..1), the
+// arrow's alpha (it fades in from 25 to 100 m and out from 200 to 300 m), name (28), flag code (8, '' none: an older
+// build or no flag; drawn from the page's flags.png before the name, Module.mc3FlagEl)); drawn here over the canvas at the
 // page's frame rate, in the arrow's colour, no background, sized to the picture. Settings 'Name tags'
 // (MC3_NAMETAGS=0 off), live through Module.mc3SetNameTags. Main thread only.
 (function () {
@@ -372,8 +385,9 @@ Module['mc3SaveResult'] = function (n) {
       if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
     }
     for (var i = 0; i < n; i++) {
-      var t = b + 4 + i * 10, el = pool[i], name = '';
+      var t = b + 4 + i * 12, el = pool[i], name = '', flag = '';
       for (var c = 0, p = (t + 3) * 4; c < 27 && U8[p + c]; c++) name += String.fromCharCode(U8[p + c]);
+      for (c = 0, p = (t + 10) * 4; c < 7 && U8[p + c]; c++) flag += String.fromCharCode(U8[p + c]);
       var racing = name.charCodeAt(0) === 2;   // going to race or racing (roam_tags.c rch_marked): flag, gold
       if (racing) name = '🏁 ' + name.slice(1);
       if (!el) {
@@ -383,7 +397,13 @@ Module['mc3SaveResult'] = function (n) {
           'text-shadow:0 0 2px #000,0 1px 1px #000';
         layer.append(el);
       }
-      if (el.textContent !== name) el.textContent = name;
+      if (el.dataset.k !== flag + '|' + name) {   // the flag's picture, then the name
+        el.dataset.k = flag + '|' + name;
+        el.textContent = '';
+        var fe = Module['mc3FlagEl'](flag);
+        if (fe) el.append(fe);
+        el.append(name);
+      }
       el.style.color = racing ? '#ffd24a' : rgb;
       el.style.fontSize = Math.max(10, h * 0.022).toFixed(1) + 'px';   // about the HUD's small text
       el.style.transform = 'translate(' + (x + F32[t] * w).toFixed(1) + 'px,' + (y + F32[t + 1] * h).toFixed(1) +
@@ -401,12 +421,13 @@ Module['mc3SaveResult'] = function (n) {
 // roam_bigmap_box (seq, our city: the roam room), and this lists the players online in Free Roam beside it, from the
 // switch's players push (Module.mc3Lan.players.list, web/lan.js: mode 'roam', city = room id): our city first, then the
 // others with their city. On the right edge of the picture, at most 20% of it wide (32:9: beside the HUD's middle
-// 16:9); hidden without a list (web/server's switch has none). Main thread only.
+// 16:9); hidden without a list (web/server's switch has none). Flags: ours from MC3_PLAYER_FLAG, the linked players'
+// from roam_bigmap_box (name + flag rows; the push has none, players beyond our links get none). Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
   var canvas = Module['canvas'], el = null, pel = null, pshown = null, rel = null, rshown = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
   var CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'];   // free-roam room ids 0..3 (web/index.html)
-  var me = String((Module['mc3Env'] || {}).MC3_PLAYER_NAME || '').toLowerCase();
+  var me = String((Module['mc3Env'] || {}).MC3_PLAYER_NAME || '').toLowerCase(), myFlag = (Module['mc3Env'] || {}).MC3_PLAYER_FLAG || '';
   if (!canvas) return;
   function city(c) { return CITIES[c] || 'City ' + c; }
   function row(text, css) { var d = document.createElement('div'); d.textContent = text; if (css) d.style.cssText = css; return d; }
@@ -426,7 +447,16 @@ Module['mc3SaveResult'] = function (n) {
       el.style.cssText += ';pointer-events:auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;' +
         'scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.35) transparent';
     }
-    var b = _roam_bigmap_box() >>> 2, s = I32[b], here = I32[b + 1];
+    var b = _roam_bigmap_box() >>> 2, s = I32[b], here = I32[b + 1], flags = {}, fkey = '';
+    for (var fi = 0, fn = Math.min(I32[b + 2] | 0, 64); fi < fn; fi++) {   // 32-byte rows: name (25), flag (7)
+      var fp = (b + 3) * 4 + fi * 32, fname = '', fcode = '';
+      for (var fc = 0; fc < 24 && HEAPU8[fp + fc]; fc++) fname += String.fromCharCode(HEAPU8[fp + fc]);
+      for (fc = 0; fc < 6 && HEAPU8[fp + 25 + fc]; fc++) fcode += String.fromCharCode(HEAPU8[fp + 25 + fc]);
+      flags[fname.toLowerCase()] = fcode;
+      fkey += fname + fcode;
+    }
+    if (me) flags[me] = myFlag;
+    function flagged(d, name) { var f = Module['mc3FlagEl'] && Module['mc3FlagEl'](flags[String(name).toLowerCase()]); if (f) d.prepend(f); return d; }
     if (s !== seq) { seq = s; seenAt = now; }
     var lan = Module['mc3Lan'], list = lan && lan.players && Array.isArray(lan.players.list) ? lan.players.list : null;
     var open = now - seenAt <= 400, show = open && !!list;   // map closed, paused or gone; no list: players hidden
@@ -446,7 +476,7 @@ Module['mc3SaveResult'] = function (n) {
         else if (c[1] && !/out|DNF|invited/.test(c[3] || '')) racing[c[1].toLowerCase()] = 1;
       });
     }
-    var key = here + '|' + (iRace ? 'R' : '') + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : '') + (racing[String(p.name).toLowerCase()] ? 'r' : ''); }).join('\u0002');
+    var key = here + '|' + fkey + '|' + (iRace ? 'R' : '') + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : '') + (racing[String(p.name).toLowerCase()] ? 'r' : ''); }).join('\u0002');
     if (show && key !== shown) {
       shown = key;
       var keep = el.scrollTop;
@@ -461,7 +491,7 @@ Module['mc3SaveResult'] = function (n) {
         function rc(p) { var k = String(p.name).toLowerCase(); return racing[k] || (k == me && iRace) ? 1 : 0; }
         grp.slice().sort(function (a, b) { return rc(b) - rc(a); }).forEach(function (p) {   // racers first
           var you = String(p.name).toLowerCase() == me, r = rc(p);
-          el.append(row((r ? '🏁 ' : '') + p.name + (r ? ' · racing' : ''), you ? 'color:#7fd4ff' : r ? 'color:#ffd24a' : ''));
+          el.append(flagged(row((r ? '🏁 ' : '') + p.name + (r ? ' · racing' : ''), you ? 'color:#7fd4ff' : r ? 'color:#ffd24a' : ''), p.name));
         });
       });
       if (other.length) el.append(row('Other cities', 'color:#ffd24a;font-size:.85em;margin-top:.35em'));

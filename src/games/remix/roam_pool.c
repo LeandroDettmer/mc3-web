@@ -82,6 +82,7 @@ typedef struct roam_rc {
     uint8_t  fixed;                     /* a slot without a CarCfg of its own: never rebuilt */
     uint32_t id, gen;                   /* its peer (0 none), the peer's cfg_gen compared */
     char     name[ROAM_NAME_MAX + 1];
+    char     flag[ROAM_FLAG_MAX + 1];  /* its flag's code (name tags), "" none */
     float    m[12], vel[3];
     uint8_t  ctl[ROAM_CTL], has_ctl;    /* has_ctl 0: the peer sends no inputs */
     uint8_t  here, away, live, want;    /* linked now; in its garage/loading/race; posed; rebuild with the peer's look */
@@ -689,6 +690,7 @@ static void roam_rc_give(int k, const roam_peer *pp, const char *why)
     c->gen = 0;
     c->said = 0;
     snprintf(c->name, sizeof c->name, "%s", pp->name);
+    snprintf(c->flag, sizeof c->flag, "%s", pp->flag);
     fprintf(stderr, "[ROAM] %s %d: %s (id %08X)%s\n", roam_rc_slot(k) ? "slot" : "car", k, c->name, (unsigned)c->id,
             why);
     roam_rc_take(k, pp);

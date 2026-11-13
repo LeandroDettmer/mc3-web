@@ -79,8 +79,14 @@ These terms apply to Leandro Dettmer's code in this repository.
   (`web/server/crates/roam`). The touch controls and the phone page follow its touch controls and device helpers
   (`web/touch.js`, `xboxrecomp/src/input/touch_pad_web.c`: a virtual controller merged with a real one, a thumb
   stick where the thumb lands, sliding between pedals, the Wake Lock, phone detection and defaults, the device
-  checks' memory and WebGPU notes). nfsu2-web is itself
+  checks' memory and WebGPU notes). The players' country flags follow its Your flag: the flag in the roam core's
+  HELLO (its core 13 layout), and `web/flags.png`, made by `tools/flags_sheet.mjs` (its `flagSheet`) from its
+  `runtime/flags.dat`. nfsu2-web is itself
   based on NFSU2Recomp by Talha Müderrisoğlu (MIT).
+
+- **flag-icons** by Panayiotis Lipiridis (lipis/flag-icons 7.6.0), MIT ([LICENSES/flag-icons.txt](LICENSES/flag-icons.txt)).
+  Source: <https://github.com/lipis/flag-icons>. Its 4:3 SVGs, drawn at 48x36 by nfsu2-web, are the flags in
+  `web/flags.png`; Quebec's is Wikimedia Commons' "Flag of Quebec.svg" (public domain).
 
 - **nfsu2-sw** by antoxa2584x. Its source is unlicensed, so this project reads it for ideas only and copies none of it.
   Source: <https://github.com/antoxa2584x/nfsu2-sw>.

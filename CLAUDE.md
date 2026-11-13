@@ -830,6 +830,21 @@ generated files when the lift inputs did not change.
   built after it in that race ('[ROAM] race ghosts: off for the rest of
   this race'); a restart's reload builds them again. '[ROAM] race ghosts: N built at load (cap, heap) ...'.
   Open: a standalone car's player index 1 in a race (as the career's).
+  Country flags (2026-11-13, untested in a browser; after nfsu2-web's Your
+  flag): the start page's You card (nick big + flag, Change nick, a flag
+  list, default 'br'; localStorage mc3.flag) gives MC3_PLAYER_FLAG; roam
+  core 19 sends it in each HELLO to a peer (never the hub's), nfsu2-web's
+  core 13 layout after the links: duel u32 0, len u8 + code (a-z, '-', <= 6;
+  a bad one is none). Core 18 (every build since the first) skips that tail
+  (its HF_CREW branch ends at r.n = r.len; checked by decoding a flagged
+  HELLO with 0eaa9db's core: RC_OK); the Rust and Worker hubs read only the
+  prefix and get no flag. roam_peer.flag -> pool entry -> roam_tags_box
+  (record 40 -> 48 bytes: + flag[8]) and roam_bigmap_box (n + 32-byte name /
+  flag rows of the linked peers, players panel); web/pre.js draws
+  web/flags.png (tools/flags_sheet.mjs from nfsu2-web's flags.dat, 48x36,
+  16 a row, index.html FLAG_CODES' order, Module.mc3Flags) before the name.
+  No flag: an older build or 'No flag'; far players (FAR list) and the
+  page's players list have none.
   Open: hub-distributed world settings, names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
   (nfsu2-web uses a grid), KIND_BUNDLE.

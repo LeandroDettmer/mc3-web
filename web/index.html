@@ -145,6 +145,17 @@
   kbd { display: inline-block; min-width: 28px; padding: 0 6px; border: 2px solid var(--edge); border-radius: var(--r);
         background: var(--field); color: var(--text); font-size: 14px; line-height: 22px; text-align: center; }
   .play kbd { border-color: var(--silver); color: var(--text); background: rgba(0, 0, 0, .35); text-transform: none; text-shadow: none; }
+  /* the player's card: nick and country flag (flags.png: 48x36 flags, 16 a row, FLAG_CODES' order; flagSet) */
+  .flag { display: inline-block; flex: none; width: 1.3333em; height: 1em; vertical-align: -.15em; border-radius: 2px;
+          background: url(flags.png) no-repeat; background-size: 21.3333em auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6); }
+  .flag:not([style]) { visibility: hidden; }
+  .you { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 12px; background: var(--field);
+         border: 2px solid var(--silver); border-left: 4px solid var(--gold); border-radius: var(--r); }
+  .you .flag { font-size: 36px; }
+  .you-main { flex: 1; min-width: 0; display: grid; }
+  .you-label { font-size: 12px; line-height: 16px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .you-nick { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; font-size: 28px;
+              line-height: 34px; color: var(--gold); overflow-wrap: anywhere; text-shadow: var(--outline); }
   .checks { list-style: none; padding: 0; margin-top: 20px; display: grid; gap: 4px; font-size: 14px; line-height: 20px; }
   .checks li { display: flex; gap: 8px; }
   .checks .mark { flex: none; width: 16px; font-weight: 700; }
@@ -368,6 +379,12 @@
 
   <div class="side">
     <section class="panel hero" aria-label="Play">
+      <div class="you" aria-label="You, as other players see you">
+        <span class="flag" id="you-flag" role="img"></span>
+        <div class="you-main"><span class="you-label">You</span><strong class="you-nick" id="you-nick"></strong></div>
+        <button type="button" class="btn" id="you-edit">Change nick</button>
+      </div>
+      <label class="field"><span>Your flag, before your name over your car in free roam</span><select id="flag"></select></label>
       <p class="status" id="status" role="status">Checking…</p>
       <p class="status-sub" id="status-sub">Looking for the discs and the build.</p>
       <div class="online-now" id="online-now" hidden><div class="on-body" role="status"></div><button type="button" class="btn on-view" aria-haspopup="dialog" aria-controls="players-dlg" hidden>View players</button></div>
@@ -828,6 +845,7 @@
     // Absolute: WASMFS resolves relative URLs against the origin, not this page.
     const nick = $('name').value.trim();
     if (nick && !env.MC3_PLAYER_NAME) env.MC3_PLAYER_NAME = nick;   // the game's sign-in texts
+    if (env.MC3_PLAYER_FLAG === undefined && flagCode()) env.MC3_PLAYER_FLAG = flagCode();   // before our name in free roam
     env.MC3_NETPLAY = '1';   // System Link (Online Races) and Free Roam: always on, idle when playing alone
     // Page defaults (the rows' "(default)"): the lowest graphics on every device, the player raises each (2026-11-11):
     // 30 fps driving, 1x, no aniso, LOD bias 0, no FXAA or sharpening, movie HD off
@@ -967,13 +985,15 @@
   // the game, so a new nick leaves them alone.
   const nickDefault = n => !n || /^player$/i.test(n) || /^racer\d{4}$/i.test(n);
   let nickTaken = '', nickBox = null;   // the last nick the switch refused (lower case); the open dialog
-  function askNick(why = '') {
+  function askNick(why = '', canCancel = false) {
     if (nickBox) { nickBox.querySelector('#nick-msg').textContent = why; return; }
     const d = nickBox = modal('nick-modal', '<h2 id="nick-modal-title">Choose your nick</h2>' +
       '<p class="hint">What other players see. Every player online has a different one.</p>' +
       '<input id="nick-input" class="field" type="text" maxlength="15" autocomplete="nickname" enterkeyhint="done" aria-label="Your nick" aria-describedby="nick-msg">' +
       '<p id="nick-msg" class="bad-text" role="alert"></p>' +
-      '<div class="pw-row"><button type="submit" class="btn">OK</button></div>');
+      '<div class="pw-row"><button type="submit" class="btn">OK</button>' +
+      (canCancel ? '<button type="button" class="btn" id="nick-cancel">Cancel</button>' : '') + '</div>');
+    if (canCancel) d.querySelector('#nick-cancel').onclick = () => { d.remove(); nickBox = null; };
     const input = d.querySelector('#nick-input'), msg = d.querySelector('#nick-msg'), cur = $('name').value.trim();
     input.value = nickDefault(cur) ? '' : cur;
     msg.textContent = why;
@@ -986,11 +1006,53 @@
       else if (k === nickTaken || held) msg.textContent = 'Nick already in use: pick another.';
       else {
         d.remove(); nickBox = null; nickTaken = '';
-        $('name').value = v; store.set('name', v);
+        $('name').value = v; store.set('name', v); youShow();
         clearTimeout(renameT); lan?.rename(v);
         if (playing) $('canvas').focus();
       }
     };
+  }
+
+  // The player's country flag (after nfsu2-web's Your flag): its code goes to the game as MC3_PLAYER_FLAG, the roam
+  // core sends it in each HELLO to a peer (roam_core.c, nfsu2-web's core 13 layout) and the others draw it before our
+  // name over our car (web/pre.js name tags) and in the players panel. Default Brazil. FLAG_CODES is flags.png's order
+  // (tools/flags_sheet.mjs checks it): every country of ISO 3166-1, Kosovo, the UK's nations and Quebec.
+  const FLAG_CODES = ['ad', 'ae', 'af', 'ag', 'ai', 'al', 'am', 'ao', 'aq', 'ar', 'as', 'at', 'au', 'aw', 'ax', 'az', 'ba',
+    'bb', 'bd', 'be', 'bf', 'bg', 'bh', 'bi', 'bj', 'bl', 'bm', 'bn', 'bo', 'bq', 'br', 'bs', 'bt', 'bv', 'bw', 'by', 'bz',
+    'ca', 'ca-qc', 'cc', 'cd', 'cf', 'cg', 'ch', 'ci', 'ck', 'cl', 'cm', 'cn', 'co', 'cr', 'cu', 'cv', 'cw', 'cx', 'cy',
+    'cz', 'de', 'dj', 'dk', 'dm', 'do', 'dz', 'ec', 'ee', 'eg', 'eh', 'er', 'es', 'et', 'fi', 'fj', 'fk', 'fm', 'fo', 'fr',
+    'ga', 'gb', 'gb-eng', 'gb-nir', 'gb-sct', 'gb-wls', 'gd', 'ge', 'gf', 'gg', 'gh', 'gi', 'gl', 'gm', 'gn', 'gp', 'gq',
+    'gr', 'gs', 'gt', 'gu', 'gw', 'gy', 'hk', 'hm', 'hn', 'hr', 'ht', 'hu', 'id', 'ie', 'il', 'im', 'in', 'io', 'iq', 'ir',
+    'is', 'it', 'je', 'jm', 'jo', 'jp', 'ke', 'kg', 'kh', 'ki', 'km', 'kn', 'kp', 'kr', 'kw', 'ky', 'kz', 'la', 'lb', 'lc',
+    'li', 'lk', 'lr', 'ls', 'lt', 'lu', 'lv', 'ly', 'ma', 'mc', 'md', 'me', 'mf', 'mg', 'mh', 'mk', 'ml', 'mm', 'mn', 'mo',
+    'mp', 'mq', 'mr', 'ms', 'mt', 'mu', 'mv', 'mw', 'mx', 'my', 'mz', 'na', 'nc', 'ne', 'nf', 'ng', 'ni', 'nl', 'no', 'np',
+    'nr', 'nu', 'nz', 'om', 'pa', 'pe', 'pf', 'pg', 'ph', 'pk', 'pl', 'pm', 'pn', 'pr', 'ps', 'pt', 'pw', 'py', 'qa', 're',
+    'ro', 'rs', 'ru', 'rw', 'sa', 'sb', 'sc', 'sd', 'se', 'sg', 'sh', 'si', 'sj', 'sk', 'sl', 'sm', 'sn', 'so', 'sr', 'ss',
+    'st', 'sv', 'sx', 'sy', 'sz', 'tc', 'td', 'tf', 'tg', 'th', 'tj', 'tk', 'tl', 'tm', 'tn', 'to', 'tr', 'tt', 'tv', 'tw',
+    'tz', 'ua', 'ug', 'um', 'us', 'uy', 'uz', 'va', 'vc', 've', 'vg', 'vi', 'vn', 'vu', 'wf', 'ws', 'xk', 'ye', 'yt', 'za',
+    'zm', 'zw'];
+  const FLAG_NATIONS = { 'gb-eng': 'England', 'gb-sct': 'Scotland', 'gb-wls': 'Wales', 'gb-nir': 'Northern Ireland', 'ca-qc': 'Quebec' };
+  const flagCode = () => { const c = store.get('flag', 'br'); return FLAG_CODES.includes(c) ? c : ''; };   // '' = none
+  function flagSet(el, code) {   // a .flag element shows code's picture (none: hidden); sizes in em, so any font size
+    const i = FLAG_CODES.indexOf(code);
+    if (i < 0) { el.removeAttribute('style'); el.removeAttribute('aria-label'); return; }
+    el.style.backgroundPosition = `${-(i % 16) * 1.3333}em ${-Math.floor(i / 16)}em`;
+    el.setAttribute('aria-label', $('flag').selectedOptions[0]?.text || code);
+  }
+  function youShow() {
+    const n = $('name').value.trim();
+    $('you-nick').textContent = nickDefault(n) ? 'No nick yet' : n;
+    flagSet($('you-flag'), flagCode());
+  }
+  {
+    let names = null;
+    try { names = new Intl.DisplayNames(['en'], { type: 'region' }); } catch {}
+    const name = c => FLAG_NATIONS[c] || (() => { try { return names?.of(c.toUpperCase()) || c.toUpperCase(); } catch { return c.toUpperCase(); } })();
+    $('flag').add(new Option('No flag', ''));
+    for (const c of FLAG_CODES.map(c => [c, name(c)]).sort((a, b) => a[1].localeCompare(b[1], 'en'))) $('flag').add(new Option(c[1], c[0]));
+    $('flag').value = flagCode();
+    $('flag').onchange = () => { store.set('flag', $('flag').value); youShow(); };   // the game reads it at its next start
+    $('you-edit').onclick = () => askNick('', true);
   }
 
   // --- a deploy's config.json (see the top of this file); none: everything from this page's server
@@ -2048,6 +2110,7 @@
     window.Module = {
       canvas,
       mc3Env: env,
+      mc3Flags: FLAG_CODES,           // web/pre.js: flags.png's order (name tags, players panel)
       mc3Lan: lanUp(),                // System Link's link (web/net.js finds it here)
       print: out,
       printErr: out,
@@ -2169,8 +2232,9 @@
   $('skipintro').onchange = () => { setSetting('MC3_SKIP_MOVIES', $('skipintro').checked ? 'hard' : ''); renderSettings(); };
   if ('MC3_NETPLAY' in settings) setSetting('MC3_NETPLAY', '');   // the System Link On/Off choice is gone: online is always on
   $('name').value = store.get('name', '');   // none or a default one: askNick before playing
+  youShow();
   let renameT = 0;   // a rename is a hello the switch sends on to everyone: once typing pauses
-  $('name').oninput = () => { const v = $('name').value.trim(); store.set('name', v); nickTaken = ''; clearTimeout(renameT); renameT = setTimeout(() => lan?.rename(v), 400); };
+  $('name').oninput = () => { const v = $('name').value.trim(); store.set('name', v); youShow(); nickTaken = ''; clearTimeout(renameT); renameT = setTimeout(() => lan?.rename(v), 400); };
   // System Link: the link to the server's switch (web/lan.js) is always up, from here into the game
   let lan = null;
   function lanShow(l) {
