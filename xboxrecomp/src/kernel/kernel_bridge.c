@@ -2760,11 +2760,71 @@ static void bugcheck_stack(void)
     fprintf(stderr, "\n");
 }
 
+#ifdef __EMSCRIPTEN__
+/* Browser: a title that asserts in a loop (KeBugCheck returns here) wrote
+ * ~8800 identical line pairs in seconds and pushed everything before them
+ * out of the page's log (2026-11-13, a Free Roam freeze). The first three
+ * of a caller in full, with the assert's text when the stack holds one (a
+ * printf-style format in the image and the words after it), then a count
+ * at each power of two. */
+static int bugcheck_seen(uint32_t code)
+{
+    enum { N = 8 };
+    static uint32_t from[N], codes[N];
+    static unsigned long long hits[N];
+    uint32_t i;
+    for (i = 0; i < N && hits[i] && !(from[i] == g_xbox_kernel_caller && codes[i] == code); i++)
+        ;
+    if (i == N)
+        i = N - 1;                              /* full: the last slot counts the rest */
+    if (!hits[i]) {
+        from[i] = g_xbox_kernel_caller;
+        codes[i] = code;
+    }
+    hits[i]++;
+    if (hits[i] > 3 && (hits[i] & (hits[i] - 1)))
+        return 1;
+    if (hits[i] > 3) {
+        fprintf(stderr, "  [KERNEL] *** KeBugCheck: code=0x%08X from 0x%08X: %llu times so far ***\n",
+                code, from[i], hits[i]);
+        return 1;
+    }
+    return 0;
+}
+
+static void bugcheck_assert(void)
+{
+    for (uint32_t i = 1; i < 256; i++) {
+        uint32_t v = STACK_ARG(i), n;
+        const char *s;
+        if (v < g_xbox_code_lo || v >= g_xbox_code_hi)  /* the image (its .rdata too) */
+            continue;
+        s = (const char *)XBOX_TO_NATIVE(v);
+        for (n = 0; n < 160 && s[n] >= 0x20 && s[n] < 0x7F; n++)
+            ;
+        if (n < 8 || s[n] || !memchr(s, '%', n))
+            continue;
+        fprintf(stderr, "  [KERNEL]     assert \"%s\" args %08X %08X %08X %08X\n", s,
+                STACK_ARG(i + 1), STACK_ARG(i + 2), STACK_ARG(i + 3), STACK_ARG(i + 4));
+        return;
+    }
+}
+#endif
+
 static void bridge_KeBugCheck(void)
 {
+#ifdef __EMSCRIPTEN__
+    if (bugcheck_seen(STACK_ARG(0))) {
+        g_eax = 0;
+        return;
+    }
+#endif
     fprintf(stderr, "  [KERNEL] *** KeBugCheck: code=0x%08X ***\n",
             STACK_ARG(0));
     bugcheck_stack();
+#ifdef __EMSCRIPTEN__
+    bugcheck_assert();
+#endif
     fflush(stderr);
     g_eax = 0;
 }
