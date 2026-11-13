@@ -54,7 +54,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Stability:** Fixed two causes of the game freezing for good; iPhones and iPads start with less memory so tabs stop closing.
 - **Graphics:** Phones whose GPU froze with WebGPU (Mali, older Adreno) use WebGL, and any device where WebGPU failed uses WebGL from its next start.
 
-## 2026-11-12 (cb94a9f)
+## 2026-11-12 (0ab4ef1)
 
 - **Game:** Drift mode (Settings: Off, On or Strong): tap the handbrake, or lift off the throttle with the wheel turned, and the back steps out; the throttle holds the angle and counter-steering catches it. Works on every car in Free Roam, races and career; other players see your drift. A Drift button in the top-right bar switches it.
 - **Game:** Drift points, with Drift mode on or off: slide hard (20 degrees or more, 50 km/h or more) for at least 1.5 seconds to bank points (more for a wider angle and more speed), chain drifts for up to x5, and hitting a wall or spinning out loses the drift. In Free Roam Online every 10,000 points pays $10,000, kept in your Online profile.
@@ -82,3 +82,6 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Street and group races: invites now stay open 15 s; players who joined a race or are racing get a flag over their car; the host can cancel before the start and any racer can give up (hold Black [E] 1 s, or the button under the race box), the others race on.
 - **Free Roam:** The full map has a Race panel: in a street or group race it lists every racer with live place, checkpoint count and finish or DNF; otherwise it lists the players nearby who are racing.
 - **Game:** A freeze that stopped the picture and the controls for good when entering the garage or starting or leaving a race (a sound that never finished stopping) should no longer happen.
+- **Free Roam:** A very busy city (25+ cars around you) no longer crashes the game; the farthest players stay map blips until there is room.
+- **Game:** When the graphics card stops answering, the game keeps running and the picture comes back, or a clear message offers a restart on WebGL, instead of a frozen screen.
+- **Phones:** Fewer crashes on iPhones (less memory used), and Android phones that lose the graphics context show a clear message instead of a crash; browsers too old to run the game say so.
