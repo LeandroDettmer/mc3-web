@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import worker from '../src/index.js';
 import { RoamCity, CITY_IDLE_MS } from '../src/city.js';
-import { Switch, ticket, ticketOk, TICKET_MS, CITY, CITY_TTL } from '../src/switch.js';
+import { Switch, ticket, ticketOk, TICKET_MS, CITY, CITY_TTL, unbundle } from '../src/switch.js';
 import { HUB, ROAM_PORT, MSG_PEERS } from '../src/roam.js';
 import { vipAt } from '../../races-worker/src/net.js';
 import { hello, snap, dgram } from './wire.mjs';
@@ -92,6 +92,31 @@ test('worker: /lan/roam checks Origin, ticket and city, then the object city-N; 
   assert.equal((await worker.fetch(req(`?city=x&vip=${v}&exp=${t.exp}&sig=${t.sig}`), env)).status, 403);
   assert.equal((await worker.fetch(req(ok), { ...env, ROAM_SECRET: '' })).status, 404);
   assert.equal((await worker.fetch(req(ok), { ...env, ROAM: undefined })).status, 404);
+});
+
+const bundle = (...fs) => Uint8Array.from([4, ...fs.flatMap(f => [f.length >> 8, f.length & 255, ...f])]);
+
+test('bundles: the city says so on accept; each frame of one message routed as if sent alone; a bad length closes 1009; the Switch takes them too', async () => {
+  const { sw, city, page, enter } = world();
+  const now = Date.now(), a = page('Ann'), b = page('Bob');
+  assert.equal(a.w.bundle, 1, 'the welcome says the switch takes bundles');
+  enter(a, 0, now); enter(b, 0, now);
+  assert.deepEqual(a.cs.ws.texts(), [{ t: 'city', bundle: 1 }]);
+  b.cs.ws.take();
+  await city(0).webSocketMessage(a.cs.ws, bundle(udp(0, HUB, [...hello(1, 'Ann', 7, 0)]), udp(0, b.vip, [1, 2]), udp(0, b.vip, [3])).buffer, now);
+  assert.equal(city(0).hub.count, 1, 'the HELLO reached the hub');
+  const got = b.cs.ws.bins();
+  assert.equal(got.length, 2);
+  assert.deepEqual([...got[0].subarray(16)], [1, 2]);
+  assert.deepEqual([...got[1].subarray(16)], [3]);
+  assert.equal(new DataView(got[1].buffer).getUint32(4), a.vip, 'source rewritten');
+  await city(0).webSocketMessage(a.cs.ws, Uint8Array.from([4, 0, 40, 3, 0]).buffer, now);
+  assert.deepEqual(a.cs.ws.closed, [1009, 'bad bundle']);
+  assert.ok(!city(0).socks.has(a.vip));
+  // the Switch (the fallback while the city socket is down)
+  await sw.webSocketMessage(b.ws, bundle(udp(0, HUB, [...hello(2, 'Bob', 7, 0)]), udp(0, a.vip, [9])).buffer, now);
+  assert.equal(sw.hub.count, 1);
+  assert.deepEqual([...a.ws.bins().at(-1).subarray(16)], [9]);
 });
 
 test('switch: welcome says roamCity only with ROAM + ROAM_SECRET; a ticket takes the vip out of its own hub; off without', async () => {
@@ -340,7 +365,7 @@ test('web/lan.js: a ticket unanswered for 10 s is asked again; a socket that nev
     shut() { this.readyState = 3; this.onclose?.({ code: 1006 }); }
   }
   const win = { location: { protocol: 'https:', host: 'play.example', href: 'https://play.example/' }, localStorage: { getItem: () => 'cid-12345678', setItem() {} } };
-  const g = { window: win, WebSocket: WS, location: win.location, localStorage: win.localStorage, URL, JSON, Math, Date: { now: () => clock.t }, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {}, console };
+  const g = { window: win, WebSocket: WS, location: win.location, localStorage: win.localStorage, URL, JSON, Math: Object.assign(Object.create(Math), { random: () => 0.5 }), Date: { now: () => clock.t }, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {}, console };
   vm.runInNewContext(await readFile(new URL('../../lan.js', import.meta.url), 'utf8'), g);
   const link = win.mc3Lan('Ann', 'wss://lan.example/lan'), main = sockets[0], vip = vipAt(0);
   main.open();
@@ -366,4 +391,69 @@ test('web/lan.js: a ticket unanswered for 10 s is asked again; a socket that nev
   main.msg({ t: 'ticket', vip, exp: 1, sig: 's' });
   sockets.at(-1).open();
   assert.equal(link.city, 0, 'on the city socket in the end');
+});
+
+test('web/lan.js: bundles to a city socket that says so (one message per drain, BYE flushed before the close), to a switch whose welcome does; a city socket that lived 30 s comes back in 1-5 s, one that dropped sooner backs off', async () => {
+  const sockets = [], clock = { t: 1e9 }, rnd = { v: 0.5 };
+  class WS {
+    constructor(url) { this.url = url; this.readyState = 0; this.sent = []; sockets.push(this); }
+    send(d) { this.sent.push(d); }
+    close() { this.readyState = 3; }
+    open() { this.readyState = 1; this.onopen?.(); }
+    msg(m) { this.onmessage?.({ data: JSON.stringify(m) }); }
+    shut() { this.readyState = 3; this.onclose?.({ code: 1006 }); }
+  }
+  const win = { location: { protocol: 'https:', host: 'play.example', href: 'https://play.example/' }, localStorage: { getItem: () => 'cid-12345678', setItem() {} } };
+  const M = Object.create(Math); M.random = () => rnd.v;
+  const g = { window: win, WebSocket: WS, location: win.location, localStorage: win.localStorage, URL, JSON, Math: M, Date: { now: () => clock.t }, Promise, setTimeout: () => 0, clearTimeout() {}, setInterval: () => 0, clearInterval() {}, console };
+  vm.runInNewContext(await readFile(new URL('../../lan.js', import.meta.url), 'utf8'), g);
+  const link = win.mc3Lan('Ann', 'wss://lan.example/lan'), main = sockets[0], vip = vipAt(0);
+  main.open();
+  main.msg({ t: 'welcome', vip, vipStr: '10.77.0.2', mac: '', roamCity: 1, bundle: 1 });
+  const bins = s => s.sent.filter(d => typeof d !== 'string');
+  const hi = () => link.roamSend(Uint8Array.from(udp(vip, HUB, [...hello(9, 'Ann', 7, 0)])));
+  const uni = n => link.roamSend(Uint8Array.from(udp(vip, vipAt(1), [n])));
+  // before the city socket: the switch, bundled (its welcome said so)
+  hi(); uni(1);
+  assert.equal(bins(main).length, 0, 'queued until the drain ends');
+  await Promise.resolve();
+  assert.equal(bins(main).length, 1);
+  assert.deepEqual(unbundle(bins(main)[0]).map(f => f.length), [16 + hello(9, 'Ann', 7, 0).length, 17]);
+  // the city socket: frames one by one until its hello says bundle
+  main.msg({ t: 'ticket', vip, exp: 1, sig: 's' });
+  const c = sockets[1];
+  c.open();
+  uni(2);
+  assert.equal(bins(c).length, 1, 'no hello yet: one by one');
+  c.msg({ t: 'city', bundle: 1 });
+  uni(3); uni(4); hi();
+  await Promise.resolve();
+  assert.equal(bins(c).length, 2, 'one message for the three');
+  const fs = unbundle(bins(c)[1]);
+  assert.deepEqual(fs.map(f => f.at(-1) === 3 || f.at(-1) === 4 ? f.at(-1) : 'hello'), [3, 4, 'hello']);
+  // BYE: queued, flushed on the city socket before it closes
+  uni(5);
+  link.roamSend(Uint8Array.from(udp(vip, HUB, [...dgram(8, 9, 0, [2])])));
+  assert.equal(c.readyState, 3);
+  assert.equal(bins(c).length, 3);
+  assert.equal(unbundle(bins(c)[2]).length, 2);
+  // a socket that lived 30 s and dropped: back after 1 + 4 x random s (random 0.5: 3 s)
+  hi(); main.msg({ t: 'ticket', vip, exp: 1, sig: 's' });
+  const c2 = sockets.at(-1);
+  c2.open();
+  clock.t += 30000;
+  c2.shut();
+  const n = main.sent.filter(s => s === '{"t":"ticket"}').length;
+  clock.t += 2999; hi();
+  assert.equal(main.sent.filter(s => s === '{"t":"ticket"}').length, n);
+  clock.t += 1; hi();
+  assert.equal(main.sent.filter(s => s === '{"t":"ticket"}').length, n + 1);
+  // dropped 1 s after opening: the backoff (5 s x (0.5 + random): random 0.9 -> 7 s), not 1 s
+  main.msg({ t: 'ticket', vip, exp: 1, sig: 's' });
+  const c3 = sockets.at(-1);
+  c3.open(); clock.t += 1000; rnd.v = 0.9; c3.shut();
+  clock.t += 6999; hi();
+  assert.equal(main.sent.filter(s => s === '{"t":"ticket"}').length, n + 1, 'still backing off');
+  clock.t += 1; hi();
+  assert.equal(main.sent.filter(s => s === '{"t":"ticket"}').length, n + 2);
 });

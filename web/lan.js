@@ -33,14 +33,16 @@
 // The game's HELLO to the hub (10.77.0.253:47210) names its room (MC3: the city): a new one closes the old socket, asks
 // the switch {"t":"ticket"} and opens wss .../lan/roam?city=N&vip&exp&sig; its BYE closes it. Until the socket is open,
 // and whenever it is not (refused, a server without it), the frames go through the switch as before. A socket that never
-// opened is tried again after 5 s, 10, 20, 40, then every 60 s, one that closed after opening after 1 s, at the next HELLO;
+// opened (or closed within 30 s of opening) is tried again after 5 s, 10, 20, 40, then every 60 s, one that closed after
+// a longer life after 1-5 s at random, at the next HELLO; the backoff's steps x 0.5-1.5 at random too (2026-11-13: a
+// city object that dropped every socket at once got them all back in the same second);
 // a ticket unanswered for 10 s is asked again. Soon, because the switch's hub and the city's never share players: a
 // page left on the switch meets nobody of its city who is on the city socket (2026-11-11: a San Diego player unseen).
 window.mc3Lan = function (name, lanUrl) {
   var url = lanUrl || (location.protocol == 'https:' ? 'wss://' : 'ws://') + location.host + '/lan';
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
                players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null, city: null, roamDown: 0 };
-  var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, TICKET_WAIT = 10000, cityOn = false, city = null;   // city: {n, ws, asked, askedAt, open, fails, retryAt}
+  var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, TICKET_WAIT = 10000, cityOn = false, bundleSw = false, city = null;   // city: {n, ws, asked, askedAt, open, openAt, fails, retryAt, bundle}
   var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, rejoin = null, pass = '', auto = false;
   // The keep-alive: the Cloudflare switch's runtime answers this exact text itself (setWebSocketAutoResponse,
   // web/races-worker/src/index.js BEAT), so an idle page never wakes its Durable Object. web/server ignores it: until
@@ -99,7 +101,7 @@ window.mc3Lan = function (name, lanUrl) {
       if (e.data === BEAT) { beats = true; return; }
       var m;
       try { m = JSON.parse(e.data); } catch (_) { return; }
-      if (m.t == 'welcome') { tries = 0; link.vip = m.vip >>> 0; link.vipStr = m.vipStr; link.mac = m.mac; link.state = 'online'; cityOn = m.roamCity == 1; changed(); }
+      if (m.t == 'welcome') { tries = 0; link.vip = m.vip >>> 0; link.vipStr = m.vipStr; link.mac = m.mac; link.state = 'online'; cityOn = m.roamCity == 1; bundleSw = m.bundle == 1; changed(); }
       else if (m.t == 'ticket') cityOpen(m);
       else if (m.t == 'pong') pongs = true;
       else if (m.t == 'peers') { link.peers = m.peers || []; changed(); }
@@ -143,6 +145,7 @@ window.mc3Lan = function (name, lanUrl) {
   // --- free roam's city socket (see the head) ---
   function cityUp() { return !!(city && city.open && city.ws && city.ws.readyState == 1); }
   function cityClose() {
+    flush();   // a queued BYE goes out on this socket, not later to the switch
     var c = city;
     city = null;
     if (c && c.ws) { c.ws.onclose = c.ws.onmessage = null; try { c.ws.close(1000, 'left'); } catch (_) {} }
@@ -151,7 +154,11 @@ window.mc3Lan = function (name, lanUrl) {
   function cityFail(c, wasOpen) {
     if (c.ws) { c.ws.onclose = c.ws.onmessage = null; try { c.ws.close(); } catch (_) {} }
     c.ws = null; c.asked = false; c.open = false;
-    c.retryAt = Date.now() + (wasOpen ? 1000 : Math.min(60000, 5000 << Math.min(c.fails++, 4)));
+    // a socket that lived 30 s: back in 1-5 s; else (refused, or dropped again soon: an overloaded city object) the
+    // backoff, both spread at random so a city's pages do not all come back in the same second (2026-11-13)
+    var lived = wasOpen && Date.now() - c.openAt >= 30000;
+    if (lived) c.fails = 0;
+    c.retryAt = Date.now() + (lived ? 1000 + 4000 * Math.random() : Math.min(60000, 5000 << Math.min(c.fails++, 4)) * (0.5 + Math.random()));
     if (link.city != null) { link.city = null; changed(); }
   }
   function cityWant(n) {
@@ -174,11 +181,12 @@ window.mc3Lan = function (name, lanUrl) {
     } catch (e) { cityFail(c, false); return; }
     var s = c.ws;
     s.binaryType = 'arraybuffer';
-    s.onopen = function () { if (city !== c) return; c.open = true; c.fails = 0; link.city = c.n; changed(); };
+    s.onopen = function () { if (city !== c) return; c.open = true; c.openAt = Date.now(); link.city = c.n; changed(); };
     s.onmessage = function (e) {
       if (typeof e.data != 'string') { link.recv++; if (link.onframe) link.onframe(new Uint8Array(e.data)); return; }
       var m;
       try { m = JSON.parse(e.data); } catch (_) { return; }
+      if (m.t == 'city') { c.bundle = m.bundle == 1; return; }   // the object takes bundles (roamOut)
       msgFns.forEach(function (f) { try { f(m); } catch (err) { console.error(err); } });   // free-roam signals: web/rtc.js
     };
     s.onclose = function () { if (city === c) cityFail(c, c.open); };
@@ -203,9 +211,34 @@ window.mc3Lan = function (name, lanUrl) {
     if (d != link.roamDown) { link.roamDown = d; changed(); }
   }
   var watchT = setInterval(watch, 1000);
+  // Bundles (web/lan-worker/src/city.js head): one WebSocket message per drain of the game's mailbox (web/net.js drainTx
+  // is synchronous; flushed in a microtask after it, no delay), not one per frame: a Durable Object pays per message, and
+  // ~3k/s in one city overloaded it (2026-11-13). Only to a socket that said it takes them (the city's hello, the
+  // switch's welcome); up to BUNDLE_MAX bytes a message.
+  var outQ = [], outN = 1, BUNDLE = 4, BUNDLE_MAX = 16384;
   function roamOut(f) {
-    if (cityUp()) { city.ws.send(f); link.sent++; return true; }
-    return link.send(f);
+    var s = cityUp() ? city.ws : null;
+    if (!(s ? city.bundle : bundleSw && up())) {
+      if (s) { s.send(f); link.sent++; return true; }
+      return link.send(f);
+    }
+    s = s || ws;
+    if (outQ.length && (outQ.s !== s || outN + 2 + f.length > BUNDLE_MAX)) flush();
+    if (!outQ.length) { outQ.s = s; Promise.resolve().then(flush); }
+    outQ.push(f); outN += 2 + f.length;
+    return true;
+  }
+  function flush() {
+    var q = outQ, n = outN, s = q.s;
+    if (!q.length) return;
+    outQ = []; outN = 1;
+    if (s.readyState != 1) { q.forEach(function (f) { link.send(f); }); return; }   // closed meanwhile: the switch, as roamOut would
+    var b = q[0];
+    if (q.length > 1) {
+      b = new Uint8Array(n); b[0] = BUNDLE;
+      for (var i = 0, o = 1; i < q.length; i++) { var f = q[i]; b[o] = f.length >> 8; b[o + 1] = f.length & 255; b.set(f, o + 2); o += 2 + f.length; }
+    }
+    s.send(b); link.sent += q.length;
   }
   link.roamMsg = function (m) {
     if (cityUp()) { city.ws.send(JSON.stringify(m)); return true; }

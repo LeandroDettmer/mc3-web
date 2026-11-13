@@ -436,6 +436,23 @@ generated files when the lift inputs did not change.
   reports) and its own hub as fallback; '[net] free roam: own socket to city N
   open'; a lost link (switch or city socket not open for 3 s after a HELLO) shows a notice over the picture (lan.js roamDown, pre.js; reload button after 30 s; '[net] free roam: link lost'). Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
   pairs without a P2P channel (the larger share while K > roamMax).
+  City object overload (2026-11-13, fix untested live, Worker not deployed):
+  at the evening peak (~65 online, ~26 in San Diego's object) the object took
+  ~3k incoming messages/s (DO invocations 0.7-1.0 M / 5 min) and every
+  socket of the city dropped at once, then all came back (Worker
+  exceptions 155/110/774 per 5 min at 18:05/18:40/18:45 UTC; wrangler tail:
+  /lan/roam's stub.fetch 'Durable Object is overloaded. Too many requests
+  queued.' / '... Requests queued for too long.'; the Switch was fine). One
+  object is one thread and pays per incoming message, not per frame. Now
+  bundles: the city's hello {"t":"city","bundle":1} and the Switch's
+  welcome bundle: 1; lan.js then sends one message per drain of the game's
+  mailbox (net.js drainTx, flushed in a microtask; byte 0 = 4, then u16 BE
+  length + frame each; switch.js unbundle, rate limit per frame; ~20
+  messages/s a player instead of one per frame). City socket retries:
+  lived 30 s -> 1-5 s at random, else the 5 s.. 60 s backoff x 0.5-1.5
+  (was 1 s for all: a whole city came back in one second). Old pages keep
+  sending frames one by one; a new page on an old Worker sees no hello and
+  does the same. Open: the object's sends out (one per relayed frame).
   Over 10 players (2026-11-11, untested in a browser): the core's group cap
   stays the hub era's (RC_LIST_MAX + 1) while a configured hub is silent
   (was max_players 8: peers refused 'full'; LAN discovery alone keeps 8);

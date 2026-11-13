@@ -101,6 +101,21 @@ export async function ticketOk(secret, vip, exp, sig, now = Date.now()) {
 }
 
 export const BROADCAST = 0xFFFFFFFF, HDR = 16, MAX_DATA = 1472, MAX_FRAME = HDR + MAX_DATA;
+// A bundle (2026-11-13, src/city.js head; the welcome and the city's hello say bundle: 1): byte 0 BUNDLE, then frames,
+// each u16 length (big-endian) + the frame. One message for what one drain of the game's mailbox gives (web/lan.js).
+export const BUNDLE = 4;
+/** A binary message's frames: itself (byte 0 not BUNDLE), a bundle's, or null when a length runs past its end. */
+export function unbundle(b) {
+  if (b[0] !== BUNDLE) return [b];
+  const out = [];
+  for (let o = 1; o < b.length;) {
+    const n = o + 2 <= b.length ? b[o] << 8 | b[o + 1] : -1;
+    if (n < 0 || o + 2 + n > b.length) return null;
+    out.push(b.subarray(o + 2, o + 2 + n));
+    o += 2 + n;
+  }
+  return out;
+}
 export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, burstBytes: 2 << 20 };   // crates/lan Limits
 // Measured legit peaks (client code, 2026-11-09): binary per client ~700 frames/s worst case = free roam's 20 Hz SNAP to
 // K = 32 peers (640) + 1 Hz HELLO/PING to them; an 8-player race ~60 Hz x 7 = 420. framesPerS 2000 is ~3x that.
@@ -330,7 +345,7 @@ export class Switch extends Lobby {
     const c = { ws, a };
     this.clients.set(vip, c);
     this.wsc.set(ws, c);
-    this.send(vip, { t: 'welcome', vip, vipStr: vipStr(vip), mask: MASK >>> 0, mac: macStr(vip), ...(this.cityOn() ? { roamCity: 1 } : {}) });
+    this.send(vip, { t: 'welcome', vip, vipStr: vipStr(vip), mask: MASK >>> 0, mac: macStr(vip), bundle: 1, ...(this.cityOn() ? { roamCity: 1 } : {}) });
     this.who(now);
     return true;
   }
@@ -340,7 +355,11 @@ export class Switch extends Lobby {
     this.helloSweep(now);
     const c = this.byWs(ws);
     if (c) {
-      if (typeof data !== 'string') this.frame(c, new Uint8Array(data), now);
+      if (typeof data !== 'string') {
+        const fs = unbundle(new Uint8Array(data));
+        if (!fs) { try { ws.close(1009, 'bad bundle'); } catch {} this.drop(c); }
+        else for (const f of fs) { if (this.wsc.get(ws) !== c) break; this.frame(c, f, now); }   // closed by a bad frame or the rate limit
+      }
       else if (this.ctlLimited(c, now)) { /* dropped */ }
       else if (data.length <= 64 && /^\{\s*"t"\s*:\s*"ticket"\s*\}$/.test(data)) await this.ticket(c, now);
       else if (!this.control(c, data, now)) await super.webSocketMessage(ws, data, now);

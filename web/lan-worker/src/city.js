@@ -18,9 +18,16 @@
 // for its players list and /lan/stats; on change at most every CITY.reportMs, else every CITY.keepMs while any are here, and at once when the
 // last socket goes. Memory only: after an eviction the hub refills from the next HELLOs, the sockets from their
 // attachments.
+// Bundles (2026-11-13): an incoming WebSocket message costs this single-threaded object far more than the few frames it
+// carries; at ~26 players (San Diego peak) ~3k messages/s -- each page's 20 Hz SNAPs to every relayed peer, one message
+// each -- overran it ('Durable Object is overloaded. Too many requests queued.' / '... Requests queued for too long.'
+// from the Worker's stub.fetch, every socket of the city dropped at once, 2026-11-13 18:05-18:45 UTC). So the object
+// says {"t":"city","bundle":1} on accept, and a page that knows it (web/lan.js) sends what one drain of the game's
+// mailbox gives as one message (src/switch.js BUNDLE, unbundle; the Switch takes them too, for the fallback), each frame
+// taken as if sent alone (rate limit per frame). Older pages ignore the hello and send frames one by one, as before.
 import { Hub, HUB, ROAM_PORT } from './roam.js';
 import { LIMITS } from '../../races-worker/src/net.js';
-import { RATE, CTL, FLOOD_MS, HDR, MAX_FRAME, BROADCAST, CITY, SWITCH_NAME, isVip, cityOk } from './switch.js';
+import { RATE, CTL, FLOOD_MS, HDR, MAX_FRAME, BROADCAST, CITY, SWITCH_NAME, isVip, cityOk, unbundle } from './switch.js';
 
 export const CITY_IDLE_MS = 30e3, CITY_ALARM_MS = 15e3;
 const SAVE_MS = 10e3;   // `last` reaches the attachment this often (the idle sweep after an eviction)
@@ -64,6 +71,7 @@ export class RoamCity {
     const a = { vip, city, last: now };
     ws.serializeAttachment(a);
     this.add(ws, a);
+    this.raw({ ws }, '{"t":"city","bundle":1}');
     this.arm(now);
   }
 
@@ -71,7 +79,11 @@ export class RoamCity {
     const c = this.wsc.get(ws);
     if (!c) return;
     if (now - c.a.last > SAVE_MS) { c.a.last = now; this.save(c); } else c.a.last = now;
-    if (typeof data !== 'string') this.frame(c, new Uint8Array(data), now);
+    if (typeof data !== 'string') {
+      const fs = unbundle(new Uint8Array(data));   // a bundle (see the head): each frame as if sent alone
+      if (!fs) this.kick(c, 1009, 'bad bundle');
+      else for (const f of fs) { if (this.wsc.get(ws) !== c) break; this.frame(c, f, now); }   // closed by a bad frame or the rate limit
+    }
     else this.control(c, data, now);
     if (this.hub.count && now - this.ticked >= this.hub.opts.tick_ms) this.tick(now);
     this.report(now);
