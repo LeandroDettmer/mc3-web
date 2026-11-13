@@ -362,6 +362,18 @@ static uint32_t roam_emit_count(void)   /* 0 unread */
     return online_ram(m) ? MEM32(m + 0x404u) : 0;
 }
 
+/* After a batch of deletes: the emitters they gave back (9 a car; the delete's
+ * render-object dtor sub_000FEB10 -> sub_001139C0 -> sub_00033910 removes them).
+ * 21 crash logs of 2026-11-12 overflowed at the 28th/29th live vehicle whatever
+ * the session's build/delete history (2WBJ4F: ~120 builds, ~67 deletes first):
+ * no leak; this line keeps checking it. */
+static void roam_emit_said(uint32_t before, int n)
+{
+    uint32_t now = roam_emit_count();
+    fprintf(stderr, "[ROAM] cars: particle emitters %u/%u after delete (%d car%s, %d given back)\n", (unsigned)now,
+            ROAM_EMIT_MAX, n, n == 1 ? "" : "s", (int)before - (int)now);
+}
+
 static void roam_pool_capacity(const char *when)
 {
     uint32_t cap, used = roam_reg_used(&cap);
@@ -1294,6 +1306,7 @@ static void roam_career_live(void)
 {
     uint32_t setup = MEM32(ROAM_SETUP_VA);
     int on = roam_career_on(), k, n = 0;
+    uint32_t em;
     if (s_online || on == s_career_roam || MEM32(0x0053F2D4u) != 2u || !s_state_obj ||
         MEM32(s_state_obj + 4u) != 2u || MEM32(s_state_obj + 0x3Cu) || !online_ram(MEM32(ROAM_PM_VA)) ||
         !online_ram(setup) || !roam_career_setup(setup))
@@ -1305,11 +1318,14 @@ static void roam_career_live(void)
         roam_career_join(setup, "live on");
         return;
     }
+    em = roam_emit_count();
     for (k = s_roam_slots + 1; k < s_nrc; k++)
         if (s_rc[k].veh) {
             roam_rc_drop(&s_rc[k], 1);
             n++;
         }
+    if (n)
+        roam_emit_said(em, n);
     roam_pool_reset();
     s_career_roam = s_career_ev = s_roam_cruise = 0;
     s_roam_nhist = 0;
@@ -1410,6 +1426,7 @@ static int roam_pool_pause_only(uint32_t obj)
 static void roam_pool_pass(uint32_t obj, int after)
 {
     static uint32_t state;
+    uint32_t em;
     int k, n = 0;
     if (!online_ram(obj) || s_nrc <= 1)
         return;
@@ -1425,11 +1442,14 @@ static void roam_pool_pass(uint32_t obj, int after)
         }
         for (k = 1; k <= s_roam_slots; k++)     /* parked slots back in: the game's delete expects them there */
             roam_rc_phys(&s_rc[k], roam_rc_veh(k), 1);
+        em = roam_emit_count();
         for (k = s_roam_slots + 1; k < s_nrc; k++)
             if (s_rc[k].veh) {
                 roam_rc_drop(&s_rc[k], 1);
                 n++;
             }
+        if (n)
+            roam_emit_said(em, n);
         for (k = s_roam_slots + 1; k < s_nrc; k++)
             s_rc[k].id = 0;
         if (n) {

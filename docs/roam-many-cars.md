@@ -271,6 +271,23 @@ cars (roam_cars.c: s_car, roam_cars_net, roam_car_make, roam_nearest).
   'particle emitters N/256'. Amplifier: the pool's queue built a car per
   0.25 s for a stale 'needs a car' while the pause menu stopped the net pass
   (29 cars for nobody in 8 s); a build now clears that ask.
+  Long sessions with few cars at the crash (89RESG 2083 s, 4RQ7GQ,
+  2WBJ4F 5458 s; 21 logs of logs-20261112g) are the same overflow, not a
+  leak of emitters by our deletes: in every one the first wild call
+  (0x00113A80/88) came while building the 28th/29th live vehicle (registry
+  27-28/42), whatever came before -- 89RESG at its second load's burst of 32
+  cars (car 26), 2WBJ4F after ~120 builds and ~67 deletes (four teardowns
+  of 13-21 cars) at the same count as a fresh session. A leak of 9 a delete
+  would have overflowed far sooner. The corruption then lies quiet: the crash
+  comes much later, after the radius parked or a teardown deleted most cars.
+  Our delete (roam_rc_drop -> roam_car_delete, the vehicle's deleting dtor as
+  the player dtor sub_002C8480) reaches the render object's dtor
+  sub_000FEB10, whose sub_001139C0 removes the 9. Parked cars stay alive and
+  keep theirs (reused, never re-added). Each teardown logs
+  '[ROAM] cars: particle emitters N/256 after delete (C cars, G given back)'
+  (G should be 9 C). The 24 kept: at the overflow the rest was roughly 4-13
+  beyond 9 per registry vehicle (an estimate), so 24 leaves room for the
+  game's transient adds.
 - **Heap check** (roam_pool_fits, one for all, the load's slot count too):
   free + cost(old car, a rebuild) >= keep + cost(new); keep 3 MB in the
   main heap (was max(6 MB, heap/8) for standalone cars, 2 MB free before a
