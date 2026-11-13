@@ -1495,7 +1495,7 @@ EMSCRIPTEN_KEEPALIVE uintptr_t roam_race_box(void)
     int order[RCH_RACERS], i, k, n = 0;
     o[0] = 0;
     s_rch_box.mode = 0;
-    if (!rch_on() || !s_online)
+    if (!rch_on() || (!s_online && !s_roam_race))   /* s_roam_race: also an Online career race */
         return (uintptr_t)&s_rch_box;
 #define RB(...) (o += snprintf(o, (size_t)(s_rch_box.text + sizeof s_rch_box.text - o), __VA_ARGS__))
     switch (s_rch.st) {
@@ -1530,8 +1530,14 @@ EMSCRIPTEN_KEEPALIVE uintptr_t roam_race_box(void)
         }
         return (uintptr_t)&s_rch_box;
     }
-    if (!s_roam_seen || roam_now() - s_roam_seen_t > 0.5)
+    if (s_roam_race || roam_group_race() || rch_bits()) {   /* we race: first, as '<nick> (you) · race' (the page knows the nick) */
+        RB("Racing now\n\tme");
+        n++;
+    }
+    if (!s_roam_seen || roam_now() - s_roam_seen_t > 0.5) {
+        s_rch_box.mode = n ? 2 : 0;
         return (uintptr_t)&s_rch_box;
+    }
     for (i = 0; i < s_roam_nseen && n < 8; i++) {
         const roam_peer *pp = &s_roam_seen[i];
         if (!(pp->bits & (ROAM_BIT_RACE | ROAM_BIT_STREET)))

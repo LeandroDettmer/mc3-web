@@ -424,7 +424,19 @@ Module['mc3SaveResult'] = function (n) {
     if (!open) { if (pel) pel.style.display = 'none'; if (rel) rel.style.display = 'none'; return; }
     var roam = (list || []).filter(function (p) { return p && p.mode == 'roam'; }), mine = [], other = [];
     roam.forEach(function (p) { (p.city === here ? mine : other).push(p); });
-    var key = here + '|' + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : ''); }).join('\u0002');
+    // who the game knows is racing (the Race panel's box below; the push has no race bit): our nick and the peers in it
+    var racing = {}, iRace = false, qb = typeof _roam_race_box == 'function' ? _roam_race_box() >>> 2 : 0, qm = qb ? I32[qb] : 0;
+    if (qm) {
+      var qe = (qb + 1) << 2, qend = qe + 700;
+      while (qe < qend && HEAPU8[qe]) qe++;
+      new TextDecoder().decode(HEAPU8.slice((qb + 1) << 2, qe)).split('\n').slice(1).forEach(function (l) {
+        var c = l.split('\t');
+        if (qm == 2) { if (c[1] == 'me') iRace = true; else if (c[0]) racing[c[0].toLowerCase()] = 1; }
+        else if (c[1] == 'You') iRace = true;
+        else if (c[1] && !/out|DNF|invited/.test(c[3] || '')) racing[c[1].toLowerCase()] = 1;
+      });
+    }
+    var key = here + '|' + (iRace ? 'R' : '') + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : '') + (racing[String(p.name).toLowerCase()] ? 'r' : ''); }).join('\u0002');
     if (show && key !== shown) {
       shown = key;
       el.textContent = '';
@@ -437,12 +449,13 @@ Module['mc3SaveResult'] = function (n) {
         if (!grp.length) return;
         el.append(row(city(here) + ' · ' + g[0] + ' (' + grp.length + ')', 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
         grp.forEach(function (p) {
-          if (n++ < ROWS) el.append(row(p.name, String(p.name).toLowerCase() == me ? 'color:#7fd4ff' : ''));
+          var you = String(p.name).toLowerCase() == me, rc = racing[String(p.name).toLowerCase()] || (you && iRace);
+          if (n++ < ROWS) el.append(row((rc ? '🏁 ' : '') + p.name + (rc ? ' · racing' : ''), you ? 'color:#7fd4ff' : rc ? 'color:#ffd24a' : ''));
         });
       });
       if (other.length) el.append(row('Other cities', 'color:#ffd24a;font-size:.85em;margin-top:.35em'));
       other.forEach(function (p) {
-        if (n++ < ROWS) el.append(row(p.name + ' · ' + city(p.city) + (p.career ? ' (career)' : ''), 'opacity:.75'));
+        if (n++ < ROWS) el.append(row(p.name + ' · ' + city(p.city) + (p.career ? ' (career)' : ''), 'opacity:.75'));   // other cities: the game does not see them, unmarked
       });
       if (n > ROWS) el.append(row('+' + (n - ROWS) + ' more', 'opacity:.6;font-size:.85em'));
       var more = lan.players.more | 0;   // beyond the switch's own list
@@ -533,7 +546,9 @@ Module['mc3SaveResult'] = function (n) {
         rel.append(row(hd[0], 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
         rl.slice(1).forEach(function (l) {
           var c = l.split('\t');
-          rel.append(row('⚑ ' + c[0] + (c[1] == 'street' ? ' · street race' : ' · race'), String(c[0]).toLowerCase() == me ? 'color:#7fd4ff' : ''));
+          var mine = c[1] == 'me';   // our own line (roam_challenge.c): the game does not know our nick
+          rel.append(row('⚑ ' + (mine ? ((Module['mc3Env'] || {}).MC3_PLAYER_NAME || 'You') + ' (you)' : c[0]) + (c[1] == 'street' ? ' · street race' : ' · race'),
+            mine || String(c[0]).toLowerCase() == me ? 'color:#7fd4ff' : ''));
         });
       }
     }

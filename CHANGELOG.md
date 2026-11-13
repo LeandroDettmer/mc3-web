@@ -93,3 +93,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Saves:** Every 2 days the game also keeps a dated snapshot of all your saves (kept a week, the newest always); the Saves tab lists them, downloads one or puts one back.
 - **Game:** A "Loading game..." screen now covers the grey picture on the first Play, with the download progress and the game files being read, until the game draws its first picture.
 - **Graphics:** New Frame rate setting: 30, 60, Auto, and 90, 120 or 144 fps on screens that refresh that fast. Auto finds the highest rate your computer keeps up with and steps down when the game falls behind.
+- **Free Roam:** While you race, the full map's "Racing now" panel lists you first, and the players list marks everyone racing (a flag and "racing") that the game can see near you.
