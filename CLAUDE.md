@@ -582,7 +582,13 @@ generated files when the lift inputs did not change.
   invitees: '<host> cancelled the race'), an invitee declines or leaves (NO
   decline), a racer not yet finished gives up (NO decline: the others mark
   it out, DNF; our checkpoints go, the cruise's empty array back); the
-  prompt's last line says so; '[CHALLENGE] cancel|give up ...'. Markers:
+  prompt's last line says so; '[CHALLENGE] cancel|give up ...'. Auto give up
+  (2026-11-13, untested in game): a racer not finished that is 1000 m farther
+  from its next checkpoint than its closest since the last one, or 120 s
+  without a checkpoint, gives up as Black does (before, one who just drove off
+  kept 0x80, its gold flag and the others' wait up to the 600 s limit; the
+  bits and the INVITE/JOIN/GO memory clear on every other exit path).
+  Markers:
   rc_state.bits 0x80 (ROAM_BIT_STREET, roam_game.c; builds before it test
   0x40 only) while hosting a race someone joined, joined, counting down or
   racing; name tags (roam_tags.c) of players with 0x40/0x80, or known from

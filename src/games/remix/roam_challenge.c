@@ -44,6 +44,10 @@
  *    Free Roam goes on.  A racer gone or not roaming for RCH_GONE_S s, silent
  *    as long or saying NO is out (did not finish); all others out: cancelled
  *    (our result if we finished).  Our garage or a race load: we leave (NO).
+ *    Unfinished and RCH_OFF_M m farther from our next checkpoint than our
+ *    closest since the last one, or RCH_STALL_S s without a checkpoint: we
+ *    gave up (NO decline): a racer who drove off kept its flag and the others
+ *    waiting up to RCH_MAX_S s.
  *
  * Course: the game's own checkpoints of the city's nearest sprint or circuit
  * (roam_races list, start beacon within RCH_EVENT_M m).  The race's file is
@@ -152,6 +156,8 @@
 #define RCH_GONE_S     5.0              /* s a racer may be silent or away before it is out */
 #define RCH_MAX_S      600.0            /* s: the race's time limit (a whole course: 14-29 checkpoints seen) */
 #define RCH_LATE       1.0              /* s past the latest finish with one racer left: decided */
+#define RCH_OFF_M      1000.0f          /* m farther from our next checkpoint than our closest since the last: we left the race */
+#define RCH_STALL_S    120.0            /* s without a checkpoint: we left the race */
 #define RCH_RESULT_S   8.0              /* s the result stays */
 #define RCH_NOTE_S     3.5              /* s a notice stays */
 #define RCH_RESEND     0.3              /* s between repeats */
@@ -239,7 +245,9 @@ static struct {
     float hold[12];                             /* our car's matrix during the countdown */
     int held;
     int next;                                   /* our next checkpoint */
-    double until;                               /* RESULT ends */
+    double cp_t;                                /* racing: GO or our last checkpoint */
+    float cp_best;                              /* racing: our closest to the next checkpoint since cp_t */
+    double until;                             /* RESULT ends */
     int white_was;
     char note[RRA_TEXT];
     double note_until;
@@ -1901,6 +1909,8 @@ static int rch_player(uint32_t p)
         }
         s_rch.st = RCH_RACE;
         s_rch.tx = 0;
+        s_rch.cp_t = now;
+        s_rch.cp_best = 1e9f;
         rch_hud(p, 3, top);                     /* GO */
         fprintf(stderr, "[CHALLENGE] GO: %d racers (HUD countdown %s)\n", s_rch.nrc,
                 s_rch.native & 2 ? "the game's" : "not there: prompt");
@@ -1914,11 +1924,29 @@ static int rch_player(uint32_t p)
             rch_nat_pass(s_rch.next, el, top);
             mine->cps = ++s_rch.next;
             s_rch.tx = 0;                       /* tell now */
+            s_rch.cp_t = now;
+            s_rch.cp_best = 1e9f;
             fprintf(stderr, "[CHALLENGE] checkpoint %d of %d at %.2f s\n", s_rch.next, s_rch.ncp, el);
             if (s_rch.next == s_rch.ncp) {
                 mine->fin = el > 0.001 ? el : 0.001;
                 rch_nat_off();                  /* the finish: flares and arrow gone */
                 fprintf(stderr, "[CHALLENGE] we finished in %.2f s\n", mine->fin);
+            }
+        }
+        /* driven off the course or stopped: we gave up (NO decline, as Black held), else we would race on -- flag,
+         * 0x80 and the others' wait -- up to RCH_MAX_S s */
+        if (mine->fin == 0.0 && s_rch.next < s_rch.ncp) {
+            gd = rch_hd(s_rch.cp[s_rch.next], me);
+            if (gd < s_rch.cp_best)
+                s_rch.cp_best = gd;
+            if (gd > s_rch.cp_best + RCH_OFF_M || now - s_rch.cp_t > RCH_STALL_S) {
+                fprintf(stderr, "[CHALLENGE] give up: race %08X, checkpoint %d of %d at %.1f s (left the course: %.0f m "
+                        "from it, closest %.0f m, %.0f s since the last)\n", (unsigned)s_rch.race, s_rch.next, s_rch.ncp,
+                        el, gd, s_rch.cp_best, now - s_rch.cp_t);
+                rch_end(RCH_NO_DECLINE, gd > s_rch.cp_best + RCH_OFF_M ? "You left the race: too far from the course\n\nFree Roam goes on"
+                                                                       : "You left the race: no checkpoint for 2 minutes\n\nFree Roam goes on", now);
+                rch_prompt(s_rch.note);
+                return 1;
             }
         }
         if (now - s_rch.tx >= RCH_RESEND) {
