@@ -1440,7 +1440,7 @@ static void roam_player(uint32_t p)
         roam_pose *s = &s_roam_hist[s_roam_nhist % ROAM_HIST];
         if (s_roam_tlast > 0.0) {
             double dt = now - s_roam_tlast;
-            s_roam_dt = (float)(dt < 1.0 / 120 ? 1.0 / 120 : dt > 0.25 ? 0.25 : dt);
+            s_roam_dt = (float)(dt < 1.0 / 240 ? 1.0 / 240 : dt > 0.25 ? 0.25 : dt);   /* Frame rate up to 240 */
         }
         s_roam_tlast = now;
         mtx = MEM32(veh + 0x1Cu);

@@ -254,7 +254,7 @@ Module['mc3TouchPad'] = function (words) {
     RECOMP_GL_SCALE: [gfx, 0, function (v) { return Math.round((parseFloat(v) || 1) * 1000); }],
     RECOMP_GL_ANISO: [gfx, 1, function (v) { return parseInt(v, 10) || 16; }],
     RECOMP_GL_MIPS: [gfx, 2, onoff],
-    MC3_60FPS: [game, 0, function (v) { return v === '1' ? 2 : 1; }],
+    MC3_60FPS: [game, 0, function (v) { var n = parseInt(v, 10); return v === '1' || n === 60 ? 2 : n > 60 ? Math.min(n, 240) : 1; }],   // 1 = 30, 2 = 60, else N fps
     MC3_ROAM_CARS: [game, 1, function (v) { return parseInt(v, 10) || -1; }],   // -1 auto
     MC3_DRIFT: [game, 2, function (v) { return v === '2' ? 3 : v === '1' ? 2 : 1; }],
     MC3_CAREER_ONLINE: [game, 3, function (v) { return v === '0' ? 1 : 2; }],
@@ -276,6 +276,14 @@ Module['mc3TouchPad'] = function (words) {
     want[key] = value === undefined ? '' : String(value);
     if (!timer) put();
     return true;
+  };
+  // The rate a race or cruise steps at now (mc3_live_box word 4, MC3_LIVE_FPS_NOW: 30, 60 or N), 0 outside them,
+  // undefined until the runtime is up (web/index.html fpsGovern). HEAPU8 throws before then: checked inside try.
+  Module['mc3FpsNow'] = function () {
+    try {
+      if (!runtimeInitialized || !game()) return;
+      return Atomics.load(new Int32Array(HEAPU8.buffer), (game() >>> 2) + 4);
+    } catch (e) {}
   };
 })();
 

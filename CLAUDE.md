@@ -877,7 +877,7 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   use, s_scale_gen, canvas height re-set), RECOMP_GL_ANISO (in the sampler
   key: new samplers), RECOMP_GL_MIPS 1/2 (next frame: every cached texture
   freed and uploaded again); mc3_live_box (recomp_manual.c): MC3_60FPS
-  1/2 (applied at once, mid-drive too; was next drive only, so Free Roam stayed at 30),
+  1 = 30 / 2 = 60 / N fps (applied at once, mid-drive too; was next drive only, so Free Roam stayed at 30),
   MC3_ROAM_CARS (-1 auto; roam_pool_net parks the farthest holders over it
   and gives newcomers no car while it is reached; raising builds new cars
   only up to the vehicle registry sized at the cruise's load; the hub's K
@@ -1242,6 +1242,21 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   sub_0020B6F0 override halves it to 1/60 and sub_0041B550 rewrites flip
   interval 2 to 1. Risks: per-frame (not per-step) lerps and Flash HUD run
   2x, replays/ghosts, System Link peers in different modes.
+  Above 60 (2026-11-13, untested in game; fps_step): MC3_60FPS=N (61..240,
+  "1" = 60) steps 1/N while driving and asks the toolkit's vblank for N Hz
+  (kernel_bridge.c xbox_vblank_set_hz; 59.94 Hz again outside states 2/3,
+  so menus keep their pace; the hidden tab's 8 Hz still wins). Fixed steps:
+  a machine that misses N runs in slow motion, so the page governs it
+  (index.html fpsGovern): Settings 'Frame rate' 30 / 60 / Auto / 90 / 120
+  / 144, the last three listed only when the screen's refresh (rAF median
+  on the page, mc3.refreshHz, '[WEB] screen refresh: N Hz') reaches them;
+  live word 4 MC3_LIVE_FPS_NOW (web/pre.js mc3FpsNow) = the rate driving
+  now, 0 elsewhere; 3 s under 90% -> next rate down (Auto to 30, fixed to
+  60), that rate barred 60 s doubling per miss; 15 s at >= 97% -> up (Auto
+  to the refresh, fixed to its pick); '[WEB] frame rate: ...'. Per-frame
+  code checked: drift.c's dt-based (its hit test is per-frame velocity
+  change in m/s: at high rates a hit spread over frames may go unseen),
+  roam_game.c's pose blend (dt floor now 1/240). Same risks as 60, N/30x.
   Drift mode (2026-11-12, v2 assist untested in game; MC3_DRIFT=1 normal,
   =2 strong, live: page "Drift mode" Off/On/Strong = live word 1/2/3;
   src/games/remix/drift.c, drift_step from the sub_0020B6F0 override):

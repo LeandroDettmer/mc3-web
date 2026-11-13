@@ -1157,9 +1157,10 @@ void sub_0041B170(void)
  * count +0x1C0). It showed the trap storm (targets millions of vblanks
  * ahead) and the menus' interval 2 (2026-10-18). First 40 calls, then
  * every 120th.
- * MC3_60FPS=1 (fps60_step, below): while a race or cruise steps 1/60 s, a
- * flip asking for interval 2 is rewritten to interval 1 before D3D sees it. */
-static int s_fps60;                             /* this frame steps 1/60 (MC3_60FPS) */
+ * MC3_60FPS=1 or N (fps_step, below): while a race or cruise steps 1/60 s
+ * (1/N s), a flip asking for interval 2 is rewritten to interval 1 before D3D
+ * sees it. */
+static int s_fps_hz;                            /* this frame steps 1/s_fps_hz s (MC3_60FPS), 0 = the game's 1/30 */
 extern void sub_0041B550_gen(void);
 void sub_0041B550(void)
 {
@@ -1170,7 +1171,7 @@ void sub_0041B550(void)
         const char *e = getenv("MC3_FLIP_TRACE");
         on = e && e[0] == '1';
     }
-    if (s_fps60 && (param & 0x1F) == 1 && ((param >> 5) & 7) == 2) {
+    if (s_fps_hz && (param & 0x1F) == 1 && ((param >> 5) & 7) == 2) {
         param = (param & ~(7u << 5)) | (1u << 5);
         MEM32(g_esp + 4) = param;
     }
@@ -2609,7 +2610,7 @@ void sub_00020880(void)
  * 0x4B2D48 (clamped) and 0x4B2D50 (its reciprocal). Only steps of 1/30
  * (races); the title flythrough's 1/60 half-speed showcase is left alone.
  * Replays recorded this way may play back slightly differently. Under
- * MC3_60FPS the race's 1/60 steps are stretched the same way. */
+ * MC3_60FPS the race's 1/60 (1/N) steps are stretched the same way. */
 static void realtime_step(float real)
 {
     static int on = -1;
@@ -2624,7 +2625,7 @@ static void realtime_step(float real)
             fprintf(stderr, "[TIME] races advance in real time below 30 fps, steps up to %.4f s"
                     " (MC3_REALTIME)\n", cap);
     }
-    if (!on || MEM32(0x00534770u) == 0 || f < (s_fps60 ? 0.015f : 0.030f) || f > 0.037f
+    if (!on || MEM32(0x00534770u) == 0 || f < (s_fps_hz ? 0.9f / (float)s_fps_hz : 0.030f) || f > 0.037f
         || real <= f * 1.1f)
         return;
     d = real < cap ? real : cap;
@@ -2650,14 +2651,22 @@ static void realtime_step(float real)
  * that moves a fixed amount per frame rather than per step (lerps, camera
  * smoothing, Flash HUD) runs 2x fast; replays and ghosts recorded at 1/30
  * may play back differently; System Link peers must both run the same mode;
- * the race object's +0x58 rate (60/30/20 for sub_0009BE00) is not changed. */
+ * the race object's +0x58 rate (60/30/20 for sub_0009BE00) is not changed.
+ * Above 60 (2026-11-13, untested in game): MC3_60FPS=N (61..240) steps 1/N s
+ * and asks the toolkit's vblank for N Hz (xbox_vblank_set_hz) while driving,
+ * 59.94 Hz again elsewhere, so menus keep their pace. A machine that cannot
+ * hold N gets slow motion (fixed steps): the page's Frame rate governor
+ * (web/index.html fpsGovern) steps it down from the driving rate published in
+ * live word MC3_LIVE_FPS_NOW. */
 /* The page's in-game Settings (web/index.html setSetting -> web/pre.js
  * mc3SetLive -> mc3_live_box): word i, 0 = the environment's value as at
- * start. MC3_LIVE_60FPS 1 off / 2 on (fps60_step, from the next drive or
- * race); MC3_LIVE_CARS MC3_ROAM_CARS, -1 auto (roam_cars_total, read live by
+ * start. MC3_LIVE_60FPS 1 = 30 / 2 = 60 / else N fps (fps_step, at once);
+ * MC3_LIVE_CARS MC3_ROAM_CARS, -1 auto (roam_cars_total, read live by
  * the remote cars pool); MC3_LIVE_DRIFT MC3_DRIFT 1 off / 2 on / 3 strong (drift.c);
- * MC3_LIVE_CAREER MC3_CAREER_ONLINE 1 off / 2 on (roam_career_live, roam_pool.c). */
-enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_N };
+ * MC3_LIVE_CAREER MC3_CAREER_ONLINE 1 off / 2 on (roam_career_live, roam_pool.c).
+ * MC3_LIVE_FPS_NOW is written here, read by the page (web/pre.js mc3FpsNow):
+ * the rate a race or cruise steps at now, 0 outside them. */
+enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_FPS_NOW, MC3_LIVE_N };
 #ifdef __EMSCRIPTEN__
 static int32_t s_mc3_live[MC3_LIVE_N];
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_live_box(void) { return (uintptr_t)s_mc3_live; }
@@ -2672,42 +2681,49 @@ static int32_t mc3_live(int i)
 #endif
 }
 
-static void fps60_step(void)
+extern void xbox_vblank_set_hz(int hz);         /* xboxrecomp/src/kernel/kernel_bridge.c */
+static void fps_step(void)
 {
-    static int on = -1, env = -1;
-    static float halved;                        /* the 1/60 we wrote, 0 = none */
+    static int hz = -1, env = -1, vb;
+    static float base, set;                     /* the game's 1/30 and the 1/hz we wrote over it, 0 = none */
     uint32_t st = s_state_obj ? MEM32(s_state_obj + 4) : 0;
     float f = MEMF(0x004B2D58u);
     int32_t l = mc3_live(MC3_LIVE_60FPS);
-    if (env < 0) {
+    int want, drive;
+    if (env < 0) {                              /* "1" = 60 (as before), N = N fps, 61..240 */
         const char *e = getenv("MC3_60FPS");
-        env = e && e[0] == '1';
+        int n = e ? atoi(e) : 0;
+        env = n == 1 || n == 60 ? 60 : n > 60 ? (n > 240 ? 240 : n) : 30;
     }
+    want = l == 0 ? env : l == 1 ? 30 : l == 2 ? 60 : l > 240 ? 240 : l < 61 ? 60 : l;
     /* a live change applies at once, mid-drive too (the step is the only thing it switches; was next drive only:
      * Free Roam never leaves states 2/3, so it stayed at 30) */
-    if (on < 0 || (l ? l == 2 : env) != on) {
-        on = l ? l == 2 : env;
-        if (!on && halved != 0.0f) {            /* off: the 1/30 back, as on leaving states 2/3 */
-            if (f == halved)
-                MEMF(0x004B2D58u) = f * 2.0f;
-            halved = 0.0f;
-            s_fps60 = 0;
+    if (want != hz) {
+        if (set != 0.0f && f == set)            /* the game's 1/30 back, as on leaving states 2/3 */
+            MEMF(0x004B2D58u) = f = base;
+        set = 0.0f;
+        if (hz >= 0 || want != 30 || l)
+            fprintf(stderr, "[TIME] races and cruise step 1/%d s at interval %d, vblank %d Hz (MC3_60FPS%s)\n",
+                    want, want > 30 ? 1 : 2, want > 60 ? want : 60, l ? ", in-game Settings" : "");
+        hz = want;
+    }
+    drive = (st == 2 || st == 3) && MEM32(0x00534770u) != 0;
+    if (drive && hz > 30) {
+        if (f >= 0.030f && f <= 0.037f) {
+            base = f;
+            MEMF(0x004B2D58u) = set = f * (30.0f / (float)hz);
         }
-        if (on || l)
-            fprintf(stderr, "[TIME] races and cruise step 1/%d s at interval %d (MC3_60FPS%s)\n", on ? 60 : 30,
-                    on ? 1 : 2, l ? ", in-game Settings" : "");
+    } else if (set != 0.0f) {
+        if (f == set)
+            MEMF(0x004B2D58u) = base;
+        set = 0.0f;
     }
-    if (!on)
-        return;
-    if ((st == 2 || st == 3) && MEM32(0x00534770u) != 0) {
-        if (f >= 0.030f && f <= 0.037f)
-            MEMF(0x004B2D58u) = halved = f * 0.5f;
-    } else if (halved != 0.0f) {
-        if (f == halved)
-            MEMF(0x004B2D58u) = f * 2.0f;
-        halved = 0.0f;
-    }
-    s_fps60 = halved != 0.0f && MEMF(0x004B2D58u) == halved;
+    s_fps_hz = set != 0.0f && MEMF(0x004B2D58u) == set ? hz : 0;
+    if ((s_fps_hz > 60 ? s_fps_hz : 0) != vb)   /* the vblank only while driving above 60: menus keep 59.94 Hz */
+        xbox_vblank_set_hz(vb = s_fps_hz > 60 ? s_fps_hz : 0);
+#ifdef __EMSCRIPTEN__
+    __atomic_store_n(&s_mc3_live[MC3_LIVE_FPS_NOW], drive ? (s_fps_hz ? s_fps_hz : 30) : 0, __ATOMIC_RELAXED);
+#endif
 }
 
 /* Drift mode (MC3_DRIFT, live): the arcade drift assist on our own car, drift_step */
@@ -2760,7 +2776,7 @@ void sub_0020B6F0(void)
         real = last_ns ? (float)((now - last_ns) / 1e9) : 0.0f;
         last_ns = now;
     }
-    fps60_step();
+    fps_step();
     drift_step();
     traffic_lod_step();
     online_strings();
