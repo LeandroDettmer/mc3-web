@@ -27,7 +27,16 @@ with xboxrecomp; modelled on nfsu2-sw).
   Never delete or rewrite saves on upgrade. Writes go through `<file>.tmp` +
   rename (web_fs.c `mc3_file_write`), never in place; the rotating copies
   (`/opfs/backup/...`, `profile.bin.bak1/.bak2`) and the boot/after-write
-  restore stay. Garage, car list or CarCfg changes (the car-mods project,
+  restore stay. Dated snapshots (2026-11-13, web_fs.c
+  mc3_web_saves_snapshot, untested in a browser): at boot, newest 2+ days
+  old or none -> every save passing its checks copied to
+  `/opfs/backup/snap/<YYYY-MM-DD>[-N]/` (UDATA/... + online/profile.bin,
+  snapshot.txt last: without it, cut short and removed); then those dated
+  over 7 days before today go, never the newest (browser clock; a future
+  date does not count for the 2 days). '[SAVE] snapshot ...'; MC3_SNAP_TEST=1
+  takes one each boot. The Saves tab lists, downloads and restores them
+  (before Play; the current saves go into a snapshot first). The game only
+  copies; a save is rewritten only by the player's Restore. Garage, car list or CarCfg changes (the car-mods project,
   mc3-web-carmod, included) must keep old saves loading. Any change that
   touches a save, its format or its folders gets a migration note in its
   commit and here. Cache code (disc_cache.js, the `cache` folder) touches

@@ -90,3 +90,4 @@ internals. The page header shows the first release (9 November 2026); each later
 ## 2026-11-13
 
 - **Free Roam:** A street racer who drives away from the course or stops racing now leaves the race by itself, so the race flag over their car goes away and the others no longer wait for them.
+- **Saves:** Every 2 days the game also keeps a dated snapshot of all your saves (kept a week, the newest always); the Saves tab lists them, downloads one or puts one back.

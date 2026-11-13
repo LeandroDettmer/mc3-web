@@ -459,6 +459,9 @@
         <ul class="profiles" id="profiles" aria-label="Profiles in this browser"></ul>
         <p class="msg" id="saves-msg" role="status"></p>
         <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>; the game keeps the last two copies of each one and puts the newest good one back if a save is ever cut short. <b>Export all saves</b> downloads every profile, the online profile and those copies as one <code>.zip</code>: keep it somewhere safe. Download saves a profile (the Remix's is <code>.mc3Remix</code>, the DUB Edition's <code>.mc3</code>). Import takes one downloaded from this site (another browser or device) or, for the DUB Edition, from an Xbox, and signs it for the port; a file of the other game is refused; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
+        <h3 style="margin-top:20px">Snapshots</h3>
+        <ul class="profiles" id="snaps" aria-label="Save snapshots"></ul>
+        <p class="hint">Every 2 days, when it starts, the game copies all your saves (profiles and the online profile) into a dated snapshot in this browser; snapshots over 7 days old are removed, the newest always kept. <b>Restore</b> puts a snapshot's saves back (before Play) and keeps the current ones as a snapshot first.</p>
       </div>
 
       <div class="pane" role="tabpanel" data-pane="online" hidden>
@@ -868,7 +871,7 @@
         }
         for (const p of panes) p.hidden = p.dataset.pane !== name;
         store.set(key, name);
-        if (name === 'saves') listSaves();
+        if (name === 'saves') { listSaves(); listSnaps(); }
         if (name === 'online') oprofShow();
       };
       tabs.forEach((t, i) => {
@@ -1445,20 +1448,101 @@
     e.setUint32(12, cent.reduce((s, x) => s + x.byteLength, 0), true); e.setUint32(16, off, true);
     return new Blob([...parts, ...cent, e], { type: 'application/zip' });
   }
+  async function readTree(d, pre, out) {    // every file under d: [{name: pre + its path, data, time}]
+    for await (const [n, h] of d.entries()) {
+      if (h.kind === 'directory') await readTree(h, pre + n + '/', out);
+      else if (!n.endsWith('.tmp')) { const f = await h.getFile(); out.push({ name: pre + n, data: new Uint8Array(await f.arrayBuffer()), time: new Date(f.lastModified) }); }
+    }
+    return out;
+  }
+  // Dated snapshots (src/web_fs.c): OPFS backup/snap/<YYYY-MM-DD>[-N]/ holds UDATA/... and online/profile.bin at their
+  // own paths, snapshot.txt written last (none: cut short, the game removes it). The game takes one every 2 days at
+  // start and removes those over 7 days old, never the newest.
+  const snapRoot = async () => (await backupDir()).getDirectoryHandle('snap', { create: true });
+  async function snapCurrent() {             // the saves as they are now: UDATA/... + online/profile.bin
+    const root = await navigator.storage.getDirectory(), files = [];
+    try { await readTree(await root.getDirectoryHandle('UDATA'), 'UDATA/', files); } catch {}
+    try { const d = await root.getDirectoryHandle('online'), b = await readBytes(d, 'profile.bin'); if (b?.length) files.push({ name: 'online/profile.bin', data: b }); } catch {}
+    return files;
+  }
+  async function writeTree(d, name, files) { // files at their paths under d/name, snapshot.txt last
+    const t = await d.getDirectoryHandle(name, { create: true });
+    for (const f of files) {
+      const parts = f.name.split('/'); let h = t;
+      for (const p of parts.slice(0, -1)) h = await h.getDirectoryHandle(p, { create: true });
+      await writeBytes(h, parts.at(-1), f.data);
+    }
+    await writeBytes(t, 'snapshot.txt', new TextEncoder().encode(`files ${files.length}\n`));
+  }
+  async function restoreSnap(label, files) {
+    if (playing) { savesMsg('A snapshot can only be restored before Play: reload the page, then restore it.', true); return; }
+    if (!confirm(`Put back the saves of the snapshot from ${label}? Your current saves are kept first as a new snapshot. Profiles that are not in the snapshot stay as they are.`)) return;
+    try {
+      const now = await snapCurrent(), sr = await snapRoot(), t = new Date();
+      if (now.length) {
+        const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+        let name = day;
+        for (let k = 2; await sr.getDirectoryHandle(name).then(() => true, () => false); k++) name = `${day}-${k}`;
+        await writeTree(sr, name, now);
+      }
+      const root = await navigator.storage.getDirectory();
+      for (const f of files) {
+        const parts = f.name.split('/'), n = parts.pop();
+        if (!['UDATA', 'online'].includes(parts[0])) continue;
+        let d = root;
+        for (const p of parts) d = await d.getDirectoryHandle(p, { create: true });
+        // as an import: the old file and the restored one become the rotating copies, so the boot check keeps it
+        const bak = parts[0] === 'UDATA' ? await backupDir(...parts) : d, old = await readBytes(d, n);
+        if (old?.length) await keepCopy(bak, n, old);
+        await writeBytes(d, n, f.data);
+        await keepCopy(bak, n, f.data);
+      }
+      savesMsg(`Restored the snapshot from ${label}.${now.length ? ' The saves it replaced are kept as a snapshot of today.' : ''}`);
+    } catch (e) { savesMsg('Could not restore: ' + (e.message || e), true); }
+    listSaves(); listSnaps();
+  }
+  async function listSnaps() {
+    const ul = $('snaps');
+    ul.textContent = '';
+    const empty = text => { const li = document.createElement('li'); li.className = 'empty'; li.textContent = text; ul.append(li); };
+    if (!opfs) { empty('No private storage in this browser here: no snapshots.'); return; }
+    const rows = [];
+    try {
+      for await (const [n, h] of (await snapRoot()).entries())
+        if (h.kind === 'directory' && /^\d{4}-\d\d-\d\d/.test(n) && await readBytes(h, 'snapshot.txt')) rows.push({ n, files: (await readTree(h, '', [])).filter(f => f.name !== 'snapshot.txt') });
+    } catch (e) { savesMsg('Could not read the snapshots: ' + (e.message || e), true); }
+    if (!rows.length) { empty('No snapshots yet: the game takes the first when it starts with a save in this browser.'); return; }
+    rows.sort((a, b) => b.n.localeCompare(a.n, undefined, { numeric: true }));
+    for (const r of rows) {
+      const [y, m, d] = r.n.split('-'), extra = r.n.slice(10);
+      const label = new Date(+y, m - 1, +d).toLocaleDateString() + (extra ? ` (${extra.slice(1)})` : '');
+      const profiles = r.files.filter(f => /\.mc3(remix)?$/i.test(f.name)).length, online = r.files.some(f => f.name === 'online/profile.bin');
+      const li = document.createElement('li'), info = document.createElement('div'), b = document.createElement('b'), p = document.createElement('p');
+      b.textContent = label;
+      p.className = 'hint';
+      p.textContent = `${profiles} profile${profiles === 1 ? '' : 's'}${online ? ' + online profile' : ''}, ${(r.files.reduce((s, f) => s + f.data.length, 0) / 1024).toFixed(0)} KB`;
+      info.append(b, p);
+      const row = document.createElement('div'); row.className = 'row';
+      const dl = document.createElement('button'), rs = document.createElement('button');
+      dl.type = rs.type = 'button';
+      dl.className = rs.className = 'btn';
+      dl.textContent = 'Download'; rs.textContent = 'Restore';
+      dl.setAttribute('aria-label', 'Download the snapshot from ' + label);
+      rs.setAttribute('aria-label', 'Restore the snapshot from ' + label);
+      dl.onclick = () => saveFile(zipStore(r.files.map(f => ({ ...f, time: f.time || new Date() }))), `mc3-snapshot-${r.n}.zip`);
+      rs.onclick = () => restoreSnap(label, r.files);
+      row.append(dl, rs);
+      li.append(info, row); ul.append(li);
+    }
+  }
   async function exportAll() {
     if (!opfs) { savesMsg('No private storage in this browser here: nothing to export.', true); return; }
     const files = [], root = await navigator.storage.getDirectory();
-    const walk = async (d, pre) => {
-      for await (const [n, h] of d.entries()) {
-        if (h.kind === 'directory') await walk(h, pre + n + '/');
-        else if (!n.endsWith('.tmp')) { const f = await h.getFile(); files.push({ name: pre + n, data: new Uint8Array(await f.arrayBuffer()), time: new Date(f.lastModified) }); }
-      }
-    };
     try {
       for (const top of ['UDATA', 'TDATA', 'online', 'backup']) {
         let d;
         try { d = await root.getDirectoryHandle(top); } catch { continue; }
-        await walk(d, top + '/');
+        await readTree(d, top + '/', files);
       }
     } catch (e) { savesMsg('Could not read the saves: ' + (e.message || e), true); return; }
     if (!files.length) { savesMsg('No saves in this browser yet.', true); return; }
@@ -2134,7 +2218,7 @@
   }
   // Settings 'Direct connections (P2P) in Free Roam' (?MC3_ROAM_P2P=0 / =1 wins): on unless set to 0
   function roamP2P() { return (new URLSearchParams(location.search).get('MC3_ROAM_P2P') ?? settings.MC3_ROAM_P2P) !== '0'; }
-  $('saves-refresh').onclick = () => { savesMsg(''); listSaves(); };
+  $('saves-refresh').onclick = () => { savesMsg(''); listSaves(); listSnaps(); };
   $('saves-export').onclick = exportAll;
   $('oprof-export').onclick = oprofExport;
   $('oprof-import').onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) oprofImport(f); };
