@@ -518,8 +518,10 @@ Module['mc3SaveResult'] = function (n) {
     }
     // Race panel (src/games/remix/roam_challenge.c roam_race_box: mode 1 our race / 2 players racing near, '\n' lines,
     // '\t' columns), left of the progress panel; hidden with nothing to show.
+    // Mode 2 ('Racing now', players racing near) is not drawn (2026-11-13: it covered the minimap); the players panel
+    // marks those racers instead.
     var rb = typeof _roam_race_box == 'function' ? _roam_race_box() >>> 2 : 0, rmode = rb ? I32[rb] : 0;
-    if (!rmode) { if (rel) rel.style.display = 'none'; return; }
+    if (rmode != 1) { if (rel) rel.style.display = 'none'; return; }
     if (!rel) {
       rel = document.createElement('div');
       rel.style.cssText = el.style.cssText;
@@ -533,7 +535,7 @@ Module['mc3SaveResult'] = function (n) {
       rshown = rtext;
       rel.textContent = '';
       var rl = rtext.split('\n'), hd = rl[0].split('\t');
-      if (rmode == 1) {
+      {
         rel.append(row('Race · ' + hd[2], 'font-size:1.1em;letter-spacing:.03em'));
         rel.append(row(hd[0] + (hd[1] && hd[1] != 'start beacons' ? ' · ' + hd[1] : ''), 'color:#ffd24a;font-size:.85em;margin-bottom:.2em'));
         rl.slice(1).forEach(function (l) {
@@ -548,14 +550,6 @@ Module['mc3SaveResult'] = function (n) {
             d.append(s);
           });
           rel.append(d);
-        });
-      } else {
-        rel.append(row(hd[0], 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
-        rl.slice(1).forEach(function (l) {
-          var c = l.split('\t');
-          var mine = c[1] == 'me';   // our own line (roam_challenge.c): the game does not know our nick
-          rel.append(row('⚑ ' + (mine ? ((Module['mc3Env'] || {}).MC3_PLAYER_NAME || 'You') + ' (you)' : c[0]) + (c[1] == 'street' ? ' · street race' : ' · race'),
-            mine || String(c[0]).toLowerCase() == me ? 'color:#7fd4ff' : ''));
         });
       }
     }
