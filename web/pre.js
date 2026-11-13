@@ -636,21 +636,26 @@ Module['mc3RaceButton'] = function (act) {
         });
         if (text) el.append(d);
       });
-      if (act) {   // the box ignores the pointer; its button takes it (mouse and touch)
-        var btn = document.createElement('button'), a = act;
-        btn.type = 'button';
-        btn.tabIndex = -1;
-        btn.textContent = ACTS[act];
-        btn.style.cssText = 'pointer-events:auto;display:block;margin-top:.45em;padding:.3em 1em;min-height:2.2em;' +
-          'border-radius:6px;border:1px solid rgba(255,255,255,.7);background:#a3262a;color:#fff;font:inherit;' +
-          'font-size:.9em;cursor:pointer;touch-action:manipulation';
-        btn.addEventListener('pointerdown', function (ev) {   // not a click: the canvas keeps focus (keys)
-          ev.preventDefault();
-          ev.stopPropagation();
-          Module['mc3RaceButton'](a);
+      if (act) {   // the box ignores the pointer; its buttons take it (mouse and touch)
+        var bar = document.createElement('div');
+        bar.style.cssText = 'display:flex;gap:.5em;margin-top:.45em' + (big ? ';justify-content:center' : '');
+        // an invite (Decline) also gets Accept (act 5 = White, roam_challenge.c RCH_Q_ACCEPT)
+        (act == 4 ? [[5, 'Accept', '#2a8a3a'], [4, ACTS[4], '#a3262a']] : [[act, ACTS[act], '#a3262a']]).forEach(function (o) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.tabIndex = -1;
+          btn.textContent = o[1];
+          btn.style.cssText = 'pointer-events:auto;padding:.3em 1em;min-height:2.2em;' +
+            'border-radius:6px;border:1px solid rgba(255,255,255,.7);background:' + o[2] + ';color:#fff;font:inherit;' +
+            'font-size:.9em;cursor:pointer;touch-action:manipulation';
+          btn.addEventListener('pointerdown', function (ev) {   // not a click: the canvas keeps focus (keys)
+            ev.preventDefault();
+            ev.stopPropagation();
+            Module['mc3RaceButton'](o[0]);
+          });
+          bar.append(btn);
         });
-        if (big) btn.style.margin = '.45em auto 0';
-        el.append(btn);
+        el.append(bar);
       }
     }
     if (!text) { el.style.display = 'none'; return; }

@@ -227,6 +227,7 @@ static struct {
     int host;                                   /* 1: we invited (we send GO) */
     char name[ROAM_NAME_MAX + 1];               /* invited/joined: the host's name */
     int players;                                /* invited/joined: players the host invited, the host included */
+    int accepted;                               /* invited/joined: invitees who joined so far (the host's INVITE tail) */
     struct { uint32_t id; char name[ROAM_NAME_MAX + 1]; int joined, out; } inv[RCH_RACERS - 1];  /* inviting: nearest first */
     int ninv;
     rch_racer rc[RCH_RACERS];                   /* count/race/result: the racers in slot order */
@@ -260,7 +261,7 @@ static struct {
 static float s_rch_pos[3];                      /* our car's position at the last frame (the Race panel's live places) */
 
 /* What quitting does now (Black held RCH_QUIT_S s, or the page's button): RCH_Q_*. */
-enum { RCH_Q_NONE, RCH_Q_CANCEL, RCH_Q_LEAVE, RCH_Q_GIVEUP, RCH_Q_DECLINE };
+enum { RCH_Q_NONE, RCH_Q_CANCEL, RCH_Q_LEAVE, RCH_Q_GIVEUP, RCH_Q_DECLINE, RCH_Q_ACCEPT };   /* ACCEPT: the page's Accept beside Decline = White */
 
 #ifdef __EMSCRIPTEN__
 /* The prompt box's button (web/pre.js): act = RCH_Q_* offered now (written with each prompt, 0 none); click =
@@ -678,6 +679,10 @@ static void rch_send(uint32_t to, uint32_t race, int op, int arg, double now)
                 memcpy(b + n, &f, 4);
                 n += 4;
             }
+        for (k = 0, i = 0; k < s_rch.ninv; k++)  /* tail byte (2026-11-13): invitees joined so far; older builds ignore it */
+            i += s_rch.inv[k].joined && !s_rch.inv[k].out;
+        if (n < ROAM_MSG_MAX)                   /* 6 start beacons fill the message: no count then */
+            b[n++] = (uint8_t)i;
     } else if (op == RCH_OP_GO) {
         left = (s_rch.t0 - now) * 1000.0;
         k = left < 0.0 ? 0 : left > 60000.0 ? 60000 : (int)left;
@@ -915,6 +920,9 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
         if (op == RCH_OP_INVITE) {
             if ((s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED) && s_rch.peer == from && s_rch.race == race) {
                 s_rch.heard = now;
+                k = b[3] == 0 || s_rch.ev_index != 0xFFFFu ? 24 : 24 + 12 * b[3];   /* past the checkpoints: joined */
+                if (n > k)
+                    s_rch.accepted = b[k];
                 continue;
             }
             for (k = 0; s_rch.st == RCH_INVITING && k < s_rch.ninv && s_rch.inv[k].id != from; k++)
@@ -951,6 +959,7 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
                 s_rch.peer = from;
                 s_rch.host = 0;
                 s_rch.players = b[23] < 2 ? 2 : b[23] > RCH_RACERS ? RCH_RACERS : b[23];
+                s_rch.accepted = 0;
                 snprintf(s_rch.name, sizeof s_rch.name, "%s", pp->name);
                 s_rch.t0 = s_rch.heard = now;
                 s_rch.tx = 0;
@@ -1015,6 +1024,7 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
             s_rch.peer = from;
             s_rch.host = 0;
             s_rch.players = b[23] < 2 ? 2 : b[23] > RCH_RACERS ? RCH_RACERS : b[23];
+            s_rch.accepted = 0;
             snprintf(s_rch.name, sizeof s_rch.name, "%s", pp->name);
             s_rch.t0 = s_rch.heard = now;
             s_rch.tx = 0;
@@ -1609,6 +1619,8 @@ static int rch_player(uint32_t p)
 #endif
     press = white && !s_rch.white_was;
     s_rch.white_was = white;
+    if (click == RCH_Q_ACCEPT && s_rch.st == RCH_INVITED)
+        press = 1;                              /* the page's Accept: as White */
     rch_recv(me, now, g_esp);
     if (s_rch.no.left > 0 && now - s_rch.no.tx >= RCH_RESEND / 3) {     /* each NO three times */
         for (i = 0; i < s_rch.no.n; i++)
@@ -1826,11 +1838,11 @@ static int rch_player(uint32_t p)
         if (s_rch.ai) {                         /* a group race */
             rch_ai_desc(d1, sizeof d1, &d2);
             if (s_rch.st == RCH_JOINED)
-                snprintf(text, sizeof text, "%s\nGroup race with %s (%d players)\nJoined: waiting for the start", d1,
-                         s_rch.name, s_rch.players);
+                snprintf(text, sizeof text, "%s\nGroup race with %s (%d players, %d joined)\nJoined: waiting for the start", d1,
+                         s_rch.name, s_rch.players, s_rch.accepted);
             else
-                snprintf(text, sizeof text, "%s invites you: group race (%d players)\n%s \xC2\xB7 %s\n%s \xC2\xB7 %d s",
-                         s_rch.name, s_rch.players, d1, d2, speed > RCH_JOIN_SLOW ? "Slow down to join" : "Press White [Q] to join",
+                snprintf(text, sizeof text, "%s invites you: group race (%d players, %d joined)\n%s \xC2\xB7 %s\n%s \xC2\xB7 %d s",
+                         s_rch.name, s_rch.players, s_rch.accepted, d1, d2, speed > RCH_JOIN_SLOW ? "Slow down to join" : "Press White [Q] to join",
                          k > 0 ? k : 0);
             if (s_rch.st == RCH_INVITED && press && speed <= RCH_JOIN_SLOW) {
                 s_rch.st = RCH_JOINED;
@@ -1841,14 +1853,14 @@ static int rch_player(uint32_t p)
             return 1;
         }
         if (s_rch.st == RCH_JOINED)
-            snprintf(text, sizeof text, "Race with %s (%d players)\n%d checkpoints \xC2\xB7 %.1f km\nJoined: waiting for the start",
-                     s_rch.name, s_rch.players, s_rch.ncp, s_rch.km);
+            snprintf(text, sizeof text, "Race with %s (%d players, %d joined)\n%d checkpoints \xC2\xB7 %.1f km\nJoined: waiting for the start",
+                     s_rch.name, s_rch.players, s_rch.accepted, s_rch.ncp, s_rch.km);
         else if (speed > RCH_JOIN_SLOW)
-            snprintf(text, sizeof text, "%s invites you to a race (%d players)\n%d checkpoints \xC2\xB7 %.1f km\nSlow down to join \xC2\xB7 %d s",
-                     s_rch.name, s_rch.players, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
+            snprintf(text, sizeof text, "%s invites you to a race (%d players, %d joined)\n%d checkpoints \xC2\xB7 %.1f km\nSlow down to join \xC2\xB7 %d s",
+                     s_rch.name, s_rch.players, s_rch.accepted, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
         else {
-            snprintf(text, sizeof text, "%s invites you to a race (%d players)\n%d checkpoints \xC2\xB7 %.1f km\nPress White [Q] (Flash) to join \xC2\xB7 %d s",
-                     s_rch.name, s_rch.players, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
+            snprintf(text, sizeof text, "%s invites you to a race (%d players, %d joined)\n%d checkpoints \xC2\xB7 %.1f km\nPress White [Q] (Flash) to join \xC2\xB7 %d s",
+                     s_rch.name, s_rch.players, s_rch.accepted, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
             if (press) {
                 s_rch.st = RCH_JOINED;
                 s_rch.tx = 0;
