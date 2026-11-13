@@ -204,7 +204,11 @@
   .on-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; line-height: 20px; }
   .on-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(155, 224, 138, .6); animation: on-pulse 2s infinite; }
   .boot-load { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: #fff; font: 600 15px/1.3 system-ui, sans-serif; pointer-events: none; z-index: 2; }
+  .boot-load { background: #000c; text-align: center; padding: 0 16px; }
   .boot-load[hidden] { display: none; }
+  .boot-load span, .boot-load small { font-weight: 400; max-width: min(520px, 100%); word-break: break-word; }
+  .boot-load small { font-size: 13px; opacity: .7; }
+  .boot-load progress { width: min(320px, 80vw); height: 8px; }
   .boot-load::before { content: ''; width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: boot-spin .9s linear infinite; }
   @keyframes boot-spin { to { transform: rotate(360deg); } }
   @keyframes on-pulse { 70% { box-shadow: 0 0 0 8px rgba(155, 224, 138, 0); } 100% { box-shadow: 0 0 0 0 rgba(155, 224, 138, 0); } }
@@ -521,7 +525,7 @@
 </dialog>
 
 <div class="stage" id="stage" hidden>
-  <div class="boot-load" id="boot-load" role="status" hidden>Loading the game…</div>
+  <div class="boot-load" id="boot-load" role="status" hidden><b>Loading game…</b><span id="boot-what"></span><progress id="boot-bar" max="100" hidden></progress><small>The first start takes longer (the game's files come down once); later starts are faster.</small></div>
   <div class="stage-bar">
     <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
     <button type="button" class="btn" id="drift-btn" aria-pressed="false" title="Drift mode (Settings, Controls): looser rear tyres on your car. Changes live.">Drift: Off</button>
@@ -1044,11 +1048,20 @@
       fetch(moduleFile(app + '.wasm'), { credentials: 'include' }).then(r => {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         out(`[WEB] module: ${app}.wasm answered (${(r.headers.get('content-length') >> 20) || '?'} MB), compiling (${ms()})`);
+        // Progress for the loading overlay: bytes counted on the way into the compiler (Content-Length is the encoded
+        // size: past it, the total is dropped)
+        const total = +r.headers.get('content-length') || 0; let got = 0;
+        if (r.body) r = new Response(r.body.pipeThrough(new TransformStream({ transform(ch, c) {
+          got += ch.length; const mb = (got / 1048576).toFixed(0);
+          bootWhat(total >= got ? `Downloading the game: ${mb} of ${(total / 1048576).toFixed(0)} MB` : `Downloading the game: ${mb} MB`, total >= got ? got * 100 / total : null);
+          c.enqueue(ch);
+        } })), { status: r.status, headers: r.headers });
         // streaming needs the server's application/wasm (the deploy and mc3-server send it); else whole, as Emscripten
         return /application\/wasm/.test(r.headers.get('content-type') || '') ? WebAssembly.compileStreaming(r)
           : r.arrayBuffer().then(b => WebAssembly.compile(b));
       }).then(mod => {
         out(`[WEB] module: compiled (${ms()}), instantiating`);
+        bootWhat('Starting the game…');
         return WebAssembly.instantiate(mod, imports).then(inst => {
           out(`[WEB] module: instantiated (${ms()})`);
           done(inst, mod);
@@ -1650,9 +1663,27 @@
     [/xbox_HeapAlloc: out of memory/, 'The game\'s memory is full', 'The game used up the Xbox\'s own memory (a game or port bug), not this device\'s. Restart.'],
     [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory on this device', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
   ];
+  // Loading overlay (#boot-load) from Play to the first drawn frame: module download progress, then the disc.
+  let bootOn = false;
+  function bootWhat(s, pct) {
+    if (!bootOn) return;
+    $('boot-what').textContent = s;
+    const b = $('boot-bar'); b.hidden = pct == null; if (pct != null) b.value = pct;
+  }
+  function bootStart() {
+    bootOn = true; $('boot-load').hidden = false; bootWhat('Downloading the game…');
+    const t = setInterval(() => {
+      if (!(window.Module?.mc3Frames?.() > 0) || failBox) { if (failBox) clearInterval(t); return; }
+      clearInterval(t); bootOn = false; $('boot-load').hidden = true;
+    }, 250);
+  }
   function out(text) {
     logN++; logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
     if (/^\s*\[roam\] status /.test(text)) roamT = performance.now();
+    // Loading overlay, disc part: a game read that waited (wasmfs_fetch.js, a line a second at most) names the file.
+    // Page-only: the worker's own counters are not read, so no wasm rebuild.
+    const dw = bootOn && /^\[WEB\] disc wait: (\S+) @(\d+) /.exec(text);
+    if (dw) bootWhat(`Reading game files: ${dw[1].split('/').pop()} (${(dw[2] / 1048576).toFixed(0)} MB in)`);
     // Skip intro hides the legal screen (recomp_manual.c legal_hidden): a Loading box instead of a black picture
     if (/^\s*\[LS\] legal screen hidden/.test(text)) $('boot-load').hidden = /: boot load running/.test(text) ? false : true;
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
@@ -1956,6 +1987,7 @@
     if (env.RECOMP_GL_PROXY === '1') out('[WEB] graphics: drawing through the page thread (RECOMP_GL_PROXY=1, slower; =0 forces the worker)');
     document.body.classList.add('playing');
     $('stage').hidden = false;
+    bootStart();
     const canvas = $('canvas');
     canvas.focus();
     if (window.MC3Touch) {
