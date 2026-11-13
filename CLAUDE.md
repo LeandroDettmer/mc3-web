@@ -786,8 +786,13 @@ generated files when the lift inputs did not change.
   panel '(racing)' (the switch push has no bits).
   Race ghosts (P2, 2026-11-12, untested in game; s_roam_ghosts, roam_pool.c
   roam_ghost_*): in that race (not a group race) the racer sees the other
-  players as cars. Only with a cars heap (128 MB window; 64 MB / phones off),
-  MC3_RACE_GHOSTS=0 off. Built at the race's load only (roam_pool_load ->
+  players as cars. Only with a 128 MB window (64 MB / phones off),
+  MC3_RACE_GHOSTS=0 off. Until 2026-11-13 (fix untested in game) they
+  needed the cars heap, which the page turns off for every device
+  (MC3_ROAM_HEAP_MB=0, b844e71): every race in players' logs said 'race
+  ghosts off: no cars heap (64 MB)', PCs at 128 MB too, so Online career
+  races showed the others as blips without cars. Now the main heap (95 MB
+  then) takes them, roam_pool_room keeping max(6 MB, heap / 8) free per car. Built at the race's load only (roam_pool_load ->
   roam_ghost_load): the 6 nearest linked players (Players shown fewer, not
   in menus or garage) with a car record, standalone cars, builder slot 1
   borrowed as in the career cruise (roam_bslots), our car caches; stops at

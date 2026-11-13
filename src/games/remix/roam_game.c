@@ -841,8 +841,11 @@ static void roam_career_join(uint32_t setup, const char *when)
             s_roam_cruise ? "session running, other players as standalone cars and blips" : "no session (link down?)");
 }
 
-/* Race ghosts for this race load: a cars heap (128 MB window; 64 MB and phones: none, off), MC3_RACE_GHOSTS not 0,
- * not a group race (its slots show its racers). NULL: on, else why off. */
+/* Race ghosts for this race load: a 128 MB window (64 MB and phones: off), MC3_RACE_GHOSTS not 0, not a group race
+ * (its slots show its racers). NULL: on, else why off. The cars heap if there is one, else the main heap: the page
+ * sets MC3_ROAM_HEAP_MB=0 for every device (b844e71), so requiring the cars heap left ghosts off everywhere
+ * (2026-11-13 logs: every race 'off: no cars heap'); the main heap is 95 MB then and roam_pool_room keeps
+ * max(6 MB, heap / 8) free for each new car, as for the career cruise's standalone cars. */
 static const char *roam_ghosts_want(void)
 {
     const char *e = getenv("MC3_RACE_GHOSTS");
@@ -850,7 +853,7 @@ static const char *roam_ghosts_want(void)
         return "MC3_RACE_GHOSTS=0";
     if (s_roam_fake > 0 || roam_group_race())
         return "fake players or a group race";
-    return roam_cheap() ? NULL : "no cars heap (64 MB)";
+    return roam_cheap() || (g_xbox_contig_size >> 20) >= 128u ? NULL : "64 MB window (phones, low memory)";
 }
 
 /* A race load with us driving (Free Roam's AI race, an Online career race): the session stays on with no remote cars
