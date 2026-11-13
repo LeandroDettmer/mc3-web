@@ -279,6 +279,20 @@ Module['mc3TouchPad'] = function (words) {
   };
 })();
 
+// A hidden tab (minimised, another tab, a locked phone) costs next to nothing: xbox_page_hidden_box
+// (xboxrecomp/src/kernel/kernel_bridge.c) is 1 while document.hidden, and the vblank drops to 8 Hz (the game to 4 fps);
+// web/wasmfs_fetch.js holds the disc's background fill, web/audio.js suspends the sound. Main thread only.
+if (!ENVIRONMENT_IS_PTHREAD && typeof document == 'object') (function () {
+  var timer = 0;
+  function put() {
+    timer = 0;
+    if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _xbox_page_hidden_box != 'function') { timer = setTimeout(put, 1000); return; }
+    Atomics.store(new Int32Array(HEAPU8.buffer), _xbox_page_hidden_box() >>> 2, document.hidden ? 1 : 0);
+  }
+  document.addEventListener('visibilitychange', function () { if (!timer) put(); });
+  put();
+})();
+
 // Save progress (the in-game Settings button): src/games/remix/recomp_manual.c's mc3_save_box { request, answered,
 // result }. mc3SaveNow bumps the request (the game takes it at its next state pass, on its own thread) and gives its
 // number, false before the runtime is up; mc3SaveResult(n) gives 0 while that request is unanswered, else 1 pending,

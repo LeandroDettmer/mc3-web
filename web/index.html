@@ -1829,7 +1829,7 @@
     const Real = window.AudioContext, ctx = audioCtx;
     window.AudioContext = function () { window.AudioContext = Real; return ctx; };
     const kick = () => {
-      if (ctx.state === 'running' || ctx.state === 'closed') return;
+      if (ctx.state === 'running' || ctx.state === 'closed' || document.hidden) return;   // hidden: web/audio.js suspended it
       try { const s = ctx.createBufferSource(); s.buffer = ctx.createBuffer(1, 1, 22050); s.connect(ctx.destination); s.start(0); } catch {}
       ctx.resume().catch(() => {});
     };

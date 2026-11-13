@@ -92,6 +92,12 @@
   function resume() { if (ctx.state != 'running' && ctx.state != 'closed') ctx.resume().then(ctxWord, function () {}); }
   ['pointerdown', 'keydown', 'touchend'].forEach(function (t) { window.addEventListener(t, resume, true); });
   resume();
+  // A hidden tab is silent: the context suspended (the APU then waits, apu_web.c), resumed when it shows (iOS may
+  // want a tap: the page's 'Tap for sound'). web/pre.js slows the game meanwhile.
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) resume();
+    else if (ctx.state == 'running') ctx.suspend().then(ctxWord, function () {});
+  });
 
   // The ring is a static in the wasm image; its magic is set once the APU opens it.
   var poll = setInterval(function () {

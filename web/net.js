@@ -76,7 +76,8 @@
       drainTx();
       if (typeof Atomics.waitAsync == 'function') {
         var r = Atomics.waitAsync(h, W_TX_BELL, bell, 50);   // the timeout only in case a notify is missed
-        if (r.async) r.value.then(txLoop); else setTimeout(txLoop, 0);
+        // rung meanwhile: again at once (a hidden tab clamps setTimeout to 1 s, later to 1 a minute)
+        if (r.async) r.value.then(txLoop); else Promise.resolve().then(txLoop);
       } else setTimeout(txLoop, 4);
     }
     function rx(f) {

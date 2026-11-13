@@ -854,6 +854,23 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   RECOMP_GPU, RECOMP_RAM_MB, MC3_LOWMEM (renderer and memory layout are
   set at boot) and RECOMP_GL_LOD_BIAS (in every fragment shader's text and
   the OPFS pipeline list's keys: live would recompile every pipeline).
+- **Hidden tab** (2026-11-12, untested in a browser): browsers throttle a
+  hidden page's timers and rAF, never its workers, so a minimised game ran
+  on at 30 fps (slow PCs, hot iPhones). web/pre.js writes document.hidden
+  into xbox_page_hidden_box (kernel_bridge.c); while 1 the vblank runs at
+  8 Hz (VBLANK_HIDDEN_US): D3D flips at 4 fps, game in slow motion (fixed
+  1/30 s steps), renderer and GPU a seventh of the work; shown again, the
+  schedule restarts at once (no burst of owed vblanks). audio.js suspends
+  the AudioContext (the APU waits on a full queue) and resumes on visible
+  (index.html's unlock kick skips hidden); wasmfs_fetch.js idle() holds the
+  background fill. Stays alive: the roam core's own net thread (rc_tick on
+  its clock: snapshots, keepalive), the sockets, net.js's TX pump (a bell
+  rung during a drain loops by microtask now, not setTimeout 0: a hidden
+  tab clamps that to 1 s, and Chrome's intensive throttling, possible once
+  the page is silent, to 1 a minute). Wake Lock is taken again on visible
+  (touch.js). Peers see our car crawl. A System Link race also slows for
+  the hidden player. The render thread still draws the 4 fps (dropping
+  frames would miss one-time render-to-texture work done while hidden).
 - **Builds**: tools/build_web.sh uses ccache when installed (WSL:
   ~/.cache/ccache-mc3, CCACHE_BASEDIR = repo, so build folders share it;
   CCACHE=0 off). Builds on /mnt/e are slow; one relift per round.

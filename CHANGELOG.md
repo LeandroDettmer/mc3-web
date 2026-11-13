@@ -85,3 +85,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** A very busy city (25+ cars around you) no longer crashes the game; the farthest players stay map blips until there is room.
 - **Game:** When the graphics card stops answering, the game keeps running and the picture comes back, or a clear message offers a restart on WebGL, instead of a frozen screen.
 - **Phones:** Fewer crashes on iPhones (less memory used), and Android phones that lose the graphics context show a clear message instead of a crash; browsers too old to run the game say so.
+- **Game:** A minimised or hidden game tab now uses almost no CPU or graphics (the game slows down and goes quiet until you come back), so the PC stays fast and phones stay cool; Free Roam stays connected meanwhile.
