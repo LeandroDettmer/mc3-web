@@ -1016,7 +1016,10 @@
     if (!playing || verNew || !cfg?.version || document.hidden) return;
     verAt = Date.now();
     try {
-      const r = await fetch('config.json', { cache: 'no-store' });
+      // cfg.versionUrl (stage.sh): a copy in R2 beside the module (upload.sh version, after the Hosting deploy), so the poll
+      // costs no Firebase Hosting transfer; it failing, config.json as before
+      let r = cfg.versionUrl ? await fetch(cfg.versionUrl, { cache: 'no-store' }).catch(() => null) : null;
+      if (!r?.ok) r = await fetch('config.json', { cache: 'no-store' });
       const j = r.ok ? await r.json() : {};
       if (j.version && j.version !== cfg.version) { verNew = true; verForce = j.reload === j.version; setInterval(versionTick, 1000); versionTick(); }
     } catch {}
