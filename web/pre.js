@@ -20,6 +20,13 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
     var f = C.prototype[n];
     if (f) C.prototype[n] = function (o) { var r = f.call(this, o); return r == null ? '' : r; };
   });
+  // Same family: getParameter(VIEWPORT) is null on a lost context and Emscripten's setCanvasElementSizeCallingThread
+  // reads prevViewport[0] ("Cannot read properties of null (reading '0')", 10 logs 2026-11-13). Zeros instead.
+  var gp = C && C.prototype.getParameter;
+  if (gp) C.prototype.getParameter = function (p) {
+    var r = gp.call(this, p);
+    return r == null && p === 0xBA2 ? new Int32Array(4) : r;
+  };
 });
 
 // The wasm memory, made here on the page thread (workers get it from the runtime). CMakeLists.txt links 256 MB
