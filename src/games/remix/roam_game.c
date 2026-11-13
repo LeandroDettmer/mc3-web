@@ -176,7 +176,8 @@ static int s_roam_cruise;                       /* the Free Roam cruise is loade
  * our pose and status go out with ROAM_BIT_RACE, nothing comes in but blips (no remote cars, pool and spawn rule off). */
 static int s_roam_race;
 /* Race ghosts (with s_roam_race; roam_ghosts_want): the other players as standalone cars in our race, built at its
- * load only (roam_pool_load -> roam_ghost_load, builder slot 1 borrowed as in the career cruise), out of the physics
+ * load (roam_pool_load -> roam_ghost_load) and handed to the players near us mid-race (roam_ghost_net/_job;
+ * builder slot 1 borrowed as in the career cruise), out of the physics
  * level (nothing collides with them), no player and no racer record (HUD places, arrows, AI, results and saves never
  * see them), posed after the physics step (roam_ghost_frame); dropped with the standalone cars at the race's first
  * state request other than pause (roam_pool_pass), a restart's reload builds them again. */

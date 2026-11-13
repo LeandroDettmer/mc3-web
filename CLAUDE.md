@@ -792,14 +792,27 @@ generated files when the lift inputs did not change.
   (MC3_ROAM_HEAP_MB=0, b844e71): every race in players' logs said 'race
   ghosts off: no cars heap (64 MB)', PCs at 128 MB too, so Online career
   races showed the others as blips without cars. Now the main heap (95 MB
-  then) takes them, roam_pool_room keeping max(6 MB, heap / 8) free per car. Built at the race's load only (roam_pool_load ->
-  roam_ghost_load): the 6 nearest linked players (Players shown fewer, not
-  in menus or garage) with a car record, standalone cars, builder slot 1
-  borrowed as in the career cruise (roam_bslots), our car caches; stops at
-  the heap or capacity check, a failed build or 2 s of builds; each taken
-  out of the physics level at once (not out: dropped), fixed to its peer for
-  the race (no hand-over, rebuild or later build: a player without one is a
-  bright blip). Not a player, not a racer: the vehicle registry is walked
+  then) takes them, roam_pool_room keeping max(6 MB, heap / 8) free per car. At the race's load (roam_pool_load ->
+  roam_ghost_load): the 12 nearest linked players (was 6; owner's PC log
+  2026-11-13: 6 built in 51 ms, ~1 MB main heap and 9 particle emitters
+  each, 48 MB free after; Players shown fewer, not in menus or garage) with
+  a car record, standalone cars, builder slot 1 borrowed as in the career
+  cruise (roam_bslots), our car caches; stops at the heap or capacity
+  check, a failed build or 2 s of builds; each taken out of the physics
+  level at once (not out: dropped). Mid-race (2026-11-13, untested in game;
+  owner: 'some appear now but not the ones near me': the load's 6 stayed
+  with their players while he drove across the city): roam_ghost_net picks
+  the nearest driving peer within the car radius (250 m) without a ghost
+  and the ghost it takes -- one whose model is its own (handed over, no
+  build), else a new one under the cap (joiners too), else one rebuilt
+  with its look -- from a ghost with no peer, a peer away or unlinked 3 s
+  (ROAM_HOLD), or beyond radius + 50 m (300 m, ROAM_RADIUS_OUT) for 3 s;
+  roam_ghost_job after the physics step: one per 0.5 s, none while a state
+  request is queued or a page-in runs, the pool's look (no motorbike),
+  room, fit and roam_rc_make in the build context, out of the physics level
+  at once; a refused new ghost leaves hand-overs only for that race.
+  '[ROAM] race ghosts: ghost N -> <peer> (<why>, built in X ms | same car,
+  no build)'. Others without a ghost are bright blips. Not a player, not a racer: the vehicle registry is walked
   only by the vehicle update (sub_002BDEC0), adds (builder sub_002CBC40 /
   sub_002CBAE0, AI sub_001FB040), removes (sub_000FFB40 / FFBA0) and the
   garage (sub_0013CA70) -- no AI or race loop -- and racers, HUD places,
@@ -810,8 +823,9 @@ generated files when the lift inputs did not change.
   ghosts (a parked one is 500 m under us: the pause menu for slot 1). Name
   tags and bright blips come with the pool's driven entries. Teardown: the
   standalone cars' drop at the race's first state request other than pause
-  (roam_pool_pass: race over, Request(6)/(8), restart); a restart's reload
-  builds them again. '[ROAM] race ghosts: N built at load (cap, heap) ...'.
+  (roam_pool_pass: race over, Request(6)/(8), restart), and no ghost is
+  built after it in that race ('[ROAM] race ghosts: off for the rest of
+  this race'); a restart's reload builds them again. '[ROAM] race ghosts: N built at load (cap, heap) ...'.
   Open: a standalone car's player index 1 in a race (as the career's).
   Open: hub-distributed world settings, names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
