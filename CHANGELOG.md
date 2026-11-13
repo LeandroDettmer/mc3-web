@@ -87,7 +87,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Phones:** Fewer crashes on iPhones (less memory used), and Android phones that lose the graphics context show a clear message instead of a crash; browsers too old to run the game say so.
 - **Game:** A minimised or hidden game tab now uses almost no CPU or graphics (the game slows down and goes quiet until you come back), so the PC stays fast and phones stay cool; Free Roam stays connected meanwhile.
 
-## 2026-11-13 (b372058)
+## 2026-11-13 (7384f14)
 
 - **Free Roam:** A street racer who drives away from the course or stops racing now leaves the race by itself, so the race flag over their car goes away and the others no longer wait for them.
 - **Saves:** Every 2 days the game also keeps a dated snapshot of all your saves (kept a week, the newest always); the Saves tab lists them, downloads one or puts one back.
