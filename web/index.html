@@ -106,7 +106,12 @@
          display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; }
   #released { margin-left: 12px; font-weight: 700; }
   #released::before { content: "\00b7  "; }
-  #changelog-dlg h3 { margin: 16px 0 6px; }
+  #changelog-dlg h3 { margin: 24px 0 8px; color: var(--gold); font-style: italic; }
+  dialog#changelog-dlg { width: min(640px, calc(100% - 32px)); }
+  #changelog-dlg li { line-height: 1.45; }
+  #changelog-dlg li strong { font-style: italic; }
+  #changelog-dlg details { margin-top: 10px; }
+  #changelog-dlg summary { cursor: pointer; color: var(--muted); font-style: italic; margin-bottom: 6px; }
   #changelog-dlg h3:first-child { margin-top: 0; }
   #changelog-dlg ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
   .top .hint { color: #e6e7ea; text-shadow: var(--outline); }
@@ -149,13 +154,15 @@
   .flag { display: inline-block; flex: none; width: 1.3333em; height: 1em; vertical-align: -.15em; border-radius: 2px;
           background: url(flags.png) no-repeat; background-size: 21.3333em auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6); }
   .flag:not([style]) { visibility: hidden; }
-  .you { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 12px; background: var(--field);
+  .you { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 12px; background: var(--field);
          border: 2px solid var(--silver); border-left: 4px solid var(--gold); border-radius: var(--r); }
-  .you .flag { font-size: 36px; }
+  .you .flag { font-size: 24px; cursor: pointer; }
   .you-main { flex: 1; min-width: 0; display: grid; }
-  .you-label { font-size: 12px; line-height: 16px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
-  .you-nick { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; font-size: 28px;
-              line-height: 34px; color: var(--gold); overflow-wrap: anywhere; text-shadow: var(--outline); }
+  .you #you-edit { min-height: 32px; padding: 0 10px; font-size: 13px; flex: none; }
+  .you-label { font-size: 11px; line-height: 14px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .you-nick { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; font-size: 20px;
+              line-height: 26px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+              padding-right: .2em; text-shadow: var(--outline); }
   .checks { list-style: none; padding: 0; margin-top: 20px; display: grid; gap: 4px; font-size: 14px; line-height: 20px; }
   .checks li { display: flex; gap: 8px; }
   .checks .mark { flex: none; width: 16px; font-weight: 700; }
@@ -360,6 +367,23 @@
   #races-box { margin-top: 24px; }
   #races-box input[type=password] { background: var(--field); border: 2px solid var(--edge); border-radius: var(--r); padding: 6px 10px; min-height: 40px; max-width: 100%; }
   .races li .meta { color: var(--muted); font-size: 14px; }
+  /* features showcase: the game box's back cover, a red title bar and a grid of cards */
+  .top h1 { font-size: clamp(28px, 4vw, 40px); line-height: 1.2; }
+  .features { padding: 0; overflow: hidden; }
+  .feat-head { padding: 16px 24px; background: linear-gradient(90deg, var(--red-lo) 40%, rgba(122, 12, 16, .4)), var(--grid);
+               border-bottom: 2px solid var(--silver); }
+  .feat-head h2 { font-size: 22px; line-height: 28px; }
+  .feat-head p { color: #e6e7ea; font-size: 14px; line-height: 20px; margin-top: 2px; text-shadow: var(--outline); }
+  .feat-grid { list-style: none; padding: 20px 24px 24px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+  .feat { position: relative; padding: 14px 16px 16px; background: var(--field); border: 1px solid var(--line); border-left: 3px solid var(--red);
+          border-radius: var(--r); transition: border-color .15s, transform .15s; }
+  .feat:hover { border-color: var(--edge); border-left-color: var(--gold); transform: translateY(-2px); }
+  .feat svg { width: 28px; height: 28px; color: var(--gold); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .feat h3 { margin: 8px 0 4px; font-size: 16px; color: var(--text); }
+  .feat p { color: var(--muted); font-size: 14px; line-height: 20px; }
+  .feat b { color: var(--gold); font-weight: 700; }
+  @media (max-width: 480px) { .feat-head { padding: 12px 16px; } .feat-grid { padding: 16px; } }
+  @media (prefers-reduced-motion: reduce) { .feat { transition: none; } .feat:hover { transform: none; } }
 </style>
 </head>
 <body>
@@ -373,16 +397,16 @@
     </span>
   </header>
   <dialog id="changelog-dlg" aria-label="Changelog">
-    <div class="dlg-head"><strong>Changelog</strong><button type="button" class="btn" id="changelog-close" aria-label="Close">Close</button></div>
+    <div class="dlg-head"><strong>What's new</strong><button type="button" class="btn" id="changelog-close" aria-label="Close">Close</button></div>
     <div id="changelog-body"></div>
   </dialog>
 
   <div class="side">
     <section class="panel hero" aria-label="Play">
       <div class="you" aria-label="You, as other players see you">
-        <span class="flag" id="you-flag" role="img"></span>
+        <span class="flag" id="you-flag" role="img" title="Change flag"></span>
         <div class="you-main"><span class="you-label">You</span><strong class="you-nick" id="you-nick"></strong></div>
-        <button type="button" class="btn" id="you-edit">Change nick</button>
+        <button type="button" class="btn" id="you-edit" aria-label="Change nick">Edit</button>
       </div>
       <label class="field"><span>Your flag, before your name over your car in free roam</span><select id="flag"></select></label>
       <p class="status" id="status" role="status">Checking…</p>
@@ -433,6 +457,55 @@
   </div>
 
   <div class="content">
+    <section class="panel features" aria-labelledby="feat-title">
+      <div class="feat-head">
+        <h2 id="feat-title">The city is online</h2>
+        <p>Midnight Club 3 like you never played it: real players, real races, every ride in the garage.</p>
+      </div>
+      <ul class="feat-grid">
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          <h3>Online Free Roam</h3>
+          <p>The city never sleeps, and now it's never empty. Cruise with real players, name tags over their cars, every one a blip on your map.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2A5 5 0 0 1 21 19"/></svg>
+          <h3>Online Career</h3>
+          <p>Your career, someone else's taillights. Real players fill your career city, and your save stays yours alone.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h12l-2 4 2 4H5"/></svg>
+          <h3>Street Races</h3>
+          <p>Pull up next to rivals, flash the invite, hit <b>Accept</b>. Up to <b>8 racers</b> on the start grid, a countdown, then it's just you and the asphalt.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+          <h3>Race From the Map</h3>
+          <p>Every start point in the city is live. Roll up, press White, and the AI is already on the line. Bring your friends along.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"/><path d="M16.5 7.5C16 6 14.3 5 12 5c-2.8 0-4.5 1.3-4.5 3.2 0 4.3 9 2.6 9 7 0 2-1.8 3.3-4.5 3.3-2.4 0-4.2-1-4.7-2.7"/></svg>
+          <h3>Everything Unlocked</h3>
+          <p>Every city, every car, every part. <b>$2,000,000</b> in your pocket the moment you go online. Go spend it.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-6"/><path d="M7 13l1 .6M17 13l-1 .6M12 9v1"/></svg>
+          <h3>Drift for Cash</h3>
+          <p>Hang the tail out, chain the drifts, stack the multiplier. Online wins and drift points pay real prizes and unlock more.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V11a6 6 0 0 1 12 0v9l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5z"/><circle cx="10" cy="11" r="1"/><circle cx="14" cy="11" r="1"/></svg>
+          <h3>Ghost Rivals</h3>
+          <p>In AI and career races on a PC, the players nearby race on as ghost cars. Someone's always on your bumper.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="14" height="10" rx="1"/><path d="M6 18h6M9 14v4"/><rect x="17" y="8" width="5" height="11" rx="1"/></svg>
+          <h3>Play Anywhere</h3>
+          <p>PC, phone with touch controls, or the TV. Keyboard or controller. Up to <b>144 fps</b> if your screen keeps up.</p>
+        </li>
+      </ul>
+    </section>
+
     <section class="panel" aria-label="Options">
       <div class="tabs" role="tablist" aria-label="Options">
         <button type="button" class="tab" role="tab" data-tab="settings">Settings</button>
@@ -1052,6 +1125,7 @@
     for (const c of FLAG_CODES.map(c => [c, name(c)]).sort((a, b) => a[1].localeCompare(b[1], 'en'))) $('flag').add(new Option(c[1], c[0]));
     $('flag').value = flagCode();
     $('flag').onchange = () => { store.set('flag', $('flag').value); youShow(); };   // the game reads it at its next start
+    $('you-flag').onclick = () => { const s = $('flag'); s.focus(); try { s.showPicker(); } catch {} };   // the card's flag opens the list (no showPicker: focused)
     $('you-edit').onclick = () => askNick('', true);
   }
 
@@ -1772,7 +1846,7 @@
     [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory on this device', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
   ];
   // Loading overlay (#boot-load) from Play to the first drawn frame: module download progress, then the disc.
-  let bootOn = false;
+  let bootOn = false, bootSlow = false, discAt = performance.now();   // discAt: last '[WEB] disc wait|read' line (the 90 s watchdog)
   function bootWhat(s, pct) {
     if (!bootOn) return;
     $('boot-what').textContent = s;
@@ -1791,7 +1865,8 @@
     // Loading overlay, disc part: a game read that waited (wasmfs_fetch.js, a line a second at most) names the file.
     // Page-only: the worker's own counters are not read, so no wasm rebuild.
     const dw = bootOn && /^\[WEB\] disc wait: (\S+) @(\d+) /.exec(text);
-    if (dw) bootWhat(`Reading game files: ${dw[1].split('/').pop()} (${(dw[2] / 1048576).toFixed(0)} MB in)`);
+    if (/^\[WEB\] disc (wait|read)/.test(text)) discAt = performance.now();
+    if (dw) bootWhat(`${bootSlow ? 'Slow connection. ' : ''}Reading game files:${dw[1].split('/').pop()} (${(dw[2] / 1048576).toFixed(0)} MB in)`);
     // Skip intro hides the legal screen (recomp_manual.c legal_hidden): a Loading box instead of a black picture
     if (/^\s*\[LS\] legal screen hidden/.test(text)) $('boot-load').hidden = /: boot load running/.test(text) ? false : true;
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
@@ -2121,7 +2196,18 @@
         runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.${gpuNote}`);
         // No picture 90 s after the runtime is up (not after Play: a slow link's module and disc download is not a hang);
         // the log's last lines say why (a TV has no console to look at)
-        setTimeout(() => { if (!(window.Module?.mc3Frames?.() > 0)) failShow('No picture after 90 s', `the game has not drawn a frame yet (${since(tPlay)} since Play, ${since(tRuntime)} since the runtime started)`); }, 90000);
+        // Progress-aware (issue #4, Galaxy S23 Ultra, cold cache on a slow link: disc reads of 1-8 s each were still
+        // advancing at 90 s): from 90 s, keep waiting while a disc line came in the last 60 s (overlay says slow
+        // connection); fail with no disc line for 60 s, or at the 10 min cap. The game runs on behind the box.
+        const pw = setInterval(() => {
+          if (window.Module?.mc3Frames?.() > 0 || failBox) { clearInterval(pw); bootSlow = false; return; }
+          const el = performance.now() - tRuntime;
+          if (el < 90000) return;
+          const idle = performance.now() - discAt;
+          if (el < 600000 && idle < 60000) { bootSlow = true; return; }
+          clearInterval(pw); bootSlow = false;
+          failShow('No picture after ' + Math.round(el / 1000) + ' s', `the game has not drawn a frame yet (${since(tPlay)} since Play, ${since(tRuntime)} since the runtime started; ${idle < 60000 ? 'disc reads still coming, but past the 10 min cap' : 'no disc read for ' + Math.round(idle / 1000) + ' s'}). The game may still be running behind this box: close it and wait a little.`);
+        }, 5000);
         watchFrames();
         resumeKeep();
       },
@@ -2479,14 +2565,27 @@
   $('changelog-btn').onclick = () => {
     const body = $('changelog-body');
     $('changelog-dlg').showModal();
-    loadChangelog().then(rel => body.replaceChildren(...rel.flatMap(r => {
-      const h = Object.assign(document.createElement('h3'), { textContent: dayText(r.date) }), ul = document.createElement('ul');
-      for (const [area, text] of r.changes) {
+    // newest first; a day's fixes ("Fixed ...", "... no longer ...") folded under "N fixes" after its new things
+    const isFix = ([, t]) => /^fix(ed|es)?\b|\bno longer\b|\bfixed\b/i.test(t);
+    const list = changes => {
+      const ul = document.createElement('ul');
+      for (const [area, text] of changes) {
         const li = ul.appendChild(document.createElement('li'));
         if (area) li.append(Object.assign(document.createElement('strong'), { textContent: area + ':' }), ' ');
         li.append(text);
       }
-      return [h, ul];
+      return ul;
+    };
+    loadChangelog().then(rel => body.replaceChildren(...rel.slice().reverse().flatMap(r => {
+      const fixes = r.changes.filter(isFix), news = r.changes.filter(c => !isFix(c));
+      const out = [Object.assign(document.createElement('h3'), { textContent: dayText(r.date) })];
+      if (news.length) out.push(list(news));
+      if (fixes.length) {
+        const d = document.createElement('details');
+        d.append(Object.assign(document.createElement('summary'), { textContent: `${fixes.length} fix${fixes.length > 1 ? 'es' : ''}` }), list(fixes));
+        out.push(d);
+      }
+      return out;
     }))).catch(() => {
       changelogP = null;
       body.replaceChildren(Object.assign(document.createElement('p'), { className: 'hint', textContent: "Couldn't load the changelog." }));
