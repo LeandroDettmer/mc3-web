@@ -423,7 +423,8 @@ generated files when the lift inputs did not change.
   MC3_ROAM_K). It is a mesh shaped by the hub: snapshots go player to
   player through the switch; the hub only picks the links. Hybrid P2P
   (2026-11-10, untested in a browser; web/rtc.js free roam, docs/races-protocol.md
-  step 2): the page opens WebRTC channels to the up to 12 (low-memory 6) busiest
+  step 2): the page opens WebRTC channels to the up to roamMax (index.html: the game's
+  cars, 32 at 128 MB, 12 at 64, 7 low-memory) busiest
   roam destinations (= nearest), signals "roam":1 relayed by the Worker switch
   within a city; frames to a peer with an open channel go over it, the hub's and
   the rest via the switch; ICE from the switch's /lan/ice (TURN), page setting
@@ -452,7 +453,18 @@ generated files when the lift inputs did not change.
   lived 30 s -> 1-5 s at random, else the 5 s.. 60 s backoff x 0.5-1.5
   (was 1 s for all: a whole city came back in one second). Old pages keep
   sending frames one by one; a new page on an old Worker sees no hello and
-  does the same. Open: the object's sends out (one per relayed frame).
+  does the same. Bundles out (2026-11-13, untested live, not deployed): a
+  page's sockets ask with bundle=1 in the URL (old Workers and web/server
+  ignore it; attachment `bundle`); the city object and the Switch then hold
+  free roam's frames to it (relays, hub lists; never System Link's) up to
+  OUT_MS 25 ms and send one bundle (switch.js Outbox, OUT_MAX 16 KB; a lone
+  frame as itself); lan.js unbundles both sockets (frames()). Old pages get
+  single frames at once. Signalling (rtc.js, same date): free-roam
+  offers/answers wait for ICE gathering (ROAM.gatherMs 1.5 s at most) and
+  carry the candidates in the SDP (one signal a side instead of ~6-11; later
+  ones still trickle; old peers fine both ways), and a page's first offers
+  wait 0-10 s at random after its link comes up (ROAM.holdMs): a reload or
+  Worker deploy of a whole city no longer opens every pair at once.
   Over 10 players (2026-11-11, untested in a browser): the core's group cap
   stays the hub era's (RC_LIST_MAX + 1) while a configured hub is silent
   (was max_players 8: peers refused 'full'; LAN discovery alone keeps 8);

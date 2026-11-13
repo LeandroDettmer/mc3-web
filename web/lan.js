@@ -69,8 +69,8 @@ window.mc3Lan = function (name, lanUrl) {
   // web/net.js's mailboxes and web/rtc.js stay on it.
   function connect() {
     retry = 0;
-    var u = url;
-    if (link.vip) u += (u.indexOf('?') < 0 ? '?' : '&') + 'vip=' + link.vip;
+    var u = url + (url.indexOf('?') < 0 ? '?' : '&') + 'bundle=1';   // we take bundles (web/lan-worker/src/switch.js Outbox)
+    if (link.vip) u += '&vip=' + link.vip;
     try { ws = new WebSocket(u); } catch (e) { ws = null; link.state = 'offline'; want = false; changed(); return; }   // a bad URL: no retry
     var me = ws;
     ws.binaryType = 'arraybuffer';
@@ -92,11 +92,13 @@ window.mc3Lan = function (name, lanUrl) {
     ws.onmessage = function (e) {
       heard = Date.now();
       if (typeof e.data != 'string') {
-        var f = new Uint8Array(e.data);
-        // the switch's own hub keeps listing us ~10 s after the city socket opens (its gone_ms): two hubs, two lists
-        // (other players, stale FAR) into one core; with the city socket open only the city's hub counts
-        if (f.length >= 8 && f[4] == 10 && f[5] == 77 && f[6] == 0 && f[7] == 253 && cityUp()) return;
-        link.recv++; if (link.onframe) link.onframe(f); return;
+        frames(e.data, function (f) {
+          // the switch's own hub keeps listing us ~10 s after the city socket opens (its gone_ms): two hubs, two lists
+          // (other players, stale FAR) into one core; with the city socket open only the city's hub counts
+          if (f.length >= 8 && f[4] == 10 && f[5] == 77 && f[6] == 0 && f[7] == 253 && cityUp()) return;
+          link.recv++; if (link.onframe) link.onframe(f);
+        });
+        return;
       }
       if (e.data === BEAT) { beats = true; return; }
       var m;
@@ -176,14 +178,14 @@ window.mc3Lan = function (name, lanUrl) {
     try {
       var u = new URL(url, location.href);
       u.pathname = u.pathname.replace(/\/$/, '') + '/roam';
-      u.search = '?city=' + c.n + '&vip=' + (t.vip >>> 0) + '&exp=' + Number(t.exp) + '&sig=' + encodeURIComponent(t.sig);
+      u.search = '?city=' + c.n + '&vip=' + (t.vip >>> 0) + '&exp=' + Number(t.exp) + '&sig=' + encodeURIComponent(t.sig) + '&bundle=1';
       c.ws = new WebSocket(u.href);
     } catch (e) { cityFail(c, false); return; }
     var s = c.ws;
     s.binaryType = 'arraybuffer';
     s.onopen = function () { if (city !== c) return; c.open = true; c.openAt = Date.now(); link.city = c.n; changed(); };
     s.onmessage = function (e) {
-      if (typeof e.data != 'string') { link.recv++; if (link.onframe) link.onframe(new Uint8Array(e.data)); return; }
+      if (typeof e.data != 'string') { frames(e.data, function (f) { link.recv++; if (link.onframe) link.onframe(f); }); return; }
       var m;
       try { m = JSON.parse(e.data); } catch (_) { return; }
       if (m.t == 'city') { c.bundle = m.bundle == 1; return; }   // the object takes bundles (roamOut)
@@ -239,6 +241,18 @@ window.mc3Lan = function (name, lanUrl) {
       for (var i = 0, o = 1; i < q.length; i++) { var f = q[i]; b[o] = f.length >> 8; b[o + 1] = f.length & 255; b.set(f, o + 2); o += 2 + f.length; }
     }
     s.send(b); link.sent += q.length;
+  }
+  // A binary message in: one frame, or a bundle of them (byte 0 BUNDLE; both sockets, the URL's bundle=1 asked for them).
+  // Every frame starts with kind 3, so an old server's frames never read as a bundle.
+  function frames(d, fn) {
+    var b = new Uint8Array(d);
+    if (b[0] != BUNDLE) { fn(b); return; }
+    for (var o = 1; o + 2 <= b.length;) {
+      var n = b[o] << 8 | b[o + 1];
+      if (o + 2 + n > b.length) return;   // cut short: the rest dropped
+      fn(b.subarray(o + 2, o + 2 + n));
+      o += 2 + n;
+    }
   }
   link.roamMsg = function (m) {
     if (cityUp()) { city.ws.send(JSON.stringify(m)); return true; }

@@ -25,7 +25,9 @@
 // Free-roam routing: a frame to the hub (10.77.0.253) or a broadcast always goes to the switch; a unicast to a peer
 // with an open free-roam channel that carried a frame from it lately (liveP) goes over it, anything else to the switch. Once a second (tick) the page closes
 // channels idle for ROAM.idleMs and offers up to ROAM.perTick new ones to the busiest destinations of the last second
-// (at least ROAM.minFrames: a peer that gets only HELLOs stays on the switch) while it holds fewer than roamMax.
+// (at least ROAM.minFrames: a peer that gets only HELLOs stays on the switch) while it holds fewer than roamMax (the
+// page: the game's cars, 32 at 128 MB, 12 at 64, 7 low-memory); the first offers wait 0..ROAM.holdMs at random after
+// the link comes up, and each offer/answer carries its gathered candidates (ROAM.gatherMs at most; local()).
 // Signals carry "roam":1 (the switch relays them between two players of the same free-roam city; with a city socket
 // open, web/lan.js roamMsg, the city's own object does). Relayed frames take link.roamSend (the city socket or the switch). A pair that does
 // not open in ROAM.openMs (ICE failed even through TURN, or no TURN) stays on the switch; the offerer tries again after 30, 60, 120 ... s (at most 5 min).
@@ -40,7 +42,7 @@
 (function (root) {
   var BCAST = 0xFFFFFFFF, KIND = 3, HDR = 16, MAX = 1472, ROAM_PORT = 47210, RETRIES = 3, HUB = 0x0A4D00FD;
   var ROAM = { max: 12, idleMs: 10000, openMs: 15000, perTick: 2, tickMs: 1000, minFrames: 2, backoffMs: 30000, backoffMaxMs: 300000, statsMs: 60000, queue: 65536,
-    relayMax: 8, near: 8, thin: 4, deadMs: 5000 };
+    relayMax: 8, near: 8, thin: 4, deadMs: 5000, gatherMs: 1500, holdMs: 10000 };
   var PROBE = new Uint8Array([0x50]);   // free roam: 1 byte over a new channel until the other side's first frame comes
   var STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun.cloudflare.com:3478' }];
   function vs(v) { return [v >>> 24, v >>> 16 & 255, v >>> 8 & 255, v & 255].join('.'); }
@@ -184,7 +186,7 @@
       var pc = new RTCPeerConnection(cfg);
       // negotiated: both ends make the same channel, no ondatachannel round
       var dc = pc.createDataChannel('mc3', { ordered: false, maxRetransmits: 0, negotiated: true, id: 0 });
-      var p = T.peers[v] = { pc: pc, dc: dc, ice: [], remote: false, offerer: false, deadline: 0, rxAt: 0, openAt: 0, saidDead: false };
+      var p = T.peers[v] = { pc: pc, dc: dc, ice: [], remote: false, offerer: false, deadline: 0, rxAt: 0, openAt: 0, saidDead: false, held: !!T.roam };
       dc.binaryType = 'arraybuffer';
       dc.onopen = function () {
         clearTimeout(p.deadline);
@@ -198,7 +200,8 @@
         else lost(v, T, 'closed');
       };
       dc.onmessage = function (e) { if (T.roam) { p.rxAt = Date.now(); rxRoam(v, e.data); } else rx(v, e.data); };
-      pc.onicecandidate = function (e) { signal(v, 'ice', e.candidate ? e.candidate.toJSON() : null, T.roam); };
+      // free roam: candidates gathered before our offer/answer goes ride in its SDP (local()); only later ones trickle
+      pc.onicecandidate = function (e) { if (!p.held) signal(v, 'ice', e.candidate ? e.candidate.toJSON() : null, T.roam); };
       pc.onconnectionstatechange = function () {
         if (T.peers[v] !== p) return;
         if (pc.connectionState == 'failed') lost(v, T, 'ICE failed');
@@ -214,11 +217,25 @@
       });
     }
     function fail(v, T) { return function (e) { console.warn('[rtc] ' + vs(v) + ': ' + e); if (T.peers[v]) lost(v, T, String(e && e.name || e)); }; }
+    // Our offer/answer out. Free roam waits for ICE gathering (at most ROAM.gatherMs) and sends the description with its
+    // candidates: one signal per side instead of ~6-11 (a 60-player city opening its channels after a reload went
+    // through the city object as thousands of ice messages a second); a peer that trickles still works both ways.
+    function local(v, p, kind, T) {
+      var sent = false;
+      function go() {
+        if (sent || T.peers[v] !== p) return;   // dropped meanwhile
+        sent = true; p.held = false;
+        signal(v, kind, { sdp: p.pc.localDescription.sdp }, T.roam);
+      }
+      if (!T.roam || p.pc.iceGatheringState == 'complete') return go();
+      var t = setTimeout(go, ROAM.gatherMs);
+      p.pc.onicegatheringstatechange = function () { if (p.pc.iceGatheringState == 'complete') { clearTimeout(t); go(); } };
+    }
     function offer(v, T) {
       var p = make(v, T);
       p.offerer = true;
       p.pc.createOffer().then(function (o) { return p.pc.setLocalDescription(o); })
-        .then(function () { signal(v, 'offer', { sdp: p.pc.localDescription.sdp }, T.roam); }).catch(fail(v, T));
+        .then(function () { local(v, p, 'offer', T); }).catch(fail(v, T));
     }
     function onSignal(m) {
       var v = m.from >>> 0, d = m.data, T = m.roam ? fr : room, p = T.peers[v];
@@ -230,7 +247,7 @@
         if (T.roam) touch(v);
         remote(p, 'offer', d.sdp).then(function () { return p.pc.createAnswer(); })
           .then(function (a) { return p.pc.setLocalDescription(a); })
-          .then(function () { signal(v, 'answer', { sdp: p.pc.localDescription.sdp }, T.roam); }).catch(fail(v, T));
+          .then(function () { local(v, p, 'answer', T); }).catch(fail(v, T));
       } else if (m.kind == 'answer' && p && p.pc.signalingState == 'have-local-offer' && d && typeof d.sdp == 'string') {
         remote(p, 'answer', d.sdp).catch(fail(v, T));
       } else if (m.kind == 'ice' && p && d) {
@@ -325,7 +342,7 @@
       });
       Object.keys(act).forEach(function (k) { if (now - act[k].at > 3 * ROAM.idleMs && !fr.peers[k]) delete act[k]; });
       Object.keys(bad).forEach(function (k) { if (now - bad[k].until > ROAM.backoffMaxMs) delete bad[k]; });
-      if (on) {
+      if (on && now >= holdUntil) {
         var seen = {};
         Object.keys(act).forEach(function (k) { seen[k] = act[k].tx; });
         pick(seen, Object.keys(fr.peers).map(Number), rtc.roamMax, ROAM.perTick, function (v) {
@@ -378,7 +395,13 @@
         Object.keys(fr.peers).forEach(function (k) { drop(+k, fr); });
       }
     });
+    // Free roam offers start 0..ROAM.holdMs after the link comes up, at random: after a Worker deploy or a forced reload a
+    // whole city's pages reconnect within a second or two and would otherwise all open their channels at once.
+    var holdUntil = 0, wasOn = false;
     link.on(function (l) {
+      var up = l.state == 'online';
+      if (up && !wasOn) holdUntil = Date.now() + Math.random() * ROAM.holdMs;
+      wasOn = up;
       if (l.state != 'offline') return;
       if (rtc.members.length) setMembers([]);
       Object.keys(fr.peers).forEach(function (k) { drop(+k, fr); });

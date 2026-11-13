@@ -47,7 +47,7 @@ link.onframe = f => frames.push(f);   // web/net.js sets this once, at attach
 
 // first connection: hello, rooms, a race room joined by hand (as a member, with a password)
 let ws = socks[0];
-assert.strictEqual(ws.url, 'wss://mc3.example/lan');
+assert.strictEqual(ws.url, 'wss://mc3.example/lan?bundle=1');
 ws.open();
 ws.msg({ t: 'welcome', vip: A, vipStr: '10.77.1.2', mac: 'x' });
 assert.strictEqual(link.state, 'online');
@@ -72,7 +72,7 @@ assert.strictEqual(socks.length, 1, 'no retry before 750 ms (1 s - 25%)');
 run(600);
 assert.strictEqual(socks.length, 2, 'retry within 1.25 s');
 ws = socks[1];
-assert.strictEqual(ws.url, 'wss://mc3.example/lan?vip=' + A, 'asks for its address back');
+assert.strictEqual(ws.url, 'wss://mc3.example/lan?bundle=1&vip=' + A, 'asks for its address back');
 
 // the server is still down: backoff grows 2, 4, 8, 15, 15 s (+-25%)
 const gaps = [];

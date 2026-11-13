@@ -25,9 +25,10 @@
 // says {"t":"city","bundle":1} on accept, and a page that knows it (web/lan.js) sends what one drain of the game's
 // mailbox gives as one message (src/switch.js BUNDLE, unbundle; the Switch takes them too, for the fallback), each frame
 // taken as if sent alone (rate limit per frame). Older pages ignore the hello and send frames one by one, as before.
+// The other way too: a page whose URL says bundle=1 gets its frames bundled every OUT_MS (src/switch.js Outbox).
 import { Hub, HUB, ROAM_PORT } from './roam.js';
 import { LIMITS } from '../../races-worker/src/net.js';
-import { RATE, CTL, FLOOD_MS, HDR, MAX_FRAME, BROADCAST, CITY, SWITCH_NAME, isVip, cityOk, unbundle } from './switch.js';
+import { RATE, CTL, FLOOD_MS, HDR, MAX_FRAME, BROADCAST, CITY, SWITCH_NAME, isVip, cityOk, unbundle, Outbox } from './switch.js';
 
 export const CITY_IDLE_MS = 30e3, CITY_ALARM_MS = 15e3;
 const SAVE_MS = 10e3;   // `last` reaches the attachment this often (the idle sweep after an eviction)
@@ -49,6 +50,7 @@ export class RoamCity {
     this.ticked = 0;
     this.sent = { at: -Infinity, body: '' };
     this.armed = false;
+    this.out = new Outbox();
   }
 
   add(ws, a) { const c = { ws, a }; this.socks.set(a.vip, c); this.wsc.set(ws, c); return c; }
@@ -58,17 +60,17 @@ export class RoamCity {
     const q = new URL(req.url).searchParams, vip = Number(q.get('vip')) >>> 0, city = Number(q.get('city'));
     if (!isVip(vip) || !cityOk(city)) return new Response('bad request', { status: 400 });   // the Worker checked the ticket
     const [client, server] = Object.values(new WebSocketPair());
-    this.accept(server, vip, city, now);
+    this.accept(server, vip, city, now, q.get('bundle') === '1');
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  /** A page's socket (its ticket checked by the Worker); an older one of the same vip goes. */
-  accept(ws, vip, city, now = Date.now()) {
+  /** A page's socket (its ticket checked by the Worker); an older one of the same vip goes. bundle: it takes bundles. */
+  accept(ws, vip, city, now = Date.now(), bundle = false) {
     this.city = city;
     const old = this.socks.get(vip);
     if (old) this.kick(old, 4001, 'replaced');
     this.ctx.acceptWebSocket(ws);
-    const a = { vip, city, last: now };
+    const a = { vip, city, last: now, ...(bundle ? { bundle: 1 } : {}) };
     ws.serializeAttachment(a);
     this.add(ws, a);
     this.raw({ ws }, '{"t":"city","bundle":1}');
@@ -108,7 +110,7 @@ export class RoamCity {
   }
 
   save(c) { try { c.ws.serializeAttachment(c.a); } catch {} }
-  bin(q, b) { try { q.ws.send(b); return true; } catch { return false; } }
+  bin(q, b) { if (q.a.bundle) return this.out.put(q.ws, b); try { q.ws.send(b); return true; } catch { return false; } }
   raw(q, s) { try { q.ws.send(s); } catch {} }
   err(c, op, code) { this.raw(c, JSON.stringify({ t: 'error', op, code })); }
   kick(c, code, why) { try { c.ws.close(code, why); } catch {} this.drop(c); }

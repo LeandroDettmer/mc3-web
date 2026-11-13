@@ -119,6 +119,62 @@ test('bundles: the city says so on accept; each frame of one message routed as i
   assert.deepEqual([...a.ws.bins().at(-1).subarray(16)], [9]);
 });
 
+test('bundles out: a socket that asked (bundle=1) gets its frames bundled at the flush, an old one each frame at once; races never held; the Switch too', async () => {
+  const { sw, city, page } = world();
+  const now = Date.now(), a = page('Ann'), b = page('Bob'), c = page('Cy');
+  // a and b asked through their URL's bundle=1 (fetch; node has no WebSocketPair, nor a 101 Response), c is an old page
+  const viaUrl = async (vip, q) => {
+    const pair = [new FakeWs(), new FakeWs()];
+    globalThis.WebSocketPair = function () { return { 0: pair[0], 1: pair[1] }; };
+    try { await city(0).fetch(new Request(`https://x/lan/roam?city=0&vip=${vip}${q}`, { headers: { Upgrade: 'websocket' } }), now); } catch {}
+    delete globalThis.WebSocketPair;
+    return pair[1];
+  };
+  const ws = { a: await viaUrl(a.vip, '&bundle=1'), b: await viaUrl(b.vip, '&bundle=1'), c: await viaUrl(c.vip, '') };
+  assert.equal(JSON.parse(ws.b.att).bundle, 1, 'kept through hibernation');
+  assert.equal(JSON.parse(ws.c.att).bundle, undefined);
+  for (const w of Object.values(ws)) w.take();
+  await city(0).webSocketMessage(ws.a, bundle(udp(0, b.vip, [1]), udp(0, c.vip, [2]), udp(0, 0xFFFFFFFF, [3]), udp(0, b.vip, [4])).buffer, now);
+  assert.deepEqual(ws.c.bins().map(f => f[16]), [2, 3], 'old page: at once, one by one');
+  assert.equal(ws.b.out.length, 0, 'held until the flush');
+  city(0).out.flush();
+  const got = ws.b.bins();
+  assert.equal(got.length, 1, 'one message');
+  assert.deepEqual(unbundle(got[0]).map(f => f[16]), [1, 3, 4], 'in order');
+  // a lone frame goes as itself; the hub's lists go through the outbox too
+  await city(0).webSocketMessage(ws.a, Uint8Array.from(udp(0, b.vip, [5])).buffer, now);
+  city(0).out.flush();
+  assert.deepEqual([...ws.b.bins()[0]], [...udp(a.vip, b.vip, [5])]);
+  await city(0).webSocketMessage(ws.b, Uint8Array.from(udp(0, HUB, [...hello(2, 'Bob', 7, 0)])).buffer, now);
+  city(0).tick(now + 500);
+  assert.equal(ws.b.out.length, 0);
+  city(0).out.flush();
+  assert.ok(unbundle(ws.b.bins()[0]).every(f => new DataView(f.buffer, f.byteOffset).getUint32(4) === HUB), 'the hub lists, after the flush');
+  // over OUT_MAX: sent early, the rest wait
+  const big = udp(0, b.vip, Array(1400).fill(7));
+  await city(0).webSocketMessage(ws.a, bundle(...Array(12).fill(big)).buffer, now);
+  assert.equal(ws.b.out.length, 1, 'the first 11 (~15.5 KB) went');
+  city(0).out.flush();
+  assert.equal(unbundle(ws.b.bins()[1]).length, 1);
+  // a closed socket's flush throws nothing
+  await city(0).webSocketMessage(ws.a, Uint8Array.from(udp(0, b.vip, [6])).buffer, now);
+  ws.b.closed = [1006, ''];
+  city(0).out.flush();
+  // the Switch: free roam bundled to a page that asked, a race frame never held, an old page at once
+  const wa = new FakeWs(), wb = new FakeWs();
+  assert.ok(sw.connect(wa, '9.9.9.1', now, 0, true)); assert.ok(sw.connect(wb, '9.9.9.2', now));
+  const va = wa.take()[0].vip, vb = wb.take()[0].vip;
+  for (const [w, n] of [[wa, 'A'], [wb, 'B']]) await sw.webSocketMessage(w, JSON.stringify({ t: 'hello', name: n, lan: 1 }), now);
+  wa.take(); wb.take();
+  await sw.webSocketMessage(wb, bundle(udp(0, va, [1]), udp(0, va, [2]), udp(0, va, [3], 1000, 1000)).buffer, now);
+  assert.deepEqual(wa.bins().map(f => f[16]), [3], 'System Link at once');
+  sw.out.flush();
+  assert.deepEqual(unbundle(wa.bins()[0]).map(f => f[16]), [1, 2]);
+  await sw.webSocketMessage(wa, Uint8Array.from(udp(0, vb, [8])).buffer, now);
+  assert.deepEqual(wb.bins().map(f => f[16]), [8], 'old page: at once');
+  sw.out.flush();
+});
+
 test('switch: welcome says roamCity only with ROAM + ROAM_SECRET; a ticket takes the vip out of its own hub; off without', async () => {
   const { sw, page } = world();
   const a = page('Ann');
@@ -299,7 +355,7 @@ test('web/lan.js: the HELLO picks the city socket, frames and signals go over it
   assert.equal(main.sent.filter(s => typeof s !== 'string').length, 1, 'until the city socket is open: the switch');
   main.msg({ t: 'ticket', vip, exp: 123, sig: 'ab' });
   const c2 = sockets[1];
-  assert.equal(c2.url, `wss://lan.example/lan/roam?city=2&vip=${vip}&exp=123&sig=ab`);
+  assert.equal(c2.url, `wss://lan.example/lan/roam?city=2&vip=${vip}&exp=123&sig=ab&bundle=1`);
   c2.open();
   assert.equal(link.city, 2);
   link.roamSend(hi(2));
@@ -431,6 +487,17 @@ test('web/lan.js: bundles to a city socket that says so (one message per drain, 
   assert.equal(bins(c).length, 2, 'one message for the three');
   const fs = unbundle(bins(c)[1]);
   assert.deepEqual(fs.map(f => f.at(-1) === 3 || f.at(-1) === 4 ? f.at(-1) : 'hello'), [3, 4, 'hello']);
+  // bundles in (the URLs said bundle=1): each frame to onframe; the switch's hub frames still dropped while the city socket is open
+  assert.match(main.url, /[?&]bundle=1/); assert.match(c.url, /&bundle=1$/);
+  const rx = [], r0 = link.recv;
+  link.onframe = f => rx.push([...f]);
+  const peer = udp(vipAt(1), vip, [7]), hubF = udp(HUB, vip, [8]);
+  c.onmessage({ data: bundle(peer, hubF).buffer });
+  c.onmessage({ data: Uint8Array.from(peer).buffer });   // a lone frame (an old Worker's, or one alone in its flush)
+  main.onmessage({ data: bundle(hubF, peer).buffer });
+  c.onmessage({ data: Uint8Array.from([4, 0, 17, ...peer, 0, 99, 1]).buffer });   // the last length runs past the end: dropped
+  assert.deepEqual(rx, [peer, hubF, peer, peer, peer]);
+  assert.equal(link.recv - r0, 5);
   // BYE: queued, flushed on the city socket before it closes
   uni(5);
   link.roamSend(Uint8Array.from(udp(vip, HUB, [...dgram(8, 9, 0, [2])])));
