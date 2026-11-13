@@ -701,8 +701,13 @@ generated files when the lift inputs did not change.
   Many cars (2026-11-09, untested in game; src/games/remix/roam_cars.c,
   docs/roam-many-cars.md): peers beyond the 7 slots get standalone cars
   (the player builder, no player; pose + inputs written after the physics
-  step, sub_002BDEC0 hook; in the physics level within 20 m only; parked
-  and hidden when unused). MC3_ROAM_CARS=N remote cars at most, slots
+  step, sub_002BDEC0 hook; in the physics level within 20 m only (out
+  at 30 m); parked and hidden when unused). Near jump (2026-11-13, fix
+  untested in game): out of the level the step does not move a car, so the
+  pose blend (tau 100 ms) trailed a moving peer by ~speed x 0.085 s (1.7 m
+  at 20 m/s) and the lag vanished in the level: the car leapt forward at
+  20 m and fell back at 30 m. roam_pool_frame now blends an unmoved car
+  from its position advanced by vel x dt (c->setp). MC3_ROAM_CARS=N remote cars at most, slots
   included (page 'Players shown'; auto 32 at RECOMP_RAM_MB=128, 12 at
   64 MB; 7 = slots only); also the K asked of the hub, 32 at least
   (roam_set_k; hub default_k 32 for a HELLO asking none, mc3-server

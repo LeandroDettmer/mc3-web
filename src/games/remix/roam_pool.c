@@ -84,6 +84,7 @@ typedef struct roam_rc {
     char     name[ROAM_NAME_MAX + 1];
     char     flag[ROAM_FLAG_MAX + 1];  /* its flag's code (name tags), "" none */
     float    m[12], vel[3];
+    float    setp[3];                   /* standalone: the drawn position our last pose left (roam_pool_frame) */
     uint8_t  ctl[ROAM_CTL], has_ctl;    /* has_ctl 0: the peer sends no inputs */
     uint8_t  here, away, live, want;    /* linked now; in its garage/loading/race; posed; rebuild with the peer's look */
     double   lost;                      /* when its peer dropped out */
@@ -1523,13 +1524,23 @@ static void roam_pool_frame(void)
         memcpy(vel, c->vel, sizeof vel);
         mtx = MEM32(veh + 0x1Cu);
         if (c->live && online_ram(mtx)) {       /* blend the position from where the step left it */
+            /* Out of the physics level (beyond ROAM_CAR_NEAR m) the step does not move the car, so the blend
+             * trailed a moving peer by speed x (1 - f) / f (~1.7 m at 20 m/s, 30 fps); in the level the step
+             * moves it by vel x dt and that lag went: the car leapt forward when it came within 20 m and fell
+             * back past 30 m (2026-11-13, owner: "a jump when I get close"). Unmoved = advanced as the step would. */
+            int still = 1;
             for (i = 0; i < 3; i++)
-                d[i] = m[9 + i] - MEMF(mtx + 0x34u + 4u * i);
+                still &= fabsf(MEMF(mtx + 0x34u + 4u * i) - c->setp[i]) < 1e-3f;
+            for (i = 0; i < 3; i++)
+                d[i] = m[9 + i] - MEMF(mtx + 0x34u + 4u * i) - (still ? vel[i] * s_roam_dt : 0.0f);
             if (d[0] * d[0] + d[2] * d[2] < ROAM_SNAP * ROAM_SNAP)
                 for (i = 0; i < 3; i++)
                     m[9 + i] -= d[i] * (1.0f - f);
         }
         roam_set_pose(veh, m, vel);
+        if (online_ram(mtx))
+            for (i = 0; i < 3; i++)
+                c->setp[i] = MEMF(mtx + 0x34u + 4u * i);
         if (!c->live) {
             roam_show(veh, 1);
             c->live = 1;
