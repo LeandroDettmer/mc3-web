@@ -873,16 +873,41 @@ def build(spec_path):
     wsrc, wpos = np.array(wsrc), np.array(wpos)
     lo, hi = np.percentile(Vp, 0.2, 0), np.percentile(Vp, 99.8, 0)   # robust box (an antenna is not the car)
     hi[0] = max(hi[0], -lo[0]); lo[0] = -hi[0]
+    # a collapse maps the moving vertex's wedge to one of the target's, so at a crease a face can end up
+    # with the normal of the other side (Sandero tailgate: bumper-lip normals on a 0.05 m2 panel triangle,
+    # drawn as a dark V-shaped dent by the game's env-map shader). Each corner takes, of the source wedges
+    # at its position with its material and uv, the normal closest to the face's; none within 60 degrees
+    # (the source has only the other side's there): the area-weighted normal of the faces of that
+    # material at that position within 60 degrees of it.
+    Vu = Vn / np.maximum(np.linalg.norm(Vn, axis=1, keepdims=True), 1e-12)
+    uvk = [tuple(r) for r in np.round(Vuv / 1e-4).astype(np.int64).tolist()]
+    cand = {}
+    for f in wfirst.tolist(): cand.setdefault((int(pid[f]), int(Vm[f])) + uvk[f], []).append(f)
+
+    def corner_normals(T):
+        f = wfirst[wsrc[T]]; p = P[wpos[T]]; NC = Vu[f].copy(); tm = Vm[f[:, 0]]
+        fn = np.cross(p[:, 1] - p[:, 0], p[:, 2] - p[:, 0]); ar = np.linalg.norm(fn, axis=1)
+        fn /= np.maximum(ar, 1e-12)[:, None]
+        at = {}
+        for t, row in enumerate(wpos[T].tolist()):
+            for v in row: at.setdefault(v, []).append(t)
+        for t, k in np.ndindex(*T.shape):
+            v = int(wpos[T[t, k]]); cs = cand.get((v, int(tm[t])) + uvk[f[t, k]], [f[t, k]])
+            d = Vu[cs] @ fn[t]
+            if d.max() >= 0.5: NC[t, k] = Vu[cs[int(d.argmax())]]; continue
+            nb = [u for u in at[v] if tm[u] == tm[t] and fn[u] @ fn[t] >= 0.5]
+            n = ar[nb] @ fn[nb]; NC[t, k] = n / max(np.linalg.norm(n), 1e-12)
+        return NC
     built, it = [], iter(res)
     for l in lods:
         byMat = {}
         if 'tris' in l:
-            T = next(it); tm = Vm[wfirst[wsrc[T[:, 0]]]]
+            T = next(it); tm = Vm[wfirst[wsrc[T[:, 0]]]]; NC = corner_normals(T)
             for mi in np.unique(tm):
-                used, loc = np.unique(T[tm == mi], return_inverse=True); s = wfirst[wsrc[used]]
-                a = np.concatenate([P[wpos[used]], Vn[s], Vuv[s]], 1)   # collapses leave equal copies: one each
+                c = T[tm == mi].ravel()
+                a = np.concatenate([P[wpos[c]], NC[tm == mi].reshape(-1, 3), Vuv[wfirst[wsrc[c]]]], 1)   # collapses leave equal copies: one each
                 _, one, back = np.unique(np.round(a / 1e-5).astype(np.int64), axis=0, return_index=True, return_inverse=True)
-                byMat[int(mi)] = (a[one, :3], a[one, 3:6], a[one, 6:], back.ravel()[loc].reshape(-1, 3))
+                byMat[int(mi)] = (a[one, :3], a[one, 3:6], a[one, 6:], back.ravel().reshape(-1, 3))
         else:   # 'hull': [paint, glass] materials of a box loft of the whole source
             V, F = hull(Vp, l['hull'][0], l['hull'][1])
             nr = np.zeros((len(V), 3))
