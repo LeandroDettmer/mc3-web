@@ -87,12 +87,13 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Phones:** Fewer crashes on iPhones (less memory used), and Android phones that lose the graphics context show a clear message instead of a crash; browsers too old to run the game say so.
 - **Game:** A minimised or hidden game tab now uses almost no CPU or graphics (the game slows down and goes quiet until you come back), so the PC stays fast and phones stay cool; Free Roam stays connected meanwhile.
 
-## 2026-11-13 (b5ec850)
+## 2026-11-13 (bbe0af8)
 
 - **Free Roam:** A street racer who drives away from the course or stops racing now leaves the race by itself, so the race flag over their car goes away and the others no longer wait for them.
 - **Saves:** Every 2 days the game also keeps a dated snapshot of all your saves (kept a week, the newest always); the Saves tab lists them, downloads one or puts one back.
 - **Game:** A "Loading game..." screen now covers the grey picture on the first Play, with the download progress and the game files being read, until the game draws its first picture.
 - **Graphics:** New Frame rate setting: 30, 60, and 90, 120 or 144 fps on screens that refresh that fast.
-- **Free Roam:** While you race, the full map's "Racing now" panel lists you first, and the players list marks everyone racing (a flag and "racing") that the game can see near you.
+- **Free Roam:** The full map's players list marks everyone racing near you, you included (a flag and "racing", listed first), and scrolls when the city is full; the "Racing now" box over the minimap is gone.
 - **Game:** When the graphics are lost on a phone, the "Graphics context lost" message now shows instead of a page error.
 - **Phones:** New touch layout: a big Handbrake button above Brake, beside Gas, with Nitro, Two wheels and Look back over them; Flash, Back, Start and Black sit together top left, away from the Settings, Drift and Map buttons, which are bigger.
+- **Free Roam:** A race invite now has an Accept button beside Decline, and shows how many players already joined.
