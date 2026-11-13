@@ -90,12 +90,22 @@ typedef struct roam_rc {
     double   lost;                      /* when its peer dropped out */
     double   wait;                      /* no rebuild before (one refused for heap room) */
     double   out;                       /* its peer beyond the car radius since (0: within) */
+    double   built;                     /* when its car was built (no rebuild within ROAM_BUILT_MIN) */
     uint32_t said;                      /* RC_SAY_* logged */
     roam_tyre tyre;
 } roam_rc;
 
 enum { RC_SAY_BADREC = 1, RC_SAY_LOOK = 2, RC_SAY_READ = 4, RC_SAY_OFF = 8, RC_SAY_ROOM = 16 };
 #define ROAM_ROOM_RETRY 10.0            /* s: a rebuild refused for heap room waits; new cars and the nearest rule go first */
+/* Churn (2026-11-13, untested in game): at a peak (~56 players in San Diego) newcomers and leavers made the queue
+ * delete and build a car every 0.25 s for minutes. A car is not rebuilt within ROAM_BUILT_MIN of its build, and
+ * after ROAM_CHURN_N mid-cruise builds within ROAM_CHURN_S the queue builds one per ROAM_CHURN_GAP. */
+#define ROAM_BUILT_MIN  2.0
+#define ROAM_CHURN_N    8
+#define ROAM_CHURN_S    10.0
+#define ROAM_CHURN_GAP  1.0
+static double s_churn_t[ROAM_CHURN_N];   /* the last mid-cruise builds' times (ring) */
+static unsigned s_churn_n;
 
 static roam_rc s_rc[ROAM_RC_MAX];
 static uint32_t s_rc_cfg[ROAM_RC_MAX];  /* each standalone entry's CarCfg (contiguous window, made once) */
@@ -613,6 +623,20 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
     }
     if (after < before)
         roam_pool_cost_note(car, before - after);
+    c->built = roam_now();
+    if (mid) {                                  /* churn: the 8th build back within 10 s -> one a second */
+        double oldest = s_churn_t[s_churn_n % ROAM_CHURN_N];
+        s_churn_t[s_churn_n++ % ROAM_CHURN_N] = c->built;
+        if (oldest > 0.0 && c->built - oldest < ROAM_CHURN_S && s_pool_next < c->built + ROAM_CHURN_GAP) {
+            static double said = -1e9;
+            s_pool_next = c->built + ROAM_CHURN_GAP;
+            if (c->built - said >= 60.0) {
+                said = c->built;
+                fprintf(stderr, "[ROAM] cars: churn: %d builds in %.1f s, one a second now (logged once a minute)\n",
+                        ROAM_CHURN_N, c->built - oldest);
+            }
+        }
+    }
     c->car = car;
     if (look != c->look) {
         memcpy(c->look, look, ROAM_CFG_SIZE);
@@ -837,17 +861,30 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
 
 /* ── The queue ── */
 
-static int roam_pool_pagein(double now)        /* another thread inside a page-in: wait (3 s at most) */
+/* Another thread inside a page-in: wait. Only the same context top 3 s on
+ * (left set) lets a build go on; a new top restarts the wait (2026-11-13:
+ * page-ins one after another used to pass after 3 s mid-way through one). */
+static int roam_pool_pagein(double now)
 {
-    static double since;
-    if (!MEM32(ROAM_PAGEIN_VA)) {
+    static double since, said = -1e9;
+    static uint32_t seen;
+    uint32_t top = MEM32(ROAM_PAGEIN_VA);
+    if (!top) {
         since = 0;
         return 0;
     }
-    if (!since)
+    if (!since || top != seen) {
         since = now;
-    if (now - since >= 3.0)
+        seen = top;
+    }
+    if (now - since >= 3.0) {
+        if (now - said >= 60.0) {
+            said = now;
+            fprintf(stderr, "[ROAM] cars: build goes on: page-in context top %08X set for %.0f s (left set?; logged "
+                            "once a minute)\n", (unsigned)top, now - since);
+        }
         return 0;
+    }
     if (roam_cars_say(CARS_SAY_PAGEIN))
         fprintf(stderr, "[ROAM] cars: build waits: a resource page-in is in flight ([0x500F10] %08X; logged once)\n",
                 (unsigned)MEM32(ROAM_PAGEIN_VA));
@@ -981,7 +1018,8 @@ static void roam_pool_job(double now)
     int k;
     if (s_pool_hold || s_roam_fake || now < s_pool_next || roam_pool_pagein(now))
         return;
-    for (k = 1; k < s_nrc && !(s_rc[k].want && now >= s_rc[k].wait && s_rc[k].id && s_rc[k].here && roam_rc_veh(k)); k++)
+    for (k = 1; k < s_nrc && !(s_rc[k].want && now >= s_rc[k].wait && now - s_rc[k].built >= ROAM_BUILT_MIN &&
+                               s_rc[k].id && s_rc[k].here && roam_rc_veh(k)); k++)
         ;
     if (k < s_nrc)
         roam_pool_rebuild(k, now);
@@ -1625,3 +1663,95 @@ static void roam_pool_pass(uint32_t obj, int after)
         s_pool_next = roam_now() + 1.0;         /* the cruise goes on: cars built again */
     }
 }
+
+/* ── Shader group check (2026-11-13, untested in game) ──
+ *
+ * A Free Roam freeze at a peak (owner's Mac, 35 linked peers, log 4EM9KY):
+ * the main thread looped through 'KeBugCheck code=0 from 0x002DB02B' (the
+ * assert sub_00019070: "Invalid shader index %d > group shader count %d",
+ * 0x4536A8, from sub_000DD380 @0x000DD3B1) and wild calls from 0x000DD3CB
+ * (0x00168000, 0xFF800000, 0xFF8B5974, ...: floats read as vtables): a
+ * model's parts (class vtable 0x454240, its +0x28 sub_000E9D00: for each
+ * entry at [+8] (12 B, count u16 +6) part [entry] +0x20, u16 shader indices
+ * [+0xC] (count u16 +8)) were checked against a shader group (arg: shader
+ * pointers [+4], count u16 +8) that does not hold them: a group freed and
+ * reused, or another model's. sub_000E9D00 is reached only through vtables,
+ * so this runs in its place on every indirect call to it (recomp_manual.c
+ * recomp_lookup_manual): the game's own when every index fits, else nothing
+ * is called (no wild vtable from a stale group), 0 back as the game's own
+ * failed check gives, and the first reports name the model, the group, the
+ * caller and our last car builds and deletes ('[ROAM] shader check: ...').
+ * Browser only. */
+#ifdef __EMSCRIPTEN__
+void sub_000E9D00(void);
+
+static int roam_shader_bad(uint32_t self, uint32_t grp, uint32_t *part, uint32_t *ix, uint32_t *at)
+{
+    uint32_t n, i, j, cnt, idx, gcnt, arr = MEM32(self + 8u);
+    if (!online_ram(grp) || !online_ram(arr))
+        return 0;                               /* the game's own: nothing to compare against */
+    gcnt = MEM16(grp + 8u);
+    n = MEM16(self + 6u);
+    for (i = 0; i < n; i++) {
+        uint32_t obj = MEM32(arr + 12u * i);
+        if (!obj)
+            continue;                           /* paged in by the game's own, then checked there */
+        if (!online_ram(obj) || (cnt = MEM16(obj + 0x28u)) == 0)
+            continue;
+        if (!online_ram(idx = MEM32(obj + 0x2Cu)))
+            continue;
+        for (j = 0; j < cnt; j++)
+            if (MEM16(idx + 2u * j) > gcnt) {   /* the game's own test (jbe at 0x000DD3A2) */
+                *part = obj;
+                *ix = MEM16(idx + 2u * j);
+                *at = i;
+                return 1;
+            }
+    }
+    return 0;
+}
+
+static void roam_shader_check(void)
+{
+    static uint32_t seen_self[8], seen_grp[8];
+    static unsigned reports;
+    static unsigned long long bad;
+    uint32_t self = g_ecx, grp = MEM32(g_esp + 4u), from = MEM32(g_esp), part = 0, ix = 0, at = 0, i, v, found;
+    if (!online_ram(self) || !roam_shader_bad(self, grp, &part, &ix, &at)) {
+        sub_000E9D00();
+        return;
+    }
+    bad++;
+    for (i = 0; i < reports && !(seen_self[i] == self && seen_grp[i] == grp); i++)
+        ;
+    if (i == reports && reports < 8u) {
+        double now = roam_now();
+        seen_self[reports] = self;
+        seen_grp[reports++] = grp;
+        fprintf(stderr, "[ROAM] shader check: model %08X (vt %08X, entry %u of %u, part %08X) uses shader %u of group "
+                        "%08X (%u shaders at %08X, vt %08X): skipped, check false; called from %08X, up the stack:",
+                (unsigned)self, (unsigned)MEM32(self), (unsigned)at, (unsigned)MEM16(self + 6u), (unsigned)part,
+                (unsigned)ix, (unsigned)grp, (unsigned)MEM16(grp + 8u), (unsigned)MEM32(grp + 4u), (unsigned)MEM32(grp),
+                (unsigned)from);
+        for (v = g_esp + 8u, found = 0; v < g_esp + 0x4000u && found < 12u; v += 4u) {
+            uint32_t a = MEM32(v);
+            if (a >= g_xbox_code_lo && a < g_xbox_code_hi) {
+                fprintf(stderr, " %08X", (unsigned)a);
+                found++;
+            }
+        }
+        fprintf(stderr, "\n[ROAM] shader check: free roam %s, %d remote cars; last car builds (B) and deletes (D), "
+                        "newest first:", s_roam_cruise ? "cruise" : "off", s_nrc - 1);
+        for (i = 0; i < 16u && i < s_ncev; i++) {
+            const roam_cev_t *e = &s_cev[(s_ncev - 1u - i) % 16u];
+            fprintf(stderr, " %c %.1fs veh %08X model %08X res %08X%s%s;", e->what, e->t - now, (unsigned)e->veh,
+                    (unsigned)e->model, (unsigned)e->res, e->name[0] ? " " : "", e->name);
+        }
+        fprintf(stderr, "\n");
+    } else if (!(bad & (bad - 1u)))
+        fprintf(stderr, "[ROAM] shader check: %llu bad checks so far (model %08X, group %08X, from %08X)\n", bad,
+                (unsigned)self, (unsigned)grp, (unsigned)from);
+    g_eax &= ~0xFFu;                            /* al 0: not ready */
+    g_esp += 8u;                                /* ret 4 */
+}
+#endif /* __EMSCRIPTEN__ */

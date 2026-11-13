@@ -1859,8 +1859,22 @@
       clearInterval(t); bootOn = false; $('boot-load').hidden = true;
     }, 250);
   }
-  function out(text) {
+  // Kept apart (2026-11-13): the log's first 80 lines (build, browser, memory) and 150 lines from each of the first
+  // 4 fatal-looking guest lines on, so Save log and sent logs still hold them once the ring dropped them (log 4EM9KY:
+  // 8800 KeBugCheck lines pushed its first ICALL out). A line equal to one of the 4 before it is counted, not kept.
+  const PIN_RE = /\[ICALL\]|\[GUEST\]|KeBugCheck|Heap overrun|\[ROAM\] shader check/;
+  let logPins = [], pinLeft = 0, pinFatal = 0, logRep = 0;
+  const logRepLine = () => `[WEB] log: ${logRep} repeated line(s) left out (each the same as one of the 4 above)`;
+  function logPush(text) {
     logN++; logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
+    if (logN <= 80) logPins.push([logN, text]);
+    else if (pinLeft > 0) { pinLeft--; logPins.push([logN, text]); }
+    else if (pinFatal < 4 && PIN_RE.test(text)) { pinFatal++; pinLeft = 149; logPins.push([logN, text]); }
+  }
+  function out(text) {
+    if (logText.length && logText.slice(-4).includes(text)) { logRep++; return; }
+    if (logRep) { logPush(logRepLine()); logRep = 0; }
+    logPush(text);
     if (/^\s*\[roam\] status /.test(text)) roamT = performance.now();
     // Loading overlay, disc part: a game read that waited (wasmfs_fetch.js, a line a second at most) names the file.
     // Page-only: the worker's own counters are not read, so no wasm rebuild.
@@ -1952,7 +1966,7 @@
   // the whole log (at most ~2 MB: the store's limit), headed; resolves to the log's code
   function logSend(tag, why) {
     if (!cfg?.logUrl) return Promise.reject('no log store on this server');
-    return logPost(tag, logHeader(tag, why) + logDump().slice(-1.9e6))
+    return logPost(tag, logHeader(tag, why) + logDump(logText, 1.8e6))
       .then(code => (out(`[WEB] log sent: ${tag}, code ${code}`), code));
   }
   // non-fatal ones: no box, at most 3 of each tag a session
@@ -2055,7 +2069,7 @@
         const ctx = TAIL_CTX.map(lastLine).filter(Boolean);
         localStorage.setItem('mc3.crashTail', logHeader('previous-crash', 'the tab ended without a clean exit (killed, crashed or out of memory)')
           + (ctx.length ? '--- last lines of note ---\n' + ctx.join('\n') + '\n--- log tail ---\n' : '')
-          + logDump(logText.slice(-4000)).slice(-TAIL_CHARS));
+          + logDump(logText.slice(-4000), TAIL_CHARS));
       } catch {}   // storage full or blocked: nothing kept
     };
     // a closing tab fires pagehide and then visibilitychange (hidden): that write came after the clear and every closed
@@ -2531,7 +2545,14 @@
   window.applyPad();
   setInterval(window.applyPad, 1000);
   // The log as Save log hands it out: a test deploy's password (the /k/<key>/ of its URLs) masked.
-  const logDump = (lines = logText) => (lines.join('\n') + '\n').replace(/\/k\/[^/\s"']+/g, '/k/***');
+  // lines: logText or a tail of it; the kept-apart lines it no longer holds go first; max: the tail's characters at most
+  const logDump = (lines = logText, max = Infinity) => {
+    const from = logN - lines.length + 1, pins = logPins.filter(p => p[0] < from);
+    const head = pins.length ? '--- kept from before this tail: the log\'s first lines and the first fatal ones ---\n'
+      + pins.map(p => p[1]).join('\n') + '\n--- log tail ---\n' : '';
+    return (head + (lines.join('\n') + '\n' + (logRep ? logRepLine() + ' so far\n' : '')).slice(-max))
+      .replace(/\/k\/[^/\s"']+/g, '/k/***');
+  };
   $('log-save').onclick = () => {
     saveFile(new Blob([logDump()], { type: 'text/plain' }), 'mcdub3-web-log.txt');
   };

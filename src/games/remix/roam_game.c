@@ -657,11 +657,31 @@ static int roam_build_ctx(int on)
     return 1;
 }
 
+/* The last remote car builds and deletes (vehicle, model instance, car cache
+ * reference), for a fault's report (roam_pool.c roam_shader_check): a game
+ * object left pointing into a deleted car shows one of these pointers. */
+typedef struct { double t; char what; uint32_t veh, model, res, slot; char name[20]; } roam_cev_t;
+static roam_cev_t s_cev[16];
+static unsigned s_ncev;
+
+static void roam_cev(char what, uint32_t veh, uint32_t res, uint32_t slot, const char *name)
+{
+    roam_cev_t *e = &s_cev[s_ncev++ % 16u];
+    e->t = roam_now();
+    e->what = what;
+    e->veh = veh;
+    e->model = online_ram(veh) ? MEM32(veh + 0x68u) : 0;
+    e->res = res;
+    e->slot = slot;
+    snprintf(e->name, sizeof e->name, "%.19s", name ? name : "");
+}
+
 /* A vehicle already out of the world deleted as the player dtor sub_002C8480
  * does: the vehicle, its car cache reference res, its model instance. */
 static void roam_car_delete(uint32_t veh, uint32_t res, uint32_t top)
 {
     uint32_t model = MEM32(veh + 0x68u), a[1] = { res };
+    roam_cev('D', veh, res, 0, NULL);
     roam_vdelete(veh, top);
     roam_call(sub_001057B0, MEM32(ROAM_CACHE_VA), top, 1, a);
     roam_vdelete(model, top);
@@ -704,6 +724,7 @@ static uint32_t roam_car_build(uint32_t cfg, uint32_t slot, uint32_t pad, uint32
     roam_call(sub_002CB2C0, top, top, 0, NULL);
     roam_cheap_off();
     s_roam_building = 0;
+    roam_cev('B', online_ram(veh) ? veh : 0, *res, slot, (const char *)XBOX_PTR(cfg + ROAM_CFG_NAME));
     for (i = 0; borrow && i < 3; i++)
         MEM32(e + 0x10u + 4u * i) = keep[i];
     return online_ram(veh) ? veh : 0;

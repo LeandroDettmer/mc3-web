@@ -752,7 +752,33 @@ generated files when the lift inputs did not change.
   cruise, with 0 remote slots too (s_roam_cruise; a low-heap phone used to
   send nothing, the others never saw it). '[ROAM] pool: N peers, C cars (S
   slots + T standalone), D dimmed, heap F KB' every 30 s at most, when it
-  changes. Car radius (2026-11-12, untested in game): a peer gets a car only
+  changes. Shader group freeze (2026-11-13, owner's Mac at the peak, 35
+  linked peers, log 4EM9KY; cause not proven, fixes untested in game): main
+  looped through the assert "Invalid shader index %d > group shader count
+  %d" (0x4536A8, sub_00019070 -> KeBugCheck from 0x002DB02B, ~8800 log
+  lines) in sub_000DD380 and wild calls from 0x000DD3CB (floats as
+  vtables: 0xFF800000, 0x00168000): a model (vtable 0x454240, made by the
+  page-in loaders sub_000E5DD0/E61E0/E65D0 via sub_000E99F0; +0x28
+  sub_000E9D00 checks each part's u16 shader indices, part+0x2C, count
+  +0x28, against a shader group: pointers +4, count u16 +8) checked
+  against a freed or foreign group; the last line before it, a standalone
+  car's rebuild. Now (browser) every indirect call to sub_000E9D00 goes
+  through roam_pool.c roam_shader_check (recomp_lookup_manual, no relift):
+  the game's own when the indices fit, else no call into the group, false
+  back, '[ROAM] shader check: model ... group ... called from ..., up the
+  stack ...' + our last 16 car builds/deletes (veh, model, res) to tell
+  whether the group was one of our deleted cars'. Under churn: a car is
+  not rebuilt within 2 s of its build, 8 mid-cruise builds within 10 s
+  slow the queue to one a second ('[ROAM] cars: churn: ...'), and the
+  page-in wait ([0x500F10]) restarts on a new context top (3 s of page-ins
+  one after another let a build through mid-way; '[ROAM] cars: build goes
+  on: ...'). KeBugCheck (web) logs a caller's first 3 in full with the
+  assert's text and args, then a count at powers of two; the page counts
+  a line equal to one of the 4 before it ('[WEB] log: N repeated
+  line(s) left out') and keeps the log's first 80 lines and 150 from each
+  of the first 4 ICALL/GUEST/KeBugCheck/Heap overrun lines apart, put first
+  in Save log, sent logs and the crash tail once the ring dropped them.
+  Car radius (2026-11-12, untested in game): a peer gets a car only
   within 250 m of ours (2026-11-12: was 300; the game fades its traffic at 250 m, 0x4AFD18) (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
   a group race) and gives it back (parked, reused) after 3 s beyond 350 m;
   beyond the radius a carless driving peer is a bright blip, not dimmed;

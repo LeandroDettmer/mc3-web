@@ -1923,6 +1923,9 @@ void sub_000EC910(void) { cam_call(53, 0x000EC910u, sub_000EC910_gen); }
  *       g_eax = result;
  *   }
  */
+#ifdef __EMSCRIPTEN__
+static void roam_shader_check(void);            /* roam_pool.c */
+#endif
 recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
 {
     /*
@@ -1933,6 +1936,10 @@ recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
      * if (xbox_va == 0x000ABCDE (PORT?)) return fixed_sub_000ABCDE;
      */
 
+#ifdef __EMSCRIPTEN__
+    if (xbox_va == 0x000E9D00u)                 /* a model's shader group check (roam_pool.c roam_shader_check) */
+        return roam_shader_check;
+#endif
     (void)xbox_va;
     return (recomp_func_t)0;
 }
