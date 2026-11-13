@@ -3240,6 +3240,15 @@ static long long vb_now_us(void)
 
 static long long     s_vb_next_us;                /* when the next vblank is due */
 static volatile LONG s_vb_count;                  /* vblanks delivered */
+static volatile LONG s_vb_period_us = VBLANK_PERIOD_US;
+
+/* A title running its logic above 60 fps (MC3's Frame rate setting, src/games/remix/recomp_manual.c
+ * fps_step) asks for the vblank at hz: D3D flips at interval 1, one frame a vblank. 0 = 59.94 Hz.
+ * The long-stall restart below keeps its 4 x 59.94 Hz threshold in time. */
+void xbox_vblank_set_hz(int hz)
+{
+    s_vb_period_us = hz > 0 ? (LONG)(1000000 / hz) : VBLANK_PERIOD_US;
+}
 
 #if defined(__EMSCRIPTEN__)
 /* A hidden tab (minimised, another tab, a locked phone): web/pre.js writes
@@ -3318,9 +3327,9 @@ static void kernel_vblank_tick(void)
      * in the browser (2026-11-08), so 16 fps at MC3's interval 2. Only a long
      * stall (a debugger, a suspended tab) restarts the schedule. */
     if (now - s_vb_next_us > 4 * VBLANK_PERIOD_US)
-        s_vb_next_us = now + VBLANK_PERIOD_US;    /* far behind: restart here */
+        s_vb_next_us = now + s_vb_period_us;      /* far behind: restart here */
     else
-        s_vb_next_us += VBLANK_PERIOD_US;         /* on time or catching up */
+        s_vb_next_us += s_vb_period_us;           /* on time or catching up */
 #if defined(__EMSCRIPTEN__)
 raise:
 #endif
