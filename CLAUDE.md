@@ -1151,7 +1151,15 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   per archive by sub_0026A720 after vehicle.lst; DLC car N (names
   [0x557EA8], count [0x557EAC]) shows as vp_dlslot_N (visible while N <
   count, sub_001459C0; mapped back by sub_0026A630), price ShowRoomPrice
-  from [0x557EC8] (2026-11-12, untested in game).
+  from [0x557EC8] (2026-11-12, untested in game). Showroom (2026-11-13,
+  untested in game): the brand logo of a vp_dlslot_N item is garage.xbck's
+  own "XBOX LIVE" texture (D3DTexture header at file offset 0x4D3D0, 128x64
+  DXT5, data at 316416; the 21 brand logos sit beside it, 128x32 DXT5);
+  mods/flash/garage.xbck is the disc's with that texture replaced by a gold
+  "MOD" badge (.scratch/modtest/badge.py), so every DLC car shows it. The
+  Flash fonts have capitals only: "!!VP_X!!" on screen is sub_000EA750's
+  "!!vp_x!!" for a key it did not find (it then adds that entry itself);
+  mods/strings.txt now gives such an entry our text too, checked each frame.
 - Saves (2026-10-22): a profile is UDATA/54540079/<12 hex>/<name>.mc3
   (99,162 bytes) + SaveMeta.xbx (UTF-16 "Name=<name>"). The .mc3 starts
   with a format stamp (Xbox 0x02F59447) and ends with HMAC-SHA1 of the

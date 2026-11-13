@@ -353,17 +353,22 @@ static recomp_func_t mods_lookup(uint32_t va)
  * 0x507E08, the table picked by its +0x28; the new entry's text is the key,
  * replaced by a buffer of the real text from the game's heap, the old one
  * left; existing keys are never touched). Every language whose table is
- * loaded; the pass waits for the current language's. */
+ * loaded; the pass waits for the current language's. Checked every pass,
+ * not once per table: a lookup of a key before it was added (or in a table
+ * reloaded at the same address) makes sub_000EA750 add it itself with the
+ * text "!!key!!" (or the bare key), and such an entry gets our text too
+ * (the showroom showed "!!vp_sandero_rs!!", 2026-11-13). */
 #define MODS_STR_MAX 128
 #define MODS_STR_LANGS 10
 static uint32_t mods_dlc_done_list, mods_dlc_done_n;
-static uint32_t mods_str_done[MODS_STR_LANGS];
+static uint32_t mods_str_buf[MODS_STR_LANGS][MODS_STR_MAX];   /* our text per language and key */
 static char *mods_str_key[MODS_STR_MAX], *mods_str_val[MODS_STR_MAX];
 static int mods_str_n, mods_str_loaded;
 extern void sub_000EA750(void), sub_001B3B90(void);
 static int online_ram(uint32_t va);
 static uint32_t str_table(uint32_t *n, uint32_t *buckets);
 static uint32_t str_text(uint32_t n, uint32_t buckets, const char *key);
+static uint32_t str_hash(const char *k);
 static uint32_t roam_call(recomp_func_t fn, uint32_t ecx, uint32_t top, int n, const uint32_t *args);
 
 static void mods_dlc_fix(void)
@@ -448,6 +453,32 @@ static uint32_t mods_utf16(uint32_t va, const char *s)
     return k;
 }
 
+/* The entry of key in a table (str_text's walk), 0 if none. */
+static uint32_t mods_str_entry(uint32_t n, uint32_t buckets, const char *key)
+{
+    uint32_t h = str_hash(key), node = MEM32(buckets + 4u * (h % n));
+    unsigned guard = 0;
+    for (; online_ram(node) && guard < 100000u; node = MEM32(node + 8u), guard++)
+        if (MEM32(node) == h)
+            return online_ram(MEM32(node + 4u)) ? MEM32(node + 4u) : 0;
+    return 0;
+}
+
+/* 1 if the UTF-16 text at t is sub_000EA750's own for a missing key: "!!key!!" or key. */
+static int mods_str_stub(uint32_t t, const char *key)
+{
+    size_t k = strlen(key), i, at = 0;
+    if (!online_ram(t))
+        return 1;
+    if (MEM16(t) == '!' && MEM16(t + 2u) == '!')
+        at = 2;
+    for (i = 0; i < k; i++)
+        if (MEM16(t + 2u * (at + i)) != (uint8_t)key[i])
+            return 0;
+    return at ? MEM16(t + 2u * (at + k)) == '!' && MEM16(t + 2u * (at + k + 1)) == '!'
+                && !MEM16(t + 2u * (at + k + 2)) : !MEM16(t + 2u * k);
+}
+
 static void mods_strings(void)
 {
     uint32_t n, buckets, lang, cur = MEM32(0x00507E08u + 0x28u), top, keybuf;
@@ -460,20 +491,26 @@ static void mods_strings(void)
     keybuf = (g_esp - 0x400u) & ~0xFu;
     top = keybuf - 0x40u;
     for (lang = 0; lang < MODS_STR_LANGS; lang++) {
-        uint32_t t = MEM32(0x00507E08u + 4u * lang), added = 0;
-        if (!online_ram(t) || t == mods_str_done[lang])
+        uint32_t t = MEM32(0x00507E08u + 4u * lang), added = 0, fixed = 0;
+        if (!online_ram(t))
             continue;
-        mods_str_done[lang] = t;
         MEM32(0x00507E08u + 0x28u) = lang;
         if (str_table(&n, &buckets) != t)
             continue;
         for (i = 0; i < mods_str_n; i++) {
             uint32_t entry, units, buf, a;
-            if (strlen(mods_str_key[i]) >= 0x100u || str_text(n, buckets, mods_str_key[i]))
+            if (strlen(mods_str_key[i]) >= 0x100u)
                 continue;
-            memcpy((char *)XBOX_PTR(keybuf), mods_str_key[i], strlen(mods_str_key[i]) + 1);
-            a = keybuf;
-            entry = roam_call(sub_000EA750, 0x00507E08u, top, 1, &a);
+            entry = mods_str_entry(n, buckets, mods_str_key[i]);
+            if (entry && (MEM32(entry + 8u) == mods_str_buf[lang][i]
+                          || !mods_str_stub(MEM32(entry + 8u), mods_str_key[i])))
+                continue;                       /* ours, or the game's own text */
+            if (!entry) {
+                memcpy((char *)XBOX_PTR(keybuf), mods_str_key[i], strlen(mods_str_key[i]) + 1);
+                a = keybuf;
+                entry = roam_call(sub_000EA750, 0x00507E08u, top, 1, &a);
+            } else
+                fixed++;
             units = mods_utf16(0, mods_str_val[i]);
             a = 2 * (units + 1);
             buf = online_ram(entry) ? roam_call(sub_001B3B90, 0, top, 1, &a) : 0;
@@ -481,9 +518,12 @@ static void mods_strings(void)
                 continue;
             mods_utf16(buf, mods_str_val[i]);
             MEM32(entry + 8u) = buf;
+            mods_str_buf[lang][i] = buf;
             added++;
         }
-        fprintf(stderr, "[MOD] strings.txt: %u texts added to language %u\n", added, lang);
+        if (added)
+            fprintf(stderr, "[MOD] strings.txt: %u texts set in language %u (%u replaced a missing-key text)\n",
+                    added, lang, fixed);
     }
     MEM32(0x00507E08u + 0x28u) = cur;
 }
