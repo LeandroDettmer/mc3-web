@@ -1422,6 +1422,12 @@
     }
   }
   const hex = buf => [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+  // The save folder XAPI's XCreateSaveGame opens for a save name (Remix sub_003245F1): h = (h * 65536 + c) mod
+  // (2^48 - 59) over the name's UTF-16 units, as 12 upper-case hex digits ("Remix : ferez" -> ED509E14024E). The game
+  // lists saves by SaveMeta's Name and opens this folder: any other folder reads "damaged" (issue #3).
+  const saveDir = s => { let h = 0n; for (let i = 0; i < s.length; i++) h = (h * 65536n + BigInt(s.charCodeAt(i))) % 0xFFFFFFFFFFC5n; return h.toString(16).toUpperCase().padStart(12, '0'); };
+  // A profile's name from its file name, without a browser's " (1)" for a second download of it.
+  const fileProfile = (n, ext) => n.replace(ext, '').replace(/ ?\(\d+\)$/, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
   // Remix profile (UDATA/54540079/<12 hex>/<name>.mc3Remix): size and stamp are not proven (the writer sub_000193F0 streams
   // 4 + 0x18340 + 1 + 1 + 0x61A8 + 1 + 2 + 1 + 0x4074 bytes plus a signature, not 99,162), so only the layout is checked:
   // big enough, last 20 bytes = HMAC-SHA1 of the rest under the port's zero key (re-signed: unchanged when already valid). An Xbox's own Remix profile is only a guess.
@@ -1431,10 +1437,14 @@
     // Kept byte for byte: the Remix's signature layout is not known (its writer sub_000193F0 is not DUB's), and a
     // profile downloaded from this site is already signed for the port. An Xbox-original one may read "damaged".
     const out = data;
-    const name = file.name.replace(/\.mc3remix$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
-    const folder = hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(name))).slice(0, 12).toUpperCase();
+    // The game saves profile P as save "Remix : P" (sub_00022040), file P.mc3Remix; the garage blob (file +4) keeps P at
+    // +0x2E8 (0x53F5F0): taken when the file's name starts with it (a download renamed "P (1)" or "P-copy").
+    let name = fileProfile(file.name, /\.mc3remix$/i);
+    const inner = /^([\x20-\x7e]{1,31})\0/.exec(new TextDecoder('latin1').decode(data.subarray(0x2EC, 0x2EC + 32)))?.[1];
+    if (inner && !/[\\/:*?"<>|]/.test(inner) && file.name.startsWith(inner)) name = inner;
+    const save = 'Remix : ' + name;
     try {
-      if (!await writeProfile(name, folder, [[name + '.mc3Remix', out], ['SaveMeta.xbx', metaBytes(name)]])) return;
+      if (!await writeProfile(name, saveDir(save), [[name + '.mc3Remix', out], ['SaveMeta.xbx', metaBytes(save)]])) return;
       savesMsg(`Imported ${name} (kept as it is).`);
     } catch (e) { savesMsg('Could not write the save: ' + e.message, true); }
     listSaves();
@@ -1614,10 +1624,9 @@
     const key = await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
     const out = new Uint8Array(MC3_SIZE);
     out.set(body); out.set(new Uint8Array(await crypto.subtle.sign('HMAC', key, body)), MC3_SIZE - SIG_LEN);
-    const name = file.name.replace(/\.mc3$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
-    const folder = hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(name))).slice(0, 12).toUpperCase();
+    const name = fileProfile(file.name, /\.mc3$/i);      // DUB's save name is the profile's (SaveMeta Name=<name>)
     try {
-      if (!await writeProfile(name, folder, [[name + '.mc3', out], ['SaveMeta.xbx', metaBytes(name)]])) return;
+      if (!await writeProfile(name, saveDir(name), [[name + '.mc3', out], ['SaveMeta.xbx', metaBytes(name)]])) return;
       savesMsg(`Imported ${name} (signed for the port).`);
     } catch (e) { savesMsg('Could not write the save: ' + e.message, true); }
     listSaves();

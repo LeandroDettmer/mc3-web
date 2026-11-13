@@ -1175,7 +1175,17 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   page checks the layout only; tools/save_import.py is DUB-only, .mc3).
   `make import-save FILE=` (tools/save_import.py: .gsx = gzip + 128-byte
   GSXM header + FATX memory unit with 16 KB clusters; folders; .mc3; .max)
-  re-signs and installs, backing up first; verified in game. PS2 saves
+  re-signs and installs, backing up first; verified in game. Folder
+  (2026-11-13, issue #3): the game lists saves by SaveMeta's Name and
+  XAPI's XCreateSaveGame opens the folder named for that save name
+  (Remix sub_003245F1): h = (h * 65536 + c) mod (2^48 - 59) over its
+  UTF-16 units, 12 upper-case hex ("Remix : ferez" -> ED509E14024E,
+  "Remix : Player 1" -> AE1A4832EEF5); any other folder reads "damaged".
+  The Remix saves profile P as save "Remix : P" (sub_00022040), file
+  P.mc3Remix, P also at file +0x2EC; DUB's save name is P. The page's
+  imports (index.html saveDir) and save_import.py name folders so since
+  then; imports before it sit in SHA-1(P) folders with Name=P (kept,
+  unreadable by the game; importing the file again lands right). PS2 saves
   (.max = LZARI, .sps/.xps = SharkPort, plain; profile BxSLUS-nnnnn<name>,
   no signature) can't be used: the same game's PS2 release (SLUS-21029)
   writes stamp 0x02F6DC47, ~61 KB of data (+ 0xCD fill to 67,836), about a
