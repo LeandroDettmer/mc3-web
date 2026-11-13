@@ -87,7 +87,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Phones:** Fewer crashes on iPhones (less memory used), and Android phones that lose the graphics context show a clear message instead of a crash; browsers too old to run the game say so.
 - **Game:** A minimised or hidden game tab now uses almost no CPU or graphics (the game slows down and goes quiet until you come back), so the PC stays fast and phones stay cool; Free Roam stays connected meanwhile.
 
-## 2026-11-13 (bbe0af8)
+## 2026-11-13 (9426761)
 
 - **Free Roam:** A street racer who drives away from the course or stops racing now leaves the race by itself, so the race flag over their car goes away and the others no longer wait for them.
 - **Saves:** Every 2 days the game also keeps a dated snapshot of all your saves (kept a week, the newest always); the Saves tab lists them, downloads one or puts one back.
@@ -97,3 +97,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Game:** When the graphics are lost on a phone, the "Graphics context lost" message now shows instead of a page error.
 - **Phones:** New touch layout: a big Handbrake button above Brake, beside Gas, with Nitro, Two wheels and Look back over them; Flash, Back, Start and Black sit together top left, away from the Settings, Drift and Map buttons, which are bigger.
 - **Free Roam:** A race invite now has an Accept button beside Decline, and shows how many players already joined.
+- **Online career:** In a career race on a PC, the other online players nearby now show as cars (ghosts you drive through), not only as map blips.
