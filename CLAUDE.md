@@ -312,7 +312,10 @@ generated files when the lift inputs did not change.
   'mc3-disc' channel (a wasm relink). Failures show a box over the picture with the reason and the
   log's last 20 lines (index.html failShow: abort, page errors before the
   runtime is up, '[WGPU] device lost', '[GL] WebGL context lost', out of
-  memory lines, no frame 90 s after the runtime is up; runtime not up 5 min
+  memory lines, no frame after the runtime is up: from 90 s, only when no '[WEB] disc wait|read' line came
+  for 60 s, or at 10 min (2026-11-13, untested on a phone: a Galaxy S23 Ultra on a slow link got the box at 90 s
+  with disc reads still advancing, issue #4; while they come the overlay says 'Slow connection. Reading game
+  files'); the box says the game may still run behind it (click closes); runtime not up 5 min
   after Play). WebGL context lost under a GPU stall (Android Mali, Chrome
   156/157, 2026-11-12, fix untested on a phone): 10-77 s frames, then every
   shader 'failed' with an empty log, then Emscripten's glGet*InfoLog took
