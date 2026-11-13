@@ -946,6 +946,19 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   4. (movies) see above. Tools: `MC3_XACT_TRACE`, `MC3_WMA_TRACE`,
      `RECOMP_APU_TRACE` (adds `[APU-ST]`: samples/s, stream consumption,
      pacing), `RECOMP_AUDIO_DUMP=path,start,secs` (written at exit/Ctrl+C).
+  Wave bank release hang (Remix, 2026-11-12, fix untested in a browser;
+  freeze class I1, ~15 logs: watchdog 'executor running, ring 0', main
+  spinning in XACTENG/DSOUND with ~138 M kernel calls, at garage/race/Free
+  Roam state changes): a bank's Release (sub_0040EFC8 -> sub_0040E74B ->
+  sub_0040E68C) loops stop cues + XACTEngineDoWork (sub_004073D9) while
+  sub_00405DDF finds a track on the bank; a track ends when its stream
+  voice's status (sub_003C8288, voice flags +0x12) stops saying playing,
+  and 0x8001 (stop asked, APU never confirmed: the trapped front end of
+  sub_003C77C0's override) says playing forever. The sub_003C8288 override
+  runs DirectSound's own 500 ms stop timeout (sub_003C6B43) first for such
+  a voice ('[XACT] stream voice ...'); sub_00405DDF's logs what still holds
+  a bank after 3 s ('[XACT] wave bank ... release: still in use ...').
+  MC3_XACT_STOP_FIX=0 off.
 - Rendering found and fixed 2026-10-17: vertex programs read the viewport
   scale/offset as constants c[-38]/c[-37] (NV2A mirrors the registers there:
   cars were invisible); a narrower clip into the back buffer (race minimap,

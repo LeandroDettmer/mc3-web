@@ -2864,6 +2864,120 @@ void sub_003C77C0(void)
     g_esp += 4;                            /* ret */
 }
 
+/* ── XACT: releasing a wave bank whose stream voice never stops ──
+ *
+ * Freeze class I1 (2026-11-12 logs, Windows/Android/iPhone, at a garage,
+ * race or Free Roam state change): main spins for good with no frame,
+ * ~138 M kernel calls (the XACT and DirectSound locks taken and given back),
+ * stack 338C73 (game) -> sub_0040EFC8 (bank Release, count 0) -> sub_0040E74B
+ * -> sub_0040E68C, whose loop is
+ *     do { sub_00405CC1(engine, bank);    stop every cue/track on the bank
+ *          sub_004073D9(); }              XACTEngineDoWork
+ *     while (sub_00405DDF(engine, bank)); a track on the bank still alive
+ * with no wait in it. A track (engine +0x5C list, sub_0040D70F) ends only
+ * when its voice's status (sub_0040F198 -> sub_003C21B8 -> sub_003C1074 ->
+ * sub_003C8288) says "not playing", and sub_003C8288 says playing while
+ * the voice's flags (+0x12) have 0x8001: a stop asked for (0x8000) that
+ * the APU has not confirmed. DirectSound confirms it from its interrupt
+ * handler once the APU front end traps, or after 500 ms itself
+ * (sub_003C6B43: stop time +0x78, then sub_003C6A5A) -- the trap that
+ * sub_003C77C0's override above meets in the same logs ("stop waited on a
+ * trapped APU front end"). In this wait neither came. So each status read
+ * of a voice with a pending stop runs DirectSound's own 500 ms timeout
+ * first, as its synchronous stop wait (sub_003C77C0) does: the voice stops
+ * 500 ms after the stop was asked for, the track ends, the release returns.
+ * sub_003C8288 is called only from sub_003C1074, under DirectSound's lock.
+ * MC3_XACT_STOP_FIX=0: the original. Log '[XACT] stream voice ...'. */
+extern void sub_003C8288_gen(void);
+static int xact_stop_fix(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("MC3_XACT_STOP_FIX");
+        on = !(e && e[0] == '0');
+    }
+    return on;
+}
+void sub_003C8288(void)
+{
+    static int logged;
+    uint32_t v = g_ecx;
+    if (xact_stop_fix() && v && (MEM16(v + 0x12) & 0x8001) == 0x8001) {
+        voice_call(sub_003C6B43, v);
+        if (!(MEM16(v + 0x12) & 0x8000) && logged++ < 20)
+            fprintf(stderr, "[XACT] stream voice %08X: stop still unconfirmed by the APU after"
+                    " DirectSound's 500 ms -- stopped at its status read\n", v);
+        g_ecx = v;
+    }
+    sub_003C8288_gen();
+}
+
+/* The release wait's test (sub_00405DDF, thiscall engine, (bank), ret 4;
+ * called only from that loop): run as is, and when one bank stays in use
+ * for 3 s say what holds it, once per wait -- each track still on it with
+ * its state (+0x30) and its stream voice's flags, and the cues -- so a
+ * freeze that is not a pending stop names its cause in the log. */
+extern void sub_00405DDF_gen(void);
+void sub_00405DDF(void)
+{
+    static uint32_t s_bank;
+    static uint64_t s_since;
+    static int s_told, s_logs;
+    uint32_t eng = g_ecx, bank = MEM32(g_esp + 4);
+    uint64_t now;
+    sub_00405DDF_gen();
+    if (!g_eax || !xact_stop_fix()) {
+        s_bank = 0;
+        return;
+    }
+    now = voice_ms_now();
+    if (bank != s_bank) {
+        s_bank = bank;
+        s_since = now;
+        s_told = 0;
+        return;
+    }
+    if (s_told || now - s_since < 3000 || s_logs >= 5)
+        return;
+    s_told = 1;
+    s_logs++;
+    {
+        char line[768];
+        int len = snprintf(line, sizeof line, "[XACT] wave bank %08X release: still in use after"
+                           " %u ms; tracks:", bank, (unsigned)(now - s_since));
+        uint32_t head = eng + 0x5C, node = MEM32(head);
+        int cues = 0, guard = 0;
+        for (; node && node != head && guard < 64 && len < (int)sizeof line - 80;
+             node = MEM32(node), guard++) {
+            uint32_t snd = MEM32(node + 0x44), t0, w, s, v;
+            unsigned i, n;
+            if (!snd || MEM32(snd + 0x14) != bank)
+                continue;
+            n = MEM32(node + 0x10) ? MEM8(MEM32(node + 0x10) + 8) : 0;
+            t0 = MEM32(node + 0x34);
+            len += snprintf(line + len, sizeof line - len, " %08X state %u", node,
+                            (unsigned)MEM16(node + 0x30));
+            for (i = 0; i < n && i < 4 && t0 && len < (int)sizeof line - 60; i++) {
+                w = MEM32(t0 + i * 0x88 + 4);
+                s = w ? MEM32(w + 0x1C) : 0;
+                v = s ? MEM32(s - 0x1C + 0x20) : 0;
+                if (v)
+                    len += snprintf(line + len, sizeof line - len, " [voice %08X flags %04X]",
+                                    v, (unsigned)MEM16(v + 0x12));
+                else
+                    len += snprintf(line + len, sizeof line - len, " [%s]", w ? "buffer" : "none");
+            }
+        }
+        head = eng + 0x64;
+        for (node = MEM32(head), guard = 0; node && node != head && guard < 256;
+             node = MEM32(node), guard++)
+            if (MEM32(node - 8 + 0x14) == bank)
+                cues++;
+        fprintf(stderr, "%s; %d cue(s); front end %s\n", line, cues,
+                mcpx_apu_fe_trapped() ? "trapped" : "running");
+    }
+}
+
 /* ── DirectSound's DSP command wait: its doorbell found at run time ──
  *
  * sub_003C3D23 (DSOUND) hands the audio DSP a command block and waits for the
