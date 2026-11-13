@@ -434,6 +434,7 @@ static int roam_room(void)
     return 1;
 }
 
+static int roam_car_inlevel(uint32_t veh);      /* roam_cars.c */
 static int roam_cars_total(void);               /* remote cars shown at most (roam_cars.c) */
 
 /* Free roam on (not with MC3_ROAM_FAKE), and our car (CarCfg at cfg) to
@@ -1423,6 +1424,34 @@ static int roam_spawn_clear(uint32_t veh, roam_pose *s)
  * slot 0 (ours, updated first) is recorded and sent, in every Free Roam
  * cruise (no remote slots too); slots 1..n are the pool's (roam_pool_slot). */
 static void roam_pool_slot(uint32_t p, int k, double now);
+#ifdef __EMSCRIPTEN__
+uint32_t nv2a_wgpu_dropped_total(void);         /* wgpu_queue.c: frames consumed without drawing, all stalls */
+#endif
+/* Diagnostic (2026-11-13, "own car invisible on phones", cause unproven): our car's drawn flag, physics-level
+ * membership and draw-list membership, logged on each change, with the main heap's free KB and the WebGPU frames
+ * dropped so far. Look for '[ROAM] own car: drawn 0' (or 'in physics 0') in a phone's log. */
+static void roam_own_car_diag(uint32_t veh)
+{
+    static int last = -1;
+    uint32_t o = MEM32(veh + 0xCu), m = MEM32(veh + 0x1Cu), drop = 0;
+    int d, ph, l, key;
+    if (!online_ram(o) || !online_ram(m))
+        return;
+    d = MEM8(o + 0x12Du);
+    ph = roam_car_inlevel(veh);
+    l = roam_listed(veh);
+    key = d | ph << 1 | (l + 1) << 2;
+    if (key == last)
+        return;
+    last = key;
+#ifdef __EMSCRIPTEN__
+    drop = nv2a_wgpu_dropped_total();
+#endif
+    fprintf(stderr, "[ROAM] own car: drawn %d, in physics %d, listed %d, pos %.1f %.1f %.1f, heap free %u KB, "
+            "wgpu frames dropped %u\n", d, ph, l, MEMF(m + 0x34u), MEMF(m + 0x38u), MEMF(m + 0x3Cu),
+            (unsigned)(roam_heap_log(MEM32(ROAM_MAIN_HEAP_VA), NULL) >> 10), (unsigned)drop);
+}
+
 static void roam_player(uint32_t p)
 {
     uint32_t slot, veh, mtx, car, phys, coll, c, k;
@@ -1431,8 +1460,10 @@ static void roam_player(uint32_t p)
         return;
     slot = MEM32(p + 0x5Cu);
     veh = MEM32(p + 0x14u);
-    if (slot == 0)
+    if (slot == 0) {
         roam_cheap_check();                     /* once a frame */
+        roam_own_car_diag(veh);
+    }
     if (slot > (uint32_t)s_roam_slots || !online_ram(veh))
         return;
     now = roam_now();
