@@ -54,13 +54,13 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Stability:** Fixed two causes of the game freezing for good; iPhones and iPads start with less memory so tabs stop closing.
 - **Graphics:** Phones whose GPU froze with WebGPU (Mali, older Adreno) use WebGL, and any device where WebGPU failed uses WebGL from its next start.
 
-## 2026-11-12 (883c221)
+## 2026-11-12 (cb94a9f)
 
 - **Game:** Drift mode (Settings: Off, On or Strong): tap the handbrake, or lift off the throttle with the wheel turned, and the back steps out; the throttle holds the angle and counter-steering catches it. Works on every car in Free Roam, races and career; other players see your drift. A Drift button in the top-right bar switches it.
-- **Game:** Drift points, with Drift mode on or off: slide any car for points (more for a wider angle and more speed), chain drifts for up to x5, and hitting a wall or spinning out loses the drift. In Free Roam Online every 10,000 points pays $10,000, kept in your Online profile.
+- **Game:** Drift points, with Drift mode on or off: slide hard (20 degrees or more, 50 km/h or more) for at least 1.5 seconds to bank points (more for a wider angle and more speed), chain drifts for up to x5, and hitting a wall or spinning out loses the drift. In Free Roam Online every 10,000 points pays $10,000, kept in your Online profile.
 - **Online:** Free Roam races pay off: 1st, 2nd and 3rd win $25,000, $12,000 and $6,000, and wins unlock Nitro, Slingshot, Burnout, Two-wheel driving, In-air control, Zone/Agro/Roar and the Pearlescent and Color-shift paints. Kept in your Online profile.
 - **Free Roam:** Map races now have their AI opponents, and players at the same start point can race them together: press White to invite the others.
-- **Free Roam:** Street races for up to 8 players: stop near others, press White (Q, or Flash on touch) to invite them all, and each joins with White within 10 seconds. The result lists every racer's place and time.
+- **Free Roam:** Street races for up to 8 players: press White (Q, or Flash on touch) to invite every driving player within 200 m (the 7 nearest), and each joins with White within 10 seconds, even while cruising. Players who drive up during those 10 seconds get the invite too. The result lists every racer's place and time.
 - **Free Roam:** An Online progress panel beside the players list on the full map shows races won, your latest unlock and the next one.
 - **Page:** A Map button next to Settings and Drift opens and closes the full map, with or without touch controls.
 - **Page:** More Settings change without a restart (resolution, filtering, 60 fps, Players shown, keyboard, touch controls), in a new layout with keyboard support.
@@ -72,9 +72,13 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** On phones, other players' cars now show as their own cars instead of copies of yours.
 - **Free Roam:** Race start areas are twice as big (60 m) and win over the street race prompt: with players near, White invites them all into the same race against the AI, even if they are outside the start area.
 - **Free Roam:** A busy city no longer freezes the game: past 16 cars on screen (players, slots and career cars together) every car still builds, in Free Roam and the Online career.
-- **Free Roam:** Cars are built only for players within about 300 m of you; farther players show as normal blips on the map, so a full city no longer runs out of cars for the players around you.
+- **Free Roam:** Cars are built only for players within about 250 m of you (the distance the game shows its own traffic); farther players show as normal blips on the map, so a full city no longer runs out of cars for the players around you.
 - **Free Roam:** Players in an AI race, or in an Online career race, now show to the others as a car racing where they are (bright on the map) instead of vanishing; street race invites skip them.
 - **Game:** Safari 17 on a Mac no longer crashes a few seconds after Play.
 - **Free Roam:** In an AI race or an Online career race on a PC, the other players nearby show as ghost cars: you see them driving and their name tags, but they never get in your way.
 - **Free Roam:** The full map's players list now splits your city into Free Roam and Online career players, each with a count (and the start page's players list does the same).
 - **Game:** Settings has a Save button: while you drive in the city it saves your career now (as the game does after a race), or in Free Roam your Online money and garage.
+- **Saves:** Your saves are safer: the game keeps the last two copies of every profile and of the Online profile, and puts the newest good copy back if a save was ever cut short (full storage, a closed tab). A new **Export all saves** button in Saves downloads every profile, the Online profile and those copies as one zip to keep. Online profiles from every earlier version still show and import on the page.
+- **Free Roam:** Street and group races: invites now stay open 15 s; players who joined a race or are racing get a flag over their car; the host can cancel before the start and any racer can give up (hold Black [E] 1 s, or the button under the race box), the others race on.
+- **Free Roam:** The full map has a Race panel: in a street or group race it lists every racer with live place, checkpoint count and finish or DNF; otherwise it lists the players nearby who are racing.
+- **Game:** A freeze that stopped the picture and the controls for good when entering the garage or starting or leaving a race (a sound that never finished stopping) should no longer happen.

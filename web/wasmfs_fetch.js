@@ -45,7 +45,9 @@
  * block 0; ~206 MiB). Where the cache was meant to be on but OPFS refused it
  * or ran out of room (a Chrome incognito tab: estimate() reports ~10 GiB, the
  * real quota is far smaller), those blocks are kept in memory for the session
- * instead (`pinned`, never evicted; not below 8 GB of device memory).
+ * instead (`pinned`, never evicted; only where the browser says 8 GB of
+ * device memory or more: Safari says nothing, and its Macs pinned 206 MiB,
+ * then were killed, 2026-11-12 logs TYM47H/VJK9ZT).
  *
  * Readahead: a game read that goes on where its file's last read ended, into
  * a new block, also starts the next READAHEAD blocks not held yet (memory or
@@ -373,7 +375,7 @@ addToLibrary({
     // No OPFS where the cache was meant to be on (refused, or out of room: an incognito tab): the music's track
     // starts kept in memory for the session (see the header).
     async function pinHeads(disc, m) {
-      if (!(await cacheOn) || navigator.deviceMemory < 8) return;
+      if (!(await cacheOn) || !(navigator.deviceMemory >= 8)) return;
       const f = [...m.values()].find(f => f.p.toLowerCase() === MUSIC);
       if (!f) return;
       const fi = fileInfo(disc, f), list = await headBlocks(fi);

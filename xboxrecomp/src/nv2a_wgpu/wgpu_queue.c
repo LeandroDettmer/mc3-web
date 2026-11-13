@@ -506,6 +506,23 @@ static uint64_t s_turn_end;
 static uint64_t s_frame_ns;             /* the last frame's end, for the watchdog */
 static int s_stats = -1;
 
+/* A GPU that never finishes (2026-11-12: ~20 freeze logs a day, Intel gen-9 /
+ * Adreno / Mali, device ready, 2 of 2 frames in flight for good, right after a
+ * burst of new pipelines; one came back after 7.5 s): onSubmittedWorkDone does
+ * not resolve while the browser's GPU process is busy (shader compiles), and
+ * the executor waited for ring space with the guest behind it. After
+ * WQ_GPU_DROP_NS at the limit the waiting frame goes out anyway and the next
+ * ones are consumed without drawing (the game runs on, the picture holds)
+ * until a frame completes; after WQ_GPU_DEAD_NS one line the page shows as a
+ * box ('GPU stopped responding', web/index.html FATAL). */
+#define WQ_GPU_DROP_NS (10ull * 1000000000ull)
+#define WQ_GPU_DEAD_NS (30ull * 1000000000ull)
+static uint64_t s_gpu_wait;             /* when the GPU was first found at the limit; 0 = not */
+static uint32_t s_gpu_stuck_frame;      /* the oldest frame in flight then */
+static uint32_t s_dropped;              /* frames consumed without drawing in this stall */
+static int s_drop;                      /* dropping frames until the GPU answers */
+static int s_in_frame;                  /* records of a frame consumed since its flip */
+
 /* No frame for 5 s (then 10, 20, ...): one line saying where it stopped,
  * and one when frames come back (2026-11-09: a black screen after the Free
  * Roam load left no clue). Flips queued 0 with the guest lock held = the
@@ -671,8 +688,9 @@ static void wq_end_frame(void)
 }
 
 /* Apply records until a flip is applied or the ring runs dry. live = 0
- * (no device): consume them all without drawing, so the executor runs on. */
-static void wq_run(int live)
+ * (no device, or the GPU stalled): consume them without drawing, so the
+ * executor runs on. Returns 1 when it stopped after a flip. */
+static int wq_run(int live)
 {
     int dry = 0;
     uint64_t t0 = wq_now_ns();
@@ -687,7 +705,7 @@ static void wq_run(int live)
             uint64_t tw = wq_now_ns();
             s_busy_ns += tw - t0;
             if (dry++ >= 4)                 /* ~8 ms for the rest of the frame, then a turn */
-                return;
+                return 0;
             pthread_mutex_lock(&s_q_lock);
             __atomic_store_n(&s_q_consumer_waits, 1, __ATOMIC_SEQ_CST);
             if (__atomic_load_n(&s_q_head, __ATOMIC_SEQ_CST) == s_q_tail)
@@ -701,12 +719,30 @@ static void wq_run(int live)
         rec = s_q + s_q_tail % WQ_BYTES;
         h = (const WQHdr *)rec;
         flip = h->type == WQ_FLIP;
-        if (flip && live
-            && __atomic_load_n(&wg_ctl.frames_submitted, __ATOMIC_SEQ_CST)
-               - __atomic_load_n(&wg_ctl.frames_done, __ATOMIC_SEQ_CST)
-               >= (int32_t)wg_ctl.max_in_flight) {
-            s_busy_ns += wq_now_ns() - t0;  /* the GPU is behind: next turn */
-            return;
+        if (flip && live) {
+            int32_t fl = __atomic_load_n(&wg_ctl.frames_submitted, __ATOMIC_SEQ_CST)
+                         - __atomic_load_n(&wg_ctl.frames_done, __ATOMIC_SEQ_CST);
+            if (fl < (int32_t)wg_ctl.max_in_flight) {
+                s_gpu_wait = 0;
+            } else {
+                uint64_t now = wq_now_ns();
+                if (!s_gpu_wait)
+                    s_gpu_wait = now;
+                if (now - s_gpu_wait < WQ_GPU_DROP_NS) {
+                    s_busy_ns += now - t0;  /* the GPU is behind: next turn */
+                    return 0;
+                }
+                /* This frame's list holds texture/pipeline creates the JS side
+                 * must see: it goes out over the limit; the next ones drop. */
+                s_gpu_stuck_frame = wg_frame - (uint32_t)fl;
+                s_drop = 1;
+                s_dropped = 0;
+                fprintf(stderr, "[WGPU] frame %u never completed after %u ms: GPU %d of %u frames in flight,"
+                        " device ready; frame %u goes out, the next ones are dropped (the game runs on,"
+                        " the picture holds) until the GPU answers\n",
+                        s_gpu_stuck_frame, (unsigned)((now - s_gpu_wait) / 1000000), fl,
+                        wg_ctl.max_in_flight, wg_frame);
+            }
         }
         if (h->type == WQ_DRAW) {
             /* The shadow changes always apply (the next record's diff
@@ -750,13 +786,45 @@ static void wq_run(int live)
         }
         if (flip)
             __atomic_sub_fetch(&s_q_flips, 1, __ATOMIC_ACQ_REL);
+        s_in_frame = !flip;
         __atomic_store_n(&s_q_tail, s_q_tail + h->size, __ATOMIC_SEQ_CST);
         wq_wake(&s_q_producer_waits);
         if (flip) {
             s_busy_ns += wq_now_ns() - t0;
-            return;                         /* the canvas shows it when the turn ends */
+            return 1;                       /* the canvas shows it when the turn ends */
         }
     }
+}
+
+/* A turn while the GPU stalls (s_drop): draw again from a frame's start once
+ * a frame completed, else consume one frame without drawing. */
+static void wq_drop_turn(void)
+{
+    static int told_dead;
+    int32_t fl = __atomic_load_n(&wg_ctl.frames_submitted, __ATOMIC_SEQ_CST)
+                 - __atomic_load_n(&wg_ctl.frames_done, __ATOMIC_SEQ_CST);
+    uint64_t now = wq_now_ns();
+    SDL_Event e;
+
+    if (fl < (int32_t)wg_ctl.max_in_flight && !s_in_frame) {
+        fprintf(stderr, "[WGPU] GPU answered after %.1f s: %u frame(s) dropped, drawing again\n",
+                (double)(now - s_gpu_wait) / 1e9, s_dropped);
+        s_drop = 0;
+        s_gpu_wait = 0;
+        told_dead = 0;
+        wq_run(1);
+        return;
+    }
+    if (!told_dead && now - s_gpu_wait >= WQ_GPU_DEAD_NS) {
+        told_dead = 1;
+        fprintf(stderr, "[WGPU] GPU stopped responding: frame %u never completed after %u s (GPU %d of %u"
+                " frames in flight, device ready, %u frame(s) dropped since)\n", s_gpu_stuck_frame,
+                (unsigned)((now - s_gpu_wait) / 1000000000ull), fl, wg_ctl.max_in_flight, s_dropped);
+    }
+    s_dropped += (uint32_t)wq_run(0);
+    /* Input is read at a frame's end (wq_end_frame), which a dropped frame skips. */
+    while (SDL_PollEvent(&e))
+        xbox_sdl_keyboard_handle(&e);
 }
 
 static void wq_turn(void)
@@ -774,7 +842,10 @@ static void wq_turn(void)
                     " textures up to %u\n", wg_ctl.canvas_format, wg_ctl.features,
                     wg_ctl.max_tex_2d);
         }
-        wq_run(1);
+        if (s_drop)
+            wq_drop_turn();
+        else
+            wq_run(1);
     } else if (st >= WG_DEV_FAILED) {
         if (told != 2) {
             told = 2;

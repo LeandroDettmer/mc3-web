@@ -2629,15 +2629,37 @@ static int pend_enabled(void)
                     && !(getenv("RECOMP_GL_SYNC_SHADERS"));
     return s_pend_on;
 }
+
+/* WebGL context lost (Android Mali after 10-77 s GPU stalls, 31 logs
+ * 2026-11-12/13): every compile and link then fails with an empty log, each
+ * a blocking call (276 failures in one frame). Asked after a failed compile
+ * or link: logs the line the page's failure box knows ('Graphics context
+ * lost'), once; later programs are not compiled. Not when proxied
+ * (GL.contexts is the page thread's: this worker would read it as lost). */
+static int s_gl_lost;
+static int gl_lost(void)
+{
+    if (!s_gl_lost && !s_gl_proxied
+        && emscripten_is_webgl_context_lost(emscripten_webgl_get_current_context())) {
+        s_gl_lost = 1;
+        fprintf(stderr, "[GL] WebGL context lost (a shader failed to build)\n");
+    }
+    return s_gl_lost;
+}
 #else
 #define pend_enabled() 0
+#define gl_lost() 0
+#define s_gl_lost 0
 #endif
 
 static GLuint compile(GLenum type, const char *const *src, int n)
 {
-    GLuint sh = glCreateShader(type);
+    GLuint sh;
     GLint ok = 0;
 
+    if (s_gl_lost)
+        return 0;
+    sh = glCreateShader(type);
     glShaderSource(sh, n, src, NULL);
     glCompileShader(sh);
     if (pend_enabled())
@@ -2646,6 +2668,10 @@ static GLuint compile(GLenum type, const char *const *src, int n)
     if (!ok) {
         char log[4096];
         int i;
+        if (gl_lost()) {
+            glDeleteShader(sh);
+            return 0;
+        }
         glGetShaderInfoLog(sh, sizeof log, NULL, log);
         fprintf(stderr, "  [GL] %s shader failed:\n%s\n",
                 type == GL_VERTEX_SHADER ? "vertex" : "fragment", log);
@@ -3148,7 +3174,9 @@ static GLuint prog_build(const Nv2aRawBatch *b, const Nv2aPshKey *pk, uint64_t v
     glGetProgramiv(prog, GL_LINK_STATUS, &ok);
     if (!ok) {
         char log[2048];
-        glGetProgramInfoLog(prog, sizeof log, NULL, log);
+        log[0] = 0;
+        if (!gl_lost())
+            glGetProgramInfoLog(prog, sizeof log, NULL, log);
         fprintf(stderr, "  [GL] link failed: %s\n", log);
         glDeleteProgram(prog);
         return 0;
@@ -3290,7 +3318,9 @@ static GlProg *pend_poll(int i)
     glGetProgramiv(e->prog, GL_LINK_STATUS, &ok);
     if (!ok) {
         char log[2048];
-        glGetProgramInfoLog(e->prog, sizeof log, NULL, log);
+        log[0] = 0;
+        if (!gl_lost())
+            glGetProgramInfoLog(e->prog, sizeof log, NULL, log);
         fprintf(stderr, "  [GL] link failed: %s\n", log);
         glDeleteProgram(e->prog);
         e->prog = 0;                         /* kept: not rebuilt every draw */

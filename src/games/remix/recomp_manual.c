@@ -2869,6 +2869,120 @@ void sub_003C77C0(void)
     g_esp += 4;                            /* ret */
 }
 
+/* ── XACT: releasing a wave bank whose stream voice never stops ──
+ *
+ * Freeze class I1 (2026-11-12 logs, Windows/Android/iPhone, at a garage,
+ * race or Free Roam state change): main spins for good with no frame,
+ * ~138 M kernel calls (the XACT and DirectSound locks taken and given back),
+ * stack 338C73 (game) -> sub_0040EFC8 (bank Release, count 0) -> sub_0040E74B
+ * -> sub_0040E68C, whose loop is
+ *     do { sub_00405CC1(engine, bank);    stop every cue/track on the bank
+ *          sub_004073D9(); }              XACTEngineDoWork
+ *     while (sub_00405DDF(engine, bank)); a track on the bank still alive
+ * with no wait in it. A track (engine +0x5C list, sub_0040D70F) ends only
+ * when its voice's status (sub_0040F198 -> sub_003C21B8 -> sub_003C1074 ->
+ * sub_003C8288) says "not playing", and sub_003C8288 says playing while
+ * the voice's flags (+0x12) have 0x8001: a stop asked for (0x8000) that
+ * the APU has not confirmed. DirectSound confirms it from its interrupt
+ * handler once the APU front end traps, or after 500 ms itself
+ * (sub_003C6B43: stop time +0x78, then sub_003C6A5A) -- the trap that
+ * sub_003C77C0's override above meets in the same logs ("stop waited on a
+ * trapped APU front end"). In this wait neither came. So each status read
+ * of a voice with a pending stop runs DirectSound's own 500 ms timeout
+ * first, as its synchronous stop wait (sub_003C77C0) does: the voice stops
+ * 500 ms after the stop was asked for, the track ends, the release returns.
+ * sub_003C8288 is called only from sub_003C1074, under DirectSound's lock.
+ * MC3_XACT_STOP_FIX=0: the original. Log '[XACT] stream voice ...'. */
+extern void sub_003C8288_gen(void);
+static int xact_stop_fix(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("MC3_XACT_STOP_FIX");
+        on = !(e && e[0] == '0');
+    }
+    return on;
+}
+void sub_003C8288(void)
+{
+    static int logged;
+    uint32_t v = g_ecx;
+    if (xact_stop_fix() && v && (MEM16(v + 0x12) & 0x8001) == 0x8001) {
+        voice_call(sub_003C6B43, v);
+        if (!(MEM16(v + 0x12) & 0x8000) && logged++ < 20)
+            fprintf(stderr, "[XACT] stream voice %08X: stop still unconfirmed by the APU after"
+                    " DirectSound's 500 ms -- stopped at its status read\n", v);
+        g_ecx = v;
+    }
+    sub_003C8288_gen();
+}
+
+/* The release wait's test (sub_00405DDF, thiscall engine, (bank), ret 4;
+ * called only from that loop): run as is, and when one bank stays in use
+ * for 3 s say what holds it, once per wait -- each track still on it with
+ * its state (+0x30) and its stream voice's flags, and the cues -- so a
+ * freeze that is not a pending stop names its cause in the log. */
+extern void sub_00405DDF_gen(void);
+void sub_00405DDF(void)
+{
+    static uint32_t s_bank;
+    static uint64_t s_since;
+    static int s_told, s_logs;
+    uint32_t eng = g_ecx, bank = MEM32(g_esp + 4);
+    uint64_t now;
+    sub_00405DDF_gen();
+    if (!g_eax || !xact_stop_fix()) {
+        s_bank = 0;
+        return;
+    }
+    now = voice_ms_now();
+    if (bank != s_bank) {
+        s_bank = bank;
+        s_since = now;
+        s_told = 0;
+        return;
+    }
+    if (s_told || now - s_since < 3000 || s_logs >= 5)
+        return;
+    s_told = 1;
+    s_logs++;
+    {
+        char line[768];
+        int len = snprintf(line, sizeof line, "[XACT] wave bank %08X release: still in use after"
+                           " %u ms; tracks:", bank, (unsigned)(now - s_since));
+        uint32_t head = eng + 0x5C, node = MEM32(head);
+        int cues = 0, guard = 0;
+        for (; node && node != head && guard < 64 && len < (int)sizeof line - 80;
+             node = MEM32(node), guard++) {
+            uint32_t snd = MEM32(node + 0x44), t0, w, s, v;
+            unsigned i, n;
+            if (!snd || MEM32(snd + 0x14) != bank)
+                continue;
+            n = MEM32(node + 0x10) ? MEM8(MEM32(node + 0x10) + 8) : 0;
+            t0 = MEM32(node + 0x34);
+            len += snprintf(line + len, sizeof line - len, " %08X state %u", node,
+                            (unsigned)MEM16(node + 0x30));
+            for (i = 0; i < n && i < 4 && t0 && len < (int)sizeof line - 60; i++) {
+                w = MEM32(t0 + i * 0x88 + 4);
+                s = w ? MEM32(w + 0x1C) : 0;
+                v = s ? MEM32(s - 0x1C + 0x20) : 0;
+                if (v)
+                    len += snprintf(line + len, sizeof line - len, " [voice %08X flags %04X]",
+                                    v, (unsigned)MEM16(v + 0x12));
+                else
+                    len += snprintf(line + len, sizeof line - len, " [%s]", w ? "buffer" : "none");
+            }
+        }
+        head = eng + 0x64;
+        for (node = MEM32(head), guard = 0; node && node != head && guard < 256;
+             node = MEM32(node), guard++)
+            if (MEM32(node - 8 + 0x14) == bank)
+                cues++;
+        fprintf(stderr, "%s; %d cue(s); front end %s\n", line, cues,
+                mcpx_apu_fe_trapped() ? "trapped" : "running");
+    }
+}
+
 /* ── DirectSound's DSP command wait: its doorbell found at run time ──
  *
  * sub_003C3D23 (DSOUND) hands the audio DSP a command block and waits for the
@@ -3259,9 +3373,15 @@ static uint32_t online_cars_unlocked(uint32_t *total)
  *       reward paints); versions 1 and 2 load with 0 wins. Then (version 4)
  *       the lifetime drift points (uint32, drift_score.c: each 10,000 paid
  *       $10,000); versions 1-3 load with 0.
- * Loaded at each session's start (a missing, short, old or damaged file:
- * a fresh start, logged); none yet: $2,000,000 and the garage as it is, as
- * before. Taken from the game and saved when the garage (state 5) is left,
+ * Loaded at each session's start; none yet: $2,000,000 and the garage as
+ * it is, as before. Save safety (2026-11-12): every version 1..4 loads;
+ * each save keeps the last 2 good files as profile.bin.bak1/.bak2 (web_fs.c
+ * mc3_backup_rotate); a missing or unreadable file gets the newest good
+ * copy back ('[SAVE] restored ...'); with none, an unreadable one is kept
+ * as profile.bin.bad and the session starts fresh, and one from a newer
+ * build (version above ONLINE_PROFILE_VER) is kept as it is and never
+ * saved over (s_on_locked). A new version only appends to the body and
+ * keeps loading every older one. Taken from the game and saved when the garage (state 5) is left,
  * when another car was picked by a state request (the setup screen's
  * load) and at the session's end, before the career goes back; the career's
  * .mc3 is never written while Online (sub_00022040). A garage applied by
@@ -3361,41 +3481,97 @@ uint32_t rc_crc32(const uint8_t *p, uint32_t n);    /* xboxrecomp/src/net/roam/r
 #define ONLINE_PROFILE_DIR  "/opfs/online"
 #define ONLINE_PROFILE_PATH ONLINE_PROFILE_DIR "/profile.bin"
 static uint8_t s_on_file[ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY];
+/* web_fs.c: whole-file read, write through <path>.tmp + rename, rotating copies <base>.bak1/.bak2 */
+uint8_t *mc3_file_read(const char *path, size_t *n);
+int mc3_file_write(const char *path, const void *d, size_t n);
+int mc3_backup_rotate(const char *base, const uint8_t *d, size_t n);
+void mc3_web_saves_backup(void);
+void mc3_web_saves_check(void);
+/* The file on disk is from a later build (a version above ours) or holds
+ * nothing this build can read, and no copy could replace it: it is kept as
+ * it is and this session saves nothing over it (the owner's rule: never
+ * reset a profile we cannot read). */
+static int s_on_locked;
+
+/* NULL: a profile this build reads (every version 1..ONLINE_PROFILE_VER);
+ * else why not. "newer" = a later build's: never overwritten. */
+static const char *online_profile_check(const uint8_t *d, size_t n)
+{
+    uint32_t h[5];
+    if (!d || n < ONLINE_PROFILE_HDR)
+        return "short";
+    memcpy(h, d, sizeof h);
+    if (h[0] != ONLINE_PROFILE_MAGIC)
+        return "not an online profile";
+    if (h[1] > ONLINE_PROFILE_VER)
+        return "newer";
+    if (!(h[1] == 1u && h[2] == ONLINE_PROFILE_BODY1) && !(h[1] == 2u && h[2] == ONLINE_PROFILE_BODY2) &&
+        !(h[1] == 3u && h[2] == ONLINE_PROFILE_BODY3) && !(h[1] == ONLINE_PROFILE_VER && h[2] == ONLINE_PROFILE_BODY))
+        return "another version";
+    if (n != ONLINE_PROFILE_HDR + h[2])
+        return "short";
+    if (h[3] != rc_crc32(d + ONLINE_PROFILE_HDR, h[2]))
+        return "damaged (CRC)";
+    return NULL;
+}
 
 static void online_profile_load(void)
 {
     uint32_t h[5] = { 0 };
-    size_t n;
-    const char *bad = NULL;
-    FILE *f = fopen(ONLINE_PROFILE_PATH, "rb");
+    size_t n = 0, bn = 0;
+    const char *bad;
+    uint8_t *d = mc3_file_read(ONLINE_PROFILE_PATH, &n), *b = NULL;
+    int i;
     s_on_have = 0;
     s_on_car_ok = 0;
     s_on_wins = 0;
     s_on_drift = 0;
     s_on_money = ONLINE_MONEY;
-    if (!f) {
+    s_on_locked = 0;
+    bad = d ? online_profile_check(d, n) : "missing";
+    if (bad) {                                  /* the newest good copy, if any (none: a missing file is a new player) */
+        for (i = 1; i <= 2 && !b; i++) {
+            char p[64];
+            snprintf(p, sizeof p, ONLINE_PROFILE_PATH ".bak%d", i);
+            b = mc3_file_read(p, &bn);
+            if (b && online_profile_check(b, bn)) {
+                free(b);
+                b = NULL;
+            }
+        }
+        if (b) {
+            if (d && n)
+                mc3_file_write(ONLINE_PROFILE_PATH ".bad", d, n);   /* kept, never deleted */
+            fprintf(stderr, "[SAVE] restored " ONLINE_PROFILE_PATH " from backup .bak%d (it was %s)%s\n", i - 1, bad,
+                    mc3_file_write(ONLINE_PROFILE_PATH, b, bn) ? "" : "; writing it back failed, the next save will");
+            free(d);
+            d = b;
+            n = bn;
+            bad = NULL;
+        }
+    }
+    if (bad && d && !strcmp(bad, "newer")) {
+        s_on_locked = 1;
+        fprintf(stderr, "[SAVE] " ONLINE_PROFILE_PATH " is from a newer version (%u): kept as it is, this session"
+                " will not save over it\n", n >= 8 ? (unsigned)(d[4] | d[5] << 8 | d[6] << 16 | (uint32_t)d[7] << 24) : 0u);
+    } else if (bad && d) {
+        /* unreadable and no good copy: kept as .bad before the next save replaces it */
+        if (!mc3_file_write(ONLINE_PROFILE_PATH ".bad", d, n)) {
+            s_on_locked = 1;
+            fprintf(stderr, "[SAVE] " ONLINE_PROFILE_PATH " %s and could not be kept aside: left as it is, no saves"
+                    " this session\n", bad);
+        } else
+            fprintf(stderr, "[ONLINE] profile " ONLINE_PROFILE_PATH " %s (kept as profile.bin.bad): a fresh start"
+                    " ($%u)\n", bad, ONLINE_MONEY);
+    } else if (bad)
         fprintf(stderr, "[ONLINE] no profile yet: $%u and the garage as it is\n", ONLINE_MONEY);
-        return;
-    }
-    n = fread(s_on_file, 1, sizeof s_on_file, f);  /* versions 1 and 2 are shorter */
-    fclose(f);
-    if (n >= sizeof h)
-        memcpy(h, s_on_file, sizeof h);
-    if (n < ONLINE_PROFILE_HDR)
-        bad = "short";
-    else if (h[0] != ONLINE_PROFILE_MAGIC)
-        bad = "not an online profile";
-    else if (!(h[1] == 1u && h[2] == ONLINE_PROFILE_BODY1) && !(h[1] == 2u && h[2] == ONLINE_PROFILE_BODY2) &&
-             !(h[1] == 3u && h[2] == ONLINE_PROFILE_BODY3) && !(h[1] == ONLINE_PROFILE_VER && h[2] == ONLINE_PROFILE_BODY))
-        bad = "another version";
-    else if (n != ONLINE_PROFILE_HDR + h[2])
-        bad = "short";
-    else if (h[3] != rc_crc32(s_on_file + ONLINE_PROFILE_HDR, h[2]))
-        bad = "damaged (CRC)";
     if (bad) {
-        fprintf(stderr, "[ONLINE] profile " ONLINE_PROFILE_PATH " %s: a fresh start ($%u)\n", bad, ONLINE_MONEY);
+        free(d);
         return;
     }
+    memcpy(s_on_file, d, n);                    /* versions 1-3 are shorter */
+    free(d);
+    memcpy(h, s_on_file, sizeof h);
     memcpy(&s_on_money, s_on_file + ONLINE_PROFILE_HDR, 4);
     memcpy(s_on_garage, s_on_file + ONLINE_PROFILE_HDR + 4, ONLINE_GARAGE_SIZE);
     s_on_have = 1;
@@ -3414,10 +3590,18 @@ static void online_profile_load(void)
 static int online_profile_save(void)            /* written beside, then renamed over: never half a file; 1 = written */
 {
     uint32_t h[5] = { ONLINE_PROFILE_MAGIC, ONLINE_PROFILE_VER, ONLINE_PROFILE_BODY, 0, online_cars(s_on_garage) };
-    FILE *f;
+    uint8_t *old;
+    size_t on;
     int ok;
     if (!s_on_have)
         return 0;
+    if (s_on_locked) {
+        fprintf(stderr, "[SAVE] online profile NOT saved: the file on disk is kept (see the load's line)\n");
+        return 0;
+    }
+    if ((old = mc3_file_read(ONLINE_PROFILE_PATH, &on)) && !online_profile_check(old, on))
+        mc3_backup_rotate(ONLINE_PROFILE_PATH, old, on);   /* the last 2 good ones: profile.bin.bak1/.bak2 */
+    free(old);
     memcpy(s_on_file + ONLINE_PROFILE_HDR, &s_on_money, 4);
     memcpy(s_on_file + ONLINE_PROFILE_HDR + 4, s_on_garage, ONLINE_GARAGE_SIZE);
     memcpy(s_on_file + ONLINE_PROFILE_HDR + ONLINE_PROFILE_BODY1, s_on_car, 4);
@@ -3426,11 +3610,7 @@ static int online_profile_save(void)            /* written beside, then renamed 
     h[3] = rc_crc32(s_on_file + ONLINE_PROFILE_HDR, ONLINE_PROFILE_BODY);
     memcpy(s_on_file, h, sizeof h);
     mkdir(ONLINE_PROFILE_DIR, 0777);
-    f = fopen(ONLINE_PROFILE_PATH ".tmp", "wb");
-    ok = f && fwrite(s_on_file, 1, sizeof s_on_file, f) == sizeof s_on_file;
-    if (f)
-        ok = (fclose(f) == 0) && ok;
-    ok = ok && rename(ONLINE_PROFILE_PATH ".tmp", ONLINE_PROFILE_PATH) == 0;
+    ok = mc3_file_write(ONLINE_PROFILE_PATH, s_on_file, sizeof s_on_file);
     if (ok)
         fprintf(stderr, "[ONLINE] profile saved: $%u, %u cars, %u races won, %u drift points\n", s_on_money, h[4],
                 (unsigned)s_on_wins, (unsigned)s_on_drift);
@@ -3965,8 +4145,12 @@ void sub_00022040(void)
         g_esp += 16u;
         return;
     }
+#ifdef __EMSCRIPTEN__
+    mc3_web_saves_backup();                     /* the game writes in place: keep the last good copies first */
+#endif
     sub_00022040_gen();
 #ifdef __EMSCRIPTEN__
+    mc3_web_saves_check();                      /* a write cut short (storage full): the copy goes back */
     if (s_msave_wait) {                         /* our op 100 (or the game's own, same save): its answer */
         s_msave_wait = 0;
         manual_save_done((g_eax & 0xFFu) ? 2 : 4, "career", (g_eax & 0xFFu) ? NULL : "the write failed");

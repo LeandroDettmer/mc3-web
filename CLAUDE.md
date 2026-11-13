@@ -17,6 +17,21 @@ with xboxrecomp; modelled on nfsu2-sw).
 
 ## Rules
 
+- **Players' saves are never damaged or lost by a release** (owner, 2026-11-12).
+  Save formats (career `UDATA/54540079/<id>/<name>.mc3Remix` + SaveMeta.xbx,
+  the Online profile `online/profile.bin` v1-v4, the garage blob 0x18340 B
+  at 0x53F308 that both carry raw) are versioned and backward compatible: a
+  new version only appends, every loader keeps reading every older version,
+  and a file it cannot read (newer, unknown, damaged) is kept, never reset,
+  deleted or rewritten (the Online loader refuses to save over a newer one).
+  Never delete or rewrite saves on upgrade. Writes go through `<file>.tmp` +
+  rename (web_fs.c `mc3_file_write`), never in place; the rotating copies
+  (`/opfs/backup/...`, `profile.bin.bak1/.bak2`) and the boot/after-write
+  restore stay. Garage, car list or CarCfg changes (the car-mods project,
+  mc3-web-carmod, included) must keep old saves loading. Any change that
+  touches a save, its format or its folders gets a migration note in its
+  commit and here. Cache code (disc_cache.js, the `cache` folder) touches
+  only its own OPFS folders, never `UDATA`, `TDATA`, `online`, `backup`, `save`.
 - Never commit game data (ISO, `default.xbe`, disc files) or generated C.
   Every path is relative to the repo root: the discs in `game*/`, everything
   generated in `work-<game>/` (both gitignored; tools/env.sh). No default
@@ -221,7 +236,8 @@ generated files when the lift inputs did not change.
   jump to a new track too). Chrome incognito: estimate() says ~10 GiB
   (Chrome 133+), the real quota is far smaller, so OPFS writes fail and
   the cache turns off for the session; then those track-start blocks are
-  kept in memory (pinned, ~206 MiB JS, not below deviceMemory 8; '[WEB]
+  kept in memory (pinned, ~206 MiB JS, only where deviceMemory >= 8:
+  Safari has none, its Macs pinned and were killed until 2026-11-12; '[WEB]
   prefetch: no disc cache: the music's track starts ... kept in memory').
   Emscripten's own WASMFS fetch
   backend left stale data across chunks, hence our backend.
@@ -255,13 +271,24 @@ generated files when the lift inputs did not change.
   Module.mc3Pool || 40. Low-memory profile (index.html lowMem: a TV user
   agent, a phone or tablet (iOS/iPadOS, Android phones, MC3Touch.isPhone)
   or deviceMemory <= 2; MC3_LOWMEM=1/0 forces): memory from 512 MB,
-  24 pool workers, RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
+  12 pool workers (more made on demand and kept; WebKit too since
+  2026-11-12, every iPhone ran 40 before, each a JS heap; '[WEB] workers: N'
+  logs each new peak), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
   MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=0, no 60 fps, light
   filtering. Failures show a box over the picture with the reason and the
   log's last 20 lines (index.html failShow: abort, page errors before the
   runtime is up, '[WGPU] device lost', '[GL] WebGL context lost', out of
   memory lines, no frame 90 s after the runtime is up; runtime not up 5 min
-  after Play). Crash tracing (2026-11-10, untested in a browser): every
+  after Play). WebGL context lost under a GPU stall (Android Mali, Chrome
+  156/157, 2026-11-12, fix untested on a phone): 10-77 s frames, then every
+  shader 'failed' with an empty log, then Emscripten's glGet*InfoLog took
+  .length of the lost context's null log ('Cannot read properties of null
+  (reading 'length')', GL thread dead, 'A game thread crashed', 31 logs;
+  not prewarm: the web build has no program list). pre.js makes those
+  getters return '' and nv2a_gl.c gl_lost() logs '[GL] WebGL context lost'
+  at the first failed compile/link and compiles nothing more. A browser
+  without wasm threads (Samsung Internet 14 = Chrome 87) gets a 'Browser
+  too old' box. Crash tracing (2026-11-10, untested in a browser): every
   failure box, page error after boot (no box, 3 a session), freeze (15 s
   without a new frame, tab visible) and killed tab (log tail + heartbeat
   in localStorage every 5 s, cleared on pagehide, sent on the next visit)
@@ -271,10 +298,19 @@ generated files when the lift inputs did not change.
   and '[WEB] tab hidden|visible' first; a hitch within 5 s of a Free Roam
   status change is not sent; Firefox's captureStream transfer refusal sets
   mc3.glProxy);
+  'Script error.' (2026-11-12, untested in a browser): WebKit gives the
+  page only that for any error without a script address (wasm trap, engine
+  error), not just other origins' scripts (8 iPhone logs). web/pre.js wraps
+  every Worker made after it (pool and on demand): its 'error' event logs
+  '[WEB] worker N error: ... (file:line)' at once (before Emscripten's
+  onerror is set), its onmessage (the page thread's wasm: proxied calls,
+  mailbox) logs '[WEB] worker N message (cmd C): page thread error: <stack>'
+  and rethrows. A bare 'Script error.' no longer stops the start (no box):
+  logged, sent as tag error.
   the log Worker (.deploy/worker.js, local) keys it logs/<day>-<tag>-
   <code>.txt and takes 10 an hour per address.
   New version (2026-11-12, untested in a browser): .deploy/stage.sh stamps config.json "version" (short hash of ../mc3-web-main HEAD); the page
-  (index.html versionCheck) re-reads it every 60 s and on tab visible and shows every player a dismissable notice. Only RELOAD=1 at stage also
+  (index.html versionCheck) re-reads it every 5 min while the tab is visible (and on turning visible, at most once per 5 min; ~130 players at 60 s was ~150 MB/day of Hosting transfer) and shows every player a dismissable notice. Only RELOAD=1 at stage also
   writes "reload" = that version, and then online players (lan.roaming or a room) get a 60 s reload box; career online and offline get the notice only.
   No version (web_serve.py) = off. Pages loaded before this shipped have no poll.
   Versioned module (2026-11-12): the page fetches <app>.js, then <app>.wasm, both from config moduleUrl
@@ -522,15 +558,27 @@ generated files when the lift inputs did not change.
   accept): driving under 12 m/s within 40 m (height 10 m) of 1+ driving
   players, the prompt box offers 'Street race? N nearby players will be
   invited'; White (Q, touch 'Flash'; still also the game's headlight toggle)
-  sends INVITE to the up to 7 nearest every 0.3 s for 10 s; each invitee
+  sends INVITE to the up to 7 nearest every 0.3 s for 15 s (was 10 until
+  2026-11-12); each invitee
   sees '<host> invites you to a race (N players)' and joins with White (under
-  12 m/s) within 10 s; the window closes at 10 s, when every invitee still in
+  12 m/s) within 15 s; the window closes at 15 s, when every invitee still in
   joined, or on the host's White; nobody joined = a note; else GO to each
   racer (its slot, every racer's id) and NO late to the rest; places from
   finish times (each on its own clock from GO), then checkpoints; decided when
   all still in finished, or one left 1 s past the latest finish (last), or at
   600 s; a racer gone/away/silent 5 s or saying NO is out (DNF); the result
-  lists every racer. While that prompt shows, White never starts the AI race; the course is the nearest
+  lists every racer. Quit (2026-11-12, untested in game): Black (E) held 1 s
+  or the prompt box's button (roam_race_button_box act/click, pre.js
+  Module.mc3RaceButton): the host cancels before GO (NO cancel to the
+  invitees: '<host> cancelled the race'), an invitee declines or leaves (NO
+  decline), a racer not yet finished gives up (NO decline: the others mark
+  it out, DNF; our checkpoints go, the cruise's empty array back); the
+  prompt's last line says so; '[CHALLENGE] cancel|give up ...'. Markers:
+  rc_state.bits 0x80 (ROAM_BIT_STREET, roam_game.c; builds before it test
+  0x40 only) while hosting a race someone joined, joined, counting down or
+  racing; name tags (roam_tags.c) of players with 0x40/0x80, or known from
+  our own INVITE/JOIN/GO, start with byte 2: pre.js draws a flag, gold;
+  invites skip them. While that prompt shows, White never starts the AI race; the course is the nearest
   sprint/circuit's own checkpoints, read from its .rac at challenge time
   (tune/race/<city>/<event>.rac through the game's file system and text
   tokenizer: position + 4 sizes), the whole course from checkpoint 0 to the
@@ -628,7 +676,7 @@ generated files when the lift inputs did not change.
   send nothing, the others never saw it). '[ROAM] pool: N peers, C cars (S
   slots + T standalone), D dimmed, heap F KB' every 30 s at most, when it
   changes. Car radius (2026-11-12, untested in game): a peer gets a car only
-  within 300 m of ours (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
+  within 250 m of ours (2026-11-12: was 300; the game fades its traffic at 250 m, 0x4AFD18) (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
   a group race) and gives it back (parked, reused) after 3 s beyond 350 m;
   beyond the radius a carless driving peer is a bright blip, not dimmed;
   the load's cars (roam_build, roam_pool_load) ignore it (our position may
@@ -760,6 +808,17 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   RECOMP_WGPU_STATS=1 (per-second line, GPU timestamps), MC3_PERF's
   '[perf] GL WebGPU' line; pipeline list cached in OPFS and prewarmed.
   tools/wgsl_check.sh validates the WGSL with naga.
+  GPU stalls (2026-11-12, untested in a browser): freeze logs with 'executor
+  waiting for ring space; GPU 2 of 2 frames in flight; device ready' (Intel
+  gen-9/11/12, Adreno, Mali; never Apple) follow a burst of new pipelines
+  ('slow frame N ms, 51 pipelines made' then '5 pipelines made' at the title
+  screen): onSubmittedWorkDone waits while the browser's GPU process
+  compiles; one came back after 7.5 s. The render thread never waited
+  forever on the JS side, but the executor did on it. Now after 10 s at the
+  limit '[WGPU] frame N never completed after T ms ...': that frame goes out,
+  the next are consumed without drawing (game runs on, picture holds, input
+  still read) until a frame completes ('[WGPU] GPU answered after ...'); at
+  30 s '[WGPU] GPU stopped responding' -> box, restart on WebGL.
 - **Widescreen (Hor+)**: RECOMP_ASPECT=auto|16:9|21:9|32:9 (page 'Screen
   shape'; Auto follows the canvas through a ResizeObserver ->
   nv2a_wgpu_aspect_box). Surfaces drawn 720 wide (the back buffer's pitch
@@ -896,6 +955,19 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   4. (movies) see above. Tools: `MC3_XACT_TRACE`, `MC3_WMA_TRACE`,
      `RECOMP_APU_TRACE` (adds `[APU-ST]`: samples/s, stream consumption,
      pacing), `RECOMP_AUDIO_DUMP=path,start,secs` (written at exit/Ctrl+C).
+  Wave bank release hang (Remix, 2026-11-12, fix untested in a browser;
+  freeze class I1, ~15 logs: watchdog 'executor running, ring 0', main
+  spinning in XACTENG/DSOUND with ~138 M kernel calls, at garage/race/Free
+  Roam state changes): a bank's Release (sub_0040EFC8 -> sub_0040E74B ->
+  sub_0040E68C) loops stop cues + XACTEngineDoWork (sub_004073D9) while
+  sub_00405DDF finds a track on the bank; a track ends when its stream
+  voice's status (sub_003C8288, voice flags +0x12) stops saying playing,
+  and 0x8001 (stop asked, APU never confirmed: the trapped front end of
+  sub_003C77C0's override) says playing forever. The sub_003C8288 override
+  runs DirectSound's own 500 ms stop timeout (sub_003C6B43) first for such
+  a voice ('[XACT] stream voice ...'); sub_00405DDF's logs what still holds
+  a bank after 3 s ('[XACT] wave bank ... release: still in use ...').
+  MC3_XACT_STOP_FIX=0 off.
 - Rendering found and fixed 2026-10-17: vertex programs read the viewport
   scale/offset as constants c[-38]/c[-37] (NV2A mirrors the registers there:
   cars were invisible); a narrower clip into the back buffer (race minimap,
@@ -1182,9 +1254,12 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   (traffic TireGrip), sub_001CAEF0 (AI).
   Drift scoring (2026-11-12, untested in game; src/games/remix/
   drift_score.c, fed by drift_step with Drift mode on or off): a drift =
-  slip > 10 deg above 30 km/h, not in free fall, race type 0 only; points/s
-  = 0.6 x clamp(slip, 10, 60) x m/s; banked x mult after 1 s under (or
-  stopped), mult x1..x5 per 2,500 chain points (next drift within 1.5 s);
+  slip > 20 deg above 50 km/h, not in free fall, race type 0 only; points/s
+  = 0.3 x clamp(slip, 20, 60) x m/s; banked x mult after 1 s under (or
+  stopped) only if it lasted >= 1.5 s above the threshold and made >= 300
+  points (else nothing, no popup; retuned 2026-11-12, owner: too easy; a
+  good 5 s drift at 35 deg / 80 km/h ~1,000), mult x1..x5 per 5,000 chain
+  points (next drift within 1.5 s);
   only a hit loses it (fix untested in game: the first rules, speed lost
   > 15 m/s^2 or a spin-out, fired mid-drift with no hit: a slide
   decelerates that hard; a spin now just banks): drift.c's test, no game
@@ -1192,7 +1267,7 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   ground plane (up row removed: landings) > 60 m/s^2 in one frame or
   > 45 over two (+20 braking/handbrake) and above the change along up;
   the speed give-back skips the same frames; '[DRIFT] lost: hit, <dv,
-  accel, km/h, yaw rate, slip, brake>' per loss. Under 100 points dropped.
+  accel, km/h, yaw rate, slip, brake>' per loss. Under 300 points or 1.5 s dropped.
   Online (browser): each 10,000 of the lifetime total
   (profile.bin v4, s_on_drift) pays $10,000 into +0xACC and saves. HUD
   drift_hud_box -> web/pre.js on the HUD's left edge at 36% height (payout

@@ -8,6 +8,20 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
     if (/^(RECOMP_|MC3_)/.test(k)) ENV[k] = String(env[k]);
 });
 
+// A lost WebGL context answers getShaderInfoLog / getProgramInfoLog with null, and this Emscripten's
+// glGetShaderInfoLog / glGetProgramInfoLog / glGetProgramiv(INFO_LOG_LENGTH) take its .length (stringToUTF8):
+// "Cannot read properties of null (reading 'length')" killed the GL thread, 'A game thread crashed' (Android Mali,
+// Chrome 156/157, 31 logs 2026-11-12/13, after 10-77 s GPU stalls). An empty log instead: the renderer then finds
+// the context lost (nv2a_gl.c gl_lost) and logs '[GL] WebGL context lost', the page's 'Graphics context lost' box.
+// Every thread (the GL thread is a pthread; the page thread when proxied).
+[typeof WebGL2RenderingContext == 'function' && WebGL2RenderingContext,
+ typeof WebGLRenderingContext == 'function' && WebGLRenderingContext].forEach(function (C) {
+  if (C) ['getShaderInfoLog', 'getProgramInfoLog'].forEach(function (n) {
+    var f = C.prototype[n];
+    if (f) C.prototype[n] = function (o) { var r = f.call(this, o); return r == null ? '' : r; };
+  });
+});
+
 // The wasm memory, made here on the page thread (workers get it from the runtime). CMakeLists.txt links 256 MB
 // at least, growth to 2 GB. A PC gets 2 GB up front and never grows (as the old fixed 2 GB); a browser that
 // cannot set that aside (32-bit Chrome) gets the first of 1 GB, 512 MB, 256 MB that it gives and grows from
@@ -20,7 +34,9 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
 // backing-store.cc): a growing memory may never grow there, so the game must fit its initial size (a TCL Google TV
 // refused every size from 448 MB up and gave 256/512, 2026-11-09).
 // WebKit (iPhone, iPad, Safari) sets aside a shared memory's whole maximum (256 MB with a 2 GB maximum was
-// refused on an iPhone): fixed sizes only (maximum = initial), pool kept at 40 even in the light profile. A Mac's
+// refused on an iPhone): fixed sizes only (maximum = initial). Pool 40 (the 2 GB baseline), but the light profile's
+// (12, index.html) since 2026-11-12: every iPhone ran 40 workers, each a JS heap of its own (Android's light profile
+// runs 12 and makes the rest on demand); '[WEB] workers: N' below gives the real need. A Mac's
 // Safari starts at 2 GB; iOS/iPadOS (the low profile, or the iPad's desktop user agent) at 1 GB: with a fixed 2 GB,
 // 61 iPhones were killed silently in the menus (previous-crash logs, 2026-11-11; the game's peak is ~400 MB).
 // Every refused size is logged; when nothing is given a page error says so (index.html failShow shows it).
@@ -28,7 +44,7 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
   var low = !!Module['mc3MemMB'], refused = [], i, ua = navigator.userAgent, log = Module['print'] || console.log;
   var ios = /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
   var webkit = ios || (/AppleWebKit/.test(ua) && !/Chrome|Chromium|Android/.test(ua));
-  if (webkit) delete Module['mc3Pool'];
+  if (webkit && !low) delete Module['mc3Pool'];
   var tries = webkit && (low || ios) ? [[1024, 1024], [768, 768], [512, 512]]
     : webkit ? [[2048, 2048], [1536, 1536], [1024, 1024], [768, 768], [512, 512]]
     : low ? [[1024, 1024], [768, 768], [640, 640], [512, 512], [448, 448], [416, 416], [384, 384], [352, 352],
@@ -42,7 +58,7 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
     try {
       Module['wasmMemory'] = new WebAssembly.Memory({ initial: pages(tries[i][0]), maximum: pages(tries[i][1]), shared: true });
       log('[WEB] memory: ' + tries[i][0] + ' MB to start, ' + tries[i][1] + ' MB at most'
-        + (webkit ? ' (WebKit: fixed, pool 40)' : low ? ' (low profile)' : '') + (gecko ? ' (Firefox: 64 KB less than 2 GB)' : '')
+        + (webkit ? ' (WebKit: fixed, pool ' + (Module['mc3Pool'] || 40) + ')' : low ? ' (low profile)' : '') + (gecko ? ' (Firefox: 64 KB less than 2 GB)' : '')
         + (refused.length ? ' (refused: ' + refused.join('; ') + ')' : ''));
       return;
     } catch (e) {
@@ -54,7 +70,7 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof WebAssembly == 'object' && !Module['wasmMe
     + '). Close other tabs and apps, or restart the browser.');
 })();
 
-// The pool workers (made when this script runs, before the .wasm): how many, and each one's loading or error, into
+// The pool workers (made when this script runs, before the .wasm): how many, and each one's loading (errors: below), into
 // the log. A worker that never loads holds the start forever ('1 start-up step(s) left', web/index.html), silently
 // before (Firefox on a TV, 2026-11-09).
 if (!ENVIRONMENT_IS_PTHREAD) Module['preRun'] = [].concat(Module['preRun'] || [], function () {
@@ -67,9 +83,60 @@ if (!ENVIRONMENT_IS_PTHREAD) Module['preRun'] = [].concat(Module['preRun'] || []
       if (e.data && (e.data.cmd === 3 || e.data.cmd === 'loaded') && (++n == 1 || n == all.length || n % 8 == 0))
         log('[WEB] module: pool worker ' + n + ' of ' + all.length + ' loaded');
     });
-    w.addEventListener('error', function (e) { log('[WEB] module: pool worker ' + (i + 1) + ' error: ' + (e.message || e.type)); });
   });
 });
+
+// Errors with their cause (2026-11-12): WebKit hands the page's 'error' event only 'Script error.' (no file, no error
+// object) for any error whose top frame has no script address -- a wasm trap, an engine RangeError -- not just for
+// other origins' scripts: 8 iPhone logs said nothing more (VBARSZ during the compile, D69TNT/SFABFG in Free Roam).
+// So the page thread's entries into the runtime are caught where they happen: every Worker made from here on (the
+// pool's and those made on demand) logs its 'error' event at once with file:line, before Emscripten's onerror is set
+// (a pool worker that dies while the .wasm compiles had none), and its onmessage (proxied calls, the mailbox: the
+// page thread's wasm) logs an uncaught exception's stack, then rethrows as before. '[WEB] worker N ...' lines.
+// Inside the pthreads Emscripten's own handler logs ('worker sent an error!'); unhandled rejections there throw too.
+if (!ENVIRONMENT_IS_PTHREAD && !ENVIRONMENT_IS_NODE && typeof Worker == 'function' && !Worker.mc3Watched) (function () {
+  var W = Worker, n = 0, onmsg = Object.getOwnPropertyDescriptor(W.prototype, 'onmessage');
+  var log = function (m) { (Module['printErr'] || console.error)(m); };
+  function why(x) {
+    if (!x || typeof x != 'object') return String(x);
+    var s = String(x.stack || '');
+    return String(x) + (s && s.indexOf(String(x.message)) < 0 ? '; ' : s ? ' | ' : '') + s.replace(/\s*\n\s*/g, ' < ').slice(0, 1500);
+  }
+  function Watched(url, opts) {
+    var w = new W(url, opts), id = ++n;
+    w.addEventListener('error', function (e) {
+      log('[WEB] worker ' + id + ' error: ' + (e.message || e.type) + (e.filename ? ' (' + String(e.filename).replace(/^.*\//, '')
+        + ':' + e.lineno + ':' + e.colno + ')' : ' (no file: the browser hid it)') + (e.error ? '; ' + why(e.error) : ''));
+    });
+    if (onmsg && onmsg.set) Object.defineProperty(w, 'onmessage', { configurable: true, get: function () { return onmsg.get.call(w); },
+      set: function (f) {
+        onmsg.set.call(w, typeof f != 'function' ? f : function (e) {
+          try { return f.apply(this, arguments); } catch (x) {
+            if (x !== 'unwind' && !(x && x.mc3Seen)) {
+              try { x.mc3Seen = 1; } catch (_) {}
+              log('[WEB] worker ' + id + ' message' + (e && e.data && e.data.cmd ? ' (cmd ' + e.data.cmd + ')' : '') + ': page thread error: ' + why(x));
+            }
+            throw x;
+          }
+        });
+      } });
+    return w;
+  }
+  Watched.prototype = W.prototype;
+  Watched.mc3Watched = true;
+  globalThis.Worker = Watched;
+})();
+
+// How many workers the run really needed (pool + made on demand; idle ones are kept): logged at each new peak, so the
+// pool size (Module.mc3Pool) can follow the logs. '[WEB] workers: N (R threads running)'.
+if (!ENVIRONMENT_IS_PTHREAD && !ENVIRONMENT_IS_NODE && typeof setInterval == 'function') (function () {
+  var peak = 0, log = Module['print'] || console.log;
+  setInterval(function () {
+    if (typeof PThread != 'object' || !PThread.unusedWorkers) return;
+    var run = Object.keys(PThread.pthreads).length, all = run + PThread.unusedWorkers.length;
+    if (all > peak) { peak = all; log('[WEB] workers: ' + all + ' (' + run + ' threads running)'); }
+  }, 5000);
+})();
 
 // A refused growth (sbrk past what the browser set aside; a 32-bit TV's maximum is often only its initial size):
 // logged as '[WEB] out of memory: ...' (the page's 'Out of memory' box) before the runtime aborts the game
@@ -275,6 +342,8 @@ Module['mc3SaveResult'] = function (n) {
     for (var i = 0; i < n; i++) {
       var t = b + 4 + i * 10, el = pool[i], name = '';
       for (var c = 0, p = (t + 3) * 4; c < 27 && U8[p + c]; c++) name += String.fromCharCode(U8[p + c]);
+      var racing = name.charCodeAt(0) === 2;   // going to race or racing (roam_tags.c rch_marked): flag, gold
+      if (racing) name = '🏁 ' + name.slice(1);
       if (!el) {
         el = pool[i] = document.createElement('div');
         el.style.cssText = 'position:absolute;left:0;top:0;white-space:nowrap;font-weight:700;' +
@@ -283,7 +352,7 @@ Module['mc3SaveResult'] = function (n) {
         layer.append(el);
       }
       if (el.textContent !== name) el.textContent = name;
-      el.style.color = rgb;
+      el.style.color = racing ? '#ffd24a' : rgb;
       el.style.fontSize = Math.max(10, h * 0.022).toFixed(1) + 'px';   // about the HUD's small text
       el.style.transform = 'translate(' + (x + F32[t] * w).toFixed(1) + 'px,' + (y + F32[t + 1] * h).toFixed(1) +
         'px) translate(-50%,-100%)';
@@ -303,7 +372,7 @@ Module['mc3SaveResult'] = function (n) {
 // 16:9); hidden without a list (web/server's switch has none). Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
-  var canvas = Module['canvas'], el = null, pel = null, pshown = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
+  var canvas = Module['canvas'], el = null, pel = null, pshown = null, rel = null, rshown = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
   var CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'], ROWS = 24;   // free-roam room ids 0..3 (web/index.html)
   var me = String((Module['mc3Env'] || {}).MC3_PLAYER_NAME || '').toLowerCase();
   if (!canvas) return;
@@ -327,7 +396,7 @@ Module['mc3SaveResult'] = function (n) {
     var lan = Module['mc3Lan'], list = lan && lan.players && Array.isArray(lan.players.list) ? lan.players.list : null;
     var open = now - seenAt <= 400, show = open && !!list;   // map closed, paused or gone; no list: players hidden
     if (!show) el.style.display = 'none';
-    if (!open) { if (pel) pel.style.display = 'none'; return; }
+    if (!open) { if (pel) pel.style.display = 'none'; if (rel) rel.style.display = 'none'; return; }
     var roam = (list || []).filter(function (p) { return p && p.mode == 'roam'; }), mine = [], other = [];
     roam.forEach(function (p) { (p.city === here ? mine : other).push(p); });
     var key = here + '|' + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : ''); }).join('\u0002');
@@ -364,7 +433,7 @@ Module['mc3SaveResult'] = function (n) {
     if (!canvas.parentNode.classList.contains('stretch')) {
       if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
     }
-    if (!(w > 0 && h > 0)) { el.style.display = 'none'; if (pel) pel.style.display = 'none'; return; }
+    if (!(w > 0 && h > 0)) { el.style.display = 'none'; if (pel) pel.style.display = 'none'; if (rel) rel.style.display = 'none'; return; }
     var st = el.style, pad = Math.max(8, h * 0.02), fs = Math.max(10, h * 0.022).toFixed(1) + 'px', right = x + w - pad;
     st.fontSize = fs;
     st.maxWidth = (w * 0.2).toFixed(0) + 'px';
@@ -373,32 +442,82 @@ Module['mc3SaveResult'] = function (n) {
     if (show) st.display = '';
     // Online progress panel (src/games/remix/online_progress.c roam_progress_box: online, wins, "Latest\nNext"),
     // to the left of the players panel (the right edge when that is hidden), same top.
-    if (typeof _roam_progress_box != 'function') return;
-    var pb = _roam_progress_box() >>> 2;
-    if (!I32[pb]) { if (pel) pel.style.display = 'none'; return; }   // not the Online session
-    if (!pel) {
-      pel = document.createElement('div');
-      pel.style.cssText = el.style.cssText;
-      pel.style.whiteSpace = 'normal';
-      canvas.parentNode.append(pel);
+    var gap = Math.max(6, h * 0.015), edge = right - (show ? el.offsetWidth + gap : 0), top = (y + h * 0.1).toFixed(1);
+    var pb = typeof _roam_progress_box == 'function' ? _roam_progress_box() >>> 2 : 0;
+    if (!pb || !I32[pb]) { if (pel) pel.style.display = 'none'; }   // not the Online session
+    else {
+      if (!pel) {
+        pel = document.createElement('div');
+        pel.style.cssText = el.style.cssText;
+        pel.style.whiteSpace = 'normal';
+        canvas.parentNode.append(pel);
+      }
+      var pe = (pb + 2) << 2, pend = pe + 160;
+      while (pe < pend && HEAPU8[pe]) pe++;
+      var lines = new TextDecoder().decode(HEAPU8.slice((pb + 2) << 2, pe)).split('\n'), ptext = I32[pb + 1] + '|' + lines.join('|');
+      if (ptext !== pshown) {
+        pshown = ptext;
+        pel.textContent = '';
+        pel.append(row('Online progress', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
+        pel.append(row('Races won: ' + I32[pb + 1]));
+        pel.append(row('Latest: ' + lines[0], 'opacity:.85'));
+        pel.append(row(lines[1] ? 'Next: ' + lines[1] : 'Everything unlocked', 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
+      }
+      var ps = pel.style;
+      ps.fontSize = fs;
+      ps.width = (w * 0.2).toFixed(0) + 'px';
+      ps.maxHeight = (h * 0.8).toFixed(0) + 'px';
+      ps.transform = 'translate(' + edge.toFixed(1) + 'px,' + top + 'px) translateX(-100%)';
+      ps.display = '';
+      edge -= pel.offsetWidth + gap;
     }
-    var pe = (pb + 2) << 2, pend = pe + 160;
-    while (pe < pend && HEAPU8[pe]) pe++;
-    var lines = new TextDecoder().decode(HEAPU8.slice((pb + 2) << 2, pe)).split('\n'), ptext = I32[pb + 1] + '|' + lines.join('|');
-    if (ptext !== pshown) {
-      pshown = ptext;
-      pel.textContent = '';
-      pel.append(row('Online progress', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
-      pel.append(row('Races won: ' + I32[pb + 1]));
-      pel.append(row('Latest: ' + lines[0], 'opacity:.85'));
-      pel.append(row(lines[1] ? 'Next: ' + lines[1] : 'Everything unlocked', 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
+    // Race panel (src/games/remix/roam_challenge.c roam_race_box: mode 1 our race / 2 players racing near, '\n' lines,
+    // '\t' columns), left of the progress panel; hidden with nothing to show.
+    var rb = typeof _roam_race_box == 'function' ? _roam_race_box() >>> 2 : 0, rmode = rb ? I32[rb] : 0;
+    if (!rmode) { if (rel) rel.style.display = 'none'; return; }
+    if (!rel) {
+      rel = document.createElement('div');
+      rel.style.cssText = el.style.cssText;
+      rel.style.whiteSpace = 'normal';
+      canvas.parentNode.append(rel);
     }
-    var ps = pel.style, gap = Math.max(6, h * 0.015);
-    ps.fontSize = fs;
-    ps.width = (w * 0.2).toFixed(0) + 'px';
-    ps.maxHeight = (h * 0.8).toFixed(0) + 'px';
-    ps.transform = 'translate(' + (right - (show ? el.offsetWidth + gap : 0)).toFixed(1) + 'px,' + (y + h * 0.1).toFixed(1) + 'px) translateX(-100%)';
-    ps.display = '';
+    var re = (rb + 1) << 2, rend = re + 700;
+    while (re < rend && HEAPU8[re]) re++;
+    var rtext = new TextDecoder().decode(HEAPU8.slice((rb + 1) << 2, re));
+    if (rtext !== rshown) {
+      rshown = rtext;
+      rel.textContent = '';
+      var rl = rtext.split('\n'), hd = rl[0].split('\t');
+      if (rmode == 1) {
+        rel.append(row('Race · ' + hd[2], 'font-size:1.1em;letter-spacing:.03em'));
+        rel.append(row(hd[0] + (hd[1] && hd[1] != 'start beacons' ? ' · ' + hd[1] : ''), 'color:#ffd24a;font-size:.85em;margin-bottom:.2em'));
+        rl.slice(1).forEach(function (l) {
+          var c = l.split('\t'), d = document.createElement('div');
+          d.style.cssText = 'display:flex;gap:.5em;white-space:nowrap';
+          [c[0] ? c[0] + '.' : '', c[1], c[2], c[3]].forEach(function (t, i) {
+            var s = document.createElement('span');
+            s.textContent = t || '';
+            if (i == 0) s.style.minWidth = '1.2em';
+            if (i == 1) { s.style.cssText = 'flex:1;overflow:hidden;text-overflow:ellipsis'; if (c[1] == 'You') s.style.color = '#7fd4ff'; }
+            if (i == 3) s.style.cssText = 'font-size:.85em;color:' + (/DNF|out/.test(t || '') ? '#ff8a7a' : '#ffd24a');
+            d.append(s);
+          });
+          rel.append(d);
+        });
+      } else {
+        rel.append(row(hd[0], 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
+        rl.slice(1).forEach(function (l) {
+          var c = l.split('\t');
+          rel.append(row('⚑ ' + c[0] + (c[1] == 'street' ? ' · street race' : ' · race'), String(c[0]).toLowerCase() == me ? 'color:#7fd4ff' : ''));
+        });
+      }
+    }
+    var rs = rel.style;
+    rs.fontSize = fs;
+    rs.width = (w * 0.22).toFixed(0) + 'px';
+    rs.maxHeight = (h * 0.8).toFixed(0) + 'px';
+    rs.transform = 'translate(' + edge.toFixed(1) + 'px,' + top + 'px) translateX(-100%)';
+    rs.display = '';
   }
   requestAnimationFrame(frame);
 })();
@@ -410,9 +529,17 @@ Module['mc3SaveResult'] = function (n) {
 // at most 32% of the picture wide, and kept above the touch controls. A text starting with \x01 (the countdown, GO, the
 // first 2 s of a result) is big and centred instead. Placed from the game picture's rect (letterboxing, Hor+), as the
 // name tags. Main thread only.
+// Its button (2026-11-12): roam_challenge.c's roam_race_button_box (act, click): act = what quitting does now (1 cancel
+// the race we host, 2 leave a race we joined, 3 give up a running race, 4 decline an invite; 0 none), shown as a
+// button under the text; a tap writes that act into click (Module.mc3RaceButton), the game takes it while still offered.
+Module['mc3RaceButton'] = function (act) {
+  if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_race_button_box != 'function') return;
+  Atomics.store(new Int32Array(HEAPU8.buffer), (_roam_race_button_box() >>> 2) + 1, act | 0);
+};
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
   var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null, big = false;
+  var ACTS = { 1: 'Cancel race', 2: 'Leave race', 3: 'Give up race', 4: 'Decline' };
   // the minimap's top-left in the HUD's 16:9 (720x480 layout): left edge and top, fractions of the HUD's width/height
   var MAP_LEFT = 0.055, MAP_TOP = 0.64, GAP = 0.015;
   if (!canvas) return;
@@ -436,8 +563,10 @@ Module['mc3SaveResult'] = function (n) {
       while (e < end && HEAPU8[e]) e++;
       text = new TextDecoder().decode(HEAPU8.slice(b + 4, e));
     }
-    if (text !== shown) {
-      shown = text;
+    var act = text && typeof _roam_race_button_box == 'function' ? I32[_roam_race_button_box() >>> 2] | 0 : 0;
+    if (!ACTS[act]) act = 0;
+    if (text + '|' + act !== shown) {
+      shown = text + '|' + act;
       big = text.charCodeAt(0) === 1;
       if (big) text = text.slice(1);
       el.textContent = '';
@@ -445,6 +574,7 @@ Module['mc3SaveResult'] = function (n) {
         var d = document.createElement('div');
         if (i === 0) d.style.cssText = big ? 'font-size:2.6em;line-height:1.05;color:#ffd24a' : 'font-size:1.15em;letter-spacing:.03em';
         else if (i === 1) d.style.cssText = 'opacity:.85;font-size:.9em';
+        else if (i >= 3) d.style.cssText = 'margin-top:.2em;font-size:.8em;opacity:.8';   // the quit hint
         else d.style.cssText = 'margin-top:.25em;color:#ffd24a';
         line.split(/(\[[^\]]+\])/).forEach(function (part) {   // [Q] = a keycap
           if (/^\[.+\]$/.test(part)) {
@@ -457,6 +587,22 @@ Module['mc3SaveResult'] = function (n) {
         });
         if (text) el.append(d);
       });
+      if (act) {   // the box ignores the pointer; its button takes it (mouse and touch)
+        var btn = document.createElement('button'), a = act;
+        btn.type = 'button';
+        btn.tabIndex = -1;
+        btn.textContent = ACTS[act];
+        btn.style.cssText = 'pointer-events:auto;display:block;margin-top:.45em;padding:.3em 1em;min-height:2.2em;' +
+          'border-radius:6px;border:1px solid rgba(255,255,255,.7);background:#a3262a;color:#fff;font:inherit;' +
+          'font-size:.9em;cursor:pointer;touch-action:manipulation';
+        btn.addEventListener('pointerdown', function (ev) {   // not a click: the canvas keeps focus (keys)
+          ev.preventDefault();
+          ev.stopPropagation();
+          Module['mc3RaceButton'](a);
+        });
+        if (big) btn.style.margin = '.45em auto 0';
+        el.append(btn);
+      }
     }
     if (!text) { el.style.display = 'none'; return; }
     // the picture inside the canvas (object-fit contain unless Stretch), its shape as the name tags got it
