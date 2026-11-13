@@ -187,6 +187,9 @@ int rc_state_get(rc_r *r, rc_state *s, int ext){
 
 /* ---- messages ---- */
 static int printable(const char *s, uint32_t n){ for (uint32_t i = 0; i < n; i++) if ((uint8_t)s[i] < 0x20 || (uint8_t)s[i] >= 0x7F) return 0; return 1; }
+/* a flag's code (nfsu2-web's flag_ok / flag_len): lower case letters and '-' */
+static int flag_ok(const char *s, uint32_t n){ for (uint32_t i = 0; i < n; i++) if (!((s[i] >= 'a' && s[i] <= 'z') || s[i] == '-')) return 0; return 1; }
+static uint32_t flag_len(const char *s){ uint32_t n = 0; while (n <= RC_FLAG_MAX && s[n]) n++; return n; }   /* RC_FLAG_MAX + 1: too long */
 
 int rc_encode(const rc_msg *m, uint8_t *out, int cap){
     rc_w w; rc_w_init(&w, out, (uint32_t)(cap < RC_MAX_DGRAM ? cap : RC_MAX_DGRAM));
@@ -202,9 +205,12 @@ int rc_encode(const rc_msg *m, uint8_t *out, int cap){
         rc_put8(&w, nl); rc_putb(&w, m->u.hello.name, nl);
         rc_put8(&w, m->u.hello.n_seen);
         for (int i = 0; i < m->u.hello.n_seen; i++) rc_put32(&w, m->u.hello.seen[i]);
-        if (m->u.hello.links){                                     /* no crews, then the links (nfsu2-web's core 10) */
+        uint32_t fl = flag_len(m->u.hello.flag);
+        if (fl > RC_FLAG_MAX || !flag_ok(m->u.hello.flag, fl)) return -1;
+        if (m->u.hello.links || fl){                               /* no crews, then the links (nfsu2-web's core 10) */
             if (!(m->h.flags & RC_HF_CREW) || m->u.hello.links > RC_MAX_PEERS) return -1;
             rc_put8(&w, 0); rc_put8(&w, m->u.hello.links);
+            if (fl){ rc_put32(&w, 0); rc_put8(&w, fl); rc_putb(&w, m->u.hello.flag, fl); }   /* no duel, the flag (its core 13) */
         }
         break; }
     case RC_MSG_PEERS:
@@ -292,6 +298,14 @@ int rc_decode(const uint8_t *buf, int len, rc_msg *m){
             if (nc > 4) return RC_E_FIELD;
             r.n += 4 * nc < r.len - r.n ? 4 * nc : r.len - r.n;   /* crews: not used here */
             if (r.n < r.len) m->u.hello.links = (uint8_t)rc_get8(&r);
+            if (r.n + 4 <= r.len) r.n += 4;                       /* nfsu2-web's duel: not used here */
+            if (r.n < r.len){                                     /* the flag (core 19): one that is not a code, none */
+                uint32_t fl = rc_get8(&r);
+                if (fl <= RC_FLAG_MAX && r.n + fl <= r.len){
+                    rc_getb(&r, m->u.hello.flag, fl); m->u.hello.flag[fl] = 0;
+                    if (!flag_ok(m->u.hello.flag, fl)) m->u.hello.flag[0] = 0;
+                }
+            }
             r.n = r.len;                                          /* a newer core's additions */
         }
         break; }
@@ -613,6 +627,7 @@ void rc_session_init(rc_session *s, const rc_config *cfg, const rc_io *io){
     if (s->conf.links > RC_MAX_PEERS) s->conf.links = RC_MAX_PEERS;
     if (!s->conf.self_id) s->conf.self_id = 1;
     rc_name_clean(s->conf.name, cfg->name, RC_NAME_MAX + 1);
+    { uint32_t fl = flag_len(s->conf.flag); if (fl > RC_FLAG_MAX || !flag_ok(s->conf.flag, fl)) s->conf.flag[0] = 0; }
     for (int i = 0; i < RC_TABLE; i++) rc_interp_reset(&s->peer[i].mo);
     s->status = RC_ST_MENUS;
     s->last_beacon = -T_BEACON;
@@ -647,6 +662,7 @@ static void fill_hello(rc_session *s, rc_msg *m, const rc_peer *to){
     m->u.hello.core_ver = RC_CORE_VER; m->u.hello.platform = s->conf.platform; m->u.hello.status = s->status;
     m->u.hello.listen_port = s->conf.port; m->u.hello.cfg_rev = s->cfg_rev; m->u.hello.room = s->conf.room;
     memcpy(m->u.hello.name, s->conf.name, sizeof m->u.hello.name);
+    if (to) memcpy(m->u.hello.flag, s->conf.flag, sizeof m->u.hello.flag);   /* our flag to each peer; the hubs read none */
     int n = 0, full = group_count(s) + 1 >= group_max(s);
     if (to){
         /* to one peer: its own id once established, or heard while the group has room */
@@ -779,6 +795,7 @@ void rc_receive(rc_session *s, uint32_t ip, uint16_t port, const uint8_t *buf, i
         if (m.u.hello.room != s->conf.room){ s->rx_room++; if (p->state == RC_PS_EST) drop_peer(s, i, "other room"); return; }
         int first = !p->name[0];
         memcpy(p->name, m.u.hello.name, sizeof p->name);
+        if (!(m.h.flags & RC_HF_ALL)) memcpy(p->flag, m.u.hello.flag, sizeof p->flag);   /* a beacon carries none */
         p->platform = m.u.hello.platform; p->status = m.u.hello.status; p->cfg_rev_seen = m.u.hello.cfg_rev;
         p->core_ver = m.u.hello.core_ver;
         p->statex = (m.h.flags & RC_HF_STATEX) != 0;

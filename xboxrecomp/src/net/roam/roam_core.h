@@ -2,7 +2,7 @@
  *
  * Ported from nfsu2-web (runtime/roam_core.h, MIT License, Copyright (c)
  * 2026 th0mk), cut down to what any game needs: its NFSU2 layer (duels,
- * race lobbies, quick chat, crews, world map, flags, one-way links, the
+ * race lobbies, quick chat, crews, world map, one-way links, the
  * NFSU2 state extension and car record) is left out.  Its wire format is
  * kept for the messages that stay (magic "MC3R" in place of "N2FR"):
  *
@@ -15,7 +15,10 @@
  *   HELLO   core_ver u16, platform u8, status u8, listen_port u16,
  *           cfg_rev u16, room u32, name (len u8 + bytes), n_seen u8 + ids
  *           u32; with RC_HF_CREW: n_crews u8 (0 here) [+ crews], links u8
- *           (to the hub: the players it should link us with)
+ *           (to the hub: the players it should link us with); to a peer
+ *           (core 19, nfsu2-web's core 13 layout): links u8 (0), duel u32
+ *           (0), flag (len u8 + 0..RC_FLAG_MAX bytes, a-z and '-': the
+ *           country before the name); older cores skip what follows links
  *   PEERS   n u8, then n x { ip (4 bytes, big-endian), port u16, id u32 }
  *           (a hub's crew marks after them are skipped)
  *   SNAP    status u8, epoch u8, cfg_rev u16, n u8, clock u8, n states
@@ -50,7 +53,7 @@
 #include "roam_api.h"
 
 #define RC_PROTO_VER     1
-#define RC_CORE_VER      18
+#define RC_CORE_VER      19
 #define RC_MAGIC0        0x4D       /* "MC3R" */
 #define RC_MAGIC1        0x43
 #define RC_MAGIC2        0x33
@@ -60,6 +63,7 @@
 #define RC_HDR           16
 #define RC_CRC           4
 #define RC_NAME_MAX      ROAM_NAME_MAX
+#define RC_FLAG_MAX      ROAM_FLAG_MAX
 #define RC_MAX_PLAYERS   65         /* this machine + 64 peers */
 #define RC_MAX_PEERS     (RC_MAX_PLAYERS - 1)
 #define RC_PEERS_V1      7          /* ids a HELLO to everyone names at most */
@@ -124,7 +128,7 @@ typedef struct {
     union {
         struct { uint16_t core_ver; uint8_t platform, status; uint16_t listen_port, cfg_rev;
                  uint32_t room; char name[RC_NAME_MAX + 1]; uint8_t n_seen; uint32_t seen[RC_MAX_PEERS];
-                 uint8_t links; } hello;
+                 uint8_t links; char flag[RC_FLAG_MAX + 1]; } hello;   /* flag: to a peer, "" none */
         struct { uint8_t n; struct { uint32_t ip; uint16_t port; uint32_t id; } e[RC_LIST_MAX]; } peers;
         struct { uint8_t status, epoch; uint16_t cfg_rev; uint8_t n, clock; rc_state s[RC_SNAP_STATES]; } snap;
         struct { uint16_t cfg_rev; uint8_t frag, nfrag; uint16_t total, dlen; const uint8_t *data; } cfg;
@@ -204,6 +208,7 @@ typedef struct {
     int      snap_states;          /* states per SNAP (1 .. RC_SNAP_STATES; 0 = all) */
     uint32_t hub_ip;  uint16_t hub_port;   /* the server's hub, or 0 */
     int      links;                /* the players the hub links us with (1 .. RC_MAX_PEERS) */
+    char     flag[RC_FLAG_MAX + 1];  /* our flag's code ("br"), "" none: HELLO, to the peers */
 } rc_config;
 
 enum { RC_PS_FREE = 0, RC_PS_CANDIDATE = 1, RC_PS_HEARD = 2, RC_PS_EST = 3 };
@@ -218,6 +223,7 @@ typedef struct {
     int64_t  hub_first_us;         /* first listed by the hub (this slot's life); 0 = never */
     int      said_nosnap;          /* 'listed, no snapshot' logged */
     char     name[RC_NAME_MAX + 1];
+    char     flag[RC_FLAG_MAX + 1];  /* as its last HELLO had it ("" none, or a core before 19) */
     uint8_t  platform, status, statex;
     uint16_t core_ver, cfg_rev_seen;
     int      hears_us, lost, hears_miss;

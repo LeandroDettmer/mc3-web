@@ -32,6 +32,7 @@ extern "C" {
 #define ROAM_K_DEFAULT   7          /* players linked by the hub (the nearest K) */
 #define ROAM_K_MAX       64
 #define ROAM_NAME_MAX    24
+#define ROAM_FLAG_MAX    6          /* a flag's code: "br", "gb-eng" (a-z and '-'; nfsu2-web's) */
 #define ROAM_CFG_MAX     2048       /* the car-look record at most (MC3 CarCfg: 264) */
 #define ROAM_EXT_MAX     29         /* a state's game-defined extension at most, bytes */
 #define ROAM_MSG_MAX     96         /* a game message (roam_send_msg) at most, bytes */
@@ -77,6 +78,7 @@ typedef struct roam_peer {
     uint8_t  ext_len;
     uint8_t  ext[ROAM_EXT_MAX];
     uint32_t cfg_gen;              /* changes with each new car-look record (roam_peer_cfg); 0: none yet */
+    char     flag[ROAM_FLAG_MAX + 1]; /* its flag's code, "" none */
 } roam_peer;
 
 /* A player beyond our links, as the hub's FAR list gives it (every ~1 s): a
@@ -93,7 +95,7 @@ typedef struct roam_far_peer {
 /* Starts free roam as `name` (printable ASCII, cut to ROAM_NAME_MAX).  vip:
  * our virtual address (host order), 0 = the one the page's switch link holds
  * (web).  0 on success, -1 when there is no platform, no link or it runs. */
-int  roam_start(const char *name, uint32_t vip);
+int  roam_start(const char *name, uint32_t vip);   /* our flag: MC3_PLAYER_FLAG (a code, else none) */
 void roam_stop(void);                       /* BYE to every peer, network thread joined */
 int  roam_running(void);
 /* the players the hub links us with (1 .. ROAM_K_MAX); default ROAM_K_DEFAULT,

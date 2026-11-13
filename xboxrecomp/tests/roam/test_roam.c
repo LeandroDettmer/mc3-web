@@ -17,6 +17,33 @@ static int g_fail, g_pass;
 static uint32_t le32(const uint8_t *p){ return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24; }
 
 /* ---- wire ---- */
+/* The flag in a HELLO to a peer (core 19), nfsu2-web's core 13 layout: after the seen ids, crews 0, links,
+ * duel u32 0, len u8 + code.  A core 18 decoder (the HF_CREW branch: crews, links, then r.n = r.len) skips the
+ * rest, so older builds take it; a HELLO without it decodes with no flag. */
+static void t_flag(void){
+    uint8_t b[RC_MAX_DGRAM]; rc_msg m, d;
+    memset(&m, 0, sizeof m);
+    m.h.type = RC_MSG_HELLO; m.h.sender = 9; m.h.flags = RC_HF_CREW | RC_HF_STATEX;
+    m.u.hello.core_ver = RC_CORE_VER; m.u.hello.status = RC_ST_ROAM; strcpy(m.u.hello.name, "Ann");
+    m.u.hello.n_seen = 1; m.u.hello.seen[0] = 5; strcpy(m.u.hello.flag, "gb-eng");
+    int n = rc_encode(&m, b, sizeof b), at = RC_HDR + 12 + 1 + 3 + 1 + 4;
+    CHECK(n == at + 1 + 1 + 4 + 1 + 6 + RC_CRC, "flag hello length %d", n);
+    CHECK(b[at] == 0 && b[at + 1] == 0 && le32(b + at + 2) == 0 && b[at + 6] == 6 && !memcmp(b + at + 7, "gb-eng", 6), "flag layout");
+    CHECK(rc_decode(b, n, &d) == RC_OK && !strcmp(d.u.hello.flag, "gb-eng") && d.u.hello.links == 0 && d.u.hello.n_seen == 1, "flag round trip");
+    m.u.hello.flag[0] = 0;                                       /* none: no tail at all, as core 18 sent to a peer */
+    n = rc_encode(&m, b, sizeof b);
+    CHECK(n == at + RC_CRC && rc_decode(b, n, &d) == RC_OK && !d.u.hello.flag[0], "no flag: old layout, empty flag");
+    m.u.hello.links = 7;                                         /* links only (to the hub, or an old peer) */
+    n = rc_encode(&m, b, sizeof b);
+    CHECK(rc_decode(b, n, &d) == RC_OK && d.u.hello.links == 7 && !d.u.hello.flag[0], "links, no flag");
+    strcpy(m.u.hello.flag, "BR"); CHECK(rc_encode(&m, b, sizeof b) < 0, "bad flag not sent");
+    memcpy(m.u.hello.flag, "toolong", sizeof m.u.hello.flag); CHECK(rc_encode(&m, b, sizeof b) < 0, "long flag not sent");
+    /* a peer's bad code on the wire: the HELLO stands, no flag */
+    strcpy(m.u.hello.flag, "br"); m.u.hello.links = 0; n = rc_encode(&m, b, sizeof b);
+    b[n - RC_CRC - 2] = 'B';
+    uint32_t c = rc_crc32(b, (uint32_t)n - RC_CRC); b[n - 4] = (uint8_t)c; b[n - 3] = (uint8_t)(c >> 8); b[n - 2] = (uint8_t)(c >> 16); b[n - 1] = (uint8_t)(c >> 24);
+    CHECK(rc_decode(b, n, &d) == RC_OK && !d.u.hello.flag[0], "bad flag on the wire: none");
+}
 static rc_state mk_state(uint32_t t, float x, float vx){
     rc_state s; memset(&s, 0, sizeof s);
     s.t_us = t; s.p[0] = x; s.p[1] = 2.f; s.p[2] = -3.f; s.v[0] = vx; s.q[3] = 1; s.rpm = 3000; s.speed = vx; s.gear = 3; s.throttle = 0.5f;
@@ -205,6 +232,7 @@ static void t_loopback(int with_hub){
         rc_config c; memset(&c, 0, sizeof c);
         c.self_id = 0x1000u + (uint32_t)k; c.port = ROAM_PORT; c.discovery = !with_hub; c.max_players = 8; c.rate_hz = 20; c.snap_states = 1;
         snprintf(c.name, sizeof c.name, k ? "Bob" : "Ann");
+        if (!k) strcpy(c.flag, "br");   /* Bob has none */
         if (with_hub){ c.hub_ip = ROAM_HUB_VIP; c.hub_port = ROAM_PORT; c.links = ROAM_K_DEFAULT; }
         rc_io io = { &g_ep[k], io_send, io_bcast, 0 };
         rc_session_init(&g_s[k], &c, &io);
@@ -245,6 +273,12 @@ static void t_loopback(int with_hub){
     int bob_sees_cfg = 0;
     for (int i = 0; i < RC_TABLE; i++) if (g_s[1].peer[i].state == RC_PS_EST) bob_sees_cfg = g_s[1].peer[i].cfg_len == 264 && !memcmp(g_s[1].peer[i].cfg, cfg, 264);
     CHECK(bob_sees_cfg, "%s: car record reached Bob", how);
+    int flags_ok = 1;
+    for (int i = 0; i < RC_TABLE; i++){
+        if (g_s[1].peer[i].state == RC_PS_EST && strcmp(g_s[1].peer[i].flag, "br")) flags_ok = 0;
+        if (g_s[0].peer[i].state == RC_PS_EST && g_s[0].peer[i].flag[0]) flags_ok = 0;
+    }
+    CHECK(flags_ok, "%s: Ann's flag reached Bob, Bob's none reached Ann", how);
     if (with_hub) CHECK(g_hub_rx > 10 && g_s[0].hub_lists > 5, "hub: HELLOs/SNAPs to the hub (%u), its lists heard (%u)", g_hub_rx, g_s[0].hub_lists);
     /* the hub lists neither while both keep sending: the link holds (T_HUB_GRACE_LIVE, 15 s), then goes */
     if (with_hub){
@@ -301,6 +335,7 @@ static void t_loopback(int with_hub){
 
 int main(void){
     t_wire();
+    t_flag();
     t_interp();
     t_loopback(0);
     t_loopback(1);
