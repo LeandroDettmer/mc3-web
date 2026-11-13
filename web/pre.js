@@ -278,7 +278,7 @@ Module['mc3TouchPad'] = function (words) {
     return true;
   };
   // The rate a race or cruise steps at now (mc3_live_box word 4, MC3_LIVE_FPS_NOW: 30, 60 or N), 0 outside them,
-  // undefined until the runtime is up (web/index.html fpsGovern). HEAPU8 throws before then: checked inside try.
+  // undefined until the runtime is up. HEAPU8 throws before then: checked inside try.
   Module['mc3FpsNow'] = function () {
     try {
       if (!runtimeInitialized || !game()) return;

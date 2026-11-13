@@ -686,11 +686,11 @@
     { group: 'Performance' },
     { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL. Firefox always uses WebGL (its WebGPU shows a black screen). Auto also uses WebGL on GPUs whose WebGPU froze the game (Mali, Adreno 600 and older, Intel HD/UHD 4xx-6xx) and on a device where WebGPU froze or failed before; WebGPU here forces it (and forgets the failure).',
       opts: [['', 'Auto (default)'], ['webgpu', 'WebGPU'], ['webgl', 'WebGL']] },
-    // stored values: '' 30, '1' 60, 'auto', '90'/'120'/'144' (listed only on a screen that refreshes that fast: displayHz)
-    { key: 'MC3_60FPS', label: 'Frame rate', help: 'Races and cruise run at this rate (menus stay at 30). Needs WebGPU above 30. Rates above 60 are listed when your screen refreshes that fast. Auto starts at 60 and goes up to what your screen and computer keep up with; it steps down when the game falls behind (a game that misses its rate runs in slow motion). 90 and above step down to 60 the same way. Changes live.',
+    // stored values: '' 30, '1' 60, '90'/'120'/'144' (listed only on a screen that refreshes that fast: displayHz)
+    { key: 'MC3_60FPS', label: 'Frame rate', help: 'Races and cruise run at this rate (menus stay at 30). Needs WebGPU above 30. Rates above 60 are listed when your screen refreshes that fast. The game steps a fixed 1/rate a frame: a computer that cannot keep up with the rate runs the game in slow motion, so pick a lower one. Changes live.',
       get opts() {
         const hz = displayHz(), cur = settings.MC3_60FPS;
-        return [['', '30 fps (default)'], ['1', '60 fps'], ['auto', `Auto (up to ${Math.max(60, hz)})`],
+        return [['', '30 fps (default)'], ['1', '60 fps'],
           ...FPS_HIGH.filter(n => n <= hz || cur === String(n)).map(n => [String(n), n + ' fps'])];
       } },
     { key: 'RECOMP_RAM_MB', label: 'Game memory', help: 'The console\'s RAM. 128 MB (like an Xbox devkit) gives the game a 95 MB heap instead of 47 MB: room for every car online, no "heap overrun" in a full Free Roam. Auto: 128 MB on a PC, 64 MB in low-memory mode.',
@@ -705,6 +705,7 @@
   ];
   let settings = store.get('settings', {});
   if (typeof settings !== 'object' || !settings || Array.isArray(settings)) settings = {};
+  if (settings.MC3_60FPS === 'auto') settings.MC3_60FPS = '1';   // Auto was removed (2026-11-13): a saved one is 60
   // Screen shape starts at 16:9, once per browser; picking Wide (Auto) afterwards sticks
   if (!store.get('aspect169')) {
     if (!settings.RECOMP_ASPECT) { settings.RECOMP_ASPECT = '16:9'; store.set('settings', settings); }
@@ -824,8 +825,8 @@
     // Page defaults (the rows' "(default)"): the lowest graphics on every device, the player raises each (2026-11-11):
     // 30 fps driving, 1x, no aniso, LOD bias 0, no FXAA or sharpening, movie HD off
     const low = lowMem(env);
-    if (env.MC3_60FPS === 'auto') env.MC3_60FPS = '1';   // Auto starts at 60 (fpsGovern takes it from there)
-    else if (!(env.MC3_60FPS === '1' || +env.MC3_60FPS > 60)) delete env.MC3_60FPS;
+    if (env.MC3_60FPS === 'auto') env.MC3_60FPS = '1';   // a ?MC3_60FPS=auto link or old saved value: 60
+    if (!(env.MC3_60FPS === '1' || +env.MC3_60FPS > 60)) delete env.MC3_60FPS;
     if (env.RECOMP_GL_SCALE === undefined) env.RECOMP_GL_SCALE = '1';
     if (env.RECOMP_GL_ANISO === undefined) env.RECOMP_GL_ANISO = '1';
     if (env.RECOMP_GL_LOD_BIAS === undefined) env.RECOMP_GL_LOD_BIAS = '0';
@@ -2040,7 +2041,6 @@
         // the log's last lines say why (a TV has no console to look at)
         setTimeout(() => { if (!(window.Module?.mc3Frames?.() > 0)) failShow('No picture after 90 s', `the game has not drawn a frame yet (${since(tPlay)} since Play, ${since(tRuntime)} since the runtime started)`); }, 90000);
         watchFrames();
-        fpsGovern();
         resumeKeep();
       },
       onAbort: what => { runStatus('Stopped: ' + what, true); showLog(true); failShow('The game stopped', what); },
@@ -2301,36 +2301,6 @@
   };
   setStretch(store.get('stretch', false));
   $('stretch-btn').onclick = () => { setStretch(!$('stage').classList.contains('stretch')); $('canvas').focus(); };
-  // Frame rate governor (2026-11-13): with Frame rate Auto, or a rate above 60, once a second while the tab is visible
-  // and the game drives at the picked rate (Module.mc3FpsNow, web/pre.js: 0 in menus and loads), compare presented
-  // frames with it. The game steps a fixed 1/rate a frame, so a missed rate is slow motion: 3 s in a row under 90% of
-  // it -> the next lower rate (Auto down to 30, a fixed rate down to 60), and that rate is barred 60 s, doubling at
-  // each new miss (no see-saw). It goes up a rate after 15 s at 97% or more, up to the screen's refresh (Auto) or the
-  // picked rate. A changed setting starts over (setSetting already sent its start value: Auto 60).
-  function fpsGovern() {
-    const LADDER = [30, 60, ...FPS_HIGH];
-    let mode, pick = 0, low = 0, good = 0, last, lastT = 0, okBefore = false, bar = {}, barMs = {};
-    const send = r => window.Module?.mc3SetLive?.('MC3_60FPS', r === 30 ? '' : r === 60 ? '1' : String(r));
-    setInterval(() => {
-      const want = settings.MC3_60FPS || '', auto = want === 'auto', fixed = +want > 60 ? +want : 0;
-      if (want !== mode) { mode = want; pick = auto ? 60 : fixed; low = good = 0; bar = {}; barMs = {}; }
-      if (!pick) return;
-      const now = performance.now(), f = window.Module?.mc3Frames?.();
-      const fps = last !== undefined && f !== undefined ? (f - last) * 1000 / (now - lastT) : 0;
-      const ok = document.visibilityState === 'visible' && window.Module?.mc3FpsNow?.() === pick;
-      last = f; lastT = now;
-      if (!ok || !okBefore || !fps) { okBefore = ok; low = good = 0; return; }   // a whole second at the rate only
-      const lad = LADDER.filter(r => r >= (auto ? 30 : 60) && r <= (auto ? Math.max(60, displayHz()) : fixed));
-      const i = lad.indexOf(pick);
-      let to = 0;
-      if (fps < pick * 0.9) { good = 0; if (++low >= 3 && i > 0) { barMs[pick] = (barMs[pick] || 30000) * 2; bar[pick] = now + barMs[pick]; to = lad[i - 1]; } }
-      else { low = 0; if (fps >= pick * 0.97 && ++good >= 15 && lad[i + 1] && !(bar[lad[i + 1]] > now)) to = lad[i + 1]; }
-      if (!to) return;
-      out(`[WEB] frame rate: ${fps.toFixed(0)} fps at ${pick} -> ${to}${to < pick ? ` (${pick} barred ${barMs[pick] / 1000} s)` : ''}`);
-      pick = to; low = good = 0; okBefore = false;
-      send(pick);
-    }, 1000);
-  }
   // SDL names its window 'NV2A' (nv2a_gl.c SDL_CreateWindow), which Emscripten writes into the tab's title: keep ours
   const TAB_TITLE = document.title;
   new MutationObserver(() => { if (document.title !== TAB_TITLE) document.title = TAB_TITLE; })

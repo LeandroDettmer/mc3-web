@@ -1246,14 +1246,14 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   "1" = 60) steps 1/N while driving and asks the toolkit's vblank for N Hz
   (kernel_bridge.c xbox_vblank_set_hz; 59.94 Hz again outside states 2/3,
   so menus keep their pace; the hidden tab's 8 Hz still wins). Fixed steps:
-  a machine that misses N runs in slow motion, so the page governs it
-  (index.html fpsGovern): Settings 'Frame rate' 30 / 60 / Auto / 90 / 120
-  / 144, the last three listed only when the screen's refresh (rAF median
-  on the page, mc3.refreshHz, '[WEB] screen refresh: N Hz') reaches them;
-  live word 4 MC3_LIVE_FPS_NOW (web/pre.js mc3FpsNow) = the rate driving
-  now, 0 elsewhere; 3 s under 90% -> next rate down (Auto to 30, fixed to
-  60), that rate barred 60 s doubling per miss; 15 s at >= 97% -> up (Auto
-  to the refresh, fixed to its pick); '[WEB] frame rate: ...'. Per-frame
+  a machine that misses N runs in slow motion: the player picks (index.html
+  Settings 'Frame rate' 30 / 60 / 90 / 120 / 144, the last three listed
+  only when the screen's refresh (rAF median on the page, mc3.refreshHz,
+  '[WEB] screen refresh: N Hz') reaches them). No Auto, no governor
+  (2026-11-13: the Auto governor stepped down on short hitches and stayed
+  low for minutes; removed, a saved 'auto' reads as 60). Live word 4
+  MC3_LIVE_FPS_NOW (web/pre.js mc3FpsNow) = the rate driving now, 0
+  elsewhere, still published, no page reader. Per-frame
   code checked: drift.c's dt-based (its hit test is per-frame velocity
   change in m/s: at high rates a hit spread over frames may go unseen),
   roam_game.c's pose blend (dt floor now 1/240). Same risks as 60, N/30x.

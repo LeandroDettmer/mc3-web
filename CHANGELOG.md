@@ -92,5 +92,5 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** A street racer who drives away from the course or stops racing now leaves the race by itself, so the race flag over their car goes away and the others no longer wait for them.
 - **Saves:** Every 2 days the game also keeps a dated snapshot of all your saves (kept a week, the newest always); the Saves tab lists them, downloads one or puts one back.
 - **Game:** A "Loading game..." screen now covers the grey picture on the first Play, with the download progress and the game files being read, until the game draws its first picture.
-- **Graphics:** New Frame rate setting: 30, 60, Auto, and 90, 120 or 144 fps on screens that refresh that fast. Auto finds the highest rate your computer keeps up with and steps down when the game falls behind.
+- **Graphics:** New Frame rate setting: 30, 60, and 90, 120 or 144 fps on screens that refresh that fast.
 - **Free Roam:** While you race, the full map's "Racing now" panel lists you first, and the players list marks everyone racing (a flag and "racing") that the game can see near you.
