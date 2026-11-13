@@ -405,7 +405,7 @@ Module['mc3SaveResult'] = function (n) {
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
   var canvas = Module['canvas'], el = null, pel = null, pshown = null, rel = null, rshown = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
-  var CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'], ROWS = 24;   // free-roam room ids 0..3 (web/index.html)
+  var CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'];   // free-roam room ids 0..3 (web/index.html)
   var me = String((Module['mc3Env'] || {}).MC3_PLAYER_NAME || '').toLowerCase();
   if (!canvas) return;
   function city(c) { return CITIES[c] || 'City ' + c; }
@@ -422,6 +422,9 @@ Module['mc3SaveResult'] = function (n) {
         'color:#fff;text-shadow:0 1px 2px #000;overflow:hidden;white-space:nowrap;line-height:1.3;' +
         'font-weight:700;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;display:none';
       canvas.parentNode.append(el);
+      // the players panel scrolls (wheel, drag on touch); the progress and race panels copy cssText, then undo this
+      el.style.cssText += ';pointer-events:auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;' +
+        'scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.35) transparent';
     }
     var b = _roam_bigmap_box() >>> 2, s = I32[b], here = I32[b + 1];
     if (s !== seq) { seq = s; seenAt = now; }
@@ -446,27 +449,28 @@ Module['mc3SaveResult'] = function (n) {
     var key = here + '|' + (iRace ? 'R' : '') + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : '') + (racing[String(p.name).toLowerCase()] ? 'r' : ''); }).join('\u0002');
     if (show && key !== shown) {
       shown = key;
+      var keep = el.scrollTop;
       el.textContent = '';
       el.append(row('Online · ' + roam.length + ' playing', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
-      var n = 0;
       // our city split by mode: the switch's p.career = a career cruise with Online career on ('(racing)' needs the
       // roam bits, which the push lacks)
       [['Free Roam', false], ['Online career', true]].forEach(function (g) {
         var grp = mine.filter(function (p) { return !!p.career == g[1]; });
         if (!grp.length) return;
         el.append(row(city(here) + ' · ' + g[0] + ' (' + grp.length + ')', 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
-        grp.forEach(function (p) {
-          var you = String(p.name).toLowerCase() == me, rc = racing[String(p.name).toLowerCase()] || (you && iRace);
-          if (n++ < ROWS) el.append(row((rc ? '🏁 ' : '') + p.name + (rc ? ' · racing' : ''), you ? 'color:#7fd4ff' : rc ? 'color:#ffd24a' : ''));
+        function rc(p) { var k = String(p.name).toLowerCase(); return racing[k] || (k == me && iRace) ? 1 : 0; }
+        grp.slice().sort(function (a, b) { return rc(b) - rc(a); }).forEach(function (p) {   // racers first
+          var you = String(p.name).toLowerCase() == me, r = rc(p);
+          el.append(row((r ? '🏁 ' : '') + p.name + (r ? ' · racing' : ''), you ? 'color:#7fd4ff' : r ? 'color:#ffd24a' : ''));
         });
       });
       if (other.length) el.append(row('Other cities', 'color:#ffd24a;font-size:.85em;margin-top:.35em'));
       other.forEach(function (p) {
-        if (n++ < ROWS) el.append(row(p.name + ' · ' + city(p.city) + (p.career ? ' (career)' : ''), 'opacity:.75'));   // other cities: the game does not see them, unmarked
+        el.append(row(p.name + ' · ' + city(p.city) + (p.career ? ' (career)' : ''), 'opacity:.75'));   // other cities: the game does not see them, unmarked
       });
-      if (n > ROWS) el.append(row('+' + (n - ROWS) + ' more', 'opacity:.6;font-size:.85em'));
       var more = lan.players.more | 0;   // beyond the switch's own list
       if (more > 0) el.append(row('+' + more + ' not listed', 'opacity:.6;font-size:.85em'));
+      el.scrollTop = keep;
     }
     // the picture inside the canvas (object-fit contain unless Stretch), its shape as the name tags got it
     var r = canvas.getBoundingClientRect(), L = canvas.parentNode.getBoundingClientRect(), x = r.left - L.left,
@@ -495,6 +499,8 @@ Module['mc3SaveResult'] = function (n) {
         pel = document.createElement('div');
         pel.style.cssText = el.style.cssText;
         pel.style.whiteSpace = 'normal';
+        pel.style.pointerEvents = 'none';
+        pel.style.overflow = 'hidden';
         canvas.parentNode.append(pel);
       }
       var pe = (pb + 2) << 2, pend = pe + 160;
@@ -526,6 +532,8 @@ Module['mc3SaveResult'] = function (n) {
       rel = document.createElement('div');
       rel.style.cssText = el.style.cssText;
       rel.style.whiteSpace = 'normal';
+      rel.style.pointerEvents = 'none';
+      rel.style.overflow = 'hidden';
       canvas.parentNode.append(rel);
     }
     var re = (rb + 1) << 2, rend = re + 700;
