@@ -1159,7 +1159,16 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   "MOD" badge (.scratch/modtest/badge.py), so every DLC car shows it. The
   Flash fonts have capitals only: "!!VP_X!!" on screen is sub_000EA750's
   "!!vp_x!!" for a key it did not find (it then adds that entry itself);
-  mods/strings.txt now gives such an entry our text too, checked each frame.
+  texts added to the tables at boot are gone after the next string reload
+  (mcstrings_x at boot, profile, each race/cruise load: sub_00022850,
+  sub_00029240), which is why the showroom still showed it. Each reload
+  then merges fonts/mcdlstrings_x.strtbl from every archive into every
+  language slot (sub_00022780 -> sub_000EA480, merge 1): Xbox Live
+  content's own car names. The Open hook serves mods/strings.txt as that
+  file (mods_str_strtbl; format in mods.c), so the game keeps our texts
+  itself (2026-11-13, untested in game). '[MOD] strings.txt as <path>
+  ...' at the first load, '[MOD] garage: strings.txt keys in the string
+  table ...: N of M, key = "text"' at each garage entry.
 - Saves (2026-10-22): a profile is UDATA/54540079/<12 hex>/<name>.mc3
   (99,162 bytes) + SaveMeta.xbx (UTF-16 "Name=<name>"). The .mc3 starts
   with a format stamp (Xbox 0x02F59447) and ends with HMAC-SHA1 of the

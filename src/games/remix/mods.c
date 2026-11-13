@@ -64,6 +64,8 @@ static int s_mods_n, s_mods_cap, s_mods_trace;
 static char s_mods_dir[512];
 static mod_open_t s_mods_open[MODS_OPEN];
 static uint32_t mods_net_vehicles(uint8_t *d, uint32_t n, int content);  /* mods_net.c: mod cars, Donor lines */
+static uint8_t *mods_str_strtbl(uint32_t *size);              /* strings.txt as mcdlstrings_x.strtbl */
+static int mods_str_n;                                        /* strings.txt lines (defined below) */
 static recomp_func_t mods_net_lookup(uint32_t va);           /* mods_net.c: System Link car records */
 
 static void mods_key(char *dst, const char *src, size_t size)
@@ -213,11 +215,27 @@ static void mods_dev_open(void)
 
     if (s_mods_trace)
         fprintf(stderr, "[MOD] open %s%s\n", name, MEM32(g_esp + 8) & 0xFF ? "" : " (write)");
+    for (slot = 0; slot < MODS_OPEN && s_mods_open[slot].data; slot++) {}
+    if ((MEM32(g_esp + 8) & 0xFF) && !mods_find(name) && slot < MODS_OPEN) {
+        const char *base = name + strlen(name);
+        while (base > name && base[-1] != '/' && base[-1] != '\\')
+            base--;
+        if (!strcasecmp(base, "mcdlstrings_x.strtbl")
+            && (s_mods_open[slot].data = mods_str_strtbl(&s_mods_open[slot].size)) != NULL) {
+            static int said;
+            if (!said++)
+                fprintf(stderr, "[MOD] strings.txt as %s: %d texts for the DLC string table, "
+                        "merged at every string reload\n", name, mods_str_n);
+            s_mods_open[slot].pos = 0;
+            g_eax = MODS_H0 + (uint32_t)slot;
+            g_esp += 4;
+            return;
+        }
+    }
     if (!(MEM32(g_esp + 8) & 0xFF) || !(m = mods_find(name))) {
         sub_002B3B80();
         return;
     }
-    for (slot = 0; slot < MODS_OPEN && s_mods_open[slot].data; slot++) {}
     snprintf(path, sizeof path, "%s/%s", s_mods_dir, m->path);
     if (slot == MODS_OPEN || !(f = fopen(path, "rb"))) {
         fprintf(stderr, "[MOD] %s: %s, the archive's copy is used\n", m->key,
@@ -356,8 +374,11 @@ static recomp_func_t mods_lookup(uint32_t va)
  * loaded; the pass waits for the current language's. Checked every pass,
  * not once per table: a lookup of a key before it was added (or in a table
  * reloaded at the same address) makes sub_000EA750 add it itself with the
- * text "!!key!!" (or the bare key), and such an entry gets our text too
- * (the showroom showed "!!vp_sandero_rs!!", 2026-11-13). */
+ * text "!!key!!" (or the bare key), and such an entry gets our text too.
+ * That alone did not reach the showroom: every string reload drops these
+ * entries and nothing runs this pass in the garage, so the showroom still
+ * showed "!!vp_sandero_rs!!" (2026-11-13). The texts now also reach the
+ * tables the game's own way, as its DLC string table (mods_str_strtbl). */
 #define MODS_STR_MAX 128
 #define MODS_STR_LANGS 10
 static uint32_t mods_dlc_done_list, mods_dlc_done_n;
@@ -427,8 +448,8 @@ static void mods_str_load(void)
     mods_used(m);
 }
 
-/* UTF-8 -> UTF-16 into guest memory at va (0 = count only); returns the units, without the 0. */
-static uint32_t mods_utf16(uint32_t va, const char *s)
+/* UTF-8 -> UTF-16 LE bytes at out (NULL = count only), 0-ended; returns the units, without the 0. */
+static uint32_t mods_utf16(uint8_t *out, const char *s)
 {
     uint32_t k = 0, cp;
     const uint8_t *u = (const uint8_t *)s;
@@ -439,18 +460,112 @@ static uint32_t mods_utf16(uint32_t va, const char *s)
             cp = (cp << 6) | (*u & 0x3Fu);
         if (cp >= 0x10000u) {
             cp -= 0x10000u;
-            if (va)
-                MEM16(va + 2 * k) = (uint16_t)(0xD800u | (cp >> 10));
+            if (out) {
+                out[2 * k] = (uint8_t)(cp >> 10);
+                out[2 * k + 1] = (uint8_t)(0xD8u | (cp >> 18));
+            }
             k++;
             cp = 0xDC00u | (cp & 0x3FFu);
         }
-        if (va)
-            MEM16(va + 2 * k) = (uint16_t)cp;
+        if (out) {
+            out[2 * k] = (uint8_t)cp;
+            out[2 * k + 1] = (uint8_t)(cp >> 8);
+        }
         k++;
     }
-    if (va)
-        MEM16(va + 2 * k) = 0;
+    if (out)
+        out[2 * k] = out[2 * k + 1] = 0;
     return k;
+}
+
+/* mods/strings.txt as the game's DLC string table: every string reload (boot,
+ * profile, each race or cruise load: sub_00022850, sub_00029240) loads
+ * mcstrings_x into the language slots, then sub_00022780 opens
+ * fonts/mcdlstrings_x.strtbl in every archive and merges it into each slot
+ * (sub_000EA480 with merge 1), as Xbox Live content shipped its car names. A
+ * reload drops whatever was added to the tables before, so the texts set at
+ * boot by mods_strings were gone when the garage opened: the showroom's
+ * lookup (sub_000EA750, this 0x507E08) then added "!!vp_sandero_rs!!"
+ * (2026-11-13). Format (sub_000EA480, entries sub_000EA320): u32 languages,
+ * u32 offset per language (all ours point at one block), u32 0x200, u32 keys
+ * + (u32 len, chars, 0) each (read only with keys on; DLC loads skip them);
+ * the block: u32 count, then per entry u32 hash (sub_000EA710), u16 kind
+ * (0 = skipped; car names 15), u32 n + font name (n chars), u32 n +
+ * UTF-16 text (n units with its 0), f32 1.0, f32 1.0, u8 0, u8 0. */
+static void mods_put(uint8_t **b, uint32_t *n, const void *p, uint32_t k)
+{
+    *b = realloc(*b, *n + k);
+    memcpy(*b + *n, p, k);
+    *n += k;
+}
+
+static void mods_put32(uint8_t **b, uint32_t *n, uint32_t v)
+{
+    uint8_t t[4] = { (uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16), (uint8_t)(v >> 24) };
+    mods_put(b, n, t, 4);
+}
+
+static uint8_t *mods_str_strtbl(uint32_t *size)
+{
+    static const uint8_t kind[2] = { 15, 0 }, tail[10] = { 0, 0, 0x80, 0x3F, 0, 0, 0x80, 0x3F, 0, 0 };
+    uint8_t *b = NULL;
+    uint32_t n = 0, at, i, k;
+
+    if (!mods_str_loaded)
+        mods_str_load();
+    if (!mods_str_n)
+        return NULL;
+    mods_put32(&b, &n, 10);
+    for (i = 0; i < 10; i++)
+        mods_put32(&b, &n, 0);                  /* offsets, below */
+    mods_put32(&b, &n, 0x200);
+    mods_put32(&b, &n, (uint32_t)mods_str_n);
+    for (i = 0; i < (uint32_t)mods_str_n; i++) {
+        k = (uint32_t)strlen(mods_str_key[i]);
+        mods_put32(&b, &n, k);
+        mods_put(&b, &n, mods_str_key[i], k + 1);
+    }
+    for (at = n, i = 0; i < 10; i++)
+        for (k = 0; k < 4; k++)
+            b[4 + 4 * i + k] = (uint8_t)(at >> (8 * k));
+    mods_put32(&b, &n, (uint32_t)mods_str_n);
+    for (i = 0; i < (uint32_t)mods_str_n; i++) {
+        mods_put32(&b, &n, str_hash(mods_str_key[i]));
+        mods_put(&b, &n, kind, 2);
+        mods_put32(&b, &n, 10);
+        mods_put(&b, &n, "smallspace", 10);
+        k = mods_utf16(NULL, mods_str_val[i]) + 1;
+        mods_put32(&b, &n, k);
+        b = realloc(b, n + 2 * k);
+        mods_utf16(b + n, mods_str_val[i]);
+        n += 2 * k;
+        mods_put(&b, &n, tail, 10);
+    }
+    *size = n;
+    return b;
+}
+
+/* The garage opens (state 5): what the string table holds now for each strings.txt key. */
+static void mods_garage_strings(void)
+{
+    uint32_t n, buckets, t, i, k, have = 0;
+    char first[96] = "";
+
+    if (!s_mods_n || !mods_str_n || !str_table(&n, &buckets))
+        return;
+    for (i = 0; i < (uint32_t)mods_str_n; i++) {
+        if (!(t = str_text(n, buckets, mods_str_key[i])))
+            continue;
+        if (!have++) {
+            int w = snprintf(first, sizeof first, "%s = \"", mods_str_key[i]);
+            for (k = 0; k < 48u && MEM16(t + 2u * k) && w + 2 < (int)sizeof first; k++)
+                first[w++] = MEM16(t + 2u * k) < 0x80u ? (char)MEM16(t + 2u * k) : '?';
+            first[w++] = '"';
+            first[w] = 0;
+        }
+    }
+    fprintf(stderr, "[MOD] garage: strings.txt keys in the string table (language %u): %u of %d%s%s\n",
+            MEM32(0x00507E08u + 0x28u), have, mods_str_n, have ? ", " : "", first);
 }
 
 /* The entry of key in a table (str_text's walk), 0 if none. */
@@ -511,12 +626,12 @@ static void mods_strings(void)
                 entry = roam_call(sub_000EA750, 0x00507E08u, top, 1, &a);
             } else
                 fixed++;
-            units = mods_utf16(0, mods_str_val[i]);
+            units = mods_utf16(NULL, mods_str_val[i]);
             a = 2 * (units + 1);
             buf = online_ram(entry) ? roam_call(sub_001B3B90, 0, top, 1, &a) : 0;
             if (!online_ram(buf))
                 continue;
-            mods_utf16(buf, mods_str_val[i]);
+            mods_utf16((uint8_t *)XBOX_PTR(buf), mods_str_val[i]);
             MEM32(entry + 8u) = buf;
             mods_str_buf[lang][i] = buf;
             added++;

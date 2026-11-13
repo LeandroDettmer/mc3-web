@@ -3970,7 +3970,7 @@ void sub_0018C770(void)
 
 extern void sub_00021A60_gen(void);
 static void roam_garage(void);                  /* free roam: status garage (roam_game.c) */
-void sub_00021A60(void) { online_money(); roam_garage(); sub_00021A60_gen(); }    /* state 5: the garage opens */
+void sub_00021A60(void) { online_money(); roam_garage(); mods_garage_strings(); sub_00021A60_gen(); }    /* state 5: the garage opens */
 
 /* Free Roam vs the game's own System Link session (built at boot, port 1000
  * open for good): when it sees a peer join, the host (OnPeerJoined
