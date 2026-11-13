@@ -286,8 +286,11 @@ if (!ENVIRONMENT_IS_PTHREAD && typeof document == 'object') (function () {
   var timer = 0;
   function put() {
     timer = 0;
-    if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _xbox_page_hidden_box != 'function') { timer = setTimeout(put, 1000); return; }
-    Atomics.store(new Int32Array(HEAPU8.buffer), _xbox_page_hidden_box() >>> 2, document.hidden ? 1 : 0);
+    // HEAPU8 is a getter that reads wasmMemory.buffer: touching it before the runtime is up throws (WebKit, log 5FAF8Q)
+    try {
+      if (!runtimeInitialized || typeof _xbox_page_hidden_box != 'function') { timer = setTimeout(put, 1000); return; }
+      Atomics.store(new Int32Array(HEAPU8.buffer), _xbox_page_hidden_box() >>> 2, document.hidden ? 1 : 0);
+    } catch (e) { timer = setTimeout(put, 1000); }
   }
   document.addEventListener('visibilitychange', function () { if (!timer) put(); });
   put();
