@@ -95,3 +95,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Graphics:** New Frame rate setting: 30, 60, and 90, 120 or 144 fps on screens that refresh that fast.
 - **Free Roam:** While you race, the full map's "Racing now" panel lists you first, and the players list marks everyone racing (a flag and "racing") that the game can see near you.
 - **Game:** When the graphics are lost on a phone, the "Graphics context lost" message now shows instead of a page error.
+- **Phones:** New touch layout: a big Handbrake button above Brake, beside Gas, with Nitro, Two wheels and Look back over them; Flash, Back, Start and Black sit together top left, away from the Settings, Drift and Map buttons, which are bigger.

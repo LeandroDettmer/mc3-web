@@ -268,7 +268,14 @@ generated files when the lift inputs did not change.
   nfsu2-web's): a virtual pad the page writes into xbox_touch_pad_box
   (input/touch_pad_web.c, 14 int32 words via Module.mc3TouchPad), merged
   into port 0 like the keyboard; Settings 'Touch controls' Auto/On/Off
-  (page-only MC3_TOUCH*). Phones (MC3Touch.isPhone): full screen + landscape
+  (page-only MC3_TOUCH*). Layout (2026-11-13, untested on a phone; after
+  Asphalt / CarX Drift / Real Racing 3 and nfsu2-web): right thumb Gas
+  (edge, tall), Brake beside it, Handbrake (A) big over Brake, Y B X over
+  them, L3 over X; rare buttons top left (Flash, Back, Start, Black), the
+  d-pad small under them (kept above web/pre.js's race box, which dodges
+  `.tc-b` rects); the page's Settings/Drift/Map stay top right, 40 px high
+  12 px apart on a coarse pointer. Upright, the top row drops under that
+  bar. Phones (MC3Touch.isPhone): full screen + landscape
   on Play, RECOMP_GL_SCALE 1 and MC3_60FPS off unless picked; Wake Lock on
   every device. Page defaults (2026-11-11, untested in game): every device
   4x aniso, FXAA and sharpen off, MC3_MOVIE_HD 0; PC 1.5x (was 3x), phones

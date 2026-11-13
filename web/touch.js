@@ -8,10 +8,14 @@
 // (Module.mc3TouchPad, web/pre.js -> xboxrecomp/src/input/touch_pad_web.c), merged into port 0 with
 // the keyboard and any real pad.
 //   left half   thumb stick where the thumb lands: the left stick (steer, menus)
-//   d-pad       upper left (I J K L on the keyboard: map, music, hydraulics)
-//   right       Gas (right trigger), Brake (left trigger), A B X Y above them (Y: look back)
-//   top         Flash (White: headlights, street race invite/join), Back, Start, Black; L3 (special move) beside the d-pad
-// A finger slides from one button to another without letting go (Gas to Brake, A to X).
+//   top left    the rare buttons in one row, apart from the page's Settings / Drift / Map (top right): Flash (White:
+//               headlights, street race invite/join), Back, Start, Black (held 1 s: leave a street race); the d-pad
+//               (I J K L: map, music, hydraulics) under them, small and high, clear of the race box over the minimap
+//   right       the driving thumb's group (2026-11-13): Gas tall on the edge, Brake beside it, Handbrake (A) big
+//               above Brake (a thumb rocks Gas, Handbrake, Brake), Look back (Y), Two wheels (B), Nitro (X) over
+//               them, Special move (L3) over Nitro. After mobile racing HUDs (Asphalt, CarX Drift, Real Racing 3):
+//               pedals and drift under the right thumb, big, >= 10 px apart; rare buttons out of its reach.
+// A finger slides from one button to another without letting go (Gas to Handbrake, A to X).
 (() => {
   'use strict';
   const HOLD_MS = 120;          // the game reads the pad once a frame: a tap stays down this long at least,
@@ -32,9 +36,11 @@
     ['du', '▲', 'b', BIT.up], ['dd', '▼', 'b', BIT.down], ['dl', '◀', 'b', BIT.left], ['dr', '▶', 'b', BIT.right],
     ['ls', 'L3', 'b', BIT.ls],
   ];
+  // a word under the letter: what the button does while driving
+  const CAPTIONS = { fa: 'Handbrake', fb: '2 wheels', fx: 'Nitro', fy: 'Look back', ls: 'Special' };
   const TITLES = { fa: 'A: handbrake, select', fb: 'B: two wheels', fx: 'X: nitrous', fy: 'Y: look back',
                    white: 'Flash (White): headlights; near other players, invite them to a street race or join one',
-                   black: 'Black: camera', ls: 'Left stick click: special move' };
+                   black: 'Black: camera; held 1 s: cancel or give up a street race',ls: 'Left stick click: special move' };
   // the dashboard's high-beam symbol (a lamp, horizontal rays) on the White button
   const HIGH_BEAM = '<svg viewBox="0 0 24 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" '
     + 'stroke-linecap="round"><path d="M13 2c5 0 9 2.5 9 6s-4 6-9 6z" fill="currentColor"/>'
@@ -43,34 +49,45 @@
   const CSS = `
   .tc { grid-row: -2 / -1; grid-column: 1; position: relative; pointer-events: none; touch-action: none;
         user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; opacity: var(--tc-op, .45);
-        --u: clamp(46px, 14vmin, 84px); --s: calc(var(--u) * .85);
+        --u: clamp(46px, 14vmin, 84px); --g: 10px;                 /* size unit; gap between buttons */
+        --pw: calc(var(--u) * 1.45); --c: calc(var(--u) * .95);   /* a pedal column's width; a round button */
+        --rh: max(44px, calc(var(--u) * .8)); --rw: calc(var(--u) * 1.25);   /* the top row's buttons */
+        --d: calc(var(--u) * .7); --ds: calc(var(--u) * .74);     /* d-pad key, step */
         --l: max(12px, env(safe-area-inset-left)); --r: max(12px, env(safe-area-inset-right));
-        --t: max(8px, env(safe-area-inset-top)); --b: max(12px, env(safe-area-inset-bottom)); }
+        --t: max(8px, env(safe-area-inset-top)); --b: max(12px, env(safe-area-inset-bottom));
+        --dt: calc(var(--t) + var(--rh) + 12px); }
+  /* upright: the top row goes under the page's Settings / Drift / Map, which then span the top */
+  @media (max-aspect-ratio: 1/1) { .tc { --t: max(60px, calc(env(safe-area-inset-top) + 52px)); } }
   .tc > * { position: absolute; pointer-events: auto; touch-action: none; -webkit-tap-highlight-color: transparent; }
   .tc-zone { left: 0; top: 0; bottom: 0; width: 50%; }
   .tc-b { display: flex; align-items: center; justify-content: center; box-sizing: border-box; color: #fff;
           font: 700 italic calc(var(--u) * .28)/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
           background: rgba(20, 20, 20, .7); border: 2px solid rgba(255, 255, 255, .8); border-radius: 12px; }
   .tc-b.on { background: rgba(240, 180, 64, .85); color: #000; border-color: #f0b440; }   /* the game's gold (index.html --gold) */
-  .tc-gas { right: var(--r); bottom: var(--b); width: calc(var(--u) * 1.3); height: calc(var(--u) * 1.9); }
-  .tc-brake { right: calc(var(--r) + var(--u) * 1.3 + 8px); bottom: var(--b); width: calc(var(--u) * 1.3); height: calc(var(--u) * 1.4); }
-  .tc-fa, .tc-fb, .tc-fx, .tc-fy { width: var(--s); height: var(--s); border-radius: 50%; font-size: calc(var(--u) * .36); }
-  .tc-fa { right: calc(var(--r) + var(--u) * 1.4 - var(--s) / 2); bottom: calc(var(--b) + var(--u) * 2.4 - var(--s) / 2); }
-  .tc-fy { right: calc(var(--r) + var(--u) * 1.4 - var(--s) / 2); bottom: calc(var(--b) + var(--u) * 4.2 - var(--s) / 2); }
-  .tc-fx { right: calc(var(--r) + var(--u) * 2.3 - var(--s) / 2); bottom: calc(var(--b) + var(--u) * 3.3 - var(--s) / 2); }
-  .tc-fb { right: calc(var(--r) + var(--u) * .5 - var(--s) / 2); bottom: calc(var(--b) + var(--u) * 3.3 - var(--s) / 2); }
-  .tc-white, .tc-black, .tc-back, .tc-start { top: var(--t); width: calc(var(--u) * 1.4); height: calc(var(--u) * .7); }
+  .tc-b.cap { flex-direction: column; font-size: calc(var(--u) * .34); }
+  .tc-b small { margin-top: 2px; font: 700 max(9px, calc(var(--u) * .17))/1.1 "Helvetica Neue", Helvetica, Arial, sans-serif; white-space: nowrap; }
+  /* right thumb: Gas | Handbrake over Brake | Y B X over them | L3 over X */
+  .tc-gas { right: var(--r); bottom: var(--b); width: var(--pw); height: calc(var(--u) * 2.35 + var(--g)); }
+  .tc-brake { right: calc(var(--r) + var(--pw) + var(--g)); bottom: var(--b); width: var(--pw); height: calc(var(--u) * 1.2); }
+  .tc-fa { right: calc(var(--r) + var(--pw) + var(--g)); bottom: calc(var(--b) + var(--u) * 1.2 + var(--g));
+           width: var(--pw); height: calc(var(--u) * 1.15); }
+  .tc-fx, .tc-fb, .tc-fy, .tc-ls { width: var(--c); height: var(--c); border-radius: 50%; bottom: calc(var(--b) + var(--u) * 2.35 + var(--g) * 2); }
+  .tc-fx, .tc-ls { right: calc(var(--r) + (var(--pw) - var(--c)) / 2); }
+  .tc-fb { right: calc(var(--r) + var(--pw) + var(--g) + (var(--pw) - var(--c)) / 2); }
+  .tc-fy { right: calc(var(--r) + (var(--pw) + var(--g)) * 2 + (var(--pw) - var(--c)) / 2); }
+  .tc-ls { bottom: calc(var(--b) + var(--u) * 2.35 + var(--g) * 3 + var(--c)); }
+  /* top left: the rare buttons, then the d-pad */
+  .tc-white, .tc-back, .tc-start, .tc-black { top: var(--t); width: var(--rw); height: var(--rh); font-size: calc(var(--u) * .24); }
   .tc-white { left: var(--l); gap: .3em; }
   .tc-white svg { width: 1.4em; height: .95em; flex: none; }
-  .tc-black { right: var(--r); }
-  .tc-back { left: calc(50% - var(--u) * 1.5); }
-  .tc-start { left: calc(50% + var(--u) * .1); }
-  .tc-du, .tc-dd, .tc-dl, .tc-dr, .tc-ls { width: calc(var(--u) * .8); height: calc(var(--u) * .8); }
-  .tc-du { left: calc(var(--l) + var(--u) * .85); top: calc(var(--t) + var(--u) * 1); }
-  .tc-dl { left: var(--l); top: calc(var(--t) + var(--u) * 1.85); }
-  .tc-dr { left: calc(var(--l) + var(--u) * 1.7); top: calc(var(--t) + var(--u) * 1.85); }
-  .tc-dd { left: calc(var(--l) + var(--u) * .85); top: calc(var(--t) + var(--u) * 2.7); }
-  .tc-ls { left: calc(var(--l) + var(--u) * 2.8); top: calc(var(--t) + var(--u) * 1.85); border-radius: 50%; }
+  .tc-back { left: calc(var(--l) + var(--rw) + var(--g)); }
+  .tc-start { left: calc(var(--l) + (var(--rw) + var(--g)) * 2); }
+  .tc-black { left: calc(var(--l) + (var(--rw) + var(--g)) * 3); }
+  .tc-du, .tc-dd, .tc-dl, .tc-dr { width: var(--d); height: var(--d); font-size: calc(var(--u) * .24); }
+  .tc-du { left: calc(var(--l) + var(--ds)); top: var(--dt); }
+  .tc-dl { left: var(--l); top: calc(var(--dt) + var(--ds)); }
+  .tc-dr { left: calc(var(--l) + var(--ds) * 2); top: calc(var(--dt) + var(--ds)); }
+  .tc-dd { left: calc(var(--l) + var(--ds)); top: calc(var(--dt) + var(--ds) * 2); }
   .tc-base, .tc-knob { pointer-events: none; border-radius: 50%; transform: translate(-50%, -50%); }
   .tc-base { width: ${STICK_PX * 2}px; height: ${STICK_PX * 2}px; border: 2px solid rgba(255, 255, 255, .8); background: rgba(20, 20, 20, .4); }
   .tc-knob { width: 56px; height: 56px; background: rgba(255, 255, 255, .8); }
@@ -110,6 +127,7 @@
       el.className = 'tc-b tc-' + id;
       el.dataset.c = id;
       el.textContent = label;
+      if (CAPTIONS[id]) { el.classList.add('cap'); el.append(Object.assign(document.createElement('small'), { textContent: CAPTIONS[id] })); }
       if (id === 'white') el.insertAdjacentHTML('afterbegin', HIGH_BEAM);
       if (TITLES[id]) el.title = TITLES[id];
       root.append(el);
