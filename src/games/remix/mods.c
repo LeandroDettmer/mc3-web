@@ -25,14 +25,21 @@
  *    video) are opened through the kernel (CreateFile): the toolkit's
  *    xbox_host_path_hook rewrites the host path.
  *
- * The overlay: <disc>/mods/<name> (web: /game/mods/, i.e. a mods/ folder
- * next to the disc's files on the server; native: game-remix-<ed>/mods/),
- * scanned once at boot. A readonly Open of a name found there is served from
- * that file (whole file in memory; handles MODS_H0 + slot); any other Open
- * goes to the archives. A loose disc path found there is redirected. A file
- * there replaces an entry or adds one. '[MOD] <name> from mods/' once per
- * file at its first use. No mods/ folder (or an empty one): no hook is set
- * and the game runs as before.
+ * The overlay: packs, <disc>/mods/<id>/<name> (web: /game/mods/, i.e. a
+ * mods/ folder next to the disc's files on the server; native:
+ * game-remix-<ed>/mods/), each with mods/<id>/mod.json {id, name, author,
+ * credit, description, version, kind} and listed in mods/index.json (both
+ * for the page; the game reads neither). Only the packs named in MC3_MODS
+ * (comma-separated ids, the page's Mods tab) are scanned, once at boot, in
+ * that order: a name two packs give comes from the later one ('[MOD] <name>:
+ * pack B over pack A'). <name> is the disc path inside the pack
+ * (content.lst, strings.txt, flash/..., tune/...). A readonly Open of a name
+ * found there is served from that file (whole file in memory; handles
+ * MODS_H0 + slot); any other Open goes to the archives. A loose disc path
+ * found there is redirected. A file there replaces an entry or adds one.
+ * '[MOD] <name> from mods/<id>/' once per file at its first use. MC3_MODS
+ * unset or empty, or no file in its packs: no hook is set and the game runs
+ * as before.
  *
  * vehicle.lst guard: the showroom holds 127 cars (0x541700, fill
  * sub_0026BD80); a 128th would land on progress[0] at blob +0xA6F0. A
@@ -56,7 +63,7 @@ extern void sub_002B3B80(void), sub_002B3C40(void), sub_002B3C60(void), sub_002B
 #define MODS_OPEN   32
 #define MODS_CARS   127                 /* showroom slots */
 
-typedef struct { char *path, *key; int used; } mod_file_t;   /* path: as on disc, under mods/; key: lowercase, '/' */
+typedef struct { char *path, *key; int used; } mod_file_t;   /* path: <id>/<name> as on disc, under mods/; key: <name> lowercase, '/' */
 typedef struct { uint8_t *data; uint32_t size, pos; } mod_open_t;
 
 static mod_file_t *s_mods;
@@ -92,34 +99,46 @@ static void mods_used(mod_file_t *m)
 {
     if (!m->used) {
         m->used = 1;
-        fprintf(stderr, "[MOD] %s from mods/\n", m->key);
+        fprintf(stderr, "[MOD] %s from mods/%.*s/\n", m->key, (int)strcspn(m->path, "/"), m->path);
     }
 }
 
-static void mods_scan(const char *rel)
+/* Pack <id>'s files under <rel> (path inside the pack); returns how many. */
+static int mods_scan(const char *id, const char *rel)
 {
     char dir[1024], path[1024], key[512];
+    size_t idn = strlen(id);
     DIR *d;
     struct dirent *e;
     struct stat st;
+    mod_file_t *m;
+    int n = 0;
 
-    snprintf(dir, sizeof dir, "%s%s%s", s_mods_dir, *rel ? "/" : "", rel);
+    snprintf(dir, sizeof dir, "%s/%s%s%s", s_mods_dir, id, *rel ? "/" : "", rel);
     if (!(d = opendir(dir)))
-        return;
+        return 0;
     while ((e = readdir(d)) != NULL) {
-        if (e->d_name[0] == '.')
+        if (e->d_name[0] == '.' || (!*rel && !strcasecmp(e->d_name, "mod.json")))
             continue;
         snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
         if (stat(path, &st))
             continue;
         snprintf(path, sizeof path, "%s%s%s", rel, *rel ? "/" : "", e->d_name);
         if (S_ISDIR(st.st_mode)) {
-            mods_scan(path);
+            n += mods_scan(id, path);
             continue;
         }
         mods_key(key, path, sizeof key);
-        if (mods_find(key))
-            continue;                   /* the same name in another case */
+        snprintf(path, sizeof path, "%s/%s%s%s", id, rel, *rel ? "/" : "", e->d_name);
+        n++;
+        if ((m = mods_find(key)) != NULL) {
+            if (strncmp(m->path, id, idn) || m->path[idn] != '/') {   /* another pack's: the later one wins */
+                fprintf(stderr, "[MOD] %s: pack %s over pack %.*s\n", key, id, (int)strcspn(m->path, "/"), m->path);
+                free(m->path);
+                m->path = strdup(path);
+            }
+            continue;                   /* else the same name in another case */
+        }
         if (s_mods_n == s_mods_cap) {
             s_mods_cap = s_mods_cap ? 2 * s_mods_cap : 256;
             s_mods = realloc(s_mods, (size_t)s_mods_cap * sizeof *s_mods);
@@ -129,6 +148,7 @@ static void mods_scan(const char *rel)
         s_mods[s_mods_n++].used = 0;
     }
     closedir(d);
+    return n;
 }
 
 /* Cut every top-level Vehicle block after the 127th; the rest (Manufacturer
@@ -168,7 +188,7 @@ static uint32_t mods_cap_vehicles(uint8_t *d, uint32_t n)
     return w;
 }
 
-/* Kernel opens of loose disc files: <game>/<rel> -> <game>/mods/<rel>. */
+/* Kernel opens of loose disc files: <game>/<rel> -> <game>/mods/<id>/<rel>. */
 static void mods_host_path(char *host_path, size_t size, size_t base_len)
 {
     char out[1024];
@@ -186,10 +206,28 @@ static void mods_host_path(char *host_path, size_t size, size_t base_len)
 /* Boot (from the main heap's creation, before any asset is opened). */
 static void mods_init(void)
 {
-    const char *game = getenv("MC3_GAME_DIR");
+    const char *game = getenv("MC3_GAME_DIR"), *list = getenv("MC3_MODS"), *p;
+    char id[64];
 
+    if (!list || !*list)
+        return;                         /* no pack picked: the game as it is */
     snprintf(s_mods_dir, sizeof s_mods_dir, "%s/mods", game && *game ? game : "game");
-    mods_scan("");
+    for (p = list; *p; p += *p == ',') {
+        size_t k = strcspn(p, ","), i;
+        if (k == 0 || k >= sizeof id) {
+            p += k;
+            continue;
+        }
+        memcpy(id, p, k);
+        id[k] = 0;
+        p += k;
+        for (i = 0; i < k && (isalnum((unsigned char)id[i]) || id[i] == '_' || id[i] == '-'); i++) {}
+        if (i < k) {                    /* a folder name only: no '/', '..' */
+            fprintf(stderr, "[MOD] pack '%s': not a pack id, skipped\n", id);
+            continue;
+        }
+        fprintf(stderr, "[MOD] pack %s: %d files\n", id, mods_scan(id, ""));
+    }
     if (!s_mods_n)
         return;
     s_mods_trace = getenv("MC3_MOD_TRACE") && atoi(getenv("MC3_MOD_TRACE"));

@@ -1314,6 +1314,19 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   itself (2026-11-13, untested in game). '[MOD] strings.txt as <path>
   ...' at the first load, '[MOD] garage: strings.txt keys in the string
   table ...: N of M, key = "text"' at each garage entry.
+  Packs (2026-11-14, untested in game): mods/<id>/ (the old mods/ layout
+  inside it: content.id, content.lst, strings.txt, flash/, tune/,
+  resources/) + mods/<id>/mod.json {id, name, author, credit, description,
+  version, kind car|textures}; mods/index.json {"mods": [ids]} lists them
+  for the page's Mods tab (name, by/credit, description, size from
+  <disc>.manifest, On/Off kept in localStorage mc3.mods, default On), which
+  passes MC3_MODS=<id>,<id> (index order; '' = none). mods_init scans only
+  those packs; a name two packs give comes from the later one ('[MOD]
+  <name>: pack B over pack A'; two car packs therefore do not merge their
+  content.lst/strings.txt yet). MC3_MODS unset or empty: no hook, the game as
+  main. The Sandero is pack sandero_rs. Roam core 20 (merge 2026-11-14):
+  main's core 19 (country flag) and car-mod's core 19 (second car record)
+  were separate bumps; RC_CORE_CFG2 = 20.
 - Saves (2026-10-22): a profile is UDATA/54540079/<12 hex>/<name>.mc3
   (99,162 bytes) + SaveMeta.xbx (UTF-16 "Name=<name>"). The .mc3 starts
   with a format stamp (Xbox 0x02F59447) and ends with HMAC-SHA1 of the

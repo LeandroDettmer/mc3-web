@@ -525,6 +525,7 @@
         <button type="button" class="tab" role="tab" data-tab="controls">Controls</button>
         <button type="button" class="tab" role="tab" data-tab="saves">Saves</button>
         <button type="button" class="tab" role="tab" data-tab="online">Online</button>
+        <button type="button" class="tab" role="tab" data-tab="mods">Mods</button>
       </div>
 
       <div class="pane" role="tabpanel" data-pane="settings">
@@ -633,6 +634,12 @@
           </div>
         </div>
       </div>
+
+      <div class="pane" role="tabpanel" data-pane="mods" hidden>
+        <h3>Mods on this server</h3>
+        <ul class="profiles" id="mods-list" aria-label="Mods on this server"></ul>
+        <p class="hint" style="margin-top:12px">Saved in this browser. Changes apply the next time you press Play. Turn every mod off to play the game as it shipped. Online, players without a mod car see it as the car it is built on.</p>
+      </div>
     </section>
   </div>
 </div>
@@ -732,6 +739,8 @@
     get(k, d) { try { const v = localStorage.getItem('mc3.' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
     set(k, v) { try { localStorage.setItem('mc3.' + k, JSON.stringify(v)); } catch {} },
   };
+  const mods = {};                                           // disc name -> its mod packs (modsLoad), for buildEnv
+  const modOn = m => store.get('mods', {})[m.id] !== false;  // mc3.mods {id: on}; a pack never toggled is on
 
   // --- settings: each key is a getenv() of the port or its toolkit (CLAUDE.md; README, Configuration)
   const ONOFF = (def = 'On') => def === 'On' ? [['', 'On (default)'], ['0', 'Off']] : [['', 'Off (default)'], ['1', 'On']];
@@ -970,6 +979,8 @@
     }
     for (const k of Object.keys(env)) if (k.startsWith('MC3_TOUCH') && k !== 'MC3_TOUCH_TRACE') delete env[k];   // the page's own (web/touch.js)
     if (disc && !env.MC3_DISC_URL) env.MC3_DISC_URL = new URL(disc.path, location.href).href;
+    const packs = mods[(disc || currentDisc())?.name];
+    if (packs?.length && env.MC3_MODS === undefined) env.MC3_MODS = packs.filter(modOn).map(m => m.id).join(',');   // '' = none (src/games/remix/mods.c)
     return env;
   }
   function preview() {
@@ -1024,6 +1035,7 @@
         store.set(key, name);
         if (name === 'saves') { listSaves(); listSnaps(); }
         if (name === 'online') oprofShow();
+        if (name === 'mods') renderMods();
       };
       tabs.forEach((t, i) => {
         const pane = panes.find(p => p.dataset.pane === t.dataset.tab);
@@ -1360,6 +1372,56 @@
     return discFiles[d.name];
   }
 
+  // --- mods (src/games/remix/mods.c): packs at <disc>/mods/<id>/ with mod.json, listed in mods/index.json; the ones
+  // turned on go to the game as MC3_MODS=<id>,<id> in index order (a file two packs give comes from the later one)
+  const modsSeen = {};
+  function modsLoad(d) {
+    if (modsSeen[d.name]) return modsSeen[d.name];
+    const base = new URL(d.path, location.href).href.replace(/\/+$/, '');
+    const get = async p => {
+      const r = await fetch(base + '/' + p, { cache: 'no-cache', credentials: 'include' });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    };
+    return modsSeen[d.name] = (async () => {
+      let ids;
+      try { ids = (await get('mods/index.json')).mods; } catch { return; }   // no mods on this disc
+      let files = null;
+      try { if (typeof MC3DiscCache == 'object') files = await MC3DiscCache.manifest(base); } catch {}
+      const list = [];
+      for (const id of Array.isArray(ids) ? ids : []) {
+        if (!/^[A-Za-z0-9_-]{1,63}$/.test(id)) continue;   // mods.c takes folder names only
+        try {
+          const j = await get(`mods/${id}/mod.json`), pre = `mods/${id}/`;
+          list.push({ ...j, id, size: files ? files.filter(f => f.p.startsWith(pre)).reduce((s, f) => s + f.s, 0) : 0 });
+        } catch (e) { console.warn(`[WEB] mods: ${id}: no mod.json (${e.message || e})`); }
+      }
+      mods[d.name] = list;
+      if (currentDisc() === d) { renderMods(); preview(); }
+    })();
+  }
+  function renderMods() {
+    const ul = $('mods-list'), list = mods[currentDisc()?.name];
+    ul.textContent = '';
+    if (!list?.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No mods on this server.'; ul.append(li); return; }
+    for (const m of list) {
+      const li = document.createElement('li'), info = document.createElement('div'), b = document.createElement('b');
+      const by = document.createElement('p'), p = document.createElement('p'), name = String(m.name || m.id);
+      b.textContent = name + (m.version ? ' v' + m.version : '');
+      by.className = p.className = 'hint';
+      by.textContent = [m.kind === 'car' ? 'Car' : m.kind === 'textures' ? 'Textures' : '', m.author && 'by ' + m.author,
+        m.size ? fmtBytes(m.size) : ''].filter(Boolean).join(' · ') + (m.credit ? '. ' + m.credit : '');
+      p.textContent = m.description || '';
+      info.append(b, by, p);
+      const lab = document.createElement('label'), cb = document.createElement('input'), s = document.createElement('span');
+      lab.className = 'opt'; lab.style.flex = '0 0 auto';
+      cb.type = 'checkbox'; cb.checked = modOn(m); cb.setAttribute('aria-label', name);
+      s.textContent = 'On';
+      cb.onchange = () => { store.set('mods', { ...store.get('mods', {}), [m.id]: cb.checked }); preview(); };
+      lab.append(cb, s); li.append(info, lab); ul.append(li);
+    }
+  }
+
   const webgl2 = (() => { try { return !!document.createElement('canvas').getContext('webgl2'); } catch { return false; } })();
   // WebGL 2 inside a worker, as the game's GL thread makes it (on an OffscreenCanvas). A TCL Google TV's Chrome has
   // WebGL 2 on the page and none in workers ('[GL] WebGL2 context on #canvas failed (0)', 2026-11-09): there the game
@@ -1422,6 +1484,7 @@
   async function refresh() {
     const g = currentGame(), d = currentDisc();
     const n = d ? await countDisc(d) : 0;
+    if (n) await modsLoad(d);   // before Play is enabled: buildEnv needs the packs for MC3_MODS
     const device = await deviceChecks;
     const checks = [
       [n > 0, 'Disc', d ? (n ? `${editionLabel(d)}, ${n} files` : signIn ? `${d.name}: sign in first` : `${d.name}: its file list did not load`) : 'none on this server (--disc)'],
