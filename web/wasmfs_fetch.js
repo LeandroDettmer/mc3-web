@@ -31,7 +31,8 @@
  * file, fetches up to PREFETCH_RUN missing blocks in one request (a small
  * file whole) and only when the game has had no read of its own on the
  * network for IDLE_MS; blocks already kept (earlier visits too) are skipped.
- * Such a request is dropped the moment the game reads the network itself, or
+ * Such a request is dropped the moment the game reads the network itself
+ * (unless within BG_FINISH blocks of its end: 2026-11-14), or
  * wants one of its blocks more than a block past the one coming (that read
  * then fetches its block alone); the blocks already in are kept. Only when
  * the cache is on. Log lines '[WEB] prefetch: ...'.
@@ -58,7 +59,9 @@
  * window is made RA_RUN blocks long, so a file read straight through costs one
  * request per RA_RUN blocks, not one per block (R2 bills requests, 2026-11-14).
  * A streamed sound bank (.xwb) does so on every read, a jump to a new track
- * included, so the packet that crosses into the next block finds it. '[WEB]
+ * included, so the packet that crosses into the next block finds it; so does
+ * the car pack assets_x.dat_2 (2026-11-14, untested in a browser: a car is a
+ * jump then ~2-4 MB read on, 2-4 serial 1 MiB trips cold before). '[WEB]
  * readahead: <file> ...' once a file; '[WEB] disc: N requests for M blocks'
  * once a session. A game read of several blocks fetches each run of missing
  * ones in one request; a read of a file of at most SMALL bytes fetches all of
@@ -129,6 +132,9 @@ addToLibrary({
     }
     // the music bank, and how much of each track's start is fetched first: two of the Remix's 352 KB stream packets
     const MUSIC = BANKS[0], HEAD_BYTES = 0xB0000, STREAM = /\.xwb$/i;
+    // the car models' pack: a car build jumps to a car's first entry (a 4 KB read) and reads ~2-4 MB on from it
+    // (cold logs 2026-11-14), all under the guest lock: readahead on every read, the jump included
+    const CARS = /\/assets_x\.dat_2$/i;
     let netReads = 0, lastNet = 0, prefetching = false;   // the game's own reads on the network, when the last ended
     // the page's tab is hidden (web/pre.js -> xbox_page_hidden_box): the background fill waits
     const hidden = () => typeof _xbox_page_hidden_box == 'function'
@@ -278,14 +284,18 @@ addToLibrary({
       return p;
     }
 
-    function stopBackground() { for (const run of bgRuns) run.ac.abort(); }
+    // A game read on the network drops the background runs, except those within BG_FINISH blocks of their end (they
+    // share the link a moment more): each dropped run is a billed request whose rest is asked for again, and in a
+    // busy city every miss cut the fill (2026-11-14, untested in a browser).
+    const BG_FINISH = 4;
+    function stopBackground() { for (const run of bgRuns) if (run.end - run.next > BG_FINISH) run.ac.abort(); }
     // Blocks bi .. bi+n-1 of fi in one request (C.fetchBlocks). Each is in `inflight` until it has come, so a read
     // of it waits for that, and goes into OPFS as it comes (into memory too for the game's runs, game true). A
     // background run (game false) is dropped by stopBackground and by block (see the header). Resolves to the
     // number of blocks that came; rejects with the fetch's error, or a background block OPFS did not keep.
     // pin: a background run kept in `pinned` instead of OPFS.
     async function fetchRun(fi, bi, n, game, pin = false) {
-      const run = { ac: new AbortController(), next: bi, game }, waits = [], puts = [];
+      const run = { ac: new AbortController(), next: bi, end: bi + n, game }, waits = [], puts = [];
       for (let j = bi; j < bi + n; j++) {         // before any await: a read right after this call joins
         const w = { k: fi.key + '#' + j };
         w.p = new Promise((res, rej) => { w.res = res; w.rej = rej; });
@@ -480,7 +490,7 @@ addToLibrary({
         // Before block(): its read of a block in such a run joins the run and gets it as soon as it has come.
         const small = fi.size <= SMALL, nb = Math.ceil(fi.size / BLOCK), prev = fi.last;   // prev: this file's last read's last block
         fi.last = last;
-        const ahead = !small && (STREAM.test(fi.url) || (prev !== undefined && first >= prev && first <= prev + 1 && last > prev));
+        const ahead = !small && (STREAM.test(fi.url) || CARS.test(fi.url) || (prev !== undefined && first >= prev && first <= prev + 1 && last > prev));
         const lo = small ? 0 : first, hi = small ? nb - 1 : ahead ? Math.min(last + READAHEAD, nb - 1) : last;
         if (hi > lo) {
           let j = lo;

@@ -58,7 +58,9 @@
  * ROAM_RADIUS m of our car (3D; MC3_ROAM_RADIUS m, 0 off; off in a group
  * race) and gives it back once beyond ROAM_RADIUS + ROAM_RADIUS_OUT m for
  * ROAM_RADIUS_HOLD s (parked, free for the next peer coming in; a slot keeps
- * its slot): a full city needs only the cars of the players around us, the
+ * its slot; since 2026-11-14, untested in game, held for its peer like one
+ * that dropped out, so a newcomer takes a free car first and the peer coming
+ * back within ROAM_RADIUS gets its own car, no rebuild): a full city needs only the cars of the players around us, the
  * rest are bright map blips (roam_map.c). The caps, the nearest rule and the
  * nearest-first order work inside it. '[ROAM] radius: ...' on change.
  *
@@ -87,6 +89,7 @@ typedef struct roam_rc {
     float    setp[3];                   /* standalone: the drawn position our last pose left (roam_pool_frame) */
     uint8_t  ctl[ROAM_CTL], has_ctl;    /* has_ctl 0: the peer sends no inputs */
     uint8_t  here, away, live, want;    /* linked now; in its garage/loading/race; posed; rebuild with the peer's look */
+    uint8_t  far;                       /* parked for its peer beyond the car radius (held: no rebuild when back) */
     double   lost;                      /* when its peer dropped out */
     double   wait;                      /* no rebuild before (one refused for heap room) */
     double   out;                       /* its peer beyond the car radius since (0: within) */
@@ -713,7 +716,7 @@ static void roam_rc_give(int k, const roam_peer *pp, const char *why)
 {
     roam_rc *c = &s_rc[k];
     c->id = pp->id;
-    c->live = c->away = c->want = 0;
+    c->live = c->away = c->want = c->far = 0;
     c->wait = c->out = 0;
     c->gen = 0;
     c->said = 0;
@@ -782,13 +785,27 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
             continue;
         for (i = 0; i < n && (used[i] || peers[i].id != c->id); i++)
             ;
-        if (i < n && rad > 0.0f && peers[i].dist > rad + ROAM_RADIUS_OUT) {
+        if (i < n && rad > 0.0f && peers[i].dist > (c->far ? rad : rad + ROAM_RADIUS_OUT)) {
+            if (c->far) {                       /* held beyond the radius: its own car back once within */
+                used[i] = 1;
+                continue;
+            }
             if (!c->out)
                 c->out = now;
-            else if (now - c->out >= ROAM_RADIUS_HOLD) {    /* beyond the radius: its car parked, free for another */
+            else if (now - c->out >= ROAM_RADIUS_HOLD) {
+                /* beyond the radius: its car parked and held for it (a newcomer takes a free car first), so
+                 * coming back needs no rebuild; was given up (id 0), and every return was a rebuild */
+#ifdef __EMSCRIPTEN__
+                fprintf(stderr, "[ROAM] %s %d: %s parked (%.0f m, beyond the %.0f m car radius), held\n",
+                        roam_rc_slot(k) ? "slot" : "car", k, c->name, peers[i].dist, rad);
+                c->far = 1;
+                c->lost = now;
+                used[i] = 1;
+#else
                 fprintf(stderr, "[ROAM] %s %d: %s parked (%.0f m, beyond the %.0f m car radius)\n",
                         roam_rc_slot(k) ? "slot" : "car", k, c->name, peers[i].dist, rad);
                 c->id = 0;
+#endif
                 c->here = c->live = 0;
                 c->out = 0;
                 continue;
@@ -796,6 +813,7 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
         } else
             c->out = 0;
         if (i < n) {
+            c->far = 0;
             used[i] = 1;
             at[k] = i;
             held++;
