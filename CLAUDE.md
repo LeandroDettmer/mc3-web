@@ -249,7 +249,7 @@ generated files when the lift inputs did not change.
   sends the log, tag hitch) split it next time), the streamed sound banks
   (audio/XStreams/*.xwb, 486 MiB, mx.xwb first: a track change fetched on
   demand stalled the game), resources/ smallest first (642 MiB: car builds
-  .xbpf, hudmap), banks.dat; nothing more since 2026-11-14 (eb0fc32, R2
+  .xbpf, hudmap), banks.dat; since 2026-11-14 evening also assets_x.dat, _3, _1 (557 MiB, read while driving: on-demand disc waits per log rose ~60% without them; a fill run is one request per 16 MiB); nothing more since 2026-11-14 (eb0fc32, R2
   Class B reads ~3.4 M/day over the free 10 M a month): flash/, the rest of
   assets_x* and the career movies come on use only, and the page's "Download
   the whole game now" button (disc_cache.js predownload worker, code kept) is

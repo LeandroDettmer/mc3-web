@@ -22,7 +22,7 @@
  * OPFS cache while it plays, so those reads find OPFS, not the network (a
  * block fetched on demand stalls the game thread that asked, and a car
  * model read in free roam stalls the whole guest). In order (prefetchJobs):
- * assets_x.dat_2 (cars), the streamed sound banks (music mx.xwb first),
+ * assets_x.dat_2 (cars), the streamed sound banks (music mx.xwb first), assets_x.dat, _3, _1 (city),
  * resources/ smallest first (car builds .xbpf, hudmap), banks.dat. Since
  * 2026-11-14 (R2 reads cost) no more: the Flash screens, the rest of
  * assets_x* and the movies come only when the game reads them (the fill was
@@ -327,9 +327,12 @@ addToLibrary({
       return [
         byPath.get('assets_x.dat_2'),
         ...BANKS.map(p => byPath.get(p)),
+        // the city packs the game reads while driving (on demand: ~60% more disc waits a log after they left the fill,
+        // 2026-11-14); a fill run is one request per 16 MiB, cheaper in R2 reads than the game's 1-3 MiB misses
+        ...['assets_x.dat', 'assets_x.dat_3', 'assets_x.dat_1'].map(p => byPath.get(p)),
         ...dir('resources/'),
         byPath.get('banks.dat'),
-        // 2026-11-14: no more Flash screens, rest of assets_x* or movies (R2 reads cost): the game fetches them on use
+        // 2026-11-14: no Flash screens, assets_x.dat_4/_5 or movies: the game fetches them on use
       ].filter(Boolean);
     }
     // Bytes of fi not in the cache, from its block map read without opening the file (an open one's map if it is).
