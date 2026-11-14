@@ -303,9 +303,7 @@ window.mc3Lan = function (name, lanUrl) {
   // Wants the players push or not (default yes). In game the list is read only by the main menu's count and the full
   // map's panel, and the switch pushes up to 200 names on every change: the page asks only then. Sent on change only.
   link.watchPlayers = function (on) {
-    on = !!on;
-    if (on === wantPlayers) return;
-    wantPlayers = on;
+    wantPlayers = on = !!on;   // compared with playersSub: askPlayers may have subscribed meanwhile
     if (up() && playersSub !== on) { ws.send(JSON.stringify({ t: 'players', sub: on ? 1 : 0 })); playersSub = on; }
   };
   // w: 'page' | 'loading' | 'menu' | 'career' | 'arcade' (the switch ignores any other); call as often as you like
