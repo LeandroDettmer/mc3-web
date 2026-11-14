@@ -52,10 +52,28 @@ static volatile Uint32 s_press_at[SDL_NUM_SCANCODES];   /* SDL_GetTicks() | 1 */
  * 2026-11-05). A press counts as held for at least this long. */
 #define KEY_MIN_HOLD_MS 120
 
+#ifdef __EMSCRIPTEN__
+/* ...but only a tap whose down and up came in the same pump needs all of it.
+ * One seen across pumps was already down for a pump (about a game frame);
+ * stretching it to 120 ms made every tap longer than the user's, and the
+ * Remix's lists (mcUiGroup, sub_0034B870) step again whenever their slide
+ * ends with the direction still held: a tap then moved two items
+ * (2026-11-14). Such a tap is held KEY_SEEN_MS at least. */
+#define KEY_SAME_PUMP_MS 3
+#define KEY_SEEN_MS 50
+static volatile Uint32 s_hold_ms[SDL_NUM_SCANCODES];
+#endif
+
 void xbox_sdl_keyboard_event(int scancode, int down)
 {
     if (scancode < 0 || scancode >= SDL_NUM_SCANCODES)
         return;
+#ifdef __EMSCRIPTEN__
+    if (down)
+        s_hold_ms[scancode] = KEY_MIN_HOLD_MS;
+    else if (s_down[scancode] && SDL_GetTicks() - s_press_at[scancode] >= KEY_SAME_PUMP_MS)
+        s_hold_ms[scancode] = KEY_SEEN_MS;     /* before s_down drops: a reader never sees a stale 120 shorten */
+#endif
     s_down[scancode] = down ? 1 : 0;
     if (down)
         s_press_at[scancode] = SDL_GetTicks() | 1;
@@ -70,7 +88,11 @@ void xbox_sdl_keyboard_reset(void)
 static int held(int scancode)
 {
     Uint32 t = s_press_at[scancode];
+#ifdef __EMSCRIPTEN__
+    return s_down[scancode] || (t && SDL_GetTicks() - t < s_hold_ms[scancode]);
+#else
     return s_down[scancode] || (t && SDL_GetTicks() - t < KEY_MIN_HOLD_MS);
+#endif
 }
 
 int xbox_sdl_keyboard_down(int scancode)
