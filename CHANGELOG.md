@@ -106,7 +106,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Another player's car no longer jumps forward or back when you get close to it.
 - **Free Roam:** Fixed a freeze in a full city, when many players come and go around you.
 
-## 2026-11-14 (1105805)
+## 2026-11-14 (9e26630)
 
 - **Online:** After 3 minutes without any key, touch or controller input in Free Roam or the Online career, you are taken offline to save server load; press any key or button to reconnect.
 - **Online career:** Fixed a crash when a race started with a player on a motorbike nearby; such players show on the map instead of as a ghost.
@@ -122,3 +122,8 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Page:** New start page: a side menu, one clean panel per section with settings split into tabs, a bottom bar, and Donate and Ko-fi right under Play.
 - **Graphics:** Macs drawing with WebGL no longer freeze at the profile screen.
 - **Settings:** Name tag size: a slider (50% to 150%) with a sample tag makes the names over other players' cars smaller or bigger, live.
+- **Phones:** Other players' cars no longer freeze the game for seconds when they first appear: the car models download in the background once.
+- **Loading:** The city's game files download in the background again while you play, so driving around stutters less on a first visit.
+- **Free Roam:** Fixed a freeze when entering Free Roam with a player on a motorbike nearby; that player shows in a car for now.
+- **Page:** The game data box no longer shows sizes; Clear game data frees the space and keeps your saves.
+- **Online:** Free Roam always connects you straight to the nearest players, which keeps the server light; they can see your IP address, as in most online games.
