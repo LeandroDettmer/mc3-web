@@ -1334,6 +1334,27 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   patched <city>_traffic.xbck (textures replaced in place, same size). Roam core 20 (merge 2026-11-14):
   main's core 19 (country flag) and car-mod's core 19 (second car record)
   were separate bumps; RC_CORE_CFG2 = 20.
+  Police pack (2026-11-14, untested in game; src/games/remix/police.c,
+  tools/police_pack.py, kind gameplay): police are race AI opponents with a
+  COPCAR CarType (aiCop brain vt 0x46BFF8, list 0x534088, count 0x534110). The
+  pack's four cruise .rac (tune/race/<city>/cruise/easy/*_cruise_race01.rac)
+  list 3 police only (sd/atl/det impalass_cop_s/a/d_96, tokyo vp_d_tokyo_cop_01;
+  DisabledAtStart 0, RespawnCop 1); fr_no_opponents gives the Online Free Roam
+  cruise setups +0x40 = 3 (128 MB window) / 2 (64 MB), MC3_POLICE=N, +0x10D = 1;
+  roam_build keeps 1 + slots + police <= 8. The level load (sub_00029240) runs
+  race init (.rac), the AI pool, then the player manager, so the police cars
+  are built before roam_build's heap check. Suspects: the brain update
+  sub_001EFCC0 asks [[player+0x14]+8] vt+0x2C (returns to 0x001EFF03, al 0 =
+  skipped) for each player; recomp_lookup_manual answers 0 there for any player
+  but ours (no relift); targets brain +0x20C/+0x210, wanted list 0x534120
+  ({who, level} x16, count 0x534114) scrubbed of remote players each frame.
+  Arrest: "racer finished" sub_001E06E0 (race vt+0x64, thiscall (idx), ret 4,
+  indirect only; done = record +4, "hud_arrested" when record +5, race +0x1250
+  count, +0x1258 bit) for our racer with a police car after us or record +5 set
+  is not run: $5,000 fine from the Online money, profile saved, prompt box
+  'BUSTED', targets and wanted list cleared. The arrest's decider was not found
+  (cop states 4/6/7 of sub_001F0790 unread). The pack is served everywhere its
+  .rac is read (a career/Arcade cruise of the same event too). '[POLICE] ...'.
 - Saves (2026-10-22): a profile is UDATA/54540079/<12 hex>/<name>.mc3
   (99,162 bytes) + SaveMeta.xbx (UTF-16 "Name=<name>"). The .mc3 starts
   with a format stamp (Xbox 0x02F59447) and ends with HMAC-SHA1 of the

@@ -228,12 +228,16 @@ EMSCRIPTEN_KEEPALIVE uintptr_t roam_progress_box(void)
 }
 #endif
 
+static const char *police_note(void);           /* police.c: BUSTED and the fine */
+
 /* The line for an empty prompt: the AI race's prize, back in the cruise. */
 __attribute__((unused)) static const char *op_note(void)   /* browser only (rra_prompt) */
 {
     static char out[192];                      /* RRA_TEXT */
     uint32_t setup = MEM32(ROAM_SETUP_VA);
     double now;
+    if (*police_note())
+        return police_note();
     if (!s_op_note || !s_online || !online_ram(setup) || MEM32(setup + 0x18u) != 0)
         return "";
     now = roam_now();

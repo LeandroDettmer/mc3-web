@@ -1409,7 +1409,7 @@
       const by = document.createElement('p'), p = document.createElement('p'), name = String(m.name || m.id);
       b.textContent = name + (m.version ? ' v' + m.version : '');
       by.className = p.className = 'hint';
-      by.textContent = [m.kind === 'car' ? 'Car' : m.kind === 'textures' ? 'Textures' : '', m.author && 'by ' + m.author,
+      by.textContent = [m.kind === 'car' ? 'Car' : m.kind === 'textures' ? 'Textures' : m.kind === 'gameplay' ? 'Gameplay' : '', m.author && 'by ' + m.author,
         m.size ? fmtBytes(m.size) : ''].filter(Boolean).join(' · ') + (m.credit ? '. ' + m.credit : '');
       p.textContent = m.description || '';
       info.append(b, by, p);

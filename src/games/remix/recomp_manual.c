@@ -1778,8 +1778,10 @@ extern void sub_002C1520_gen(void);
 static void roam_player(uint32_t p);            /* free roam (O3), roam_game.c */
 static void rra_player(uint32_t p);             /* free roam: AI race prompt, start, pose back (roam_race_ai.c) */
 static int rch_player(uint32_t p);              /* free roam: street challenge; 1 owns prompt + White (roam_challenge.c) */
+static void police_frame(uint32_t p);           /* mod pack police: our car only, arrest -> fine (police.c) */
 void sub_002C1520(void)
 {
+    police_frame(g_ecx);
     if (!rch_player(g_ecx))
         rra_player(g_ecx);
     roam_player(g_ecx);
@@ -1929,8 +1931,12 @@ void sub_000EC910(void) { cam_call(53, 0x000EC910u, sub_000EC910_gen); }
 #ifdef __EMSCRIPTEN__
 static void roam_shader_check(void);            /* roam_pool.c */
 #endif
+static recomp_func_t police_lookup(uint32_t va); /* police.c: a police car's suspects, our car only */
 recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
 {
+    recomp_func_t pol = police_lookup(xbox_va);
+    if (pol)
+        return pol;
     /*
      * TODO: Add your overrides here. Examples:
      *
@@ -4369,6 +4375,7 @@ static void online_strings(void)
 #include "roam_map.c"                           /* Online cruise: garage icons, race start points, players' blips */
 #include "roam_tags.c"                          /* free roam: players' names over their cars (page overlay) */
 #include "roam_challenge.c"                     /* free roam: 1v1 street challenge in the cruise (feature 2) */
+#include "police.c"                             /* mod pack police: police cars in Free Roam, a fine for an arrest */
 
 /* A car's "needs a reset" flag ([ecx+0xC] bit 0, ecx = [[veh+8]+0xC]; a
  * leaf, thiscall, ret). The vehicle update (vtable 0x454F40 +8,
@@ -4648,7 +4655,8 @@ static void fr_no_opponents(void)
     if (!fr_setup())
         return;
     for (i = 0; i < 3; i++)
-        if (online_ram(s = MEM32(k_setup[i])) && MEM32(s + 0x18u) == 0 && MEM32(s + 0x40u) != 0) {
+        if (online_ram(s = MEM32(k_setup[i])) && MEM32(s + 0x18u) == 0 && !police_setup(s, k_setup[i]) &&
+            MEM32(s + 0x40u) != 0) {             /* the police pack's cars instead (police.c) */
             fprintf(stderr, "[ONLINE] Free Roam: %u AI racers in the cruise setup [%08X] removed\n",
                     (unsigned)MEM32(s + 0x40u), (unsigned)k_setup[i]);
             MEM32(s + 0x40u) = 0;

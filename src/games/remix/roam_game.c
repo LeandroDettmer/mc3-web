@@ -932,6 +932,7 @@ static void roam_career_load(uint32_t setup)
     roam_career_join(setup, "cruise load");
 }
 
+static int police_slots(uint32_t setup, int n); /* police.c */
 static void roam_build(void)
 {
     uint32_t setup = MEM32(ROAM_SETUP_VA), e0 = setup + ROAM_ENTRY, cfg0, i;
@@ -1004,7 +1005,7 @@ static void roam_build(void)
         for (i = 0; i < (uint32_t)np; i++)
             nrec += roam_peer_rec(peers[i].id, blob);
         if (!roam_group_race())
-            n = roam_nslots(np);
+            n = police_slots(setup, roam_nslots(np));   /* room for the police pack's cars (police.c) */
     } else
         n = 0;
     if (!n)
