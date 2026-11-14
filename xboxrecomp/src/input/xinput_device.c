@@ -285,6 +285,66 @@ static int web_pad_allowed(SDL_GameController *c)
         if (SDL_JoystickGetDeviceInstanceID(i) == id) return web_allowed(i);
     return 0;
 }
+
+/* SDL2's Emscripten driver gives every browser pad its one default mapping
+ * (SDL_gamecontrollerdb.h "default,Standard Gamepad": the Gamepad API's
+ * standard layout) whatever the browser's Gamepad.mapping says, so a pad the
+ * browser does not know ('mapping' empty: raw button order, hat as an axis)
+ * had its buttons in the wrong places (issue #6). The page's "Set up
+ * buttons" (web/index.html) gives a player's own layout for the pad this tab
+ * plays with: an SDL mapping body ("a:b2,b:b1,..."), "" = the standard one.
+ * web/pre.js writes map, then bumps seq. */
+#define WEB_STD_MAP "a:b0,b:b1,back:b8,dpdown:b13,dpleft:b14,dpright:b15,dpup:b12,guide:b16," \
+    "leftshoulder:b4,leftstick:b10,lefttrigger:b6,leftx:a0,lefty:a1,rightshoulder:b5,rightstick:b11," \
+    "righttrigger:b7,rightx:a2,righty:a3,start:b9,x:b2,y:b3,"
+static struct { volatile int seq; char map[1020]; } g_web_map;
+EMSCRIPTEN_KEEPALIVE void *xbox_web_pad_map_box(void) { return &g_web_map; }
+
+/* Put the page's layout on pad 1 when it changes or another pad opens. An
+ * open controller keeps the mapping it was opened with (SDL refreshes only
+ * those already on that GUID's entry), so pad 1 is opened again. */
+static void web_pad_layout(void)
+{
+    static int done_seq;
+    static SDL_JoystickID done_id = -1;
+    char map[sizeof g_web_map.map], m[sizeof map + 64], guid[33];
+    SDL_GameController *c = g_pads[0];
+    SDL_JoystickID id;
+    int seq, i;
+
+    if (!c)
+        return;
+    id = SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(c));
+    seq = __atomic_load_n(&g_web_map.seq, __ATOMIC_ACQUIRE);
+    if (seq == done_seq && id == done_id)
+        return;
+    memcpy(map, (const char *)g_web_map.map, sizeof map);
+    map[sizeof map - 1] = 0;
+    if (__atomic_load_n(&g_web_map.seq, __ATOMIC_ACQUIRE) != seq)
+        return;                                  /* written meanwhile: next poll */
+    done_seq = seq;
+    SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(SDL_GameControllerGetJoystick(c)), guid, sizeof guid);
+    snprintf(m, sizeof m, "%s,Browser pad,%s", guid, map[0] ? map : WEB_STD_MAP);
+    if (SDL_GameControllerAddMapping(m) < 0) {
+        fprintf(stderr, "[WEB] gamepad: layout refused: %s\n", SDL_GetError());
+        done_id = id;
+        return;
+    }
+    /* closed first: an open one is handed back as it is, old mapping and all */
+    SDL_GameControllerClose(c);
+    g_pads[0] = NULL;
+    for (i = 0; i < SDL_NumJoysticks(); i++)
+        if (SDL_JoystickGetDeviceInstanceID(i) == id) {
+            g_pads[0] = SDL_GameControllerOpen(i);
+            break;
+        }
+    g_controller_connected[0] = g_pads[0] != NULL;  /* none: open_controllers tries again */
+    done_id = g_pads[0] ? SDL_JoystickInstanceID(SDL_GameControllerGetJoystick(g_pads[0])) : -1;
+    fprintf(stderr, "[WEB] gamepad: pad 1 (%s) uses %s\n",
+            g_pads[0] && SDL_JoystickName(SDL_GameControllerGetJoystick(g_pads[0]))
+                ? SDL_JoystickName(SDL_GameControllerGetJoystick(g_pads[0])) : "?",
+            map[0] ? "the player's own button layout" : "the standard layout");
+}
 #else
 #define web_allowed(i) 1
 #define web_pad_allowed(c) 1
@@ -356,6 +416,9 @@ static void input_poll_devices(void)
         last = now;
         SDL_GameControllerUpdate();
         open_controllers();
+#ifdef __EMSCRIPTEN__
+        web_pad_layout();
+#endif
     }
 }
 
