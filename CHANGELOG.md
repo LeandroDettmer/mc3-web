@@ -106,8 +106,9 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Another player's car no longer jumps forward or back when you get close to it.
 - **Free Roam:** Fixed a freeze in a full city, when many players come and go around you.
 
-## 2026-11-14 (eb0fc32)
+## 2026-11-14 (10cfafc)
 
 - **Online:** After 3 minutes without any key, touch or controller input in Free Roam or the Online career, you are taken offline to save server load; press any key or button to reconnect.
 - **Online career:** Fixed a crash when a race started with a player on a motorbike nearby; such players show on the map instead of as a ghost.
 - **Loading:** The game no longer downloads the whole disc in the background, and the "Download the whole game now" button is gone: garage, menus and movies load the first time you open them.
+- **Page:** A Donate button on the start page: donations keep the online server running.
