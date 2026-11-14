@@ -183,6 +183,7 @@
     }
     root.addEventListener('pointerdown', e => {
       e.preventDefault();                                 // no focus change, no mouse events, no zoom
+      lift(e);                                            // same pointerId still held (a lost up): let go first, else a 'stick' entry stays
       const c = e.target.closest('[data-c]');
       if (c) press(e.pointerId, c.dataset.c);
       else if (e.target === zone && !stick) {
@@ -216,8 +217,18 @@
       if (f === 'stick') { stick = null; base.hidden = knob.hidden = true; }
       kick();
     };
-    root.addEventListener('pointerup', lift);
-    root.addEventListener('pointercancel', lift);       // the phone took the touch (a system gesture)
+    // on window, capture phase: an up/cancel whose target left the root (button hidden or re-laid out, orientation
+    // change) never reached it, and the entry stayed (Gas or steering stuck)
+    for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) addEventListener(t, lift, true);
+    // no up ever comes: app switch, notification shade, tab hidden; iOS: touchend with no finger left
+    const releaseAll = () => {
+      if (!fingers.size && !stick) return;
+      fingers.clear(); stick = null; base.hidden = knob.hidden = true;
+      kick();
+    };
+    addEventListener('blur', releaseAll);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
+    for (const t of ['touchend', 'touchcancel']) root.addEventListener(t, e => { if (!e.touches.length) releaseAll(); });
     root.addEventListener('contextmenu', e => e.preventDefault());
     // iOS Safari: cancelling pointerdown does not stop its own touch handling (text-selection loupe on a held
     // button, page rubber-banding, a synthesized click); cancelling the touch events does. Pointer events still come.
