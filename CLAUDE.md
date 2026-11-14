@@ -435,7 +435,7 @@ generated files when the lift inputs did not change.
   by the game's HELLO room, closed by its BYE) carrying that city's hub, relay
   frames and roam signals; the Switch keeps lobby, races, players list (city
   reports) and its own hub as fallback; '[net] free roam: own socket to city N
-  open'; a lost link (switch or city socket not open for 3 s after a HELLO) shows a notice over the picture (lan.js roamDown, pre.js; reload button after 30 s; '[net] free roam: link lost'). Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
+  open'; a lost link (switch or city socket not open for 3 s after a HELLO) shows a notice over the picture (lan.js roamDown, pre.js; reload button after 30 s; '[net] free roam: link lost'). AFK kick (2026-11-14, untested in a browser; page only, no Worker change): Free Roam / Online career, not in a race room, with no keydown/pointerdown/touchstart/gamepad change for 180 s (a hidden tab too; ?MC3_AFK_S=N, 0 off) -> lan.afk: city socket closed without retry, every free-roam frame, signal and P2P send dropped (the hubs drop us by their stale timer), pre.js's notice says 'Disconnected for inactivity' instead of roamDown's; any input clears it and the game's next HELLO reopens the city; '[net] afk: kicked after N s idle' / '[net] afk: back'. Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
   pairs without a P2P channel (the larger share while K > roamMax).
   City object overload (2026-11-13, fix untested live, Worker not deployed):
   at the evening peak (~65 online, ~26 in San Diego's object) the object took

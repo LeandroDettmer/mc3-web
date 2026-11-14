@@ -105,3 +105,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** A full city no longer drops everyone at once at peak times, and after a drop the game reconnects in a few seconds without everyone retrying together.
 - **Free Roam:** Another player's car no longer jumps forward or back when you get close to it.
 - **Free Roam:** Fixed a freeze in a full city, when many players come and go around you.
+
+## 2026-11-14 (pending)
+
+- **Online:** After 3 minutes without any key, touch or controller input in Free Roam or the Online career, you are taken offline to save server load; press any key or button to reconnect.

@@ -303,7 +303,7 @@
     rtc.roamSend = function (f) {
       var dst = new DataView(f.buffer, f.byteOffset, f.length).getUint32(8);
       var out = link.roamSend || link.send;   // the city's own socket when open (web/lan.js), else the switch
-      if (dst == HUB || dst == BCAST) return out(f);
+      if (dst == HUB || dst == BCAST || link.afk) return out(f);   // AFK: web/lan.js drops it (no P2P either)
       touch(dst).tx++;
       var p = rtc.roamP2P && fr.peers[dst];
       if (liveP(p) && p.dc.bufferedAmount < ROAM.queue) {

@@ -30,6 +30,11 @@
 //   l.roaming                        // true between the game's Free Roam HELLO and BYE (index.html's new-version notice)
 //   l.career                         // that session is an online career's (index.html sets it; cleared with roaming): no forced reload
 //   l.roamDown                    // ms timestamp the free-roam link has been lost since (3 s grace), 0 = fine (pre.js notice)
+//   l.afk, l.afkMs                   // AFK kick (2026-11-14): Free Roam / Online career (never a race room) with no input
+//                                    // (keydown, pointerdown, touchstart, a gamepad change; a hidden tab has none) for afkMs
+//                                    // (180 s; ?MC3_AFK_S=N, 0 off): the city socket closes (no retry), every free-roam frame
+//                                    // and signal is dropped, so the hubs drop us by their stale timer; pre.js shows its
+//                                    // notice instead of roamDown's. Any input clears it; the game's next HELLO reopens the city.
 // The game's HELLO to the hub (10.77.0.253:47210) names its room (MC3: the city): a new one closes the old socket, asks
 // the switch {"t":"ticket"} and opens wss .../lan/roam?city=N&vip&exp&sig; its BYE closes it. Until the socket is open,
 // and whenever it is not (refused, a server without it), the frames go through the switch as before. A socket that never
@@ -193,26 +198,50 @@ window.mc3Lan = function (name, lanUrl) {
     };
     s.onclose = function () { if (city === c) cityFail(c, c.open); };
   }
-  // A free-roam frame (16-byte header, net.js): its HELLO / BYE to the hub steer the city socket.
+  // A free-roam frame (16-byte header, net.js): its HELLO / BYE to the hub steer the city socket. AFK: dropped, state kept.
   link.roamSend = function (f) {
     if (f.length >= 22 && f[8] == 10 && f[9] == 77 && f[10] == 0 && f[11] == 253 && ((f[14] << 8) | f[15]) == ROAM_PORT &&
         f[16] == 0x4D && f[17] == 0x43 && f[18] == 0x33 && f[19] == 0x52) {
-      if (f[21] == 1 && f.length >= 44) { roaming = link.roaming = true; cityWant((f[40] | f[41] << 8 | f[42] << 16 | f[43] << 24) >>> 0); }   // HELLO: room u32 LE at datagram +24
-      else if (f[21] == 8) { roaming = link.roaming = link.career = false; var ok =roamOut(f); cityClose(); watch(); return ok; }   // BYE: the game left free roam
+      if (f[21] == 1 && f.length >= 44) { roaming = link.roaming = true; if (!link.afk) cityWant((f[40] | f[41] << 8 | f[42] << 16 | f[43] << 24) >>> 0); }   // HELLO: room u32 LE at datagram +24
+      else if (f[21] == 8) { roaming = link.roaming = link.career = false; var ok = !link.afk && roamOut(f); cityClose(); watch(); return ok; }   // BYE: the game left free roam
     }
-    return roamOut(f);
+    return !link.afk && roamOut(f);
   };
   // link.roamDown: ms timestamp since when Free Roam (a HELLO sent, no BYE yet) has lost its link for 3 s running, else 0:
   // the switch socket is not up, or city objects are on and the city socket is not open (so also a page left on the
   // switch's fallback hub). web/pre.js shows the notice from it, web/net.js logs it; it clears as soon as both are open.
   var roaming = false, badSince = 0, WATCH_GRACE = 3000;
   function watch() {
-    var bad = roaming && (!up() || (cityOn && !cityUp())), t = Date.now();
+    var t = Date.now();
+    if (!link.afk && link.afkMs && (roaming || link.career) && !link.room && t - lastInput >= link.afkMs) { link.afk = true; cityClose(); changed(); }
+    var bad = roaming && !link.afk && (!up() || (cityOn && !cityUp()));
     if (!bad) badSince = 0; else if (!badSince) badSince = t;
     var d = bad && t - badSince >= WATCH_GRACE ? badSince : 0;
     if (d != link.roamDown) { link.roamDown = d; changed(); }
   }
   var watchT = setInterval(watch, 1000);
+  // AFK (see the head): the page's own input, every event in the capture phase (the game's handlers may stop it).
+  var lastInput = Date.now(), pads = [];
+  link.afk = false; link.afkMs = 180000;
+  try { var q = /[?&]MC3_AFK_S=(\d+)/.exec(location.search); if (q) link.afkMs = q[1] * 1000; } catch (_) {}
+  function input() { lastInput = Date.now(); if (link.afk) { link.afk = false; changed(); } }
+  ['keydown', 'pointerdown', 'touchstart'].forEach(function (e) { window.addEventListener(e, input, { capture: true, passive: true }); });
+  // a gamepad counts when a button is held or changed, or an axis moved more than DEAD since the last look (stick drift does not)
+  var DEAD = 0.2;
+  setInterval(function () {
+    if (!(roaming || link.career || link.afk)) return;
+    var gp = [];
+    try { gp = navigator.getGamepads ? navigator.getGamepads() : []; } catch (_) {}
+    for (var i = 0; i < gp.length; i++) {
+      var g = gp[i];
+      if (!g) continue;
+      var was = pads[i], now = { b: g.buttons.map(function (b) { return b.value; }), a: g.axes.slice() }, hit = false;
+      for (var j = 0; j < now.b.length && !hit; j++) hit = g.buttons[j].pressed || (was && Math.abs(now.b[j] - (was.b[j] || 0)) > DEAD);
+      for (j = 0; was && j < now.a.length && !hit; j++) hit = Math.abs(now.a[j] - (was.a[j] || 0)) > DEAD;
+      pads[i] = now;
+      if (hit) input();
+    }
+  }, 1000);
   // Bundles (web/lan-worker/src/city.js head): one WebSocket message per OUT_MS of frames, not one per frame: a Durable
   // Object pays per message (inbound WS, 20:1), and ~3k/s in one city overloaded it (2026-11-13). Was one per drain of
   // the game's mailbox (~20/s a player); 100 ms halves it (2026-11-14; P2P frames never come here, only relays and the
@@ -255,6 +284,7 @@ window.mc3Lan = function (name, lanUrl) {
     }
   }
   link.roamMsg = function (m) {
+    if (link.afk) return false;
     if (cityUp()) { city.ws.send(JSON.stringify(m)); return true; }
     return link.sendMsg(m);
   };
