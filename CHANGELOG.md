@@ -108,22 +108,15 @@ internals. The page header shows the first release (9 November 2026); each later
 
 ## 2026-11-14 (653dfc6)
 
-- **Online:** After 3 minutes without any key, touch or controller input in Free Roam or the Online career, you are taken offline to save server load; press any key or button to reconnect.
-- **Online career:** Fixed a crash when a race started with a player on a motorbike nearby; such players show on the map instead of as a ghost.
-- **Loading:** The game no longer downloads the whole disc in the background, and the "Download the whole game now" button is gone: garage, menus and movies load the first time you open them.
-- **Page:** Donate and Ko-fi buttons on the start page: donations keep the online server running.
-- **Controls:** Controllers your browser does not recognise can now be set up: Controls, Controller, Set up buttons, then press each button when asked.
-- **Keyboard:** A short tap of an arrow in a menu list (garage, showroom, paint) no longer moves two items.
+- **Page:** New start page with a side menu and tidy settings; Donate and Ko-fi buttons under Play.
+- **Free Roam:** Other players' cars no longer show up with bare rims.
+- **Free Roam:** Fewer stutters while driving and when other players' cars appear, especially on phones.
+- **Free Roam:** Fixed freezes and crashes when a player on a motorbike was nearby.
+- **Free Roam:** After 3 minutes without touching anything you are taken offline; press any key or button to come back.
+- **Settings:** Name tag size: make the names over other players' cars smaller or bigger.
 - **Garage:** Fixed a freeze when opening Custom Color Shift in the paint menu.
-- **Controls:** The Map button on the page no longer leaves the pause menu scrolling forever after you press it twice.
-- **Controls:** Touch buttons and the steering stick no longer stay stuck on after a finger leaves the screen or the app is switched.
-- **Loading:** Game files are downloaded in larger pieces when read straight through, so first loads wait a little less on slow connections.
-- **Free Roam:** Other players' cars no longer show bare rims without tyres after a player changes car or parts, or when a car is passed on to another player.
-- **Page:** New start page: a side menu, one clean panel per section with settings split into tabs, a bottom bar, and Donate and Ko-fi right under Play.
-- **Graphics:** Macs drawing with WebGL no longer freeze at the profile screen.
-- **Settings:** Name tag size: a slider (50% to 150%) with a sample tag makes the names over other players' cars smaller or bigger, live.
-- **Phones:** Other players' cars no longer freeze the game for seconds when they first appear: the car models download in the background once.
-- **Loading:** The city's game files download in the background again while you play, so driving around stutters less on a first visit.
-- **Free Roam:** Fixed a freeze when entering Free Roam with a player on a motorbike nearby; that player shows in a car for now.
+- **Controls:** Controllers your browser does not recognise can now be set up (Controls, Controller, Set up buttons).
+- **Controls:** Touch buttons and the steering no longer get stuck; the Map button no longer makes the pause menu scroll forever.
+- **Keyboard:** A short tap of an arrow in a menu no longer moves two items.
 - **Phones:** A new music track no longer freezes the game for a moment.
-- **Loading:** Parts of the game that keep making you wait are downloaded in the background, so the next time they load without a stop.
+- **Mac:** Fixed the game freezing at the profile screen on some Macs.
