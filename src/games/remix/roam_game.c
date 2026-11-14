@@ -333,7 +333,9 @@ static uint32_t roam_heap_log(uint32_t h, const char *when);
  * our build holds the main thread (2026-11-11, iPhone: vp_ducati_ss1000_04
  * swapped into a slot, main frozen for good, guest lock free). So no bike
  * is built mid-cruise: the slot or car keeps a stand-in, the next load
- * builds the bike. */
+ * builds the bike in a slot. Browser, 2026-11-14: no standalone bike at a
+ * load either (roam_pool_load: the rider's wait sub_00117E20 spun on the
+ * first cruise frames, 22 freeze logs). */
 static int roam_car_bike(int32_t car)
 {
     uint32_t t = MEM32(ROAM_CARTAB_VA), c;

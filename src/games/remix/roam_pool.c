@@ -1375,9 +1375,18 @@ static void roam_pool_load(void)
     static roam_peer peers[ROAM_K_MAX];
     uint8_t blob[ROAM_CFG_SIZE + 4];
     int32_t car;
-    int i = 0, np, want = 0, cap = roam_cars_total() - s_roam_slots, built = 0;
+    int i = 0, np, want = 0, cap = roam_cars_total() - s_roam_slots, built = 0, nobike = 0, bikes = 0;
     s_nrc = 1 + s_roam_slots;
-    if (!roam_bslots() || s_roam_fake || !roam_running() || cap <= 0)
+#ifdef __EMSCRIPTEN__
+    /* No motorbike standalone car at load either (2026-11-14, fix untested in game): 22 freeze logs of 2026-11-14,
+     * every one in Free Roam, main spinning on Sleep(1) in the rider's wait sub_00117E20 (0x00117EF3-0x00117F3C:
+     * until its resource [rider+0xCC] is in, sub_001B6A10, and the streams are idle, sub_000F16B0), stack 117F2A
+     * 119490 10056E 331125 35DCFB 0FEF8A 2BE0E8 (the vehicle update sub_002BDEC0), 17 of them on the first cruise
+     * frames after a load; in 18 that load had built a peer's bike (cuevito/ducati/aprilia) as a standalone car
+     * here, about one load in four of those that did; no such freeze after a load without one. Mid-cruise and
+     * race-ghost builds already refuse bikes: the peer gets a stand-in (our car) as mid-cruise. Slots unchanged. */
+    nobike = 1;
+#endif
         return;
     if (cap > ROAM_RC_MAX - s_nrc)
         cap = ROAM_RC_MAX - s_nrc;
@@ -1396,7 +1405,9 @@ static void roam_pool_load(void)
     for (i = 0; built < want; built++) {
         while (i < np && roam_pool_of(peers[i].id))
             i++;
-        if (!roam_pool_look(i < np ? peers[i].id : 0, blob, &car, 1, 0) || !roam_pool_room(car, 0, "a car at load") ||
+        if (nobike && i < np && roam_peer_rec(peers[i].id, blob) && roam_car_bike(roam_car_index(roam_cfg_name(blob))))
+            bikes++;
+        if (!roam_pool_look(i < np ? peers[i].id : 0, blob, &car, 1, nobike) || !roam_pool_room(car, 0, "a car at load") ||
             !roam_pool_fit(s_nrc, "a car at load"))
             break;
         i++;
@@ -1406,6 +1417,9 @@ static void roam_pool_load(void)
     }
     fprintf(stderr, "[ROAM] cars: %d standalone car%s at load (%d remote cars at most, %d slots; %d peers known)\n",
             built, built == 1 ? "" : "s", roam_cars_total(), s_roam_slots, np);
+    if (bikes)
+        fprintf(stderr, "[ROAM] cars: %d player%s on a motorbike in a stand-in car at load (no bike rider in Free Roam)\n",
+                bikes, bikes == 1 ? "" : "s");
 }
 
 /* Each player's update (roam_player), slot k: driven the System Link way
