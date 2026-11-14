@@ -2945,14 +2945,7 @@
       statsSig = JSON.stringify(s);
       for (const e of els) { onlineWidget(e, s); e.hidden = false; }
     } catch {
-      if (renderOnline()) return;
-      // dev server (web/server has no /lan/stats): fixed numbers so the widget can be seen and styled on :3000
-      if (/^(localhost|127\.)/.test(location.hostname)) {
-        const s = { online: 151, freeRoam: { total: 42, rooms: { 0: 35, 1: 1, 2: 4, 3: 2 } }, races: { rooms: 0 } };
-        for (const e of els) { onlineWidget(e, s); e.hidden = false; }
-        return;
-      }
-      for (const e of els) e.hidden = true; }
+      if (renderOnline()) return; for (const e of els) e.hidden = true; }
   }
   // poll: 60 s while the start page is visible, doubling to 5 min while the answer stays the same
   let pollMs = 60000;
