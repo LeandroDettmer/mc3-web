@@ -234,6 +234,14 @@
   .set .hint code { color: #74767f; font-size: 12px; }
   .set select { flex: 0 0 auto; min-width: 180px; }
   .seg { flex: 0 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px; }
+  /* a slider row (rangeRow): slider, value, and a sample name tag drawn as web/pre.js draws them in game */
+  .range-ctl { flex: 0 1 auto; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px 10px; }
+  .range-ctl input { width: 160px; accent-color: var(--accent); }
+  .range-ctl output { min-width: 3.2em; font-variant-numeric: tabular-nums; }
+  .tag-sample { min-width: 140px; min-height: 40px; display: flex; align-items: center; justify-content: center; padding: 4px 10px;
+                border-radius: var(--r); background: linear-gradient(#3a4656, #1d242e); color: #ffb43c; white-space: nowrap; font-weight: 700;
+                font-family: "Arial Narrow", "Roboto Condensed", Arial, sans-serif; letter-spacing: .02em; text-shadow: 0 0 2px #000, 0 1px 1px #000; }
+  .tag-sample .flag { margin-right: .3em; vertical-align: -.12em; }
   .seg button { min-height: 36px; min-width: 64px; padding: 0 16px; border: 0; clip-path: var(--slant-sm); background: var(--raise); color: var(--muted);
                 font: italic 700 17px/1 var(--display); letter-spacing: .04em; text-transform: uppercase; cursor: pointer; }
   .seg button:hover { background: #2a2a33; color: var(--text); }
@@ -326,7 +334,7 @@
     .status { font-size: 26px; line-height: 32px; }
     .play { height: 58px; font-size: 30px; }
     .set select { min-width: 0; width: 100%; }
-    .seg { justify-content: flex-start; }
+    .seg, .range-ctl { justify-content: flex-start; }
     .tabs { gap: 4px 16px; }
   }
   /* a wide screen with little height (a laptop, a phone on its side at desktop width): a smaller menu */
@@ -881,6 +889,9 @@
       opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
     { key: 'MC3_CAREER_ONLINE', label: 'Online career', help: 'Show and meet online players in your career\'s city. Changes live.', opts: ONOFF('On') },
     { key: 'MC3_NAMETAGS', label: 'Name tags', help: 'Each other player\'s name over their car in free roam (not hidden behind buildings). Changes live.', opts: ONOFF() },
+    // page-only (web/pre.js name tags; the game ignores it): a slider with a sample tag (settingRow's range branch)
+    { key: 'MC3_NAMETAG_SIZE', label: 'Name tag size', help: 'How big the names over other players\' cars are. Changes live.',
+      range: { min: 50, max: 150, step: 10, def: 100 }, opts: [] },
     // page-only (web/rtc.js roamP2P; the game ignores it)
     { key: 'MC3_ROAM_P2P', label: 'Direct connections (P2P) in Free Roam', help: 'The nearest players\' cars come straight from their browsers, not through the server: lighter on the server. It shares your IP address with those players. Off: everything goes through the server. Changes live.', opts: ONOFF() },
     { group: 'Keyboard' },
@@ -924,6 +935,7 @@
 
   // one row of a setting; prefix keeps the ids apart (start page 'set-', in-game window 'ig-'); tag: in-game live/restart
   function settingRow(s, prefix, tag) {
+    if (s.range) return rangeRow(s, prefix, tag);
     const row = document.createElement('div'), text = document.createElement('div');
     const label = document.createElement('label'), help = document.createElement('p'), code = document.createElement('code');
     const sel = document.createElement('select');
@@ -961,6 +973,38 @@
     }
     return row;
   }
+  // a slider row (s.range: min, max, step, def, in %): the value, and a sample name tag at that size as in game
+  // (web/pre.js: max(10, 2.2% of the picture's height) px, ~16 px on a 720 px picture, times the %)
+  function rangeRow(s, prefix, tag) {
+    const { min, max, step, def } = s.range, row = document.createElement('div'), text = document.createElement('div');
+    const label = document.createElement('label'), help = document.createElement('p'), code = document.createElement('code');
+    const ctl = document.createElement('div'), inp = document.createElement('input'), out = document.createElement('output');
+    const sample = document.createElement('div'), flag = document.createElement('span');
+    row.className = 'set';
+    label.className = 'set-label'; label.htmlFor = inp.id = prefix + s.key; label.textContent = s.label;
+    if (tag) { const t = document.createElement('span'); t.className = 'ig-tag ' + tag; t.textContent = tag; label.append(t); }
+    help.className = 'hint'; help.id = inp.id + '-help'; help.append(s.help + ' '); code.textContent = s.key; help.append(code);
+    if (tag) { help.classList.add('one'); help.title = s.help; help.onclick = () => help.classList.toggle('open'); }
+    inp.type = 'range'; inp.min = min; inp.max = max; inp.step = step;
+    inp.value = Number(settings[s.key]) || def;
+    inp.setAttribute('aria-describedby', help.id);
+    out.htmlFor = inp.id;
+    flag.className = 'flag';
+    sample.className = 'tag-sample'; sample.setAttribute('aria-hidden', 'true');
+    sample.append(flag, 'Player');
+    const show = () => {
+      out.textContent = inp.value + '%';
+      sample.style.fontSize = (16 * inp.value / 100).toFixed(1) + 'px';
+      try { flagSet(flag, flagCode()); } catch { /* flags not set up yet */ }
+    };
+    inp.oninput = () => { show(); setSetting(s.key, Number(inp.value) === def ? '' : inp.value); };
+    show();
+    ctl.className = 'range-ctl';
+    ctl.append(inp, out, sample);
+    text.append(label, help);
+    row.append(text, ctl);
+    return row;
+  }
   // the start page's Settings tabs: each SETTINGS group's rows go into its tab's panel (a tab of one group hides its heading, CSS)
   const SET_PANE = { Picture: 'sg-picture', Movies: 'sg-game', Game: 'sg-game', Online: 'sg-online', Keyboard: 'sg-input', Touch: 'sg-input', Performance: 'sg-perf' };
   function renderSettings() {
@@ -978,13 +1022,13 @@
   // Live (2026-11-12): web/pre.js mc3SetLive writes a box the game reads at its next use (resolution, filtering and
   // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
   // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
-  const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
+  const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'MC3_ROAM_P2P', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
     'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_CAREER_ONLINE', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']);
   const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
   const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
     ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
-    ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_RAM_MB']],
+    ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'MC3_ROAM_P2P', 'RECOMP_RAM_MB']],
     ['ig-controls', ['MC3_DRIFT', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
   ];
   function renderIngame() {
@@ -1001,6 +1045,7 @@
     store.set('settings', settings);
     $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
     if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
+    if (key === 'MC3_NAMETAG_SIZE') window.Module?.mc3SetNameTagSize?.(Number(value) || 100);   // web/pre.js, live
     if (key === 'MC3_ROAM_P2P' && lan?.rtc) lan.rtc.roamP2P = roamP2P();   // web/rtc.js, live
     if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
     if (key === 'MC3_DRIFT') syncDrift();

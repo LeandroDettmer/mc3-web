@@ -379,9 +379,12 @@ Module['mc3FlagEl'] = function (code) {
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
   var canvas = Module['canvas'], on = (Module['mc3Env'] || {}).MC3_NAMETAGS !== '0';
+  // Settings 'Name tag size' (MC3_NAMETAG_SIZE, %, 50..150, page-only), live through Module.mc3SetNameTagSize
+  var size = Math.min(150, Math.max(50, Number((Module['mc3Env'] || {}).MC3_NAMETAG_SIZE) || 100)) / 100;
   var layer = null, pool = [], shown = 0, seq = -1, seenAt = 0, I32 = null, F32 = null, U8 = null;
   if (!canvas) return;
   Module['mc3SetNameTags'] = function (v) { on = !!v; };
+  Module['mc3SetNameTagSize'] = function (v) { size = Math.min(150, Math.max(50, Number(v) || 100)) / 100; };
   function hideFrom(n) { for (; shown > n; shown--) pool[shown - 1].style.display = 'none'; }
   function frame(now) {
     requestAnimationFrame(frame);
@@ -424,7 +427,7 @@ Module['mc3FlagEl'] = function (code) {
         el.append(name);
       }
       el.style.color = racing ? '#ffd24a' : rgb;
-      el.style.fontSize = Math.max(10, h * 0.022).toFixed(1) + 'px';   // about the HUD's small text
+      el.style.fontSize = (Math.max(10, h * 0.022) * size).toFixed(1) + 'px';   // about the HUD's small text, times the setting
       el.style.transform = 'translate(' + (x + F32[t] * w).toFixed(1) + 'px,' + (y + F32[t + 1] * h).toFixed(1) +
         'px) translate(-50%,-100%)';
       el.style.opacity = Math.max(0, Math.min(1, F32[t + 2])).toFixed(2);   // the arrow's own fade
