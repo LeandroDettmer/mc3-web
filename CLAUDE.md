@@ -327,7 +327,7 @@ generated files when the lift inputs did not change.
   12 pool workers (more made on demand and kept; WebKit too since
   2026-11-12, every iPhone ran 40 before, each a JS heap; '[WEB] workers: N'
   logs each new peak), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
-  MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=0, no 60 fps, light
+  MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=cars (since 2026-11-14 the background fill takes assets_x.dat_2 only, 233 MiB once: phones read each new car model on demand, ~1.4 s a block from R2 under the guest lock, 3.6-6.9 s frozen per new car; was 0), no 60 fps, light
   filtering. Loading overlay (2026-11-13, untested in a browser; index.html bootStart/bootWhat, #boot-load,
   page-only, no wasm access): from Play to the first frame (mc3Frames > 0, polled 250 ms) a box over the
   picture: the .wasm download MB (bytes counted through a TransformStream into compileStreaming;
@@ -747,7 +747,14 @@ generated files when the lift inputs did not change.
   its car, any, then the longest-unseen held one, slots first on a tie;
   none: a new standalone car), one queue after the physics step (one
   build/rebuild per 0.25 s, held while a state request is queued or a
-  page-in runs), one look check (car list, no bike mid-cruise), one
+  page-in runs), one look check (car list, no bike mid-cruise; browser,
+  2026-11-14, fix untested in game: no standalone bike at a load either --
+  22 Free Roam freeze logs, main on Sleep(1) in the rider's wait
+  sub_00117E20 (until its resource [rider+0xCC] is in and the streams are
+  idle; stack 117F2A 119490 10056E 331125 35DCFB 0FEF8A 2BE0E8), 17 on the
+  first cruise frames, 18 after a load that built a peer's bike standalone
+  (~1 such load in 4); the peer gets our car as stand-in, slots unchanged;
+  '[ROAM] cars: N players on a motorbike in a stand-in car at load'), one
   capacity check (2026-11-12, untested in game: the game's car cache
   [0x50A08C] has 16 entries and gives every car its own (key 0 is never
   shared, sub_00105B80); full, the builder built on resource 0: ICALL 0 at

@@ -100,7 +100,7 @@ addToLibrary({
   _wasmfs_create_fetch_backend_js: async function(backend) {
     const C = MC3DiscCache, BLOCK = C.BLOCK;
     // Settings from the game's environment (this runs on a worker, where Module.mc3Env is not):
-    // MC3_DISC_MEM_MB (the LRU's size), MC3_PREFETCH=0 (no background fill).
+    // MC3_DISC_MEM_MB (the LRU's size), MC3_PREFETCH=0 (no background fill), =cars (car models only).
     const env = k => withStackSave(() => { const p = _getenv(stringToUTF8OnStack(k)); return p ? UTF8ToString(p) : ''; });
     const E = { MC3_DISC_MEM_MB: env('MC3_DISC_MEM_MB'), MC3_PREFETCH: env('MC3_PREFETCH') };
     const MEM_BYTES = (Number(E.MC3_DISC_MEM_MB) || 48) << 20;   // the memory LRU (16 in the page's low-memory profile)
@@ -321,6 +321,9 @@ addToLibrary({
       const all = [...m.values()], lc = f => f.p.toLowerCase();
       const byPath = new Map(all.map(f => [lc(f), f]));
       const dir = d => all.filter(f => lc(f).startsWith(d)).sort((a, b) => a.s - b.s);
+      // MC3_PREFETCH=cars (the page's low-memory profile, 2026-11-14): the car models only, 233 MiB once. A phone read
+      // them on demand, ~1.4 s a 1 MiB block from R2 under the guest lock: 3.6-6.9 s frozen at each new car's build.
+      if (E.MC3_PREFETCH === 'cars') return [byPath.get('assets_x.dat_2')].filter(Boolean);
       return [
         byPath.get('assets_x.dat_2'),
         ...BANKS.map(p => byPath.get(p)),
