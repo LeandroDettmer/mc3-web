@@ -16,13 +16,17 @@
       W_TX_HEAD = 8, W_TX_TAIL = 9, W_RX_HEAD = 10, W_RX_TAIL = 11, W_TX_BELL = 12, W_STATE = 13, W_VIP = 14,
       W_PEERS = 15, W_TX_DROP = 16, W_RX_DROP = 17, W_C_TX_FULL = 18, W_C_RX_LOST = 19, W_RX_BELL = 20;
   var STATES = { connecting: 1, online: 2, offline: 3 };
-  var link = null, boxes = [], said = '', saidVip = '', saidCity = null, saidDown = 0;
+  var link = null, boxes = [], said = '', saidVip = '', saidCity = null, saidDown = 0, saidAfk = false;
 
   // The link reconnects by itself (web/lan.js): the same object, so the mailboxes stay attached; said once for both.
   function say(l) {
     if ((l.city == null ? null : l.city) !== saidCity) {
       err('[net] free roam: ' + (l.city != null ? 'own socket to city ' + l.city + ' open' : 'through the switch') + (saidCity != null ? ' (was city ' + saidCity + ')' : ''));
       saidCity = l.city == null ? null : l.city;
+    }
+    if (!!l.afk != saidAfk) {
+      saidAfk = !!l.afk;
+      err(saidAfk ? '[net] afk: kicked after ' + Math.round(l.afkMs / 1000) + ' s idle' : '[net] afk: back');
     }
     var rd = l.roamDown || 0;
     if (rd != saidDown) {

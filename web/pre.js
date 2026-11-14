@@ -20,6 +20,13 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
     var f = C.prototype[n];
     if (f) C.prototype[n] = function (o) { var r = f.call(this, o); return r == null ? '' : r; };
   });
+  // Same family: getParameter(VIEWPORT) is null on a lost context and Emscripten's setCanvasElementSizeCallingThread
+  // reads prevViewport[0] ("Cannot read properties of null (reading '0')", 10 logs 2026-11-13). Zeros instead.
+  var gp = C && C.prototype.getParameter;
+  if (gp) C.prototype.getParameter = function (p) {
+    var r = gp.call(this, p);
+    return r == null && p === 0xBA2 ? new Int32Array(4) : r;
+  };
 });
 
 // The wasm memory, made here on the page thread (workers get it from the runtime). CMakeLists.txt links 256 MB
@@ -254,7 +261,7 @@ Module['mc3TouchPad'] = function (words) {
     RECOMP_GL_SCALE: [gfx, 0, function (v) { return Math.round((parseFloat(v) || 1) * 1000); }],
     RECOMP_GL_ANISO: [gfx, 1, function (v) { return parseInt(v, 10) || 16; }],
     RECOMP_GL_MIPS: [gfx, 2, onoff],
-    MC3_60FPS: [game, 0, function (v) { return v === '1' ? 2 : 1; }],
+    MC3_60FPS: [game, 0, function (v) { var n = parseInt(v, 10); return v === '1' || n === 60 ? 2 : n > 60 ? Math.min(n, 240) : 1; }],   // 1 = 30, 2 = 60, else N fps
     MC3_ROAM_CARS: [game, 1, function (v) { return parseInt(v, 10) || -1; }],   // -1 auto
     MC3_DRIFT: [game, 2, function (v) { return v === '2' ? 3 : v === '1' ? 2 : 1; }],
     MC3_CAREER_ONLINE: [game, 3, function (v) { return v === '0' ? 1 : 2; }],
@@ -276,6 +283,14 @@ Module['mc3TouchPad'] = function (words) {
     want[key] = value === undefined ? '' : String(value);
     if (!timer) put();
     return true;
+  };
+  // The rate a race or cruise steps at now (mc3_live_box word 4, MC3_LIVE_FPS_NOW: 30, 60 or N), 0 outside them,
+  // undefined until the runtime is up. HEAPU8 throws before then: checked inside try.
+  Module['mc3FpsNow'] = function () {
+    try {
+      if (!runtimeInitialized || !game()) return;
+      return Atomics.load(new Int32Array(HEAPU8.buffer), (game() >>> 2) + 4);
+    } catch (e) {}
   };
 })();
 
@@ -323,10 +338,42 @@ Module['mc3SaveResult'] = function (n) {
   Module['mc3SetPad'] = function (n) { want = n | 0; if (!timer) put(); };
 })();
 
+// The player's button layout for that pad (xinput_device.c xbox_web_pad_map_box { seq, map[1020] }): an SDL mapping
+// body (ASCII, "a:b2,b:b1,..."), '' = the standard layout. Written only when it changes; map first, then seq.
+(function () {
+  var want = '', sent = null, timer = 0;
+  function put() {
+    timer = 0;
+    try {
+      if (!runtimeInitialized || typeof _xbox_web_pad_map_box != 'function') { timer = setTimeout(put, 1000); return; }
+      if (want === sent) return;
+      var b = _xbox_web_pad_map_box(), u8 = HEAPU8, i, n = Math.min(want.length, 1019);
+      for (i = 0; i < n; i++) u8[b + 4 + i] = want.charCodeAt(i) & 0x7F;
+      u8[b + 4 + n] = 0;
+      Atomics.add(new Int32Array(u8.buffer), b >>> 2, 1);
+      sent = want;
+    } catch (e) { timer = setTimeout(put, 1000); }
+  }
+  Module['mc3SetPadMap'] = function (m) { want = String(m || ''); if (!timer) put(); };
+})();
+
+// A player's country flag as a small picture (flags.png from tools/flags_sheet.mjs: 48x36 flags, 16 a row, in the
+// order of Module.mc3Flags, the page's FLAG_CODES); em-sized, so it follows the text's size. Unknown code: null.
+Module['mc3FlagEl'] = function (code) {
+  var i = (Module['mc3Flags'] || []).indexOf(code);
+  if (i < 0 || typeof document != 'object') return null;
+  var f = document.createElement('span');
+  f.style.cssText = 'display:inline-block;width:1.3333em;height:1em;margin-right:.3em;vertical-align:-.12em;' +
+    'border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.6);background:url(flags.png) no-repeat;background-size:21.3333em auto;' +
+    'background-position:' + (-(i % 16) * 1.3333) + 'em ' + (-Math.floor(i / 16)) + 'em';
+  return f;
+};
+
 // Name tags: other players' names over their cars in free roam, on the game's own opponent arrow. src/games/remix/
 // roam_tags.c publishes, each frame of the main camera, where each driven remote car's arrow tip is on the picture
-// (roam_tags_box: seq, n, picture width / height, the arrow's colour 0xRRGGBB, then n x 40 bytes: u, v (0..1), the
-// arrow's alpha (it fades in from 25 to 100 m and out from 200 to 300 m), name); drawn here over the canvas at the
+// (roam_tags_box: seq, n, picture width / height, the arrow's colour 0xRRGGBB, then n x 48 bytes: u, v (0..1), the
+// arrow's alpha (it fades in from 25 to 100 m and out from 200 to 300 m), name (28), flag code (8, '' none: an older
+// build or no flag; drawn from the page's flags.png before the name, Module.mc3FlagEl)); drawn here over the canvas at the
 // page's frame rate, in the arrow's colour, no background, sized to the picture. Settings 'Name tags'
 // (MC3_NAMETAGS=0 off), live through Module.mc3SetNameTags. Main thread only.
 (function () {
@@ -357,8 +404,9 @@ Module['mc3SaveResult'] = function (n) {
       if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
     }
     for (var i = 0; i < n; i++) {
-      var t = b + 4 + i * 10, el = pool[i], name = '';
+      var t = b + 4 + i * 12, el = pool[i], name = '', flag = '';
       for (var c = 0, p = (t + 3) * 4; c < 27 && U8[p + c]; c++) name += String.fromCharCode(U8[p + c]);
+      for (c = 0, p = (t + 10) * 4; c < 7 && U8[p + c]; c++) flag += String.fromCharCode(U8[p + c]);
       var racing = name.charCodeAt(0) === 2;   // going to race or racing (roam_tags.c rch_marked): flag, gold
       if (racing) name = '🏁 ' + name.slice(1);
       if (!el) {
@@ -368,7 +416,13 @@ Module['mc3SaveResult'] = function (n) {
           'text-shadow:0 0 2px #000,0 1px 1px #000';
         layer.append(el);
       }
-      if (el.textContent !== name) el.textContent = name;
+      if (el.dataset.k !== flag + '|' + name) {   // the flag's picture, then the name
+        el.dataset.k = flag + '|' + name;
+        el.textContent = '';
+        var fe = Module['mc3FlagEl'](flag);
+        if (fe) el.append(fe);
+        el.append(name);
+      }
       el.style.color = racing ? '#ffd24a' : rgb;
       el.style.fontSize = Math.max(10, h * 0.022).toFixed(1) + 'px';   // about the HUD's small text
       el.style.transform = 'translate(' + (x + F32[t] * w).toFixed(1) + 'px,' + (y + F32[t + 1] * h).toFixed(1) +
@@ -386,12 +440,13 @@ Module['mc3SaveResult'] = function (n) {
 // roam_bigmap_box (seq, our city: the roam room), and this lists the players online in Free Roam beside it, from the
 // switch's players push (Module.mc3Lan.players.list, web/lan.js: mode 'roam', city = room id): our city first, then the
 // others with their city. On the right edge of the picture, at most 20% of it wide (32:9: beside the HUD's middle
-// 16:9); hidden without a list (web/server's switch has none). Main thread only.
+// 16:9); hidden without a list (web/server's switch has none). Flags: ours from MC3_PLAYER_FLAG, the linked players'
+// from roam_bigmap_box (name + flag rows; the push has none, players beyond our links get none). Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
   var canvas = Module['canvas'], el = null, pel = null, pshown = null, rel = null, rshown = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null;
-  var CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'], ROWS = 24;   // free-roam room ids 0..3 (web/index.html)
-  var me = String((Module['mc3Env'] || {}).MC3_PLAYER_NAME || '').toLowerCase();
+  var CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'];   // free-roam room ids 0..3 (web/index.html)
+  var me = String((Module['mc3Env'] || {}).MC3_PLAYER_NAME || '').toLowerCase(), myFlag = (Module['mc3Env'] || {}).MC3_PLAYER_FLAG || '';
   if (!canvas) return;
   function city(c) { return CITIES[c] || 'City ' + c; }
   function row(text, css) { var d = document.createElement('div'); d.textContent = text; if (css) d.style.cssText = css; return d; }
@@ -407,8 +462,20 @@ Module['mc3SaveResult'] = function (n) {
         'color:#fff;text-shadow:0 1px 2px #000;overflow:hidden;white-space:nowrap;line-height:1.3;' +
         'font-weight:700;font-family:"Arial Narrow","Roboto Condensed",Arial,sans-serif;display:none';
       canvas.parentNode.append(el);
+      // the players panel scrolls (wheel, drag on touch); the progress and race panels copy cssText, then undo this
+      el.style.cssText += ';pointer-events:auto;overflow-x:hidden;overflow-y:auto;overscroll-behavior:contain;' +
+        'scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.35) transparent';
     }
-    var b = _roam_bigmap_box() >>> 2, s = I32[b], here = I32[b + 1];
+    var b = _roam_bigmap_box() >>> 2, s = I32[b], here = I32[b + 1], flags = {}, fkey = '';
+    for (var fi = 0, fn = Math.min(I32[b + 2] | 0, 64); fi < fn; fi++) {   // 32-byte rows: name (25), flag (7)
+      var fp = (b + 3) * 4 + fi * 32, fname = '', fcode = '';
+      for (var fc = 0; fc < 24 && HEAPU8[fp + fc]; fc++) fname += String.fromCharCode(HEAPU8[fp + fc]);
+      for (fc = 0; fc < 6 && HEAPU8[fp + 25 + fc]; fc++) fcode += String.fromCharCode(HEAPU8[fp + 25 + fc]);
+      flags[fname.toLowerCase()] = fcode;
+      fkey += fname + fcode;
+    }
+    if (me) flags[me] = myFlag;
+    function flagged(d, name) { var f = Module['mc3FlagEl'] && Module['mc3FlagEl'](flags[String(name).toLowerCase()]); if (f) d.prepend(f); return d; }
     if (s !== seq) { seq = s; seenAt = now; }
     var lan = Module['mc3Lan'], list = lan && lan.players && Array.isArray(lan.players.list) ? lan.players.list : null;
     var open = now - seenAt <= 400, show = open && !!list;   // map closed, paused or gone; no list: players hidden
@@ -416,29 +483,43 @@ Module['mc3SaveResult'] = function (n) {
     if (!open) { if (pel) pel.style.display = 'none'; if (rel) rel.style.display = 'none'; return; }
     var roam = (list || []).filter(function (p) { return p && p.mode == 'roam'; }), mine = [], other = [];
     roam.forEach(function (p) { (p.city === here ? mine : other).push(p); });
-    var key = here + '|' + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : ''); }).join('\u0002');
+    // who the game knows is racing (the Race panel's box below; the push has no race bit): our nick and the peers in it
+    var racing = {}, iRace = false, qb = typeof _roam_race_box == 'function' ? _roam_race_box() >>> 2 : 0, qm = qb ? I32[qb] : 0;
+    if (qm) {
+      var qe = (qb + 1) << 2, qend = qe + 700;
+      while (qe < qend && HEAPU8[qe]) qe++;
+      new TextDecoder().decode(HEAPU8.slice((qb + 1) << 2, qe)).split('\n').slice(1).forEach(function (l) {
+        var c = l.split('\t');
+        if (qm == 2) { if (c[1] == 'me') iRace = true; else if (c[0]) racing[c[0].toLowerCase()] = 1; }
+        else if (c[1] == 'You') iRace = true;
+        else if (c[1] && !/out|DNF|invited/.test(c[3] || '')) racing[c[1].toLowerCase()] = 1;
+      });
+    }
+    var key = here + '|' + fkey + '|' + (iRace ? 'R' : '') + roam.map(function (p) { return p.name + '\u0001' + p.city + (p.career ? 'c' : '') + (racing[String(p.name).toLowerCase()] ? 'r' : ''); }).join('\u0002');
     if (show && key !== shown) {
       shown = key;
+      var keep = el.scrollTop;
       el.textContent = '';
       el.append(row('Online · ' + roam.length + ' playing', 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
-      var n = 0;
       // our city split by mode: the switch's p.career = a career cruise with Online career on ('(racing)' needs the
       // roam bits, which the push lacks)
       [['Free Roam', false], ['Online career', true]].forEach(function (g) {
         var grp = mine.filter(function (p) { return !!p.career == g[1]; });
         if (!grp.length) return;
         el.append(row(city(here) + ' · ' + g[0] + ' (' + grp.length + ')', 'color:#ffd24a;font-size:.85em;margin-top:.2em'));
-        grp.forEach(function (p) {
-          if (n++ < ROWS) el.append(row(p.name, String(p.name).toLowerCase() == me ? 'color:#7fd4ff' : ''));
+        function rc(p) { var k = String(p.name).toLowerCase(); return racing[k] || (k == me && iRace) ? 1 : 0; }
+        grp.slice().sort(function (a, b) { return rc(b) - rc(a); }).forEach(function (p) {   // racers first
+          var you = String(p.name).toLowerCase() == me, r = rc(p);
+          el.append(flagged(row((r ? '🏁 ' : '') + p.name + (r ? ' · racing' : ''), you ? 'color:#7fd4ff' : r ? 'color:#ffd24a' : ''), p.name));
         });
       });
       if (other.length) el.append(row('Other cities', 'color:#ffd24a;font-size:.85em;margin-top:.35em'));
       other.forEach(function (p) {
-        if (n++ < ROWS) el.append(row(p.name + ' · ' + city(p.city) + (p.career ? ' (career)' : ''), 'opacity:.75'));
+        el.append(row(p.name + ' · ' + city(p.city) + (p.career ? ' (career)' : ''), 'opacity:.75'));   // other cities: the game does not see them, unmarked
       });
-      if (n > ROWS) el.append(row('+' + (n - ROWS) + ' more', 'opacity:.6;font-size:.85em'));
       var more = lan.players.more | 0;   // beyond the switch's own list
       if (more > 0) el.append(row('+' + more + ' not listed', 'opacity:.6;font-size:.85em'));
+      el.scrollTop = keep;
     }
     // the picture inside the canvas (object-fit contain unless Stretch), its shape as the name tags got it
     var r = canvas.getBoundingClientRect(), L = canvas.parentNode.getBoundingClientRect(), x = r.left - L.left,
@@ -467,6 +548,8 @@ Module['mc3SaveResult'] = function (n) {
         pel = document.createElement('div');
         pel.style.cssText = el.style.cssText;
         pel.style.whiteSpace = 'normal';
+        pel.style.pointerEvents = 'none';
+        pel.style.overflow = 'hidden';
         canvas.parentNode.append(pel);
       }
       var pe = (pb + 2) << 2, pend = pe + 160;
@@ -490,12 +573,16 @@ Module['mc3SaveResult'] = function (n) {
     }
     // Race panel (src/games/remix/roam_challenge.c roam_race_box: mode 1 our race / 2 players racing near, '\n' lines,
     // '\t' columns), left of the progress panel; hidden with nothing to show.
+    // Mode 2 ('Racing now', players racing near) is not drawn (2026-11-13: it covered the minimap); the players panel
+    // marks those racers instead.
     var rb = typeof _roam_race_box == 'function' ? _roam_race_box() >>> 2 : 0, rmode = rb ? I32[rb] : 0;
-    if (!rmode) { if (rel) rel.style.display = 'none'; return; }
+    if (rmode != 1) { if (rel) rel.style.display = 'none'; return; }
     if (!rel) {
       rel = document.createElement('div');
       rel.style.cssText = el.style.cssText;
       rel.style.whiteSpace = 'normal';
+      rel.style.pointerEvents = 'none';
+      rel.style.overflow = 'hidden';
       canvas.parentNode.append(rel);
     }
     var re = (rb + 1) << 2, rend = re + 700;
@@ -505,7 +592,7 @@ Module['mc3SaveResult'] = function (n) {
       rshown = rtext;
       rel.textContent = '';
       var rl = rtext.split('\n'), hd = rl[0].split('\t');
-      if (rmode == 1) {
+      {
         rel.append(row('Race · ' + hd[2], 'font-size:1.1em;letter-spacing:.03em'));
         rel.append(row(hd[0] + (hd[1] && hd[1] != 'start beacons' ? ' · ' + hd[1] : ''), 'color:#ffd24a;font-size:.85em;margin-bottom:.2em'));
         rl.slice(1).forEach(function (l) {
@@ -520,12 +607,6 @@ Module['mc3SaveResult'] = function (n) {
             d.append(s);
           });
           rel.append(d);
-        });
-      } else {
-        rel.append(row(hd[0], 'font-size:1.1em;letter-spacing:.03em;margin-bottom:.2em'));
-        rl.slice(1).forEach(function (l) {
-          var c = l.split('\t');
-          rel.append(row('⚑ ' + c[0] + (c[1] == 'street' ? ' · street race' : ' · race'), String(c[0]).toLowerCase() == me ? 'color:#7fd4ff' : ''));
         });
       }
     }
@@ -604,21 +685,26 @@ Module['mc3RaceButton'] = function (act) {
         });
         if (text) el.append(d);
       });
-      if (act) {   // the box ignores the pointer; its button takes it (mouse and touch)
-        var btn = document.createElement('button'), a = act;
-        btn.type = 'button';
-        btn.tabIndex = -1;
-        btn.textContent = ACTS[act];
-        btn.style.cssText = 'pointer-events:auto;display:block;margin-top:.45em;padding:.3em 1em;min-height:2.2em;' +
-          'border-radius:6px;border:1px solid rgba(255,255,255,.7);background:#a3262a;color:#fff;font:inherit;' +
-          'font-size:.9em;cursor:pointer;touch-action:manipulation';
-        btn.addEventListener('pointerdown', function (ev) {   // not a click: the canvas keeps focus (keys)
-          ev.preventDefault();
-          ev.stopPropagation();
-          Module['mc3RaceButton'](a);
+      if (act) {   // the box ignores the pointer; its buttons take it (mouse and touch)
+        var bar = document.createElement('div');
+        bar.style.cssText = 'display:flex;gap:.5em;margin-top:.45em' + (big ? ';justify-content:center' : '');
+        // an invite (Decline) also gets Accept (act 5 = White, roam_challenge.c RCH_Q_ACCEPT)
+        (act == 4 ? [[5, 'Accept', '#2a8a3a'], [4, ACTS[4], '#a3262a']] : [[act, ACTS[act], '#a3262a']]).forEach(function (o) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.tabIndex = -1;
+          btn.textContent = o[1];
+          btn.style.cssText = 'pointer-events:auto;padding:.3em 1em;min-height:2.2em;' +
+            'border-radius:6px;border:1px solid rgba(255,255,255,.7);background:' + o[2] + ';color:#fff;font:inherit;' +
+            'font-size:.9em;cursor:pointer;touch-action:manipulation';
+          btn.addEventListener('pointerdown', function (ev) {   // not a click: the canvas keeps focus (keys)
+            ev.preventDefault();
+            ev.stopPropagation();
+            Module['mc3RaceButton'](o[0]);
+          });
+          bar.append(btn);
         });
-        if (big) btn.style.margin = '.45em auto 0';
-        el.append(btn);
+        el.append(bar);
       }
     }
     if (!text) { el.style.display = 'none'; return; }
@@ -780,14 +866,15 @@ Module['mc3RaceButton'] = function (act) {
 
 // Free Roam link notice: web/lan.js sets Module.mc3Lan.roamDown while Free Roam has lost its link to the other players
 // (switch socket down, or the city socket not open): 'connecting...' at once, after 30 s a reload button. Top centre of
-// the page's game box; clicks pass through except the button. Main thread only.
+// the page's game box; clicks pass through except the button. Main thread only. The same box says so while lan.js has
+// kicked us for inactivity (lan.afk; no button: any key or button reconnects).
 (function () {
   if (typeof document != 'object') return;
   var canvas = Module['canvas'], el = null, txt = null, btn = null, mode = 0;
   if (!canvas) return;
   setInterval(function () {
-    var lan = Module['mc3Lan'], d = lan && lan.roamDown || 0;
-    if (!d || !canvas.parentNode) { if (el) el.style.display = 'none'; mode = 0; return; }
+    var lan = Module['mc3Lan'], d = lan && lan.roamDown || 0, afk = !!(lan && lan.afk);
+    if ((!d && !afk) || !canvas.parentNode) { if (el) el.style.display = 'none'; mode = 0; return; }
     if (!el) {
       el = document.createElement('div');
       el.style.cssText = 'position:absolute;left:50%;top:8px;transform:translateX(-50%);z-index:6;pointer-events:none;' +
@@ -801,10 +888,12 @@ Module['mc3RaceButton'] = function (act) {
       el.append(txt, btn);
       canvas.parentNode.append(el);
     }
-    var m = Date.now() - d >= 30000 ? 2 : 1;
+    var m = afk ? 3 : Date.now() - d >= 30000 ? 2 : 1;
     if (m !== mode) {
       mode = m;
-      txt.textContent = m == 2 ? 'Free Roam: no connection to the other players — reload the page' : 'Free Roam: connection lost — reconnecting…';
+      var s = Math.round(lan.afkMs / 1000);
+      txt.textContent = m == 3 ? 'Disconnected for inactivity (' + (s % 60 ? s + ' s' : s / 60 + ' min') + '). Press any key or button to reconnect.' :
+        m == 2 ? 'Free Roam: no connection to the other players — reload the page' : 'Free Roam: connection lost — reconnecting…';
       btn.style.display = m == 2 ? '' : 'none';
     }
     el.style.display = '';

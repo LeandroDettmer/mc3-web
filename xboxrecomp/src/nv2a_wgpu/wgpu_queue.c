@@ -520,6 +520,8 @@ static int s_stats = -1;
 static uint64_t s_gpu_wait;             /* when the GPU was first found at the limit; 0 = not */
 static uint32_t s_gpu_stuck_frame;      /* the oldest frame in flight then */
 static uint32_t s_dropped;              /* frames consumed without drawing in this stall */
+static uint32_t s_dropped_total;        /* every frame dropped since boot, all stalls (roam_game.c's own-car line) */
+uint32_t nv2a_wgpu_dropped_total(void) { return s_dropped_total; }
 static int s_drop;                      /* dropping frames until the GPU answers */
 static int s_in_frame;                  /* records of a frame consumed since its flip */
 
@@ -821,7 +823,11 @@ static void wq_drop_turn(void)
                 " frames in flight, device ready, %u frame(s) dropped since)\n", s_gpu_stuck_frame,
                 (unsigned)((now - s_gpu_wait) / 1000000000ull), fl, wg_ctl.max_in_flight, s_dropped);
     }
-    s_dropped += (uint32_t)wq_run(0);
+    {
+        uint32_t n = (uint32_t)wq_run(0);
+        s_dropped += n;
+        s_dropped_total += n;
+    }
     /* Input is read at a frame's end (wq_end_frame), which a dropped frame skips. */
     while (SDL_PollEvent(&e))
         xbox_sdl_keyboard_handle(&e);

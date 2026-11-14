@@ -48,6 +48,7 @@ int roam_start(const char *name, uint32_t vip){
     g_k = env_int("MC3_ROAM_K", g_k, 1, ROAM_K_MAX);
     c.links = g_k;
     c.room = g_room;
+    snprintf(c.flag, sizeof c.flag, "%s", getenv("MC3_PLAYER_FLAG") ? getenv("MC3_PLAYER_FLAG") : "");   /* checked by the core */
     rc_io io = { 0, 0, 0, on_event };
     rc_session_init(&g_s, &c, &io);
     if (roam_plat_start(&g_s, ROAM_PORT) != 0) return -1;
@@ -105,7 +106,7 @@ int roam_peers(roam_peer *out, int max){
         if (!rc_interp_eval(&p->mo, now, fdt, (int64_t)delay_ms * 1000, EXTRAP_CAP_US, &o)) continue;
         roam_peer *r = &tmp[n++];
         memset(r, 0, sizeof *r);
-        r->id = p->id; memcpy(r->name, p->name, sizeof r->name);
+        r->id = p->id; memcpy(r->name, p->name, sizeof r->name); memcpy(r->flag, p->flag, sizeof r->flag);
         r->status = p->status; r->mode = o.mode;
         memcpy(r->p, o.p, sizeof r->p); memcpy(r->q, o.q, sizeof r->q); memcpy(r->v, o.v, sizeof r->v); memcpy(r->w, o.w, sizeof r->w);
         r->steer = o.steer; r->throttle = o.throttle; r->brake = o.brake; r->rpm = o.rpm; r->speed = o.speed;

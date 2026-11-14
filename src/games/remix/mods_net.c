@@ -24,7 +24,7 @@
  * when a car list in mods/ defines it (content.lst, the downloadable-content
  * list; or vehicle.lst past the archive copy's Vehicle blocks) or its index is
  * >= the stock count (that count, or the list's size when content.lst is
- * first read; none without mods/: every car sent as it is). Then peers with a roam core >= 19 (RC_CORE_CFG2: they
+ * first read; none without mods/: every car sent as it is). Then peers with a roam core >= 20 (RC_CORE_CFG2: they
  * have the receiver guard) get our CarCfg + a trailer 'MODD' + the donor's
  * name (24 B), and older cores (no guard; a 0x108-byte record only) get the
  * donor's stock CarCfg (roam_set_cfg2).
@@ -261,7 +261,7 @@ static int mods_net_peer_rec(uint32_t id, const uint8_t *rec, int len, uint8_t b
 }
 
 /* Our car record to the peers (blob: our CarCfg, vtable 0). A mod car: the
- * record + donor trailer to cores >= 19, the donor's stock CarCfg to older. */
+ * record + donor trailer to cores >= 20, the donor's stock CarCfg to older. */
 static void mods_net_send_cfg(const uint8_t blob[ROAM_CFG_SIZE])
 {
     static char said[32];

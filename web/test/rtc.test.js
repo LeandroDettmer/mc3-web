@@ -131,7 +131,62 @@ function capTests() {
   });
 }
 
-capTests().then(() => {
+// --- free roam signals: an offer waits for ICE gathering (at most ROAM.gatherMs) and carries the candidates found so
+// far in its SDP; only later ones trickle. Offers start only after the random hold that follows the link coming up.
+function gatherTest() {
+  const R = mc3Rtc.ROAM, pcs = [], sig = [], settle = () => new Promise(res => setTimeout(res, 0)), rnd = Math.random;
+  class PC {
+    constructor() { this.iceGatheringState = 'gathering'; this.signalingState = 'stable'; this.connectionState = 'new'; pcs.push(this); }
+    createDataChannel() { return this.dc = { readyState: 'connecting', bufferedAmount: 0, send() {}, close() {} }; }
+    createOffer() { return Promise.resolve({ type: 'offer', sdp: 'o' }); }
+    setLocalDescription(d) { this.localDescription = { type: d.type, sdp: d.sdp }; return Promise.resolve(); }
+    setRemoteDescription() { return Promise.resolve(); }
+    addIceCandidate() { return Promise.resolve(); }
+    close() {}
+    cand(s) { if (s) this.localDescription.sdp += '|' + s; this.onicecandidate({ candidate: s && { toJSON: () => s } }); }
+  }
+  const pc0 = globalThis.RTCPeerConnection;
+  globalThis.RTCPeerConnection = PC;
+  let onLink = null;
+  const l = { vip: 100, state: 'connecting', onMsg() {}, on: f => { onLink = f; f(l); }, sendMsg: m => sig.push(m), send: () => true };
+  const r = mc3Rtc(l);
+  const busy = v => { for (let n = 0; n < 5; n++) r.roamSend(roamFrame(v, 3)); r.tick(); };
+  Math.random = () => 1;                     // the longest hold
+  l.state = 'online'; onLink(l);
+  Math.random = rnd;
+  busy(200);
+  assert.strictEqual(pcs.length, 0, 'held after the link came up');
+  const t0 = Date.now, t = t0() + R.holdMs;
+  Date.now = () => t;
+  busy(200);
+  assert.strictEqual(pcs.length, 1, 'offered after the hold');
+  return settle().then(() => {
+    const pc = pcs[0];
+    pc.cand('c1'); pc.cand('c2');
+    assert.deepStrictEqual(sig, [], 'nothing while gathering');
+    pc.iceGatheringState = 'complete'; pc.onicegatheringstatechange();
+    pc.cand(null);                            // end of candidates: trickles (harmless)
+    assert.deepStrictEqual(sig.map(m => [m.kind, m.data && m.data.sdp || m.data, m.roam]), [['offer', 'o|c1|c2', 1], ['ice', null, 1]]);
+    // gathering that never ends: the offer goes after ROAM.gatherMs with what it has, later candidates trickle
+    sig.length = 0;
+    const g0 = R.gatherMs;
+    R.gatherMs = 0;
+    busy(300);
+    return settle().then(() => {
+      const p2 = pcs[1];
+      p2.cand('c1');
+      return settle().then(() => {
+        p2.cand('c9');
+        assert.deepStrictEqual(sig.map(m => [m.kind, m.data && m.data.sdp || m.data]), [['offer', 'o|c1'], ['ice', 'c9']]);
+        r.close();
+        globalThis.RTCPeerConnection = pc0; Date.now = t0; R.gatherMs = g0;
+        console.log('free roam gather + hold: ok');
+      });
+    });
+  });
+}
+
+gatherTest().then(capTests).then(() => {
   if (!process.env.NDC) { console.log('loopback: skipped (set NDC)'); return; }
   loopback();
 }).catch(e => { console.error(e); process.exit(1); });

@@ -106,7 +106,12 @@
          display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; }
   #released { margin-left: 12px; font-weight: 700; }
   #released::before { content: "\00b7  "; }
-  #changelog-dlg h3 { margin: 16px 0 6px; }
+  #changelog-dlg h3 { margin: 24px 0 8px; color: var(--gold); font-style: italic; }
+  dialog#changelog-dlg { width: min(640px, calc(100% - 32px)); }
+  #changelog-dlg li { line-height: 1.45; }
+  #changelog-dlg li strong { font-style: italic; }
+  #changelog-dlg details { margin-top: 10px; }
+  #changelog-dlg summary { cursor: pointer; color: var(--muted); font-style: italic; margin-bottom: 6px; }
   #changelog-dlg h3:first-child { margin-top: 0; }
   #changelog-dlg ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
   .top .hint { color: #e6e7ea; text-shadow: var(--outline); }
@@ -145,6 +150,19 @@
   kbd { display: inline-block; min-width: 28px; padding: 0 6px; border: 2px solid var(--edge); border-radius: var(--r);
         background: var(--field); color: var(--text); font-size: 14px; line-height: 22px; text-align: center; }
   .play kbd { border-color: var(--silver); color: var(--text); background: rgba(0, 0, 0, .35); text-transform: none; text-shadow: none; }
+  /* the player's card: nick and country flag (flags.png: 48x36 flags, 16 a row, FLAG_CODES' order; flagSet) */
+  .flag { display: inline-block; flex: none; width: 1.3333em; height: 1em; vertical-align: -.15em; border-radius: 2px;
+          background: url(flags.png) no-repeat; background-size: 21.3333em auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6); }
+  .flag:not([style]) { visibility: hidden; }
+  .you { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 12px; background: var(--field);
+         border: 2px solid var(--silver); border-left: 4px solid var(--gold); border-radius: var(--r); }
+  .you .flag { font-size: 24px; cursor: pointer; }
+  .you-main { flex: 1; min-width: 0; display: grid; }
+  .you #you-edit { min-height: 32px; padding: 0 10px; font-size: 13px; flex: none; }
+  .you-label { font-size: 11px; line-height: 14px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .you-nick { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; font-size: 20px;
+              line-height: 26px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+              padding-right: .2em; text-shadow: var(--outline); }
   .checks { list-style: none; padding: 0; margin-top: 20px; display: grid; gap: 4px; font-size: 14px; line-height: 20px; }
   .checks li { display: flex; gap: 8px; }
   .checks .mark { flex: none; width: 16px; font-weight: 700; }
@@ -204,7 +222,11 @@
   .on-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; line-height: 20px; }
   .on-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(155, 224, 138, .6); animation: on-pulse 2s infinite; }
   .boot-load { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: #fff; font: 600 15px/1.3 system-ui, sans-serif; pointer-events: none; z-index: 2; }
+  .boot-load { background: #000c; text-align: center; padding: 0 16px; }
   .boot-load[hidden] { display: none; }
+  .boot-load span, .boot-load small { font-weight: 400; max-width: min(520px, 100%); word-break: break-word; }
+  .boot-load small { font-size: 13px; opacity: .7; }
+  .boot-load progress { width: min(320px, 80vw); height: 8px; }
   .boot-load::before { content: ''; width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: boot-spin .9s linear infinite; }
   @keyframes boot-spin { to { transform: rotate(360deg); } }
   @keyframes on-pulse { 70% { box-shadow: 0 0 0 8px rgba(155, 224, 138, 0); } 100% { box-shadow: 0 0 0 0 rgba(155, 224, 138, 0); } }
@@ -229,8 +251,10 @@
   body.playing { overflow: hidden; background: #000; }
   body.playing .app { display: none; }
   .stage { position: fixed; inset: 0; background: #000; display: grid; grid-template-rows: auto minmax(0, 1fr); }
-  /* the bar is one small Settings button in the top right corner, over the picture; everything else is in the dialog */
-  .stage-bar { position: absolute; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); z-index: 2; opacity: .55; }
+  /* the bar: Settings, Drift, Map in the top right corner, over the picture; everything else is in the dialog. The touch
+     controls keep their own rare buttons top left (web/touch.js), away from it */
+  .stage-bar { position: absolute; top: max(8px, env(safe-area-inset-top)); right: max(8px, env(safe-area-inset-right)); z-index: 2; opacity: .55;
+               display: flex; gap: 8px; }
   .stage-bar:hover, .stage-bar:focus-within { opacity: 1; }
   .stage-bar .btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
   .pad-sel { max-width: 220px; min-height: 32px; font-size: 14px; }
@@ -312,6 +336,11 @@
     .stage-bar .btn { min-height: 28px; padding: 0 8px; font-size: 12px; }
     #keys-panel, #races-panel { top: 44px; max-height: calc(100% - 56px); }
   }
+  /* a finger: buttons a thumb can hit (40 px high, 12 px apart), not the 28 px a mouse gets */
+  @media (pointer: coarse) {
+    .stage-bar { gap: 12px; }
+    .stage-bar .btn { min-height: 40px; min-width: 48px; padding: 0 12px; font-size: 13px; }
+  }
   /* the start page on a phone */
   @media (max-width: 480px) {
     .app { padding: 12px max(16px, env(safe-area-inset-left)) 24px; gap: 16px; }
@@ -327,7 +356,7 @@
   .stage:fullscreen .stage-bar { display: none; }
   /* a phone has no Esc and no way to leave full screen to reach the button: keep it */
   @media (pointer: coarse) {
-    .stage:fullscreen .stage-bar { display: block; }
+    .stage:fullscreen .stage-bar { display: flex; }
   }
   #log { position: absolute; right: 16px; bottom: 16px; width: min(720px, calc(100% - 32px)); max-height: 45vh; overflow: auto; margin: 0;
          padding: 12px; background: rgba(7, 7, 10, .92); border: 1px solid var(--line); border-radius: var(--r);
@@ -338,25 +367,53 @@
   #races-box { margin-top: 24px; }
   #races-box input[type=password] { background: var(--field); border: 2px solid var(--edge); border-radius: var(--r); padding: 6px 10px; min-height: 40px; max-width: 100%; }
   .races li .meta { color: var(--muted); font-size: 14px; }
+  /* features showcase: the game box's back cover, a red title bar and a grid of cards */
+  .top h1 { font-size: clamp(28px, 4vw, 40px); line-height: 1.2; }
+  .features { padding: 0; overflow: hidden; }
+  .feat-head { padding: 16px 24px; background: linear-gradient(90deg, var(--red-lo) 40%, rgba(122, 12, 16, .4)), var(--grid);
+               border-bottom: 2px solid var(--silver); }
+  .feat-head h2 { font-size: 22px; line-height: 28px; }
+  .feat-head p { color: #e6e7ea; font-size: 14px; line-height: 20px; margin-top: 2px; text-shadow: var(--outline); }
+  .feat-grid { list-style: none; padding: 20px 24px 24px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+  .feat { position: relative; padding: 14px 16px 16px; background: var(--field); border: 1px solid var(--line); border-left: 3px solid var(--red);
+          border-radius: var(--r); transition: border-color .15s, transform .15s; }
+  .feat:hover { border-color: var(--edge); border-left-color: var(--gold); transform: translateY(-2px); }
+  .feat svg { width: 28px; height: 28px; color: var(--gold); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .feat h3 { margin: 8px 0 4px; font-size: 16px; color: var(--text); }
+  .feat p { color: var(--muted); font-size: 14px; line-height: 20px; }
+  .feat b { color: var(--gold); font-weight: 700; }
+  @media (max-width: 480px) { .feat-head { padding: 12px 16px; } .feat-grid { padding: 16px; } }
+  @media (prefers-reduced-motion: reduce) { .feat { transition: none; } .feat:hover { transform: none; } }
+  .donate-btn { background: var(--gold); color: #000; border-color: var(--gold); font-weight: 700; }
+  .donate-box { margin-top: 14px; padding: 10px 12px; border: 2px solid var(--gold); border-radius: var(--r); }
+  .donate-box p { margin: 0 0 8px; }
 </style>
 </head>
 <body>
 <div class="app">
   <header class="panel top">
     <h1>Midnight Club <span>3</span></h1>
-    <p class="hint">Fan project<span id="released" hidden></span></p>
+    <p class="hint">DUB Edition Remix · Xbox version · Fan project<span id="released" hidden></span></p>
     <span style="display:flex; gap:8px; flex-wrap:wrap">
       <button type="button" class="btn" id="changelog-btn" aria-haspopup="dialog" aria-controls="changelog-dlg">Changelog</button>
       <a class="btn" id="bug-btn" href="https://github.com/LeandroDettmer/mc3-web/issues/new" target="_blank" rel="noopener">Report a bug</a>
+      <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
+      <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
     </span>
   </header>
   <dialog id="changelog-dlg" aria-label="Changelog">
-    <div class="dlg-head"><strong>Changelog</strong><button type="button" class="btn" id="changelog-close" aria-label="Close">Close</button></div>
+    <div class="dlg-head"><strong>What's new</strong><button type="button" class="btn" id="changelog-close" aria-label="Close">Close</button></div>
     <div id="changelog-body"></div>
   </dialog>
 
   <div class="side">
     <section class="panel hero" aria-label="Play">
+      <div class="you" aria-label="You, as other players see you">
+        <span class="flag" id="you-flag" role="img" title="Change flag"></span>
+        <div class="you-main"><span class="you-label">You</span><strong class="you-nick" id="you-nick"></strong></div>
+        <button type="button" class="btn" id="you-edit" aria-label="Change nick">Edit</button>
+      </div>
+      <label class="field"><span>Your flag, before your name over your car in free roam</span><select id="flag"></select></label>
       <p class="status" id="status" role="status">Checking…</p>
       <p class="status-sub" id="status-sub">Looking for the discs and the build.</p>
       <div class="online-now" id="online-now" hidden><div class="on-body" role="status"></div><button type="button" class="btn on-view" aria-haspopup="dialog" aria-controls="players-dlg" hidden>View players</button></div>
@@ -369,11 +426,18 @@
       <label class="field" id="edition-row" hidden><span>Disc</span><select id="edition"></select></label>
       <button type="button" class="play" id="play" disabled>Play <kbd>Enter</kbd></button>
       <button type="button" class="btn" id="resume-btn" hidden style="margin-top:8px">Back to Free Roam</button>
+      <div class="donate-box">
+        <p><strong>Keep the project alive.</strong> The online server costs money every month, and this is built in free time. A donation of any size keeps it running and growing.</p>
+        <span style="display:flex; gap:8px; flex-wrap:wrap">
+          <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
+          <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
+        </span>
+      </div>
       <label class="opt" style="margin-top:12px"><input type="checkbox" id="skipintro" aria-describedby="skipintro-help"> <span>Skip intro</span></label>
       <p class="hint" id="skipintro-help" style="margin-top:4px">Boots past the Rockstar logos and the intro movie, none of them played. <code>MC3_SKIP_MOVIES=hard</code></p>
       <div id="cache" hidden>
         <p class="hint" id="cache-status" role="status" style="margin-top:16px"></p>
-        <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-get">Download the whole game now</button><button type="button" class="btn" id="cache-clear">Clear</button></div>
+        <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-clear">Clear</button></div>
       </div>
       <ul class="checks" id="checks" aria-label="What the game needs"></ul>
     </section>
@@ -393,6 +457,7 @@
       <div class="pane prose" role="tabpanel" data-pane="credits" hidden>
         <p>mcdub3 web by Leandro Dettmer, a browser port of <a href="https://github.com/laureladastra/mcdub3-nx" target="_blank" rel="noopener noreferrer">mcdub3-nx</a> by Laure Ladastra (MIT).</p>
         <p>Based on <a href="https://github.com/LeandroDettmer/mc3-web" target="_blank" rel="noopener noreferrer">mc3-web</a> by Leandro Dettmer: AGPL-3.0. Copies must keep this credit and offer their source.</p>
+        <p><strong>Support the project:</strong> donations help pay for the online server and further development. <a href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">Donate (Stripe)</a></p>
         <p>Built on <a href="https://github.com/sp00nznet/xboxrecomp" target="_blank" rel="noopener noreferrer">xboxrecomp</a>, the Xbox static recompilation toolkit by Ned Heller (sp00nznet) and its contributors (xboxrecomp/CONTRIBUTORS.md; MIT).</p>
         <p>Modelled on antoxa2584x's <a href="https://github.com/antoxa2584x/nfsu2-sw" target="_blank" rel="noopener noreferrer">nfsu2-sw</a>.</p>
         <p>This start page follows th0mk's <a href="https://github.com/th0mk/nfsu2-web" target="_blank" rel="noopener noreferrer">nfsu2-web</a> (MIT), whose free-roam networking the online mode is ported from; itself based on Talha Müderrisoğlu's <a href="https://github.com/TalhaMudo/NFSU2Recomp" target="_blank" rel="noopener noreferrer">NFSU2Recomp</a>.</p>
@@ -405,6 +470,55 @@
   </div>
 
   <div class="content">
+    <section class="panel features" aria-labelledby="feat-title">
+      <div class="feat-head">
+        <h2 id="feat-title">The city is online</h2>
+        <p>Midnight Club 3 like you never played it: real players, real races, every ride in the garage.</p>
+      </div>
+      <ul class="feat-grid">
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          <h3>Online Free Roam</h3>
+          <p>The city never sleeps, and now it's never empty. Cruise with real players, name tags over their cars, every one a blip on your map.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.5"/><path d="M15.5 14.2A5 5 0 0 1 21 19"/></svg>
+          <h3>Online Career</h3>
+          <p>Your career, someone else's taillights. Real players fill your career city, and your save stays yours alone.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4"/><path d="M5 4h12l-2 4 2 4H5"/></svg>
+          <h3>Street Races</h3>
+          <p>Pull up next to rivals, flash the invite, hit <b>Accept</b>. Up to <b>8 racers</b> on the start grid, a countdown, then it's just you and the asphalt.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>
+          <h3>Race From the Map</h3>
+          <p>Every start point in the city is live. Roll up, press White, and the AI is already on the line. Bring your friends along.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18"/><path d="M16.5 7.5C16 6 14.3 5 12 5c-2.8 0-4.5 1.3-4.5 3.2 0 4.3 9 2.6 9 7 0 2-1.8 3.3-4.5 3.3-2.4 0-4.2-1-4.7-2.7"/></svg>
+          <h3>Everything Unlocked</h3>
+          <p>Every city, every car, every part. <b>$2,000,000</b> in your pocket the moment you go online. Go spend it.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-6"/><path d="M7 13l1 .6M17 13l-1 .6M12 9v1"/></svg>
+          <h3>Drift for Cash</h3>
+          <p>Hang the tail out, chain the drifts, stack the multiplier. Online wins and drift points pay real prizes and unlock more.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V11a6 6 0 0 1 12 0v9l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5z"/><circle cx="10" cy="11" r="1"/><circle cx="14" cy="11" r="1"/></svg>
+          <h3>Ghost Rivals</h3>
+          <p>In AI and career races on a PC, the players nearby race on as ghost cars. Someone's always on your bumper.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="14" height="10" rx="1"/><path d="M6 18h6M9 14v4"/><rect x="17" y="8" width="5" height="11" rx="1"/></svg>
+          <h3>Play Anywhere</h3>
+          <p>PC, phone with touch controls, or the TV. Keyboard or controller. Up to <b>144 fps</b> if your screen keeps up.</p>
+        </li>
+      </ul>
+    </section>
+
     <section class="panel" aria-label="Options">
       <div class="tabs" role="tablist" aria-label="Options">
         <button type="button" class="tab" role="tab" data-tab="settings">Settings</button>
@@ -442,6 +556,15 @@
           <div class="set">
             <div><label class="set-label" for="pad-sel">Controller for this tab</label><p class="hint">Only this controller drives pad 1 here, so two tabs can each use their own. Remembered for this tab only. The keyboard acts on the focused tab.</p></div>
             <select class="pad-sel" id="pad-sel"></select>
+          </div>
+          <div class="set">
+            <div><span class="set-label">Buttons</span><p class="hint" id="pad-map-hint">Buttons in the wrong place, or not working? Set them up: press each one when asked.</p></div>
+            <button type="button" class="btn" id="pad-map-btn">Set up buttons</button>
+            <button type="button" class="btn" id="pad-map-reset" hidden>Reset</button>
+          </div>
+          <div id="pad-map-run" hidden>
+            <p class="set-label" id="pad-map-step" role="status"></p>
+            <div class="row"><button type="button" class="btn" id="pad-map-skip">Skip</button><button type="button" class="btn" id="pad-map-cancel">Cancel</button></div>
           </div>
           <p>The keyboard stays on top of pad 1. Buttons sit where the Xbox pad has them: A, B, X, Y, Start, Back, the triggers, White and Black on the shoulders, both sticks and their clicks.</p>
         </div>
@@ -521,7 +644,7 @@
 </dialog>
 
 <div class="stage" id="stage" hidden>
-  <div class="boot-load" id="boot-load" role="status" hidden>Loading the game…</div>
+  <div class="boot-load" id="boot-load" role="status" hidden><b>Loading game…</b><span id="boot-what"></span><progress id="boot-bar" max="100" hidden></progress><small>The first start takes longer (the game's files come down once); later starts are faster.</small></div>
   <div class="stage-bar">
     <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
     <button type="button" class="btn" id="drift-btn" aria-pressed="false" title="Drift mode (Settings, Controls): looser rear tyres on your car. Changes live.">Drift: Off</button>
@@ -612,6 +735,26 @@
 
   // --- settings: each key is a getenv() of the port or its toolkit (CLAUDE.md; README, Configuration)
   const ONOFF = (def = 'On') => def === 'On' ? [['', 'On (default)'], ['0', 'Off']] : [['', 'Off (default)'], ['1', 'On']];
+  // Frame rate (2026-11-13): the screen's refresh, from rAF on this page (median of 90 frames while visible), snapped
+  // to a common rate; kept in localStorage for a page whose first look was hidden (no rAF then). 60 until measured.
+  const FPS_HIGH = [90, 120, 144];
+  let refreshHz = 0;
+  const displayHz = () => refreshHz || store.get('refreshHz', 60);
+  function measureRefresh() {
+    if (refreshHz || document.visibilityState !== 'visible') return;
+    const t = [];
+    requestAnimationFrame(function f(now) {
+      if (document.visibilityState !== 'visible') return;   // measured again when shown
+      t.push(now);
+      if (t.length < 91) { requestAnimationFrame(f); return; }
+      const d = t.slice(1).map((x, i) => x - t[i]).sort((a, b) => a - b), hz = 1000 / d[d.length >> 1];
+      const snap = [30, 50, 60, 75, 90, 100, 120, 144, 165, 240].find(r => Math.abs(hz - r) <= r * 0.04);
+      refreshHz = snap || Math.round(hz);
+      store.set('refreshHz', refreshHz);
+      out(`[WEB] screen refresh:${refreshHz} Hz (measured ${hz.toFixed(1)})`);
+      renderSettings();
+    });
+  }
   const SETTINGS = [
     { group: 'Picture' },
     { key: 'RECOMP_WIDESCREEN', label: 'Console video', help: 'The console video setting the game reads.', opts: [['', '16:9 (default)'], ['0', '4:3']] },
@@ -662,8 +805,13 @@
     { group: 'Performance' },
     { key: 'RECOMP_GPU', label: 'Renderer', help: 'Auto uses WebGPU when the browser has it (much faster), else WebGL. Firefox always uses WebGL (its WebGPU shows a black screen). Auto also uses WebGL on GPUs whose WebGPU froze the game (Mali, Adreno 600 and older, Intel HD/UHD 4xx-6xx) and on a device where WebGPU froze or failed before; WebGPU here forces it (and forgets the failure).',
       opts: [['', 'Auto (default)'], ['webgpu', 'WebGPU'], ['webgl', 'WebGL']] },
-    { key: 'MC3_60FPS', label: '60 fps races and cruise', help: 'The Remix steps 1/60 s while driving (30 elsewhere). Needs WebGPU to hold 60. Changes live.',
-      opts: [['', 'Off (default)'], ['1', 'On']] },
+    // stored values: '' 30, '1' 60, '90'/'120'/'144' (listed only on a screen that refreshes that fast: displayHz)
+    { key: 'MC3_60FPS', label: 'Frame rate', help: 'Races and cruise run at this rate (menus stay at 30). Needs WebGPU above 30. Rates above 60 are listed when your screen refreshes that fast. The game steps a fixed 1/rate a frame: a computer that cannot keep up with the rate runs the game in slow motion, so pick a lower one. Changes live.',
+      get opts() {
+        const hz = displayHz(), cur = settings.MC3_60FPS;
+        return [['', '30 fps (default)'], ['1', '60 fps'],
+          ...FPS_HIGH.filter(n => n <= hz || cur === String(n)).map(n => [String(n), n + ' fps'])];
+      } },
     { key: 'RECOMP_RAM_MB', label: 'Game memory', help: 'The console\'s RAM. 128 MB (like an Xbox devkit) gives the game a 95 MB heap instead of 47 MB: room for every car online, no "heap overrun" in a full Free Roam. Auto: 128 MB on a PC, 64 MB in low-memory mode.',
       opts: [['', 'Auto (default)'], ['64', '64 MB'], ['128', '128 MB']] },
     { key: 'MC3_LOWMEM', label: 'Low-memory mode', help: 'For TVs, phones and small devices: the game starts at 512 MB, 1x resolution, fewer threads. Auto: on for TVs and devices with 2 GB or less.',
@@ -676,6 +824,7 @@
   ];
   let settings = store.get('settings', {});
   if (typeof settings !== 'object' || !settings || Array.isArray(settings)) settings = {};
+  if (settings.MC3_60FPS === 'auto') settings.MC3_60FPS = '1';   // Auto was removed (2026-11-13): a saved one is 60
   // Screen shape starts at 16:9, once per browser; picking Wide (Auto) afterwards sticks
   if (!store.get('aspect169')) {
     if (!settings.RECOMP_ASPECT) { settings.RECOMP_ASPECT = '16:9'; store.set('settings', settings); }
@@ -791,11 +940,13 @@
     // Absolute: WASMFS resolves relative URLs against the origin, not this page.
     const nick = $('name').value.trim();
     if (nick && !env.MC3_PLAYER_NAME) env.MC3_PLAYER_NAME = nick;   // the game's sign-in texts
+    if (env.MC3_PLAYER_FLAG === undefined && flagCode()) env.MC3_PLAYER_FLAG = flagCode();   // before our name in free roam
     env.MC3_NETPLAY = '1';   // System Link (Online Races) and Free Roam: always on, idle when playing alone
     // Page defaults (the rows' "(default)"): the lowest graphics on every device, the player raises each (2026-11-11):
     // 30 fps driving, 1x, no aniso, LOD bias 0, no FXAA or sharpening, movie HD off
     const low = lowMem(env);
-    if (env.MC3_60FPS !== '1') delete env.MC3_60FPS;
+    if (env.MC3_60FPS === 'auto') env.MC3_60FPS = '1';   // a ?MC3_60FPS=auto link or old saved value: 60
+    if (!(env.MC3_60FPS === '1' || +env.MC3_60FPS > 60)) delete env.MC3_60FPS;
     if (env.RECOMP_GL_SCALE === undefined) env.RECOMP_GL_SCALE = '1';
     if (env.RECOMP_GL_ANISO === undefined) env.RECOMP_GL_ANISO = '1';
     if (env.RECOMP_GL_LOD_BIAS === undefined) env.RECOMP_GL_LOD_BIAS = '0';
@@ -929,13 +1080,15 @@
   // the game, so a new nick leaves them alone.
   const nickDefault = n => !n || /^player$/i.test(n) || /^racer\d{4}$/i.test(n);
   let nickTaken = '', nickBox = null;   // the last nick the switch refused (lower case); the open dialog
-  function askNick(why = '') {
+  function askNick(why = '', canCancel = false) {
     if (nickBox) { nickBox.querySelector('#nick-msg').textContent = why; return; }
     const d = nickBox = modal('nick-modal', '<h2 id="nick-modal-title">Choose your nick</h2>' +
       '<p class="hint">What other players see. Every player online has a different one.</p>' +
       '<input id="nick-input" class="field" type="text" maxlength="15" autocomplete="nickname" enterkeyhint="done" aria-label="Your nick" aria-describedby="nick-msg">' +
       '<p id="nick-msg" class="bad-text" role="alert"></p>' +
-      '<div class="pw-row"><button type="submit" class="btn">OK</button></div>');
+      '<div class="pw-row"><button type="submit" class="btn">OK</button>' +
+      (canCancel ? '<button type="button" class="btn" id="nick-cancel">Cancel</button>' : '') + '</div>');
+    if (canCancel) d.querySelector('#nick-cancel').onclick = () => { d.remove(); nickBox = null; };
     const input = d.querySelector('#nick-input'), msg = d.querySelector('#nick-msg'), cur = $('name').value.trim();
     input.value = nickDefault(cur) ? '' : cur;
     msg.textContent = why;
@@ -948,11 +1101,54 @@
       else if (k === nickTaken || held) msg.textContent = 'Nick already in use: pick another.';
       else {
         d.remove(); nickBox = null; nickTaken = '';
-        $('name').value = v; store.set('name', v);
+        $('name').value = v; store.set('name', v); youShow();
         clearTimeout(renameT); lan?.rename(v);
         if (playing) $('canvas').focus();
       }
     };
+  }
+
+  // The player's country flag (after nfsu2-web's Your flag): its code goes to the game as MC3_PLAYER_FLAG, the roam
+  // core sends it in each HELLO to a peer (roam_core.c, nfsu2-web's core 13 layout) and the others draw it before our
+  // name over our car (web/pre.js name tags) and in the players panel. Default Brazil. FLAG_CODES is flags.png's order
+  // (tools/flags_sheet.mjs checks it): every country of ISO 3166-1, Kosovo, the UK's nations and Quebec.
+  const FLAG_CODES = ['ad', 'ae', 'af', 'ag', 'ai', 'al', 'am', 'ao', 'aq', 'ar', 'as', 'at', 'au', 'aw', 'ax', 'az', 'ba',
+    'bb', 'bd', 'be', 'bf', 'bg', 'bh', 'bi', 'bj', 'bl', 'bm', 'bn', 'bo', 'bq', 'br', 'bs', 'bt', 'bv', 'bw', 'by', 'bz',
+    'ca', 'ca-qc', 'cc', 'cd', 'cf', 'cg', 'ch', 'ci', 'ck', 'cl', 'cm', 'cn', 'co', 'cr', 'cu', 'cv', 'cw', 'cx', 'cy',
+    'cz', 'de', 'dj', 'dk', 'dm', 'do', 'dz', 'ec', 'ee', 'eg', 'eh', 'er', 'es', 'et', 'fi', 'fj', 'fk', 'fm', 'fo', 'fr',
+    'ga', 'gb', 'gb-eng', 'gb-nir', 'gb-sct', 'gb-wls', 'gd', 'ge', 'gf', 'gg', 'gh', 'gi', 'gl', 'gm', 'gn', 'gp', 'gq',
+    'gr', 'gs', 'gt', 'gu', 'gw', 'gy', 'hk', 'hm', 'hn', 'hr', 'ht', 'hu', 'id', 'ie', 'il', 'im', 'in', 'io', 'iq', 'ir',
+    'is', 'it', 'je', 'jm', 'jo', 'jp', 'ke', 'kg', 'kh', 'ki', 'km', 'kn', 'kp', 'kr', 'kw', 'ky', 'kz', 'la', 'lb', 'lc',
+    'li', 'lk', 'lr', 'ls', 'lt', 'lu', 'lv', 'ly', 'ma', 'mc', 'md', 'me', 'mf', 'mg', 'mh', 'mk', 'ml', 'mm', 'mn', 'mo',
+    'mp', 'mq', 'mr', 'ms', 'mt', 'mu', 'mv', 'mw', 'mx', 'my', 'mz', 'na', 'nc', 'ne', 'nf', 'ng', 'ni', 'nl', 'no', 'np',
+    'nr', 'nu', 'nz', 'om', 'pa', 'pe', 'pf', 'pg', 'ph', 'pk', 'pl', 'pm', 'pn', 'pr', 'ps', 'pt', 'pw', 'py', 'qa', 're',
+    'ro', 'rs', 'ru', 'rw', 'sa', 'sb', 'sc', 'sd', 'se', 'sg', 'sh', 'si', 'sj', 'sk', 'sl', 'sm', 'sn', 'so', 'sr', 'ss',
+    'st', 'sv', 'sx', 'sy', 'sz', 'tc', 'td', 'tf', 'tg', 'th', 'tj', 'tk', 'tl', 'tm', 'tn', 'to', 'tr', 'tt', 'tv', 'tw',
+    'tz', 'ua', 'ug', 'um', 'us', 'uy', 'uz', 'va', 'vc', 've', 'vg', 'vi', 'vn', 'vu', 'wf', 'ws', 'xk', 'ye', 'yt', 'za',
+    'zm', 'zw'];
+  const FLAG_NATIONS = { 'gb-eng': 'England', 'gb-sct': 'Scotland', 'gb-wls': 'Wales', 'gb-nir': 'Northern Ireland', 'ca-qc': 'Quebec' };
+  const flagCode = () => { const c = store.get('flag', 'br'); return FLAG_CODES.includes(c) ? c : ''; };   // '' = none
+  function flagSet(el, code) {   // a .flag element shows code's picture (none: hidden); sizes in em, so any font size
+    const i = FLAG_CODES.indexOf(code);
+    if (i < 0) { el.removeAttribute('style'); el.removeAttribute('aria-label'); return; }
+    el.style.backgroundPosition = `${-(i % 16) * 1.3333}em ${-Math.floor(i / 16)}em`;
+    el.setAttribute('aria-label', $('flag').selectedOptions[0]?.text || code);
+  }
+  function youShow() {
+    const n = $('name').value.trim();
+    $('you-nick').textContent = nickDefault(n) ? 'No nick yet' : n;
+    flagSet($('you-flag'), flagCode());
+  }
+  {
+    let names = null;
+    try { names = new Intl.DisplayNames(['en'], { type: 'region' }); } catch {}
+    const name = c => FLAG_NATIONS[c] || (() => { try { return names?.of(c.toUpperCase()) || c.toUpperCase(); } catch { return c.toUpperCase(); } })();
+    $('flag').add(new Option('No flag', ''));
+    for (const c of FLAG_CODES.map(c => [c, name(c)]).sort((a, b) => a[1].localeCompare(b[1], 'en'))) $('flag').add(new Option(c[1], c[0]));
+    $('flag').value = flagCode();
+    $('flag').onchange = () => { store.set('flag', $('flag').value); youShow(); };   // the game reads it at its next start
+    $('you-flag').onclick = () => { const s = $('flag'); s.focus(); try { s.showPicker(); } catch {} };   // the card's flag opens the list (no showPicker: focused)
+    $('you-edit').onclick = () => askNick('', true);
   }
 
   // --- a deploy's config.json (see the top of this file); none: everything from this page's server
@@ -978,7 +1174,10 @@
     if (!playing || verNew || !cfg?.version || document.hidden) return;
     verAt = Date.now();
     try {
-      const r = await fetch('config.json', { cache: 'no-store' });
+      // cfg.versionUrl (stage.sh): a copy in R2 beside the module (upload.sh version, after the Hosting deploy), so the poll
+      // costs no Firebase Hosting transfer; it failing, config.json as before
+      let r = cfg.versionUrl ? await fetch(cfg.versionUrl, { cache: 'no-store' }).catch(() => null) : null;
+      if (!r?.ok) r = await fetch('config.json', { cache: 'no-store' });
       const j = r.ok ? await r.json() : {};
       if (j.version && j.version !== cfg.version) { verNew = true; verForce = j.reload === j.version; setInterval(versionTick, 1000); versionTick(); }
     } catch {}
@@ -1044,11 +1243,20 @@
       fetch(moduleFile(app + '.wasm'), { credentials: 'include' }).then(r => {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         out(`[WEB] module: ${app}.wasm answered (${(r.headers.get('content-length') >> 20) || '?'} MB), compiling (${ms()})`);
+        // Progress for the loading overlay: bytes counted on the way into the compiler (Content-Length is the encoded
+        // size: past it, the total is dropped)
+        const total = +r.headers.get('content-length') || 0; let got = 0;
+        if (r.body) r = new Response(r.body.pipeThrough(new TransformStream({ transform(ch, c) {
+          got += ch.length; const mb = (got / 1048576).toFixed(0);
+          bootWhat(total >= got ? `Downloading the game: ${mb} of ${(total / 1048576).toFixed(0)} MB` : `Downloading the game: ${mb} MB`, total >= got ? got * 100 / total : null);
+          c.enqueue(ch);
+        } })), { status: r.status, headers: r.headers });
         // streaming needs the server's application/wasm (the deploy and mc3-server send it); else whole, as Emscripten
         return /application\/wasm/.test(r.headers.get('content-type') || '') ? WebAssembly.compileStreaming(r)
           : r.arrayBuffer().then(b => WebAssembly.compile(b));
       }).then(mod => {
         out(`[WEB] module: compiled (${ms()}), instantiating`);
+        bootWhat('Starting the game…');
         return WebAssembly.instantiate(mod, imports).then(inst => {
           out(`[WEB] module: instantiated (${ms()})`);
           done(inst, mod);
@@ -1255,42 +1463,22 @@
   const fmtBytes = n => n >= 1e9 ? (n / 2 ** 30).toFixed(2) + ' GB' : (n / 2 ** 20).toFixed(0) + ' MB';
   const pct = (a, b) => b ? Math.floor(100 * a / b) + '%' : '–';
   const discUrl = d => new URL(d.path, location.href).href;
-  let fetcher = null;
   async function cacheShow() {
     const d = currentDisc(), on = opfs && !!d && typeof MC3DiscCache == 'object';
     $('cache').hidden = !on;
-    if (!on || fetcher) return;
+    if (!on) return;
     if (!MC3DiscCache.enabled(buildEnv(null).MC3_DISC_CACHE)) {
       $('cache-status').textContent = 'Local server: the disc is read directly, nothing is cached.';
-      $('cache-get').hidden = true;
       return;
     }
-    $('cache-get').hidden = false;
     try {
       const s = await MC3DiscCache.scan(discUrl(d));
       $('cache-status').textContent = `Disc kept in this browser: ${fmtBytes(s.have)} of ${fmtBytes(s.total)} (${pct(s.have, s.total)}). Kept parts load without the network.`;
-      $('cache-get').disabled = document.body.classList.contains('playing') || s.have >= s.total;
     } catch (e) { $('cache-status').textContent = 'Disc cache: ' + (e.message || e); }
   }
-  // the whole disc into the cache (disc_cache.js predownload worker); only on this click, never beside a game
-  function cacheGet() {
-    if (fetcher) { fetcher.postMessage({ t: 'stop' }); return; }
-    const d = currentDisc();
-    if (!d || document.body.classList.contains('playing')) return;
-    fetcher = new Worker('disc_cache.js', { name: 'mc3-predownload' });
-    $('cache-get').textContent = 'Stop downloading'; $('cache-clear').disabled = true;
-    fetcher.onmessage = e => {
-      const m = e.data;
-      if (m.t === 'progress') { $('cache-status').textContent = `Downloading the disc: ${fmtBytes(m.have)} of ${fmtBytes(m.total)} (${pct(m.have, m.total)}).`; return; }
-      fetcher.terminate(); fetcher = null;
-      $('cache-get').textContent = 'Download the whole game now'; $('cache-clear').disabled = false;
-      if (m.t === 'error') $('cache-status').textContent = 'The download stopped: ' + m.msg + '. What came is kept; try again.';
-      else cacheShow();
-    };
-    fetcher.postMessage({ t: 'start', disc: discUrl(d) });
-  }
+  // 2026-11-14: no "Download the whole game now" button any more (R2 reads cost: ~4.5k a player); the game fetches what it reads
   async function cacheClear() {
-    if (fetcher || !confirm('Delete the disc data kept in this browser? Saves stay.')) return;
+    if (!confirm('Delete the disc data kept in this browser? Saves stay.')) return;
     try { await MC3DiscCache.clear(); } catch (e) { $('cache-status').textContent = 'Not cleared: ' + (e.message || e); return; }
     cacheShow();
   }
@@ -1372,6 +1560,12 @@
     }
   }
   const hex = buf => [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
+  // The save folder XAPI's XCreateSaveGame opens for a save name (Remix sub_003245F1): h = (h * 65536 + c) mod
+  // (2^48 - 59) over the name's UTF-16 units, as 12 upper-case hex digits ("Remix : ferez" -> ED509E14024E). The game
+  // lists saves by SaveMeta's Name and opens this folder: any other folder reads "damaged" (issue #3).
+  const saveDir = s => { let h = 0n; for (let i = 0; i < s.length; i++) h = (h * 65536n + BigInt(s.charCodeAt(i))) % 0xFFFFFFFFFFC5n; return h.toString(16).toUpperCase().padStart(12, '0'); };
+  // A profile's name from its file name, without a browser's " (1)" for a second download of it.
+  const fileProfile = (n, ext) => n.replace(ext, '').replace(/ ?\(\d+\)$/, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
   // Remix profile (UDATA/54540079/<12 hex>/<name>.mc3Remix): size and stamp are not proven (the writer sub_000193F0 streams
   // 4 + 0x18340 + 1 + 1 + 0x61A8 + 1 + 2 + 1 + 0x4074 bytes plus a signature, not 99,162), so only the layout is checked:
   // big enough, last 20 bytes = HMAC-SHA1 of the rest under the port's zero key (re-signed: unchanged when already valid). An Xbox's own Remix profile is only a guess.
@@ -1381,10 +1575,14 @@
     // Kept byte for byte: the Remix's signature layout is not known (its writer sub_000193F0 is not DUB's), and a
     // profile downloaded from this site is already signed for the port. An Xbox-original one may read "damaged".
     const out = data;
-    const name = file.name.replace(/\.mc3remix$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
-    const folder = hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(name))).slice(0, 12).toUpperCase();
+    // The game saves profile P as save "Remix : P" (sub_00022040), file P.mc3Remix; the garage blob (file +4) keeps P at
+    // +0x2E8 (0x53F5F0): taken when the file's name starts with it (a download renamed "P (1)" or "P-copy").
+    let name = fileProfile(file.name, /\.mc3remix$/i);
+    const inner = /^([\x20-\x7e]{1,31})\0/.exec(new TextDecoder('latin1').decode(data.subarray(0x2EC, 0x2EC + 32)))?.[1];
+    if (inner && !/[\\/:*?"<>|]/.test(inner) && file.name.startsWith(inner)) name = inner;
+    const save = 'Remix : ' + name;
     try {
-      if (!await writeProfile(name, folder, [[name + '.mc3Remix', out], ['SaveMeta.xbx', metaBytes(name)]])) return;
+      if (!await writeProfile(name, saveDir(save), [[name + '.mc3Remix', out], ['SaveMeta.xbx', metaBytes(save)]])) return;
       savesMsg(`Imported ${name} (kept as it is).`);
     } catch (e) { savesMsg('Could not write the save: ' + e.message, true); }
     listSaves();
@@ -1564,10 +1762,9 @@
     const key = await crypto.subtle.importKey('raw', new Uint8Array(16), { name: 'HMAC', hash: 'SHA-1' }, false, ['sign']);
     const out = new Uint8Array(MC3_SIZE);
     out.set(body); out.set(new Uint8Array(await crypto.subtle.sign('HMAC', key, body)), MC3_SIZE - SIG_LEN);
-    const name = file.name.replace(/\.mc3$/i, '').replace(/[\\/:*?"<>|\x00-\x1f]/g, '').slice(0, 32) || 'Profile';
-    const folder = hex(await crypto.subtle.digest('SHA-1', new TextEncoder().encode(name))).slice(0, 12).toUpperCase();
+    const name = fileProfile(file.name, /\.mc3$/i);      // DUB's save name is the profile's (SaveMeta Name=<name>)
     try {
-      if (!await writeProfile(name, folder, [[name + '.mc3', out], ['SaveMeta.xbx', metaBytes(name)]])) return;
+      if (!await writeProfile(name, saveDir(name), [[name + '.mc3', out], ['SaveMeta.xbx', metaBytes(name)]])) return;
       savesMsg(`Imported ${name} (signed for the port).`);
     } catch (e) { savesMsg('Could not write the save: ' + e.message, true); }
     listSaves();
@@ -1650,9 +1847,42 @@
     [/xbox_HeapAlloc: out of memory/, 'The game\'s memory is full', 'The game used up the Xbox\'s own memory (a game or port bug), not this device\'s. Restart.'],
     [/out of memory|Cannot enlarge memory|could not allocate|\[WASM\] (no storage|commit of)/i, 'Out of memory on this device', 'The device ran out of memory. Close other tabs and apps; ?MC3_LOWMEM=1 starts the game lighter.'],
   ];
-  function out(text) {
+  // Loading overlay (#boot-load) from Play to the first drawn frame: module download progress, then the disc.
+  let bootOn = false, bootSlow = false, discAt = performance.now();   // discAt: last '[WEB] disc wait|read' line (the 90 s watchdog)
+  function bootWhat(s, pct) {
+    if (!bootOn) return;
+    $('boot-what').textContent = s;
+    const b = $('boot-bar'); b.hidden = pct == null; if (pct != null) b.value = pct;
+  }
+  function bootStart() {
+    bootOn = true; $('boot-load').hidden = false; bootWhat('Downloading the game…');
+    const t = setInterval(() => {
+      if (!(window.Module?.mc3Frames?.() > 0) || failBox) { if (failBox) clearInterval(t); return; }
+      clearInterval(t); bootOn = false; $('boot-load').hidden = true;
+    }, 250);
+  }
+  // Kept apart (2026-11-13): the log's first 80 lines (build, browser, memory) and 150 lines from each of the first
+  // 4 fatal-looking guest lines on, so Save log and sent logs still hold them once the ring dropped them (log 4EM9KY:
+  // 8800 KeBugCheck lines pushed its first ICALL out). A line equal to one of the 4 before it is counted, not kept.
+  const PIN_RE = /\[ICALL\]|\[GUEST\]|KeBugCheck|Heap overrun|\[ROAM\] shader check/;
+  let logPins = [], pinLeft = 0, pinFatal = 0, logRep = 0;
+  const logRepLine = () => `[WEB] log: ${logRep} repeated line(s) left out (each the same as one of the 4 above)`;
+  function logPush(text) {
     logN++; logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
+    if (logN <= 80) logPins.push([logN, text]);
+    else if (pinLeft > 0) { pinLeft--; logPins.push([logN, text]); }
+    else if (pinFatal < 4 && PIN_RE.test(text)) { pinFatal++; pinLeft = 149; logPins.push([logN, text]); }
+  }
+  function out(text) {
+    if (logText.length && logText.slice(-4).includes(text)) { logRep++; return; }
+    if (logRep) { logPush(logRepLine()); logRep = 0; }
+    logPush(text);
     if (/^\s*\[roam\] status /.test(text)) roamT = performance.now();
+    // Loading overlay, disc part: a game read that waited (wasmfs_fetch.js, a line a second at most) names the file.
+    // Page-only: the worker's own counters are not read, so no wasm rebuild.
+    const dw = bootOn && /^\[WEB\] disc wait: (\S+) @(\d+) /.exec(text);
+    if (/^\[WEB\] disc (wait|read)/.test(text)) discAt = performance.now();
+    if (dw) bootWhat(`${bootSlow ? 'Slow connection. ' : ''}Reading game files:${dw[1].split('/').pop()} (${(dw[2] / 1048576).toFixed(0)} MB in)`);
     // Skip intro hides the legal screen (recomp_manual.c legal_hidden): a Loading box instead of a black picture
     if (/^\s*\[LS\] legal screen hidden/.test(text)) $('boot-load').hidden = /: boot load running/.test(text) ? false : true;
     if (!logDirty && !log.hidden) { logDirty = true; requestAnimationFrame(logFlush); }
@@ -1738,7 +1968,7 @@
   // the whole log (at most ~2 MB: the store's limit), headed; resolves to the log's code
   function logSend(tag, why) {
     if (!cfg?.logUrl) return Promise.reject('no log store on this server');
-    return logPost(tag, logHeader(tag, why) + logDump().slice(-1.9e6))
+    return logPost(tag, logHeader(tag, why) + logDump(logText, 1.8e6))
       .then(code => (out(`[WEB] log sent: ${tag}, code ${code}`), code));
   }
   // non-fatal ones: no box, at most 3 of each tag a session
@@ -1841,7 +2071,7 @@
         const ctx = TAIL_CTX.map(lastLine).filter(Boolean);
         localStorage.setItem('mc3.crashTail', logHeader('previous-crash', 'the tab ended without a clean exit (killed, crashed or out of memory)')
           + (ctx.length ? '--- last lines of note ---\n' + ctx.join('\n') + '\n--- log tail ---\n' : '')
-          + logDump(logText.slice(-4000)).slice(-TAIL_CHARS));
+          + logDump(logText.slice(-4000), TAIL_CHARS));
       } catch {}   // storage full or blocked: nothing kept
     };
     // a closing tab fires pagehide and then visibilitychange (hidden): that write came after the clear and every closed
@@ -1956,6 +2186,7 @@
     if (env.RECOMP_GL_PROXY === '1') out('[WEB] graphics: drawing through the page thread (RECOMP_GL_PROXY=1, slower; =0 forces the worker)');
     document.body.classList.add('playing');
     $('stage').hidden = false;
+    bootStart();
     const canvas = $('canvas');
     canvas.focus();
     if (window.MC3Touch) {
@@ -1970,6 +2201,7 @@
     window.Module = {
       canvas,
       mc3Env: env,
+      mc3Flags: FLAG_CODES,           // web/pre.js: flags.png's order (name tags, players panel)
       mc3Lan: lanUp(),                // System Link's link (web/net.js finds it here)
       print: out,
       printErr: out,
@@ -1980,7 +2212,18 @@
         runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.${gpuNote}`);
         // No picture 90 s after the runtime is up (not after Play: a slow link's module and disc download is not a hang);
         // the log's last lines say why (a TV has no console to look at)
-        setTimeout(() => { if (!(window.Module?.mc3Frames?.() > 0)) failShow('No picture after 90 s', `the game has not drawn a frame yet (${since(tPlay)} since Play, ${since(tRuntime)} since the runtime started)`); }, 90000);
+        // Progress-aware (issue #4, Galaxy S23 Ultra, cold cache on a slow link: disc reads of 1-8 s each were still
+        // advancing at 90 s): from 90 s, keep waiting while a disc line came in the last 60 s (overlay says slow
+        // connection); fail with no disc line for 60 s, or at the 10 min cap. The game runs on behind the box.
+        const pw = setInterval(() => {
+          if (window.Module?.mc3Frames?.() > 0 || failBox) { clearInterval(pw); bootSlow = false; return; }
+          const el = performance.now() - tRuntime;
+          if (el < 90000) return;
+          const idle = performance.now() - discAt;
+          if (el < 600000 && idle < 60000) { bootSlow = true; return; }
+          clearInterval(pw); bootSlow = false;
+          failShow('No picture after ' + Math.round(el / 1000) + ' s', `the game has not drawn a frame yet (${since(tPlay)} since Play, ${since(tRuntime)} since the runtime started; ${idle < 60000 ? 'disc reads still coming, but past the 10 min cap' : 'no disc read for ' + Math.round(idle / 1000) + ' s'}). The game may still be running behind this box: close it and wait a little.`);
+        }, 5000);
         watchFrames();
         resumeKeep();
       },
@@ -2073,6 +2316,8 @@
 
   // --- wire up
   renderSettings();
+  measureRefresh();
+  document.addEventListener('visibilitychange', measureRefresh);
   renderKeys($('keys'));
   renderKeys($('keys-ingame'));
   $('raw').value = store.get('raw', '');
@@ -2089,8 +2334,9 @@
   $('skipintro').onchange = () => { setSetting('MC3_SKIP_MOVIES', $('skipintro').checked ? 'hard' : ''); renderSettings(); };
   if ('MC3_NETPLAY' in settings) setSetting('MC3_NETPLAY', '');   // the System Link On/Off choice is gone: online is always on
   $('name').value = store.get('name', '');   // none or a default one: askNick before playing
+  youShow();
   let renameT = 0;   // a rename is a hello the switch sends on to everyone: once typing pauses
-  $('name').oninput = () => { const v = $('name').value.trim(); store.set('name', v); nickTaken = ''; clearTimeout(renameT); renameT = setTimeout(() => lan?.rename(v), 400); };
+  $('name').oninput = () => { const v = $('name').value.trim(); store.set('name', v); youShow(); nickTaken = ''; clearTimeout(renameT); renameT = setTimeout(() => lan?.rename(v), 400); };
   // System Link: the link to the server's switch (web/lan.js) is always up, from here into the game
   let lan = null;
   function lanShow(l) {
@@ -2226,7 +2472,6 @@
   $('play').onclick = play;
   $('resume-btn').hidden = !resumeFresh();
   $('resume-btn').onclick = () => { restart = { resume: true }; play(); };
-  $('cache-get').onclick = cacheGet;
   $('cache-clear').onclick = cacheClear;
   // an iPhone's Safari has no element full screen: no button that does nothing (and a shorter bar)
   // (?.: a phone may still hold an older touch.js in its cache)
@@ -2277,11 +2522,102 @@
   const padKeys = pads => pads.map((g, n) => g.id + (pads.slice(0, n).some(p => p.id === g.id) ? '#' + pads.slice(0, n).filter(p => p.id === g.id).length : ''));
   const padChoice = () => { try { return sessionStorage.getItem('mc3.pad') || 'auto'; } catch { return 'auto'; } };
   const padShort = id => id.replace(/\s*\(.*$/, '');
+  // Button layouts (issue #6): the runtime reads every pad in the Gamepad API's standard layout (SDL's one browser
+  // mapping), but a pad the browser does not know (mapping '') sends its buttons in its own order. 'Set up buttons'
+  // records the player's: an SDL mapping body per Gamepad.id (localStorage mc3.padmap), given to the runtime for the
+  // pad this tab plays with (Module.mc3SetPadMap, xinput_device.c web_pad_layout).
+  const padMaps = () => { try { return JSON.parse(localStorage.getItem('mc3.padmap') || '{}') || {}; } catch { return {}; } };
+  const padMapsSet = maps => { try { localStorage.setItem('mc3.padmap', JSON.stringify(maps)); } catch {} };
+  const PAD_STEPS = [['a', 'Press A'], ['b', 'Press B'], ['x', 'Press X'], ['y', 'Press Y'],
+    ['righttrigger', 'Press Gas (right trigger)'], ['lefttrigger', 'Press Brake (left trigger)'],
+    ['leftshoulder', 'Press Black (left shoulder)'], ['rightshoulder', 'Press White (right shoulder)'],
+    ['start', 'Press Start'], ['back', 'Press Back (Select)'], ['dpup', 'Press d-pad up'], ['dpdown', 'Press d-pad down'],
+    ['dpleft', 'Press d-pad left'], ['dpright', 'Press d-pad right'], ['leftstick', 'Click the left stick'],
+    ['rightstick', 'Click the right stick'], ['leftx', 'Push the left stick right'], ['lefty', 'Push the left stick down'],
+    ['rightx', 'Push the right stick right'], ['righty', 'Push the right stick down']];
+  const padLogged = new Set();
+  let padActive = null, padRun = null;           // padRun: { id, index, n, map, rest, armed, timer }
+  const padMapSync = g => {
+    padActive = g || null;
+    const maps = padMaps(), own = g ? maps[g.id] || '' : '';
+    window.Module?.mc3SetPadMap?.(own);
+    for (const p of padList()) {
+      const line = `[WEB] gamepad: ${p.id}, mapping ${p.mapping || 'none'}, ${p.buttons.length} buttons, ${p.axes.length} axes, as `
+        + (maps[p.id] ? "the player's own layout" : p.mapping === 'standard' ? 'the standard layout'
+          : 'the standard layout (the browser does not know this pad)');
+      if (!padLogged.has(line)) { padLogged.add(line); out(line); }
+    }
+    if (padRun) return;
+    $('pad-map-btn').disabled = !g;
+    $('pad-map-reset').hidden = !own;
+    $('pad-map-hint').textContent = !g ? 'Connect a controller and press a button on it to set up its buttons.'
+      : own ? padShort(g.id) + ' uses your own button layout.'
+      : g.mapping === 'standard' ? 'Buttons in the wrong place, or not working? Set them up: press each one when asked.'
+      : 'Your browser does not know the layout of ' + padShort(g.id) + ', so some buttons may be in the wrong place or do nothing: set them up here.';
+  };
+  const padRunEnd = save => {
+    const r = padRun;
+    if (!r) return;
+    clearInterval(r.timer);
+    padRun = null;
+    $('pad-map-run').hidden = true;
+    if (save) {
+      const maps = padMaps(), body = Object.entries(r.map).map(([k, v]) => k + ':' + v).join(',');
+      if (body) maps[r.id] = body + ','; else delete maps[r.id];
+      padMapsSet(maps);
+    }
+    window.applyPad();
+  };
+  const padRunNext = () => {
+    const r = padRun;
+    if (++r.n >= PAD_STEPS.length) return padRunEnd(true);
+    r.armed = false;
+    $('pad-map-step').textContent = `${r.n + 1} of ${PAD_STEPS.length}: ${PAD_STEPS[r.n][1]} (Skip if it has none)`;
+  };
+  // Each step waits for everything released, then takes the first button pressed or axis moved past 0.6 from rest
+  // (sticks: axes only). An axis resting beyond 1 is a hat sent as one axis (Chrome): never taken.
+  const padTick = () => {
+    const r = padRun, g = navigator.getGamepads?.()[r.index];
+    if (!g || g.id !== r.id) return padRunEnd(false);
+    const hat = j => !(Math.abs(r.rest[j]) <= 1.01);
+    const pressed = g.buttons.findIndex(b => b.pressed);
+    const axis = g.axes.findIndex((v, j) => !hat(j) && Math.abs(v - r.rest[j]) > 0.6);
+    if (!r.armed) {
+      r.armed = pressed < 0 && g.axes.every((v, j) => hat(j) || Math.abs(v - r.rest[j]) < 0.3);
+      return;
+    }
+    const target = PAD_STEPS[r.n][0], stick = /^(left|right)[xy]$/.test(target);
+    let src;
+    if (pressed >= 0 && !stick) src = 'b' + pressed;
+    else if (axis >= 0) {
+      const rest = r.rest[axis], up = g.axes[axis] > rest;
+      src = stick || (/trigger$/.test(target) && Math.abs(rest) > 0.5) ? 'a' + axis + (up ? '' : '~')  // whole axis
+        : (up ? '+a' : '-a') + axis;                                                                    // half of one
+    }
+    if (src) { r.map[target] = src; padRunNext(); }
+  };
+  $('pad-map-btn').onclick = () => {
+    const g = padActive && navigator.getGamepads?.()[padActive.index];
+    if (!g || padRun) return;
+    padRun = { id: g.id, index: g.index, n: -1, map: {}, rest: Array.from(g.axes), armed: false, timer: setInterval(padTick, 30) };
+    $('pad-map-run').hidden = false;
+    $('pad-map-btn').disabled = true;
+    padRunNext();
+  };
+  $('pad-map-skip').onclick = () => { if (padRun) padRunNext(); };
+  $('pad-map-cancel').onclick = () => padRunEnd(false);
+  $('pad-map-reset').onclick = () => {
+    const maps = padMaps();
+    if (padActive) delete maps[padActive.id];
+    padMapsSet(maps);
+    window.applyPad();
+  };
   window.applyPad = () => {
     padNow();
     const c = padChoice(), pads = padList(), keys = padKeys(pads);
     const pos = c === 'auto' ? -2 : c === 'none' ? -1 : (keys.indexOf(c) < 0 ? 99 : keys.indexOf(c));
     window.Module?.mc3SetPad?.(pos);
+    padMapSync(c === 'none' ? null : pads[pos === -2 ? 0 : pos]);
     const label = c === 'auto' ? (pads[0] ? 'Auto: ' + padShort(pads[0].id) : 'Auto (none connected)')
       : c === 'none' ? 'None (keyboard only)' : (pos >= 0 && pos < 99 ? padShort(pads[pos].id) + ' [' + pos + ']' : padShort(c.replace(/#\d+$/, '')) + ' (not connected)');
     const html = ['<option value="auto">Auto (first connected)</option>']
@@ -2301,7 +2637,14 @@
   window.applyPad();
   setInterval(window.applyPad, 1000);
   // The log as Save log hands it out: a test deploy's password (the /k/<key>/ of its URLs) masked.
-  const logDump = (lines = logText) => (lines.join('\n') + '\n').replace(/\/k\/[^/\s"']+/g, '/k/***');
+  // lines: logText or a tail of it; the kept-apart lines it no longer holds go first; max: the tail's characters at most
+  const logDump = (lines = logText, max = Infinity) => {
+    const from = logN - lines.length + 1, pins = logPins.filter(p => p[0] < from);
+    const head = pins.length ? '--- kept from before this tail: the log\'s first lines and the first fatal ones ---\n'
+      + pins.map(p => p[1]).join('\n') + '\n--- log tail ---\n' : '';
+    return (head + (lines.join('\n') + '\n' + (logRep ? logRepLine() + ' so far\n' : '')).slice(-max))
+      .replace(/\/k\/[^/\s"']+/g, '/k/***');
+  };
   $('log-save').onclick = () => {
     saveFile(new Blob([logDump()], { type: 'text/plain' }), 'mcdub3-web-log.txt');
   };
@@ -2335,14 +2678,27 @@
   $('changelog-btn').onclick = () => {
     const body = $('changelog-body');
     $('changelog-dlg').showModal();
-    loadChangelog().then(rel => body.replaceChildren(...rel.flatMap(r => {
-      const h = Object.assign(document.createElement('h3'), { textContent: dayText(r.date) }), ul = document.createElement('ul');
-      for (const [area, text] of r.changes) {
+    // newest first; a day's fixes ("Fixed ...", "... no longer ...") folded under "N fixes" after its new things
+    const isFix = ([, t]) => /^fix(ed|es)?\b|\bno longer\b|\bfixed\b/i.test(t);
+    const list = changes => {
+      const ul = document.createElement('ul');
+      for (const [area, text] of changes) {
         const li = ul.appendChild(document.createElement('li'));
         if (area) li.append(Object.assign(document.createElement('strong'), { textContent: area + ':' }), ' ');
         li.append(text);
       }
-      return [h, ul];
+      return ul;
+    };
+    loadChangelog().then(rel => body.replaceChildren(...rel.slice().reverse().flatMap(r => {
+      const fixes = r.changes.filter(isFix), news = r.changes.filter(c => !isFix(c));
+      const out = [Object.assign(document.createElement('h3'), { textContent: dayText(r.date) })];
+      if (news.length) out.push(list(news));
+      if (fixes.length) {
+        const d = document.createElement('details');
+        d.append(Object.assign(document.createElement('summary'), { textContent: `${fixes.length} fix${fixes.length > 1 ? 'es' : ''}` }), list(fixes));
+        out.push(d);
+      }
+      return out;
     }))).catch(() => {
       changelogP = null;
       body.replaceChildren(Object.assign(document.createElement('p'), { className: 'hint', textContent: "Couldn't load the changelog." }));

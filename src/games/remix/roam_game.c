@@ -176,7 +176,8 @@ static int s_roam_cruise;                       /* the Free Roam cruise is loade
  * our pose and status go out with ROAM_BIT_RACE, nothing comes in but blips (no remote cars, pool and spawn rule off). */
 static int s_roam_race;
 /* Race ghosts (with s_roam_race; roam_ghosts_want): the other players as standalone cars in our race, built at its
- * load only (roam_pool_load -> roam_ghost_load, builder slot 1 borrowed as in the career cruise), out of the physics
+ * load (roam_pool_load -> roam_ghost_load) and handed to the players near us mid-race (roam_ghost_net/_job;
+ * builder slot 1 borrowed as in the career cruise), out of the physics
  * level (nothing collides with them), no player and no racer record (HUD places, arrows, AI, results and saves never
  * see them), posed after the physics step (roam_ghost_frame); dropped with the standalone cars at the race's first
  * state request other than pause (roam_pool_pass), a restart's reload builds them again. */
@@ -438,6 +439,7 @@ static int roam_room(void)
     return 1;
 }
 
+static int roam_car_inlevel(uint32_t veh);      /* roam_cars.c */
 static int roam_cars_total(void);               /* remote cars shown at most (roam_cars.c) */
 
 /* Free roam on (not with MC3_ROAM_FAKE), and our car (CarCfg at cfg) to
@@ -660,11 +662,31 @@ static int roam_build_ctx(int on)
     return 1;
 }
 
+/* The last remote car builds and deletes (vehicle, model instance, car cache
+ * reference), for a fault's report (roam_pool.c roam_shader_check): a game
+ * object left pointing into a deleted car shows one of these pointers. */
+typedef struct { double t; char what; uint32_t veh, model, res, slot; char name[20]; } roam_cev_t;
+static roam_cev_t s_cev[16];
+static unsigned s_ncev;
+
+static void roam_cev(char what, uint32_t veh, uint32_t res, uint32_t slot, const char *name)
+{
+    roam_cev_t *e = &s_cev[s_ncev++ % 16u];
+    e->t = roam_now();
+    e->what = what;
+    e->veh = veh;
+    e->model = online_ram(veh) ? MEM32(veh + 0x68u) : 0;
+    e->res = res;
+    e->slot = slot;
+    snprintf(e->name, sizeof e->name, "%.19s", name ? name : "");
+}
+
 /* A vehicle already out of the world deleted as the player dtor sub_002C8480
  * does: the vehicle, its car cache reference res, its model instance. */
 static void roam_car_delete(uint32_t veh, uint32_t res, uint32_t top)
 {
     uint32_t model = MEM32(veh + 0x68u), a[1] = { res };
+    roam_cev('D', veh, res, 0, NULL);
     roam_vdelete(veh, top);
     roam_call(sub_001057B0, MEM32(ROAM_CACHE_VA), top, 1, a);
     roam_vdelete(model, top);
@@ -707,6 +729,7 @@ static uint32_t roam_car_build(uint32_t cfg, uint32_t slot, uint32_t pad, uint32
     roam_call(sub_002CB2C0, top, top, 0, NULL);
     roam_cheap_off();
     s_roam_building = 0;
+    roam_cev('B', online_ram(veh) ? veh : 0, *res, slot, (const char *)XBOX_PTR(cfg + ROAM_CFG_NAME));
     for (i = 0; borrow && i < 3; i++)
         MEM32(e + 0x10u + 4u * i) = keep[i];
     return online_ram(veh) ? veh : 0;
@@ -845,8 +868,11 @@ static void roam_career_join(uint32_t setup, const char *when)
             s_roam_cruise ? "session running, other players as standalone cars and blips" : "no session (link down?)");
 }
 
-/* Race ghosts for this race load: a cars heap (128 MB window; 64 MB and phones: none, off), MC3_RACE_GHOSTS not 0,
- * not a group race (its slots show its racers). NULL: on, else why off. */
+/* Race ghosts for this race load: a 128 MB window (64 MB and phones: off), MC3_RACE_GHOSTS not 0, not a group race
+ * (its slots show its racers). NULL: on, else why off. The cars heap if there is one, else the main heap: the page
+ * sets MC3_ROAM_HEAP_MB=0 for every device (b844e71), so requiring the cars heap left ghosts off everywhere
+ * (2026-11-13 logs: every race 'off: no cars heap'); the main heap is 95 MB then and roam_pool_room keeps
+ * max(6 MB, heap / 8) free for each new car, as for the career cruise's standalone cars. */
 static const char *roam_ghosts_want(void)
 {
     const char *e = getenv("MC3_RACE_GHOSTS");
@@ -854,7 +880,7 @@ static const char *roam_ghosts_want(void)
         return "MC3_RACE_GHOSTS=0";
     if (s_roam_fake > 0 || roam_group_race())
         return "fake players or a group race";
-    return roam_cheap() ? NULL : "no cars heap (64 MB)";
+    return roam_cheap() || (g_xbox_contig_size >> 20) >= 128u ? NULL : "64 MB window (phones, low memory)";
 }
 
 /* A race load with us driving (Free Roam's AI race, an Online career race): the session stays on with no remote cars
@@ -1428,6 +1454,34 @@ static int roam_spawn_clear(uint32_t veh, roam_pose *s)
  * slot 0 (ours, updated first) is recorded and sent, in every Free Roam
  * cruise (no remote slots too); slots 1..n are the pool's (roam_pool_slot). */
 static void roam_pool_slot(uint32_t p, int k, double now);
+#ifdef __EMSCRIPTEN__
+uint32_t nv2a_wgpu_dropped_total(void);         /* wgpu_queue.c: frames consumed without drawing, all stalls */
+#endif
+/* Diagnostic (2026-11-13, "own car invisible on phones", cause unproven): our car's drawn flag, physics-level
+ * membership and draw-list membership, logged on each change, with the main heap's free KB and the WebGPU frames
+ * dropped so far. Look for '[ROAM] own car: drawn 0' (or 'in physics 0') in a phone's log. */
+static void roam_own_car_diag(uint32_t veh)
+{
+    static int last = -1;
+    uint32_t o = MEM32(veh + 0xCu), m = MEM32(veh + 0x1Cu), drop = 0;
+    int d, ph, l, key;
+    if (!online_ram(o) || !online_ram(m))
+        return;
+    d = MEM8(o + 0x12Du);
+    ph = roam_car_inlevel(veh);
+    l = roam_listed(veh);
+    key = d | ph << 1 | (l + 1) << 2;
+    if (key == last)
+        return;
+    last = key;
+#ifdef __EMSCRIPTEN__
+    drop = nv2a_wgpu_dropped_total();
+#endif
+    fprintf(stderr, "[ROAM] own car: drawn %d, in physics %d, listed %d, pos %.1f %.1f %.1f, heap free %u KB, "
+            "wgpu frames dropped %u\n", d, ph, l, MEMF(m + 0x34u), MEMF(m + 0x38u), MEMF(m + 0x3Cu),
+            (unsigned)(roam_heap_log(MEM32(ROAM_MAIN_HEAP_VA), NULL) >> 10), (unsigned)drop);
+}
+
 static void roam_player(uint32_t p)
 {
     uint32_t slot, veh, mtx, car, phys, coll, c, k;
@@ -1436,8 +1490,10 @@ static void roam_player(uint32_t p)
         return;
     slot = MEM32(p + 0x5Cu);
     veh = MEM32(p + 0x14u);
-    if (slot == 0)
+    if (slot == 0) {
         roam_cheap_check();                     /* once a frame */
+        roam_own_car_diag(veh);
+    }
     if (slot > (uint32_t)s_roam_slots || !online_ram(veh))
         return;
     now = roam_now();
@@ -1445,7 +1501,7 @@ static void roam_player(uint32_t p)
         roam_pose *s = &s_roam_hist[s_roam_nhist % ROAM_HIST];
         if (s_roam_tlast > 0.0) {
             double dt = now - s_roam_tlast;
-            s_roam_dt = (float)(dt < 1.0 / 120 ? 1.0 / 120 : dt > 0.25 ? 0.25 : dt);
+            s_roam_dt = (float)(dt < 1.0 / 240 ? 1.0 / 240 : dt > 0.25 ? 0.25 : dt);   /* Frame rate up to 240 */
         }
         s_roam_tlast = now;
         mtx = MEM32(veh + 0x1Cu);

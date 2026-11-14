@@ -101,7 +101,56 @@ export async function ticketOk(secret, vip, exp, sig, now = Date.now()) {
 }
 
 export const BROADCAST = 0xFFFFFFFF, HDR = 16, MAX_DATA = 1472, MAX_FRAME = HDR + MAX_DATA;
-export const RATE = { framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, burstBytes: 2 << 20 };   // crates/lan Limits
+// A bundle (2026-11-13, src/city.js head; the welcome and the city's hello say bundle: 1): byte 0 BUNDLE, then frames,
+// each u16 length (big-endian) + the frame. One message for what one drain of the game's mailbox gives (web/lan.js).
+export const BUNDLE = 4;
+/** A binary message's frames: itself (byte 0 not BUNDLE), a bundle's, or null when a length runs past its end. */
+export function unbundle(b) {
+  if (b[0] !== BUNDLE) return [b];
+  const out = [];
+  for (let o = 1; o < b.length;) {
+    const n = o + 2 <= b.length ? b[o] << 8 | b[o + 1] : -1;
+    if (n < 0 || o + 2 + n > b.length) return null;
+    out.push(b.subarray(o + 2, o + 2 + n));
+    o += 2 + n;
+  }
+  return out;
+}
+// Bundles out (2026-11-13): a page that takes them says so with bundle=1 in its socket's URL (web/lan.js; older Workers
+// and web/server ignore it), kept in its attachment `bundle`. Free roam's frames to it (relayed SNAPs, the hub's lists)
+// wait up to OUT_MS and go as one bundle (a lone frame as itself), at most OUT_MAX bytes: each page gets ~40 messages a
+// second instead of one per frame (60 players, ~20 relayed peers each at 20 Hz: ~400/s a page, ~24k ws.send/s in one
+// city object). Older pages get every frame alone, at once. Race (System Link) frames are never held.
+export const OUT_MS = 25, OUT_MAX = 16384;
+export class Outbox {
+  constructor(ms = OUT_MS) { this.ms = ms; this.q = new Map(); this.timer = null; }   // ws -> {fs, n}
+  /** Queue frame b (not copied: no caller touches a frame after routing it) for ws. */
+  put(ws, b) {
+    let e = this.q.get(ws);
+    if (e && e.n + 2 + b.length > OUT_MAX) { this.send(ws, e); e = null; }
+    if (!e) this.q.set(ws, e = { fs: [], n: 1 });
+    e.fs.push(b); e.n += 2 + b.length;
+    if (!this.timer) this.timer = setTimeout(() => this.flush(), this.ms);
+    return true;
+  }
+  flush() {
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
+    const q = this.q;
+    this.q = new Map();
+    for (const [ws, e] of q) this.send(ws, e);
+  }
+  send(ws, e) {
+    this.q.delete(ws);
+    let b = e.fs[0];
+    if (e.fs.length > 1) {
+      b = new Uint8Array(e.n); b[0] = BUNDLE;
+      let o = 1;
+      for (const f of e.fs) { b[o] = f.length >> 8; b[o + 1] = f.length & 255; b.set(f, o + 2); o += 2 + f.length; }
+    }
+    try { ws.send(b); } catch {}   // closed meanwhile: its frames go with it
+  }
+}
+export const RATE ={ framesPerS: 2000, burstFrames: 4000, bytesPerS: 1 << 20, burstBytes: 2 << 20 };   // crates/lan Limits
 // Measured legit peaks (client code, 2026-11-09): binary per client ~700 frames/s worst case = free roam's 20 Hz SNAP to
 // K = 32 peers (640) + 1 Hz HELLO/PING to them; an 8-player race ~60 Hz x 7 = 420. framesPerS 2000 is ~3x that.
 // JSON: web/lan.js sends a ping every 20 s plus a handful of subs/joins/renames at connect: < 1/s, but web/rtc.js signals
@@ -138,6 +187,7 @@ export class Switch extends Lobby {
     this.wsc = new Map();     // ws -> client (no attachment read per frame)
     for (const c of this.clients.values()) this.wsc.set(c.ws, c);
     this.buckets = new Map(); // vip -> {frames, bytes, at}
+    this.out = new Outbox();   // free roam's frames to pages that take bundles
     this.hub = new Hub(env?.ROAM_K ? { default_k: Number(env.ROAM_K) } : {}); // links for a HELLO asking none
     this.ticked = 0;
     this.whoAt = 0; this.whoLast = ''; this.whoTimer = 0;
@@ -308,15 +358,16 @@ export class Switch extends Lobby {
       return new Response(null, { status: this.cityReport(m) ? 204 : 400 });
     }
     if (req.headers.get('Upgrade') !== 'websocket') return new Response('websocket only', { status: 426 });
-    const want = Number(new URL(req.url).searchParams.get('vip')) >>> 0, ip = req.headers.get('CF-Connecting-IP') || '';
+    const q = new URL(req.url).searchParams, want = Number(q.get('vip')) >>> 0, ip = req.headers.get('CF-Connecting-IP') || '';
     if (!this.admit(ip)) return new Response('too many connections', { status: 429, headers: { 'Retry-After': String(GUARD.coolMs / 1000) } });
     const [client, server] = Object.values(new WebSocketPair());
-    if (!this.connect(server, ip, Date.now(), want)) return new Response('LAN full', { status: 503 });
+    if (!this.connect(server, ip, Date.now(), want, q.get('bundle') === '1')) return new Response('LAN full', { status: 503 });
     return new Response(null, { status: 101, webSocket: client });
   }
 
-  /** crates/lan join_from: the address it asks for (a reconnect) when free, else the next free one in turn. */
-  connect(ws, ip, now = Date.now(), want = 0) {
+  /** crates/lan join_from: the address it asks for (a reconnect) when free, else the next free one in turn. bundle: the
+   *  page takes bundles (Outbox). */
+  connect(ws, ip, now = Date.now(), want = 0, bundle = false) {
     let vip = isVip(want) && !this.clients.has(want) ? want : 0;
     if (!vip) {
       const start = this.next;
@@ -325,12 +376,12 @@ export class Switch extends Lobby {
       this.next = (start + 1) % ADDRS;
     }
     this.ctx.acceptWebSocket(ws);
-    const a = { vip, name: 'Player', ip, sub: false, room: null, last: now, at: now, hi: false, lan: false };
+    const a = { vip, name: 'Player', ip, sub: false, room: null, last: now, at: now, hi: false, lan: false, ...(bundle ? { bundle: 1 } : {}) };
     ws.serializeAttachment(a);
     const c = { ws, a };
     this.clients.set(vip, c);
     this.wsc.set(ws, c);
-    this.send(vip, { t: 'welcome', vip, vipStr: vipStr(vip), mask: MASK >>> 0, mac: macStr(vip), ...(this.cityOn() ? { roamCity: 1 } : {}) });
+    this.send(vip, { t: 'welcome', vip, vipStr: vipStr(vip), mask: MASK >>> 0, mac: macStr(vip), bundle: 1, ...(this.cityOn() ? { roamCity: 1 } : {}) });
     this.who(now);
     return true;
   }
@@ -340,7 +391,11 @@ export class Switch extends Lobby {
     this.helloSweep(now);
     const c = this.byWs(ws);
     if (c) {
-      if (typeof data !== 'string') this.frame(c, new Uint8Array(data), now);
+      if (typeof data !== 'string') {
+        const fs = unbundle(new Uint8Array(data));
+        if (!fs) { try { ws.close(1009, 'bad bundle'); } catch {} this.drop(c); }
+        else for (const f of fs) { if (this.wsc.get(ws) !== c) break; this.frame(c, f, now); }   // closed by a bad frame or the rate limit
+      }
       else if (this.ctlLimited(c, now)) { /* dropped */ }
       else if (data.length <= 64 && /^\{\s*"t"\s*:\s*"ticket"\s*\}$/.test(data)) await this.ticket(c, now);
       else if (!this.control(c, data, now)) await super.webSocketMessage(ws, data, now);
@@ -451,13 +506,13 @@ export class Switch extends Lobby {
     }
     // a room is its own LAN; free roam's traffic is not a room's business
     const room = c.a.room, roam = sport === ROAM_PORT || dport === ROAM_PORT;
-    const reach = q => q.a.room === room || roam;
+    const reach = q => q.a.room === room || roam, out = q => roam && q.a.bundle ? this.out.put(q.ws, b) : this.bin(q, b);
     let n = 0;
     if (dst === BROADCAST) {
-      for (const q of this.clients.values()) if (q !== c && q.a.lan && reach(q) && this.bin(q, b)) n++;
+      for (const q of this.clients.values()) if (q !== c && q.a.lan && reach(q) && out(q)) n++;
     } else if (dst !== vip) {
       const q = this.clients.get(dst);
-      if (q && reach(q) && this.bin(q, b)) n = 1;
+      if (q && reach(q) && out(q)) n = 1;
     }
     return n;
   }
@@ -492,7 +547,7 @@ export class Switch extends Lobby {
       f[0] = 3;
       dv.setUint32(4, HUB); dv.setUint32(8, dst); dv.setUint16(12, ROAM_PORT); dv.setUint16(14, port);
       f.set(d, HDR);
-      this.bin(q, f);
+      if (q.a.bundle) this.out.put(q.ws, f); else this.bin(q, f);
     }
   }
 

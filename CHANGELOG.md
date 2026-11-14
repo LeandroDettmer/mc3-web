@@ -87,7 +87,33 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Phones:** Fewer crashes on iPhones (less memory used), and Android phones that lose the graphics context show a clear message instead of a crash; browsers too old to run the game say so.
 - **Game:** A minimised or hidden game tab now uses almost no CPU or graphics (the game slows down and goes quiet until you come back), so the PC stays fast and phones stay cool; Free Roam stays connected meanwhile.
 
-## 2026-11-13
+## 2026-11-13 (7384f14)
 
 - **Free Roam:** A street racer who drives away from the course or stops racing now leaves the race by itself, so the race flag over their car goes away and the others no longer wait for them.
 - **Saves:** Every 2 days the game also keeps a dated snapshot of all your saves (kept a week, the newest always); the Saves tab lists them, downloads one or puts one back.
+- **Game:** A "Loading game..." screen now covers the grey picture on the first Play, with the download progress and the game files being read, until the game draws its first picture.
+- **Graphics:** New Frame rate setting: 30, 60, and 90, 120 or 144 fps on screens that refresh that fast.
+- **Free Roam:** The full map's players list marks everyone racing near you, you included (a flag and "racing", listed first), and scrolls when the city is full; the "Racing now" box over the minimap is gone.
+- **Game:** When the graphics are lost on a phone, the "Graphics context lost" message now shows instead of a page error.
+- **Phones:** New touch layout: a big Handbrake button above Brake, beside Gas, with Nitro, Two wheels and Look back over them; Flash, Back, Start and Black sit together top left, away from the Settings, Drift and Map buttons, which are bigger.
+- **Free Roam:** A race invite now has an Accept button beside Decline, and shows how many players already joined.
+- **Online career:** In a career race on a PC, the other online players nearby now show as cars (ghosts you drive through), not only as map blips; up to 12, following the players near you as you drive across the city.
+- **Online:** Pick your country's flag on the start page (Brazil by default): it shows before your name over your car and in the full map's players list.
+- **Page:** The start page shows your nick and flag up top and what the game offers online; the changelog opens as "What's new", newest first.
+- **Saves:** Importing a Remix profile you downloaded no longer makes it read "damaged": it goes back where the game looks for it.
+- **Game:** A slow connection on the first start no longer ends in "No picture after 90 s" while the game files are still arriving.
+- **Free Roam:** A full city no longer drops everyone at once at peak times, and after a drop the game reconnects in a few seconds without everyone retrying together.
+- **Free Roam:** Another player's car no longer jumps forward or back when you get close to it.
+- **Free Roam:** Fixed a freeze in a full city, when many players come and go around you.
+
+## 2026-11-14 (f51e44b)
+
+- **Online:** After 3 minutes without any key, touch or controller input in Free Roam or the Online career, you are taken offline to save server load; press any key or button to reconnect.
+- **Online career:** Fixed a crash when a race started with a player on a motorbike nearby; such players show on the map instead of as a ghost.
+- **Loading:** The game no longer downloads the whole disc in the background, and the "Download the whole game now" button is gone: garage, menus and movies load the first time you open them.
+- **Page:** Donate and Ko-fi buttons on the start page: donations keep the online server running.
+- **Controls:** Controllers your browser does not recognise can now be set up: Controls, Controller, Set up buttons, then press each button when asked.
+- **Keyboard:** A short tap of an arrow in a menu list (garage, showroom, paint) no longer moves two items.
+- **Garage:** Fixed a freeze when opening Custom Color Shift in the paint menu.
+- **Controls:** The Map button on the page no longer leaves the pause menu scrolling forever after you press it twice.
+- **Controls:** Touch buttons and the steering stick no longer stay stuck on after a finger leaves the screen or the app is switched.

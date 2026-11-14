@@ -294,7 +294,12 @@ def folder_name(folder, name):
     """The Xbox names a save folder with 12 hex digits; keep the source's."""
     if folder and len(folder) == 12 and all(c in '0123456789ABCDEFabcdef' for c in folder):
         return folder.upper()
-    return hashlib.sha1(name.encode()).hexdigest()[:12].upper()
+    # else the folder XAPI's XCreateSaveGame opens for this save name (Remix sub_003245F1;
+    # web/index.html saveDir): h = (h * 65536 + c) mod (2^48 - 59) over its UTF-16 units
+    h = 0
+    for ch in name:
+        h = (h * 65536 + ord(ch)) % 0xFFFFFFFFFFC5
+    return '%012X' % h
 
 
 def main():

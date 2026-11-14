@@ -63,7 +63,7 @@ test('addresses', () => {
 test('welcome, resume: the old address when free, never a reserved one', async () => {
   const { sw, peer } = setup();
   const a = peer();
-  assert.deepEqual(a.w, { t: 'welcome', vip: a.vip, vipStr: '10.77.0.2', mask: 0xFFFFC000, mac: '00:50:F2:4D:00:02' });
+  assert.deepEqual(a.w, { t: 'welcome', vip: a.vip, vipStr: '10.77.0.2', mask: 0xFFFFC000, mac: '00:50:F2:4D:00:02', bundle: 1 });
   assert.notEqual(peer(a.vip).vip, a.vip, 'held: another address');
   sw.drop(sw.clients.get(a.vip));
   assert.equal(peer(a.vip).vip, a.vip, 'free again: the same one');

@@ -23,11 +23,10 @@
  * block fetched on demand stalls the game thread that asked, and a car
  * model read in free roam stalls the whole guest). In order (prefetchJobs):
  * assets_x.dat_2 (cars), the streamed sound banks (music mx.xwb first),
- * resources/ smallest first (car builds .xbpf, hudmap), banks.dat, the Flash
- * screens smallest first (pause, garage, rewards, menus, then the showroom's
- * per-car screens and the loading screens), the rest of assets_x*, then the
- * movies video/Story, Tutorial, Reward, TokyoTut (not the boot ones: rockstar,
- * sdlogo, mc3intro: the whole disc but those, ~4.4 GiB); at most PREFETCH_BUDGET_MB still to fetch and what the browser
+ * resources/ smallest first (car builds .xbpf, hudmap), banks.dat. Since
+ * 2026-11-14 (R2 reads cost) no more: the Flash screens, the rest of
+ * assets_x* and the movies come only when the game reads them (the fill was
+ * the whole disc, ~4.4 GiB a player); at most PREFETCH_BUDGET_MB still to fetch and what the browser
  * says it has room for. It starts PREFETCH_DELAY_MS after the first disc
  * file, fetches up to PREFETCH_RUN missing blocks in one request (a small
  * file whole) and only when the game has had no read of its own on the
@@ -318,10 +317,7 @@ addToLibrary({
         ...BANKS.map(p => byPath.get(p)),
         ...dir('resources/'),
         byPath.get('banks.dat'),
-        ...dir('flash/'),
-        ...all.filter(f => /^assets_x\.dat(_\d+)?$/.test(lc(f)) && lc(f) !== 'assets_x.dat_2'),
-        // movies (boot ones, rockstar / sdlogo / mc3intro, are not in these folders)
-        ...['video/story/', 'video/tutorial/', 'video/reward/', 'video/tokyotut/'].flatMap(dir),
+        // 2026-11-14: no more Flash screens, rest of assets_x* or movies (R2 reads cost): the game fetches them on use
       ].filter(Boolean);
     }
     // Bytes of fi not in the cache, from its block map read without opening the file (an open one's map if it is).
@@ -412,7 +408,7 @@ addToLibrary({
       }
       const t0 = performance.now();
       err(`[WEB] prefetch: ${mib(left)} MiB in ${jobs.length} files to fetch in the background, of ${mib(total)} MiB`
-        + ` (cars, sound banks, resources, banks.dat, Flash screens, city, movies); budget ${PREFETCH_BUDGET_MB} MiB${room}`
+        + ` (cars, sound banks, resources, banks.dat); budget ${PREFETCH_BUDGET_MB} MiB${room}`
         + (skipped ? `, ${mib(skipped)} MiB left out` : ''));
       if (!left) return;
       const run = (fi, list) => fill(fi, list, false, (bi, got) => {

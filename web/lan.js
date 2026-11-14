@@ -30,17 +30,24 @@
 //   l.roaming                        // true between the game's Free Roam HELLO and BYE (index.html's new-version notice)
 //   l.career                         // that session is an online career's (index.html sets it; cleared with roaming): no forced reload
 //   l.roamDown                    // ms timestamp the free-roam link has been lost since (3 s grace), 0 = fine (pre.js notice)
+//   l.afk, l.afkMs                   // AFK kick (2026-11-14): Free Roam / Online career (never a race room) with no input
+//                                    // (keydown, pointerdown, touchstart, a gamepad change; a hidden tab has none) for afkMs
+//                                    // (180 s; ?MC3_AFK_S=N, 0 off): the city socket closes (no retry), every free-roam frame
+//                                    // and signal is dropped, so the hubs drop us by their stale timer; pre.js shows its
+//                                    // notice instead of roamDown's. Any input clears it; the game's next HELLO reopens the city.
 // The game's HELLO to the hub (10.77.0.253:47210) names its room (MC3: the city): a new one closes the old socket, asks
 // the switch {"t":"ticket"} and opens wss .../lan/roam?city=N&vip&exp&sig; its BYE closes it. Until the socket is open,
 // and whenever it is not (refused, a server without it), the frames go through the switch as before. A socket that never
-// opened is tried again after 5 s, 10, 20, 40, then every 60 s, one that closed after opening after 1 s, at the next HELLO;
+// opened (or closed within 30 s of opening) is tried again after 5 s, 10, 20, 40, then every 60 s, one that closed after
+// a longer life after 1-5 s at random, at the next HELLO; the backoff's steps x 0.5-1.5 at random too (2026-11-13: a
+// city object that dropped every socket at once got them all back in the same second);
 // a ticket unanswered for 10 s is asked again. Soon, because the switch's hub and the city's never share players: a
 // page left on the switch meets nobody of its city who is on the city socket (2026-11-11: a San Diego player unseen).
 window.mc3Lan = function (name, lanUrl) {
   var url = lanUrl || (location.protocol == 'https:' ? 'wss://' : 'ws://') + location.host + '/lan';
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
                players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null, city: null, roamDown: 0 };
-  var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, TICKET_WAIT = 10000, cityOn = false, city = null;   // city: {n, ws, asked, askedAt, open, fails, retryAt}
+  var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, TICKET_WAIT = 10000, cityOn = false, bundleSw = false, city = null;   // city: {n, ws, asked, askedAt, open, openAt, fails, retryAt, bundle}
   var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, rejoin = null, pass = '', auto = false;
   // The keep-alive: the Cloudflare switch's runtime answers this exact text itself (setWebSocketAutoResponse,
   // web/races-worker/src/index.js BEAT), so an idle page never wakes its Durable Object. web/server ignores it: until
@@ -67,8 +74,8 @@ window.mc3Lan = function (name, lanUrl) {
   // web/net.js's mailboxes and web/rtc.js stay on it.
   function connect() {
     retry = 0;
-    var u = url;
-    if (link.vip) u += (u.indexOf('?') < 0 ? '?' : '&') + 'vip=' + link.vip;
+    var u = url + (url.indexOf('?') < 0 ? '?' : '&') + 'bundle=1';   // we take bundles (web/lan-worker/src/switch.js Outbox)
+    if (link.vip) u += '&vip=' + link.vip;
     try { ws = new WebSocket(u); } catch (e) { ws = null; link.state = 'offline'; want = false; changed(); return; }   // a bad URL: no retry
     var me = ws;
     ws.binaryType = 'arraybuffer';
@@ -90,16 +97,18 @@ window.mc3Lan = function (name, lanUrl) {
     ws.onmessage = function (e) {
       heard = Date.now();
       if (typeof e.data != 'string') {
-        var f = new Uint8Array(e.data);
-        // the switch's own hub keeps listing us ~10 s after the city socket opens (its gone_ms): two hubs, two lists
-        // (other players, stale FAR) into one core; with the city socket open only the city's hub counts
-        if (f.length >= 8 && f[4] == 10 && f[5] == 77 && f[6] == 0 && f[7] == 253 && cityUp()) return;
-        link.recv++; if (link.onframe) link.onframe(f); return;
+        frames(e.data, function (f) {
+          // the switch's own hub keeps listing us ~10 s after the city socket opens (its gone_ms): two hubs, two lists
+          // (other players, stale FAR) into one core; with the city socket open only the city's hub counts
+          if (f.length >= 8 && f[4] == 10 && f[5] == 77 && f[6] == 0 && f[7] == 253 && cityUp()) return;
+          link.recv++; if (link.onframe) link.onframe(f);
+        });
+        return;
       }
       if (e.data === BEAT) { beats = true; return; }
       var m;
       try { m = JSON.parse(e.data); } catch (_) { return; }
-      if (m.t == 'welcome') { tries = 0; link.vip = m.vip >>> 0; link.vipStr = m.vipStr; link.mac = m.mac; link.state = 'online'; cityOn = m.roamCity == 1; changed(); }
+      if (m.t == 'welcome') { tries = 0; link.vip = m.vip >>> 0; link.vipStr = m.vipStr; link.mac = m.mac; link.state = 'online'; cityOn = m.roamCity == 1; bundleSw = m.bundle == 1; changed(); }
       else if (m.t == 'ticket') cityOpen(m);
       else if (m.t == 'pong') pongs = true;
       else if (m.t == 'peers') { link.peers = m.peers || []; changed(); }
@@ -143,6 +152,7 @@ window.mc3Lan = function (name, lanUrl) {
   // --- free roam's city socket (see the head) ---
   function cityUp() { return !!(city && city.open && city.ws && city.ws.readyState == 1); }
   function cityClose() {
+    flush();   // a queued BYE goes out on this socket, not later to the switch
     var c = city;
     city = null;
     if (c && c.ws) { c.ws.onclose = c.ws.onmessage = null; try { c.ws.close(1000, 'left'); } catch (_) {} }
@@ -151,7 +161,11 @@ window.mc3Lan = function (name, lanUrl) {
   function cityFail(c, wasOpen) {
     if (c.ws) { c.ws.onclose = c.ws.onmessage = null; try { c.ws.close(); } catch (_) {} }
     c.ws = null; c.asked = false; c.open = false;
-    c.retryAt = Date.now() + (wasOpen ? 1000 : Math.min(60000, 5000 << Math.min(c.fails++, 4)));
+    // a socket that lived 30 s: back in 1-5 s; else (refused, or dropped again soon: an overloaded city object) the
+    // backoff, both spread at random so a city's pages do not all come back in the same second (2026-11-13)
+    var lived = wasOpen && Date.now() - c.openAt >= 30000;
+    if (lived) c.fails = 0;
+    c.retryAt = Date.now() + (lived ? 1000 + 4000 * Math.random() : Math.min(60000, 5000 << Math.min(c.fails++, 4)) * (0.5 + Math.random()));
     if (link.city != null) { link.city = null; changed(); }
   }
   function cityWant(n) {
@@ -169,45 +183,108 @@ window.mc3Lan = function (name, lanUrl) {
     try {
       var u = new URL(url, location.href);
       u.pathname = u.pathname.replace(/\/$/, '') + '/roam';
-      u.search = '?city=' + c.n + '&vip=' + (t.vip >>> 0) + '&exp=' + Number(t.exp) + '&sig=' + encodeURIComponent(t.sig);
+      u.search = '?city=' + c.n + '&vip=' + (t.vip >>> 0) + '&exp=' + Number(t.exp) + '&sig=' + encodeURIComponent(t.sig) + '&bundle=1';
       c.ws = new WebSocket(u.href);
     } catch (e) { cityFail(c, false); return; }
     var s = c.ws;
     s.binaryType = 'arraybuffer';
-    s.onopen = function () { if (city !== c) return; c.open = true; c.fails = 0; link.city = c.n; changed(); };
+    s.onopen = function () { if (city !== c) return; c.open = true; c.openAt = Date.now(); link.city = c.n; changed(); };
     s.onmessage = function (e) {
-      if (typeof e.data != 'string') { link.recv++; if (link.onframe) link.onframe(new Uint8Array(e.data)); return; }
+      if (typeof e.data != 'string') { frames(e.data, function (f) { link.recv++; if (link.onframe) link.onframe(f); }); return; }
       var m;
       try { m = JSON.parse(e.data); } catch (_) { return; }
+      if (m.t == 'city') { c.bundle = m.bundle == 1; return; }   // the object takes bundles (roamOut)
       msgFns.forEach(function (f) { try { f(m); } catch (err) { console.error(err); } });   // free-roam signals: web/rtc.js
     };
     s.onclose = function () { if (city === c) cityFail(c, c.open); };
   }
-  // A free-roam frame (16-byte header, net.js): its HELLO / BYE to the hub steer the city socket.
+  // A free-roam frame (16-byte header, net.js): its HELLO / BYE to the hub steer the city socket. AFK: dropped, state kept.
   link.roamSend = function (f) {
     if (f.length >= 22 && f[8] == 10 && f[9] == 77 && f[10] == 0 && f[11] == 253 && ((f[14] << 8) | f[15]) == ROAM_PORT &&
         f[16] == 0x4D && f[17] == 0x43 && f[18] == 0x33 && f[19] == 0x52) {
-      if (f[21] == 1 && f.length >= 44) { roaming = link.roaming = true; cityWant((f[40] | f[41] << 8 | f[42] << 16 | f[43] << 24) >>> 0); }   // HELLO: room u32 LE at datagram +24
-      else if (f[21] == 8) { roaming = link.roaming = link.career = false; var ok =roamOut(f); cityClose(); watch(); return ok; }   // BYE: the game left free roam
+      if (f[21] == 1 && f.length >= 44) { roaming = link.roaming = true; if (!link.afk) cityWant((f[40] | f[41] << 8 | f[42] << 16 | f[43] << 24) >>> 0); }   // HELLO: room u32 LE at datagram +24
+      else if (f[21] == 8) { roaming = link.roaming = link.career = false; var ok = !link.afk && roamOut(f); cityClose(); watch(); return ok; }   // BYE: the game left free roam
     }
-    return roamOut(f);
+    return !link.afk && roamOut(f);
   };
   // link.roamDown: ms timestamp since when Free Roam (a HELLO sent, no BYE yet) has lost its link for 3 s running, else 0:
   // the switch socket is not up, or city objects are on and the city socket is not open (so also a page left on the
   // switch's fallback hub). web/pre.js shows the notice from it, web/net.js logs it; it clears as soon as both are open.
   var roaming = false, badSince = 0, WATCH_GRACE = 3000;
   function watch() {
-    var bad = roaming && (!up() || (cityOn && !cityUp())), t = Date.now();
+    var t = Date.now();
+    if (!link.afk && link.afkMs && (roaming || link.career) && !link.room && t - lastInput >= link.afkMs) { link.afk = true; cityClose(); changed(); }
+    var bad = roaming && !link.afk && (!up() || (cityOn && !cityUp()));
     if (!bad) badSince = 0; else if (!badSince) badSince = t;
     var d = bad && t - badSince >= WATCH_GRACE ? badSince : 0;
     if (d != link.roamDown) { link.roamDown = d; changed(); }
   }
   var watchT = setInterval(watch, 1000);
+  // AFK (see the head): the page's own input, every event in the capture phase (the game's handlers may stop it).
+  var lastInput = Date.now(), pads = [];
+  link.afk = false; link.afkMs = 180000;
+  try { var q = /[?&]MC3_AFK_S=(\d+)/.exec(location.search); if (q) link.afkMs = q[1] * 1000; } catch (_) {}
+  function input() { lastInput = Date.now(); if (link.afk) { link.afk = false; changed(); } }
+  ['keydown', 'pointerdown', 'touchstart'].forEach(function (e) { window.addEventListener(e, input, { capture: true, passive: true }); });
+  // a gamepad counts when a button is held or changed, or an axis moved more than DEAD since the last look (stick drift does not)
+  var DEAD = 0.2;
+  setInterval(function () {
+    if (!(roaming || link.career || link.afk)) return;
+    var gp = [];
+    try { gp = navigator.getGamepads ? navigator.getGamepads() : []; } catch (_) {}
+    for (var i = 0; i < gp.length; i++) {
+      var g = gp[i];
+      if (!g) continue;
+      var was = pads[i], now = { b: g.buttons.map(function (b) { return b.value; }), a: g.axes.slice() }, hit = false;
+      for (var j = 0; j < now.b.length && !hit; j++) hit = g.buttons[j].pressed || (was && Math.abs(now.b[j] - (was.b[j] || 0)) > DEAD);
+      for (j = 0; was && j < now.a.length && !hit; j++) hit = Math.abs(now.a[j] - (was.a[j] || 0)) > DEAD;
+      pads[i] = now;
+      if (hit) input();
+    }
+  }, 1000);
+  // Bundles (web/lan-worker/src/city.js head): one WebSocket message per OUT_MS of frames, not one per frame: a Durable
+  // Object pays per message (inbound WS, 20:1), and ~3k/s in one city overloaded it (2026-11-13). Was one per drain of
+  // the game's mailbox (~20/s a player); 100 ms halves it (2026-11-14; P2P frames never come here, only relays and the
+  // hub's). Only to a socket that said it takes them (the city's hello, the switch's welcome); up to BUNDLE_MAX bytes.
+  var outQ = [], outN = 1, BUNDLE = 4, BUNDLE_MAX = 16384, OUT_MS = 100;
   function roamOut(f) {
-    if (cityUp()) { city.ws.send(f); link.sent++; return true; }
-    return link.send(f);
+    var s = cityUp() ? city.ws : null;
+    if (!(s ? city.bundle : bundleSw && up())) {
+      if (s) { s.send(f); link.sent++; return true; }
+      return link.send(f);
+    }
+    s = s || ws;
+    if (outQ.length && (outQ.s !== s || outN + 2 + f.length > BUNDLE_MAX)) flush();
+    if (!outQ.length) { outQ.s = s; setTimeout(flush, OUT_MS); }
+    outQ.push(f); outN += 2 + f.length;
+    return true;
+  }
+  function flush() {
+    var q = outQ, n = outN, s = q.s;
+    if (!q.length) return;
+    outQ = []; outN = 1;
+    if (s.readyState != 1) { q.forEach(function (f) { link.send(f); }); return; }   // closed meanwhile: the switch, as roamOut would
+    var b = q[0];
+    if (q.length > 1) {
+      b = new Uint8Array(n); b[0] = BUNDLE;
+      for (var i = 0, o = 1; i < q.length; i++) { var f = q[i]; b[o] = f.length >> 8; b[o + 1] = f.length & 255; b.set(f, o + 2); o += 2 + f.length; }
+    }
+    s.send(b); link.sent += q.length;
+  }
+  // A binary message in: one frame, or a bundle of them (byte 0 BUNDLE; both sockets, the URL's bundle=1 asked for them).
+  // Every frame starts with kind 3, so an old server's frames never read as a bundle.
+  function frames(d, fn) {
+    var b = new Uint8Array(d);
+    if (b[0] != BUNDLE) { fn(b); return; }
+    for (var o = 1; o + 2 <= b.length;) {
+      var n = b[o] << 8 | b[o + 1];
+      if (o + 2 + n > b.length) return;   // cut short: the rest dropped
+      fn(b.subarray(o + 2, o + 2 + n));
+      o += 2 + n;
+    }
   }
   link.roamMsg = function (m) {
+    if (link.afk) return false;
     if (cityUp()) { city.ws.send(JSON.stringify(m)); return true; }
     return link.sendMsg(m);
   };
