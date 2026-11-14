@@ -108,6 +108,7 @@
   .brand { grid-area: brand; padding: 4px 0 28px; }
   .brand h1 { font-size: 42px; line-height: 42px; }
   .brand h1 span { color: var(--accent); }
+  .brand .logo { display: block; width: min(340px, 100%); height: auto; filter: drop-shadow(0 4px 14px rgba(0, 0, 0, .6)); }
   .brand p { margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 18px; letter-spacing: .04em; }
   /* the menu (initTabs: arrow keys move, the pick is kept): big italic words, the picked one on a red slanted bar */
   .menu { grid-area: menu; align-self: start; position: sticky; top: 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
@@ -310,6 +311,7 @@
            gap: 0; padding: 12px max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
     .brand { padding: 4px 0 10px; }
     .brand h1 { font-size: 30px; line-height: 32px; }
+    .brand .logo { width: min(220px, 100%); }
     .menu { top: 0; z-index: 4; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0;
             margin: 0 -16px 16px; padding: 6px 16px; background: rgba(8, 8, 11, .96); border-bottom: 1px solid var(--line); }
     .menu > .tab { padding: 6px 2px; font-size: 21px; line-height: 26px; text-align: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -452,7 +454,7 @@
 <!-- the start page (2026-11-14): the menu is a tablist (initTabs) whose panels are the sections; .app is their parent -->
 <div class="app">
   <header class="brand">
-    <h1>Midnight Club <span>3</span></h1>
+    <h1><img class="logo" src="icons/logo.png" width="500" height="156" alt="Midnight Club 3: DUB Edition Remix"></h1>
     <p>DUB Edition Remix · Xbox version · Fan project</p>
   </header>
   <div class="menu" role="tablist" aria-label="Menu" aria-orientation="vertical">
