@@ -308,15 +308,17 @@ static void *arena_get(uint32_t bytes)
     void *p;
     bytes = (bytes + 15u) & ~15u;
     if (bytes > s_up_cap - s_up_len) {
-        uint64_t want = (uint64_t)s_up_len + bytes;
         if (s_up_len) {
             wg_flush_partial();         /* -> wtex_frame_end: empty */
             wsurf_pass_begin();
         }
-        if (want > s_up_cap && s_up_cap < WT_UP_MAX) {
-            uint64_t cap = (want + 0xFFFFFu) & ~(uint64_t)0xFFFFF;
-            if (cap < 2ull * s_up_cap)
-                cap = 2ull * s_up_cap;
+        /* grown only to the largest single upload (1 MB steps, floor 4 MB): a
+         * flush is the fallback, and an aborting malloc on a 256-512 MB phone
+         * must not come from here */
+        if (bytes > s_up_cap && s_up_cap < WT_UP_MAX) {
+            uint64_t cap = ((uint64_t)bytes + 0xFFFFFu) & ~(uint64_t)0xFFFFF;
+            if (cap < (4u << 20))
+                cap = 4u << 20;
             if (cap > WT_UP_MAX)
                 cap = WT_UP_MAX;
             free(s_up);
