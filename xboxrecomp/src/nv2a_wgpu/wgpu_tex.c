@@ -24,10 +24,12 @@
  *     texture-compression-bc and the size is a multiple of 4 (RECOMP_GL_DXT=0
  *     decodes them). Not decodable: a 1x1 magenta texture, logged once per
  *     format.
- *   - Upload: the data goes into the frame arena (wg_arena_alloc, so one
- *     writeBuffer per frame carries it and the bytes stay put until JS's
- *     writeTexture), then TEX_UPLOAD points at it. Arena full: partial flush,
- *     the pass reopened, one retry.
+ *   - Upload: the data goes into an upload buffer of its own (not the frame
+ *     arena: that one goes to the GPU whole with writeBuffer, and texels
+ *     there crossed twice, 2026-11-14), emptied after each submit (JS's
+ *     writeTexture copies at the call), then TEX_UPLOAD points at it. Full:
+ *     partial flush, the pass reopened, the buffer grown to what the part
+ *     wanted (at most WT_UP_MAX), one retry.
  *   - One write per texture per submitted part: queue writes land before the
  *     part's commands, so a texture already written in this part and
  *     rewritten gets a new id (the old one freed; TEX_FREE waits for the
@@ -293,18 +295,44 @@ static uint32_t tex_seg(void)
 
 /* ── Decode and upload ────────────────────────────────────────────── */
 
-/* `bytes` in the frame arena, 16-aligned; a full arena is flushed (the pass
- * reopened on the same target) and asked once more. NULL: does not fit. */
+/* The upload buffer: grown only while empty (pointers handed out stay put
+ * until the submit), emptied by wtex_frame_end. */
+#define WT_UP_MAX (32u << 20)           /* the frame arena's default: the largest texture as before */
+static uint8_t *s_up;
+static uint32_t s_up_len, s_up_cap;
+
+/* `bytes` in the upload buffer, 16-aligned; a full one is flushed (the pass
+ * reopened on the same target), grown and asked once more. NULL: does not fit. */
 static void *arena_get(uint32_t bytes)
 {
     void *p;
-    if (wg_arena_alloc(bytes, 16, &p) != UINT32_MAX)
-        return p;
-    wg_flush_partial();
-    wsurf_pass_begin();
-    if (wg_arena_alloc(bytes, 16, &p) != UINT32_MAX)
-        return p;
-    return NULL;
+    bytes = (bytes + 15u) & ~15u;
+    if (bytes > s_up_cap - s_up_len) {
+        uint64_t want = (uint64_t)s_up_len + bytes;
+        if (s_up_len) {
+            wg_flush_partial();         /* -> wtex_frame_end: empty */
+            wsurf_pass_begin();
+        }
+        if (want > s_up_cap && s_up_cap < WT_UP_MAX) {
+            uint64_t cap = (want + 0xFFFFFu) & ~(uint64_t)0xFFFFF;
+            if (cap < 2ull * s_up_cap)
+                cap = 2ull * s_up_cap;
+            if (cap > WT_UP_MAX)
+                cap = WT_UP_MAX;
+            free(s_up);
+            s_up = NULL;
+            s_up_cap = 0;
+            if (posix_memalign(&p, 16, (size_t)cap) != 0 || !p)
+                return NULL;
+            s_up = (uint8_t *)p;
+            s_up_cap = (uint32_t)cap;
+        }
+        if (bytes > s_up_cap)
+            return NULL;
+    }
+    p = s_up + s_up_len;
+    s_up_len += bytes;
+    return p;
 }
 
 /* SZ_I8_A8R8G8B8: 8-bit swizzled indices into the A8R8G8B8 palette named
@@ -549,7 +577,7 @@ too_big:
     {
         static int once;
         if (!once++)
-            fprintf(stderr, "  [WGPU] texture 0x%08X %ux%u (%u bytes) does not fit the frame arena: unbound\n",
+            fprintf(stderr, "  [WGPU] texture 0x%08X %ux%u (%u bytes) does not fit the upload buffer: unbound\n",
                     va, w, h, w * h * 4);
     }
     return 0;
@@ -800,6 +828,7 @@ void wtex_stage(const Nv2aRawBatch *b, int i, WtStage *out)
 void wtex_frame_end(void)
 {
     s_part++;
+    s_up_len = 0;                       /* the submit's writeTexture calls copied it */
 }
 
 uint64_t wtex_bytes(void)

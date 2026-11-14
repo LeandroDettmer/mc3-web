@@ -200,8 +200,8 @@ uint64_t wtex_bytes(void);
  * nv2a_gl's q_gl_run does), translated into arena data and records. */
 void     wdraw_batch(const Nv2aRawBatch *b);
 /* Room for `bytes` in the frame arena at a multiple of `align` (16, or
- * sizeof(WgDrawRec) for records), zeroed: its arena byte offset, *out the
- * place to write. UINT32_MAX: full (the caller flushes and retries). */
+ * sizeof(WgDrawRec) for records), not zeroed (write all of it): its arena
+ * byte offset, *out the place to write. UINT32_MAX: full (the caller flushes and retries). */
 uint32_t wg_arena_alloc(uint32_t bytes, uint32_t align, void **out);
 /* The arena for WgFrame (wasm address, bytes rounded to 16), then reset. */
 void     wg_arena_take(uint32_t *ptr, uint32_t *bytes);
