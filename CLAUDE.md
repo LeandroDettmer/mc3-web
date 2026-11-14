@@ -239,11 +239,11 @@ generated files when the lift inputs did not change.
   sends the log, tag hitch) split it next time), the streamed sound banks
   (audio/XStreams/*.xwb, 486 MiB, mx.xwb first: a track change fetched on
   demand stalled the game), resources/ smallest first (642 MiB: car builds
-  .xbpf, hudmap), banks.dat, flash/ smallest first (643 MiB: pause, garage,
-  rewards, menus, the showroom's per-car vs/ps/ms/ds_vp screens), the rest
-  of assets_x*, then video/Story, Tutorial, Reward, TokyoTut (not the boot
-  movies): the whole disc but those, ~4.4 GiB (budget 4608 MiB and the
-  browser's estimate; the page's predownload already takes every file); 15 s after boot, one block at a time, only after 300 ms
+  .xbpf, hudmap), banks.dat; nothing more since 2026-11-14 (eb0fc32, R2
+  Class B reads ~3.4 M/day over the free 10 M a month): flash/, the rest of
+  assets_x* and the career movies come on use only, and the page's "Download
+  the whole game now" button (disc_cache.js predownload worker, code kept) is
+  gone (budget 4608 MiB and the browser's estimate); 15 s after boot, one block at a time, only after 300 ms
   without a game read on the network; '[WEB] prefetch: ...' lines. A game
   read that continues its file into a new block starts the next 2 blocks
   (readahead, '[WEB] readahead: ...' once per file). Music track changes
