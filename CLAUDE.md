@@ -1324,7 +1324,14 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   those packs; a name two packs give comes from the later one ('[MOD]
   <name>: pack B over pack A'; two car packs therefore do not merge their
   content.lst/strings.txt yet). MC3_MODS unset or empty: no hook, the game as
-  main. The Sandero is pack sandero_rs. Roam core 20 (merge 2026-11-14):
+  main. The Sandero is pack sandero_rs. Traffic textures (pack
+  enhanced_traffic, tools/traffic_texpack.py, 2026-11-14, untested in game):
+  each city's commonest traffic cars (civic, odessey, tacoma, citybus,
+  deliverytruck, bus_t, trams/trains, shared wheels) are built into
+  resources/city/<city>_traffic.xbck (sub_0006D9F0, fatal if missing) with
+  their textures inside and never read the loose vehicle/va_*/texture_x/*.tex;
+  only the roster's other cars do. The pack therefore also carries the four
+  patched <city>_traffic.xbck (textures replaced in place, same size). Roam core 20 (merge 2026-11-14):
   main's core 19 (country flag) and car-mod's core 19 (second car record)
   were separate bumps; RC_CORE_CFG2 = 20.
 - Saves (2026-10-22): a profile is UDATA/54540079/<12 hex>/<name>.mc3

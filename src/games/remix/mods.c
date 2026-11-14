@@ -251,8 +251,11 @@ static void mods_dev_open(void)
     long len;
     int slot;
 
-    if (s_mods_trace)
-        fprintf(stderr, "[MOD] open %s%s\n", name, MEM32(g_esp + 8) & 0xFF ? "" : " (write)");
+    if (s_mods_trace) {                 /* every archive open; " <- mods/<id>" when a pack serves it */
+        mod_file_t *t = (MEM32(g_esp + 8) & 0xFF) ? mods_find(name) : NULL;
+        fprintf(stderr, "[MOD] open %s%s%s%.*s\n", name, MEM32(g_esp + 8) & 0xFF ? "" : " (write)",
+                t ? " <- mods/" : "", t ? (int)strcspn(t->path, "/") : 0, t ? t->path : "");
+    }
     for (slot = 0; slot < MODS_OPEN && s_mods_open[slot].data; slot++) {}
     if ((MEM32(g_esp + 8) & 0xFF) && !mods_find(name) && slot < MODS_OPEN) {
         const char *base = name + strlen(name);
