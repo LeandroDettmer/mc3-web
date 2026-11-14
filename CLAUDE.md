@@ -1059,6 +1059,12 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   `make difftest` (src/difftest.c + tools/difftest.py: replay one captured
   call on real x86 in Unicorn and name the first wrongly written bytes):
   the tool to reach for whenever output is subtly wrong.
+- **Lifter: 8/16-bit one-operand mul/imul/div/idiv** (found 2026-11-14,
+  Remix, issues #8/#9, 5fbd983): lifted as the 32-bit edx:eax forms, so
+  `imul dl` overwrote edx. The garage's Custom Color Shift froze for good
+  (palette fill sub_002701F0, loop 0x00270210 counts in edx; watchdog
+  stack 13DA85 151E2F 153400 ...; 12 freeze logs, every fps, career and
+  Online). 9 Remix sites; needs a relift.
 - **Movies:** replacing the lifted decoder with a native one (FFmpeg) was a big
   win. Find MC3's movie format early.
 - **Performance levers:** register/x87 locals in the translator, spin-loop
