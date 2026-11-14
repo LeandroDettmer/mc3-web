@@ -557,6 +557,15 @@
             <div><label class="set-label" for="pad-sel">Controller for this tab</label><p class="hint">Only this controller drives pad 1 here, so two tabs can each use their own. Remembered for this tab only. The keyboard acts on the focused tab.</p></div>
             <select class="pad-sel" id="pad-sel"></select>
           </div>
+          <div class="set">
+            <div><span class="set-label">Buttons</span><p class="hint" id="pad-map-hint">Buttons in the wrong place, or not working? Set them up: press each one when asked.</p></div>
+            <button type="button" class="btn" id="pad-map-btn">Set up buttons</button>
+            <button type="button" class="btn" id="pad-map-reset" hidden>Reset</button>
+          </div>
+          <div id="pad-map-run" hidden>
+            <p class="set-label" id="pad-map-step" role="status"></p>
+            <div class="row"><button type="button" class="btn" id="pad-map-skip">Skip</button><button type="button" class="btn" id="pad-map-cancel">Cancel</button></div>
+          </div>
           <p>The keyboard stays on top of pad 1. Buttons sit where the Xbox pad has them: A, B, X, Y, Start, Back, the triggers, White and Black on the shoulders, both sticks and their clicks.</p>
         </div>
       </div>
@@ -2513,11 +2522,102 @@
   const padKeys = pads => pads.map((g, n) => g.id + (pads.slice(0, n).some(p => p.id === g.id) ? '#' + pads.slice(0, n).filter(p => p.id === g.id).length : ''));
   const padChoice = () => { try { return sessionStorage.getItem('mc3.pad') || 'auto'; } catch { return 'auto'; } };
   const padShort = id => id.replace(/\s*\(.*$/, '');
+  // Button layouts (issue #6): the runtime reads every pad in the Gamepad API's standard layout (SDL's one browser
+  // mapping), but a pad the browser does not know (mapping '') sends its buttons in its own order. 'Set up buttons'
+  // records the player's: an SDL mapping body per Gamepad.id (localStorage mc3.padmap), given to the runtime for the
+  // pad this tab plays with (Module.mc3SetPadMap, xinput_device.c web_pad_layout).
+  const padMaps = () => { try { return JSON.parse(localStorage.getItem('mc3.padmap') || '{}') || {}; } catch { return {}; } };
+  const padMapsSet = maps => { try { localStorage.setItem('mc3.padmap', JSON.stringify(maps)); } catch {} };
+  const PAD_STEPS = [['a', 'Press A'], ['b', 'Press B'], ['x', 'Press X'], ['y', 'Press Y'],
+    ['righttrigger', 'Press Gas (right trigger)'], ['lefttrigger', 'Press Brake (left trigger)'],
+    ['leftshoulder', 'Press Black (left shoulder)'], ['rightshoulder', 'Press White (right shoulder)'],
+    ['start', 'Press Start'], ['back', 'Press Back (Select)'], ['dpup', 'Press d-pad up'], ['dpdown', 'Press d-pad down'],
+    ['dpleft', 'Press d-pad left'], ['dpright', 'Press d-pad right'], ['leftstick', 'Click the left stick'],
+    ['rightstick', 'Click the right stick'], ['leftx', 'Push the left stick right'], ['lefty', 'Push the left stick down'],
+    ['rightx', 'Push the right stick right'], ['righty', 'Push the right stick down']];
+  const padLogged = new Set();
+  let padActive = null, padRun = null;           // padRun: { id, index, n, map, rest, armed, timer }
+  const padMapSync = g => {
+    padActive = g || null;
+    const maps = padMaps(), own = g ? maps[g.id] || '' : '';
+    window.Module?.mc3SetPadMap?.(own);
+    for (const p of padList()) {
+      const line = `[WEB] gamepad: ${p.id}, mapping ${p.mapping || 'none'}, ${p.buttons.length} buttons, ${p.axes.length} axes, as `
+        + (maps[p.id] ? "the player's own layout" : p.mapping === 'standard' ? 'the standard layout'
+          : 'the standard layout (the browser does not know this pad)');
+      if (!padLogged.has(line)) { padLogged.add(line); out(line); }
+    }
+    if (padRun) return;
+    $('pad-map-btn').disabled = !g;
+    $('pad-map-reset').hidden = !own;
+    $('pad-map-hint').textContent = !g ? 'Connect a controller and press a button on it to set up its buttons.'
+      : own ? padShort(g.id) + ' uses your own button layout.'
+      : g.mapping === 'standard' ? 'Buttons in the wrong place, or not working? Set them up: press each one when asked.'
+      : 'Your browser does not know the layout of ' + padShort(g.id) + ', so some buttons may be in the wrong place or do nothing: set them up here.';
+  };
+  const padRunEnd = save => {
+    const r = padRun;
+    if (!r) return;
+    clearInterval(r.timer);
+    padRun = null;
+    $('pad-map-run').hidden = true;
+    if (save) {
+      const maps = padMaps(), body = Object.entries(r.map).map(([k, v]) => k + ':' + v).join(',');
+      if (body) maps[r.id] = body + ','; else delete maps[r.id];
+      padMapsSet(maps);
+    }
+    window.applyPad();
+  };
+  const padRunNext = () => {
+    const r = padRun;
+    if (++r.n >= PAD_STEPS.length) return padRunEnd(true);
+    r.armed = false;
+    $('pad-map-step').textContent = `${r.n + 1} of ${PAD_STEPS.length}: ${PAD_STEPS[r.n][1]} (Skip if it has none)`;
+  };
+  // Each step waits for everything released, then takes the first button pressed or axis moved past 0.6 from rest
+  // (sticks: axes only). An axis resting beyond 1 is a hat sent as one axis (Chrome): never taken.
+  const padTick = () => {
+    const r = padRun, g = navigator.getGamepads?.()[r.index];
+    if (!g || g.id !== r.id) return padRunEnd(false);
+    const hat = j => !(Math.abs(r.rest[j]) <= 1.01);
+    const pressed = g.buttons.findIndex(b => b.pressed);
+    const axis = g.axes.findIndex((v, j) => !hat(j) && Math.abs(v - r.rest[j]) > 0.6);
+    if (!r.armed) {
+      r.armed = pressed < 0 && g.axes.every((v, j) => hat(j) || Math.abs(v - r.rest[j]) < 0.3);
+      return;
+    }
+    const target = PAD_STEPS[r.n][0], stick = /^(left|right)[xy]$/.test(target);
+    let src;
+    if (pressed >= 0 && !stick) src = 'b' + pressed;
+    else if (axis >= 0) {
+      const rest = r.rest[axis], up = g.axes[axis] > rest;
+      src = stick || (/trigger$/.test(target) && Math.abs(rest) > 0.5) ? 'a' + axis + (up ? '' : '~')  // whole axis
+        : (up ? '+a' : '-a') + axis;                                                                    // half of one
+    }
+    if (src) { r.map[target] = src; padRunNext(); }
+  };
+  $('pad-map-btn').onclick = () => {
+    const g = padActive && navigator.getGamepads?.()[padActive.index];
+    if (!g || padRun) return;
+    padRun = { id: g.id, index: g.index, n: -1, map: {}, rest: Array.from(g.axes), armed: false, timer: setInterval(padTick, 30) };
+    $('pad-map-run').hidden = false;
+    $('pad-map-btn').disabled = true;
+    padRunNext();
+  };
+  $('pad-map-skip').onclick = () => { if (padRun) padRunNext(); };
+  $('pad-map-cancel').onclick = () => padRunEnd(false);
+  $('pad-map-reset').onclick = () => {
+    const maps = padMaps();
+    if (padActive) delete maps[padActive.id];
+    padMapsSet(maps);
+    window.applyPad();
+  };
   window.applyPad = () => {
     padNow();
     const c = padChoice(), pads = padList(), keys = padKeys(pads);
     const pos = c === 'auto' ? -2 : c === 'none' ? -1 : (keys.indexOf(c) < 0 ? 99 : keys.indexOf(c));
     window.Module?.mc3SetPad?.(pos);
+    padMapSync(c === 'none' ? null : pads[pos === -2 ? 0 : pos]);
     const label = c === 'auto' ? (pads[0] ? 'Auto: ' + padShort(pads[0].id) : 'Auto (none connected)')
       : c === 'none' ? 'None (keyboard only)' : (pos >= 0 && pos < 99 ? padShort(pads[pos].id) + ' [' + pos + ']' : padShort(c.replace(/#\d+$/, '')) + ' (not connected)');
     const html = ['<option value="auto">Auto (first connected)</option>']

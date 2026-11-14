@@ -264,6 +264,16 @@ generated files when the lift inputs did not change.
   backend left stale data across chunks, hence our backend.
 - **Input:** SDL keyboard/Gamepad on the GL thread; a key tap is held at
   least 120 ms (a down+up in one rAF pump was lost by the menus).
+  Gamepads (2026-11-14, issue #6, untested in a browser): SDL2's
+  Emscripten driver gives every pad its one "default" mapping (the
+  standard layout) and ignores Gamepad.mapping, so a pad the browser does
+  not know (mapping '': raw order, Chrome's hat as one axis) had buttons
+  misplaced. The start page's Controls, Controller 'Set up buttons' records
+  an SDL mapping body per Gamepad.id (localStorage mc3.padmap); pre.js
+  mc3SetPadMap -> xinput_device.c xbox_web_pad_map_box, web_pad_layout adds
+  it under pad 1's GUID and reopens it. '[WEB] gamepad: <id>, mapping
+  <m>, N buttons, M axes, as ...' (page) and '[WEB] gamepad: pad 1 (...)
+  uses ...' (runtime).
   Touch controls (2026-11-09, untested on a phone; web/touch.js, after
   nfsu2-web's): a virtual pad the page writes into xbox_touch_pad_box
   (input/touch_pad_web.c, 14 int32 words via Module.mc3TouchPad), merged

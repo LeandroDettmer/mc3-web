@@ -338,6 +338,25 @@ Module['mc3SaveResult'] = function (n) {
   Module['mc3SetPad'] = function (n) { want = n | 0; if (!timer) put(); };
 })();
 
+// The player's button layout for that pad (xinput_device.c xbox_web_pad_map_box { seq, map[1020] }): an SDL mapping
+// body (ASCII, "a:b2,b:b1,..."), '' = the standard layout. Written only when it changes; map first, then seq.
+(function () {
+  var want = '', sent = null, timer = 0;
+  function put() {
+    timer = 0;
+    try {
+      if (!runtimeInitialized || typeof _xbox_web_pad_map_box != 'function') { timer = setTimeout(put, 1000); return; }
+      if (want === sent) return;
+      var b = _xbox_web_pad_map_box(), u8 = HEAPU8, i, n = Math.min(want.length, 1019);
+      for (i = 0; i < n; i++) u8[b + 4 + i] = want.charCodeAt(i) & 0x7F;
+      u8[b + 4 + n] = 0;
+      Atomics.add(new Int32Array(u8.buffer), b >>> 2, 1);
+      sent = want;
+    } catch (e) { timer = setTimeout(put, 1000); }
+  }
+  Module['mc3SetPadMap'] = function (m) { want = String(m || ''); if (!timer) put(); };
+})();
+
 // A player's country flag as a small picture (flags.png from tools/flags_sheet.mjs: 48x36 flags, 16 a row, in the
 // order of Module.mc3Flags, the page's FLAG_CODES); em-sized, so it follows the text's size. Unknown code: null.
 Module['mc3FlagEl'] = function (code) {
