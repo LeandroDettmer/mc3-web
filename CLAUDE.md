@@ -208,6 +208,16 @@ generated files when the lift inputs did not change.
   300, swizzles BGRA on the CPU, maps buffers to BufferSubData, drops depth
   clamp / border clamp / program binaries. LOD bias is lost; the vertex
   shader needs ~330 uniform vectors (RECOMP_GL_PERDRAW=0 if a GPU gives 256).
+  WebGL on Apple (2026-11-14, fix untested on a Mac): ANGLE's Metal back end
+  (Safari, Chrome) turns a glBufferSubData into a buffer the uncommitted
+  command buffer read into a new buffer of the whole size + a GPU copy
+  (BufferMtl.mm); our vertex buffer is ring 16 + pool 48 MB, updated per
+  draw: an Intel Mac's Safari 27.2 took 7-30 s a frame at the profile screen
+  (bg_savegame, ~1100 draws; Windows Intel 50-180 ms), then lost the context
+  (logs 2WAAGQ, FWGBQJ; M2 Chrome, Intel Firefox froze there 2026-11-13).
+  RECOMP_GL_ORPHAN=1 (page: Mac/iPhone/iPad UA): pool off, each draw's data
+  from 0, every flush a glBufferData of [0, dhi) ('[GL] each draw's data in
+  new buffer storage').
 - **Audio:** SPSC float ring (48 kHz stereo) in wasm memory read by an
   AudioWorklet (web/audio.js, apu_web.c); the AudioContext starts on the
   Play click. SDL audio is not used on the web (it crashed from a worker).

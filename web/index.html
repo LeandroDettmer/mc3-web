@@ -1070,6 +1070,10 @@
     // The remote cars heap (RoamCars, b66285a) stays off: a car swap mid-cruise froze the game (log D5JVHR, 2026-11-10:
     // swaps took 0.6 s and 10-45 s hitches, then a PGRAPH trap never served); =48 tries it
     if (env.MC3_ROAM_HEAP_MB === undefined) env.MC3_ROAM_HEAP_MB = '0';
+    // WebGL on Apple (Safari and Chrome: ANGLE on Metal; Firefox: Apple's GL): each draw's vertices in new buffer
+    // storage. An in-place update of the 64 MB vertex buffer copied all of it per draw: 7-30 s frames at the
+    // profile screen, then context lost (Intel Mac Safari 27.2, 2026-11-14). The WebGPU renderer ignores it.
+    if (env.RECOMP_GL_ORPHAN === undefined && /Macintosh|iPhone|iPad|iPod/.test(navigator.userAgent)) env.RECOMP_GL_ORPHAN = '1';
     if (low) {   // TVs and small devices (lowMem): lighter on memory, 1x (above), unless the player picked otherwise
       // A 32-bit TV browser gives 256 MB and never grows it (2026-11-09): GL record queue 4 MB (48), GL ring copies
       // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory)
