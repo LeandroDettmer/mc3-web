@@ -888,7 +888,22 @@ generated files when the lift inputs did not change.
   standalone cars' drop at the race's first state request other than pause
   (roam_pool_pass: race over, Request(6)/(8), restart), and no ghost is
   built after it in that race ('[ROAM] race ghosts: off for the rest of
-  this race'); a restart's reload builds them again. '[ROAM] race ghosts: N built at load (cap, heap) ...'.
+  this race'); a restart's reload builds them again. No motorbike ghost
+  (2026-11-14, fix untested in game, browser): release 7384f14's fatal
+  'Invalid type %d in rmcShaderFactoryStandard::ResourcePageIn' (28 logs,
+  KeBugCheck from 0x002DB02B, stack 000DFBBA 000E5B9D 001BF852 000E6CA6
+  001B67CE 001B6912 001B69CE 001B6A22: a streamed model (class 0x467540)
+  re-fixed up in the render, sub_0022BDF0 -> sub_001B6A10, under the
+  Standard shader factory 0x45377C, reading text as shader types; then
+  wild calls, divide by zero) came right after that teardown, and every
+  such race had a vp_cuevito_99 ghost built at load (roam_ghost_load took
+  bikes: mid 0); none of the races without one crashed. The rider
+  (sub_002CBF70: new 0x1C4, sub_00119B60, sub_00117880, at
+  [[builder+0x44]+0x20]; draw vtable 0x4562D8) streams its models and is
+  not deleted with the vehicle. Now the load skips bikes like mid-race
+  builds ('[ROAM] race ghosts: N players on a motorbike left as blips').
+  Not 0fcbd94/8911eda: '[ROAM] shader check' never fired and their page-in
+  wait/churn/blend code is off that path. '[ROAM] race ghosts: N built at load (cap, heap) ...'.
   Open: a standalone car's player index 1 in a race (as the career's).
   Country flags (2026-11-13, untested in a browser; after nfsu2-web's Your
   flag): the start page's You card (nick big + flag, Change nick, a flag

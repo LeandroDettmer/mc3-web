@@ -1119,6 +1119,9 @@ static void roam_ghost_load(const roam_peer *peers, int np)
     int i, built = 0, norec = 0, cap = roam_cars_total() < ROAM_GHOSTS ? roam_cars_total() : ROAM_GHOSTS;
     double t0 = roam_now();
     const char *stop = "every linked player";
+#ifdef __EMSCRIPTEN__
+    int bikes = 0;
+#endif
     for (i = 0; i < np; i++) {
         roam_rc *c = &s_rc[s_nrc];
         if (built >= cap) {
@@ -1135,6 +1138,20 @@ static void roam_ghost_load(const roam_peer *peers, int np)
             norec++;                            /* no car record (yet): a blip, never ours stood in */
             continue;
         }
+#ifdef __EMSCRIPTEN__
+        /* No motorbike ghost (2026-11-14, fix untested in game): all 28 logs of 'Invalid type %d in
+         * rmcShaderFactoryStandard::ResourcePageIn' (KeBugCheck from 0x002DB02B, stack 000DFBBA 000E5B9D 001BF852
+         * 000E6CA6 001B67CE 001B6912 001B69CE 001B6A22: a streamed model's re-fixup in the render, sub_0022BDF0 ->
+         * sub_001B6A10, reading text as shader types) came right after the ghosts' delete at a race's state request
+         * 8, and in each such race a ghost was a bike (vp_cuevito_99) built here; 0 of the races without one
+         * crashed. The bike's rider (sub_002CBF70 -> sub_00117880) streams its models and is not the vehicle's to
+         * delete: the delete leaves it pointing into freed stream memory. Mid-race and mid-cruise builds already
+         * refuse bikes (roam_pool_look mid): the peer is a bright blip. */
+        if (roam_car_bike(car)) {
+            bikes++;
+            continue;
+        }
+#endif
         if (!roam_pool_room(car, 0, "a race ghost")) {
             stop = "the heap";
             break;
@@ -1160,6 +1177,11 @@ static void roam_ghost_load(const roam_peer *peers, int np)
     fprintf(stderr, "[ROAM] race ghosts: %d built at load (cap %d, %s %u KB free) in %.0f ms; %d players linked, %d "
                     "without a car record; stopped at %s\n", built, cap, s_cheap ? "cars heap" : "heap",
             (unsigned)(roam_heap_log(roam_car_heap(), NULL) >> 10), (roam_now() - t0) * 1e3, np, norec, stop);
+#ifdef __EMSCRIPTEN__
+    if (bikes)
+        fprintf(stderr, "[ROAM] race ghosts: %d player%s on a motorbike left as blips (no bike ghost)\n", bikes,
+                bikes == 1 ? "" : "s");
+#endif
 }
 
 /* veh is one of our race's ghosts (sub_000A5890's water rule: a parked one sits 500 m under us, "in the sea", and
