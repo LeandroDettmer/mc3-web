@@ -4233,12 +4233,29 @@ static uint8_t *ring_shadow(GlRing *g, GLintptr at)
     return g->shadow + at;
 }
 
+/* RECOMP_GL_ORPHAN=1 (the page sets it on Macs, iPhones and iPads): every
+ * flush gives the ring new storage holding [0, dhi) of its copy, and each
+ * draw's data starts again at 0 (ring_alloc). ANGLE's Metal back end
+ * (Safari, Chrome on a Mac) answers a glBufferSubData into a buffer the
+ * uncommitted command buffer has read with a new buffer of the whole size
+ * plus a GPU copy of the rest (BufferMtl.mm putDataInNewBufferAndStart-
+ * UsingNewBuffer): 64 MB (ring + pool) per draw. An Intel Mac's Safari took
+ * 7-30 s a frame at the title's profile screen, ~1100 draws, then lost the
+ * context (logs 2WAAGQ, FWGBQJ, 2026-11-14; M2 Chrome and Intel Firefox
+ * froze there too, 2026-11-13); Windows' D3D11 ANGLE drew it in 50-180 ms.
+ * A fresh glBufferData is the cheap path there. Pool off with it (a mirror
+ * is an older range of the same buffer). */
+static int s_orphan;
+
 static void ring_flush(GlRing *g)
 {
     if (g->dhi <= g->dlo)
         return;
     glBindBuffer(g->target, g->buf);
-    glBufferSubData(g->target, g->dlo, g->dhi - g->dlo, g->shadow + g->dlo);
+    if (s_orphan)   /* what draws since the last issued one read sits in [0, dhi) */
+        p_glBufferData(g->target, g->dhi, g->shadow, GL_STREAM_DRAW);
+    else
+        glBufferSubData(g->target, g->dlo, g->dhi - g->dlo, g->shadow + g->dlo);
     g->dlo = g->dhi = 0;
 }
 #endif
@@ -4291,12 +4308,16 @@ static void vpool_init(void)
 {
 #if defined(__EMSCRIPTEN__)
     const char *e = getenv("RECOMP_GL_VPOOL");
+    const char *eo = getenv("RECOMP_GL_ORPHAN");
     int mb = e ? atoi(e) : 1;
     if (mb == 1)
         mb = 48;
     if (mb > 1024)
         mb = 1024;
-    s_vp_on = mb > 0 && !s_vring.pmap;
+    s_orphan = eo && eo[0] == '1';
+    if (s_orphan)
+        fprintf(stderr, "  [GL] each draw's data in new buffer storage (RECOMP_GL_ORPHAN)\n");
+    s_vp_on = mb > 0 && !s_vring.pmap && !s_orphan;
     s_vpv.g = &s_vring;
     s_vpi.g = &s_iring;
     if (s_vp_on) {
@@ -4561,6 +4582,12 @@ static GLintptr ring_alloc(GlRing *g, GLsizeiptr size, void **ptr)
         *ptr = NULL;
         return 0;
     }
+#if defined(__EMSCRIPTEN__)
+    /* RECOMP_GL_ORPHAN: nothing drawn before reads the ring again (no draw
+     * held, every flush new storage), so a draw's data starts at 0 */
+    if (s_orphan && !s_mg_active && g->dhi <= g->dlo)
+        g->off = 0;
+#endif
     if (size > g->cap) {
         g->cap = size * 2;
         g->off = g->cap;                    /* forces the orphan below */
