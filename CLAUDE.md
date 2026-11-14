@@ -327,7 +327,7 @@ generated files when the lift inputs did not change.
   12 pool workers (more made on demand and kept; WebKit too since
   2026-11-12, every iPhone ran 40 before, each a JS heap; '[WEB] workers: N'
   logs each new peak), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
-  MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=cars (since 2026-11-14 the background fill takes assets_x.dat_2 only, 233 MiB once: phones read each new car model on demand, ~1.4 s a block from R2 under the guest lock, 3.6-6.9 s frozen per new car; was 0), no 60 fps, light
+  MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=cars (since 2026-11-14 the background fill takes assets_x.dat_2, 233 MiB once, and the music track starts, ~206 MiB, nothing else: phones read each new car model on demand, ~1.4 s a block from R2 under the guest lock, 3.6-6.9 s frozen per new car; was 0), no 60 fps, light
   filtering. Loading overlay (2026-11-13, untested in a browser; index.html bootStart/bootWhat, #boot-load,
   page-only, no wasm access): from Play to the first frame (mc3Frames > 0, polled 250 ms) a box over the
   picture: the .wasm download MB (bytes counted through a TransformStream into compileStreaming;

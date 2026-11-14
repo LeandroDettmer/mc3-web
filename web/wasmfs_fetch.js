@@ -323,7 +323,9 @@ addToLibrary({
       const dir = d => all.filter(f => lc(f).startsWith(d)).sort((a, b) => a.s - b.s);
       // MC3_PREFETCH=cars (the page's low-memory profile, 2026-11-14): the car models only, 233 MiB once. A phone read
       // them on demand, ~1.4 s a 1 MiB block from R2 under the guest lock: 3.6-6.9 s frozen at each new car's build.
-      if (E.MC3_PREFETCH === 'cars') return [byPath.get('assets_x.dat_2')].filter(Boolean);
+      // + the music's track starts (prefetch: heads only, not the rest of the bank): without them each new track froze
+      // a phone the same way (owner, 2026-11-14).
+      if (E.MC3_PREFETCH === 'cars') return [byPath.get(MUSIC), byPath.get('assets_x.dat_2')].filter(Boolean);
       return [
         byPath.get('assets_x.dat_2'),
         ...BANKS.map(p => byPath.get(p)),
@@ -438,7 +440,7 @@ addToLibrary({
         err(`[WEB] prefetch: music track starts kept (${list.length} MiB) after ${((performance.now() - t0) / 1000).toFixed(0)} s`);
       }
       for (const fi of jobs)
-        if (!(await run(fi, Array.from({ length: Math.ceil(fi.size / BLOCK) }, (_, j) => j)))) return pinHeads(disc, m);
+        if (!(E.MC3_PREFETCH === 'cars' && fi === music) && !(await run(fi, Array.from({ length: Math.ceil(fi.size / BLOCK) }, (_, j) => j)))) return pinHeads(disc, m);
       err(`[WEB] prefetch: done, ${mib(done)} MiB in ${((performance.now() - t0) / 1000).toFixed(0)} s`);
     }
 
