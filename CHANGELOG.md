@@ -117,3 +117,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Garage:** Fixed a freeze when opening Custom Color Shift in the paint menu.
 - **Controls:** The Map button on the page no longer leaves the pause menu scrolling forever after you press it twice.
 - **Controls:** Touch buttons and the steering stick no longer stay stuck on after a finger leaves the screen or the app is switched.
+
+## 2026-11-14 (pending)
+
+- **Loading:** Game files are downloaded in larger pieces when read straight through, so first loads wait a little less on slow connections.

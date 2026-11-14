@@ -246,7 +246,12 @@ generated files when the lift inputs did not change.
   gone (budget 4608 MiB and the browser's estimate); 15 s after boot, one block at a time, only after 300 ms
   without a game read on the network; '[WEB] prefetch: ...' lines. A game
   read that continues its file into a new block starts the next 2 blocks
-  (readahead, '[WEB] readahead: ...' once per file). Music track changes
+  (readahead, '[WEB] readahead: ...' once per file); since 2026-11-14
+  (untested in a browser; R2 bills requests) its own missing block and those
+  go in one Range request (fetchRun: the stream hands each block over as it
+  comes, the read's own first), a run past the window made 3 blocks long, so
+  a file read straight through is one request per 3 MiB, not per 1 MiB;
+  '[WEB] disc: N requests for M blocks' once a session. Music track changes
   (2026-11-11, untested in a browser): every disc read waits under the guest
   lock; a change reads a random entry of mx.xwb (135, shuffled) from its
   start in 352 KB packets, and players' logs showed 0.5-2.5 s freezes per

@@ -49,13 +49,20 @@
  * then were killed, 2026-11-12 logs TYM47H/VJK9ZT).
  *
  * Readahead: a game read that goes on where its file's last read ended, into
- * a new block, also starts the next READAHEAD blocks not held yet (memory or
- * OPFS) in the background, one request; the game's later read of one joins
- * its fetch (inflight) or finds it in memory. A streamed sound bank (.xwb)
- * does so on every read, a jump to a new track included, so the packet that
- * crosses into the next block finds it. '[WEB] readahead: <file> ...'
- * once a file. A game read of several blocks fetches each run of missing ones
- * in one request; a read of a file of at most SMALL bytes fetches all of it.
+ * a new block, also wants the next READAHEAD blocks held (memory or OPFS). Its
+ * own missing block and those go in ONE request (fetchRun): the body is read as
+ * a stream and each block is handed over as its bytes come, so the read's own
+ * block (first in the range) is not held back by the rest; the rest go on in
+ * the background into memory and OPFS, and the game's later read of one joins
+ * its fetch (inflight) or finds it in memory. A run that reaches past the
+ * window is made RA_RUN blocks long, so a file read straight through costs one
+ * request per RA_RUN blocks, not one per block (R2 bills requests, 2026-11-14).
+ * A streamed sound bank (.xwb) does so on every read, a jump to a new track
+ * included, so the packet that crosses into the next block finds it. '[WEB]
+ * readahead: <file> ...' once a file; '[WEB] disc: N requests for M blocks'
+ * once a session. A game read of several blocks fetches each run of missing
+ * ones in one request; a read of a file of at most SMALL bytes fetches all of
+ * it. Other reads (a jump elsewhere) fetch their block alone, as before.
  *
  * The game's own network reads give up a try after GAME_STALL_MS without
  * data (and try again); the background ones keep the disc cache's FETCH_MS.
@@ -112,7 +119,14 @@ addToLibrary({
     let cacheDir = null, cacheOn = null, cacheOff = false, failures = 0;
     const BANKS = ['mx', 'RaceStarters', 'Engine_Revs', 'dx', 'City_Walla'].map(n => `audio/xstreams/${n.toLowerCase()}.xwb`);
     const PREFETCH_DELAY_MS = 15000, IDLE_MS = 300, PREFETCH_BUDGET_MB = 4608;
-    const READAHEAD = 2, GAME_STALL_MS = 4000, PREFETCH_RUN = 16, SMALL = 2 * BLOCK;
+    const READAHEAD = 2, RA_RUN = READAHEAD + 1, GAME_STALL_MS = 4000, PREFETCH_RUN = 16, SMALL = 2 * BLOCK;
+    // the game's own requests (misses, readahead) and the blocks they asked for: '[WEB] disc: ...' once
+    let odReq = 0, odBlk = 0;
+    function counted(n) {
+      odReq++; odBlk += n;
+      if (odBlk >= 128 && odBlk - n < 128)
+        err(`[WEB] disc: ${odReq} requests for ${odBlk} blocks read on demand (misses + readahead, runs up to ${RA_RUN})`);
+    }
     // the music bank, and how much of each track's start is fetched first: two of the Remix's 352 KB stream packets
     const MUSIC = BANKS[0], HEAD_BYTES = 0xB0000, STREAM = /\.xwb$/i;
     let netReads = 0, lastNet = 0, prefetching = false;   // the game's own reads on the network, when the last ended
@@ -216,7 +230,7 @@ addToLibrary({
         } catch { /* closed meanwhile: from the server */ }
       }
       let b;
-      netReads++; stopBackground();
+      netReads++; stopBackground(); counted(1);
       try { b = await C.fetchBlock(fi.src, bi, fi.size, m => err(`[WEB] disc read stalled: ${fi.url} block ${bi}: ${m}`), GAME_STALL_MS); }
       finally { netReads--; lastNet = performance.now(); }
       if ((cf = await cacheFile(fi))) {
@@ -260,7 +274,7 @@ addToLibrary({
       }
       const drop = w => { if (inflight.get(w.k) === w.p) inflight.delete(w.k); };
       let kept = null;
-      if (game) { netReads++; stopBackground(); } else bgRuns.add(run);
+      if (game) { netReads++; stopBackground(); counted(n); } else bgRuns.add(run);
       try {
         await C.fetchBlocks(fi.src, bi, n, fi.size, {
           signal: run.ac.signal, stallMs: game ? GAME_STALL_MS : undefined,
@@ -285,9 +299,10 @@ addToLibrary({
       return run.next - bi;
     }
     // The blocks lo..hi of fi nobody holds or fetches, one game request (fetchRun) per run of them at least `min`
-    // long. Returns the first block asked for, or -1.
-    async function fetchRuns(fi, lo, hi, min) {
-      const cf = await cacheFile(fi), free = j => {
+    // long; a run is carried past hi, over blocks still free, until it is `ext` long (readahead). Returns the first
+    // block asked for, or -1.
+    async function fetchRuns(fi, lo, hi, min, ext = 0) {
+      const nb = Math.ceil(fi.size / BLOCK), cf = await cacheFile(fi), free = j => {
         const k = fi.key + '#' + j;
         return !mem.has(k) && !pinned.has(k) && !inflight.has(k) && !(cf && cf.have[j]);
       };
@@ -295,18 +310,12 @@ addToLibrary({
       for (let j = lo; j <= hi;) {
         if (!free(j)) { j++; continue; }
         let n = 1;
-        while (j + n <= hi && free(j + n)) n++;
+        while ((j + n <= hi || n < ext) && j + n < nb && free(j + n)) n++;
         if (n >= min) { if (first < 0) first = j; fetchRun(fi, j, n, true).catch(() => {}); }   // a failed block is fetched again by its read
         j += n;
       }
       return first;
     }
-    // Blocks bi+1 .. bi+READAHEAD of fi into memory in the background, those not held yet (see the header).
-    async function readahead(fi, bi) {
-      const j = await fetchRuns(fi, bi + 1, Math.min(bi + READAHEAD, Math.ceil(fi.size / BLOCK) - 1), 1);
-      if (j >= 0 && !fi.ra) { fi.ra = true; err(`[WEB] readahead: ${fi.url} from block ${j}`); }
-    }
-
     // What to fill, in order (see the header): manifest files.
     function prefetchJobs(m) {
       const all = [...m.values()], lc = f => f.p.toLowerCase();
@@ -438,17 +447,21 @@ addToLibrary({
         length = Math.min(length, fi.size - offset);
         if (fi.data) { HEAPU8.set(fi.data.subarray(offset, offset + length), buffer); return length; }
         const first = (offset / BLOCK) | 0, last = ((offset + length - 1) / BLOCK) | 0, want = [], t0 = performance.now();
-        // several blocks, or a small file: the missing ones in one request per run (see the header)
-        const small = fi.size <= SMALL, lo = small ? 0 : first, hi = small ? Math.ceil(fi.size / BLOCK) - 1 : last;
+        // several blocks, a small file, or readahead: the missing ones in one request per run (see the header).
+        // Before block(): its read of a block in such a run joins the run and gets it as soon as it has come.
+        const small = fi.size <= SMALL, nb = Math.ceil(fi.size / BLOCK), prev = fi.last;   // prev: this file's last read's last block
+        fi.last = last;
+        const ahead = !small && (STREAM.test(fi.url) || (prev !== undefined && first >= prev && first <= prev + 1 && last > prev));
+        const lo = small ? 0 : first, hi = small ? nb - 1 : ahead ? Math.min(last + READAHEAD, nb - 1) : last;
         if (hi > lo) {
           let j = lo;
           while (j <= hi && mem.has(fi.key + '#' + j)) j++;
-          if (j <= hi) await fetchRuns(fi, lo, hi, 2);
+          if (j <= hi) {
+            j = await fetchRuns(fi, lo, hi, ahead ? 1 : 2, ahead ? RA_RUN : 0);
+            if (ahead && j >= 0 && !fi.ra) { fi.ra = true; err(`[WEB] readahead: ${fi.url} from block ${j}`); }
+          }
         }
         for (let bi = first; bi <= last; bi++) want.push(block(fi, bi));
-        const prev = fi.last;                     // the last block of this file's previous read
-        fi.last = last;
-        if (STREAM.test(fi.url) || (prev !== undefined && first >= prev && first <= prev + 1 && last > prev)) readahead(fi, last).catch(() => {});
         let bs;
         try { bs = await Promise.all(want); }
         catch (e) { err(`[WEB] disc read failed: ${fi.url} @${offset}: ${e}`); return -{{{ cDefs.EIO }}}; }
