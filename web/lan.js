@@ -32,7 +32,8 @@
 //   l.roamDown                    // ms timestamp the free-roam link has been lost since (3 s grace), 0 = fine (pre.js notice)
 //   l.afk, l.afkMs                   // AFK kick (2026-11-14): Free Roam / Online career (never a race room) with no input
 //                                    // (keydown, pointerdown, touchstart, a gamepad change; a hidden tab has none) for afkMs
-//                                    // (180 s; ?MC3_AFK_S=N, 0 off): the city socket closes (no retry), every free-roam frame
+//                                    // (off by default since 2026-11-14: kicked players' cars vanished for the others and
+//                                    // came back slowly; ?MC3_AFK_S=N turns it on): the city socket closes (no retry), every free-roam frame
 //                                    // and signal is dropped, so the hubs drop us by their stale timer; pre.js shows its
 //                                    // notice instead of roamDown's. Any input clears it; the game's next HELLO reopens the city.
 // The game's HELLO to the hub (10.77.0.253:47210) names its room (MC3: the city): a new one closes the old socket, asks
@@ -222,7 +223,7 @@ window.mc3Lan = function (name, lanUrl) {
   var watchT = setInterval(watch, 1000);
   // AFK (see the head): the page's own input, every event in the capture phase (the game's handlers may stop it).
   var lastInput = Date.now(), pads = [];
-  link.afk = false; link.afkMs = 180000;
+  link.afk = false; link.afkMs = 0;   // off (see the head); ?MC3_AFK_S=180 brings it back
   try { var q = /[?&]MC3_AFK_S=(\d+)/.exec(location.search); if (q) link.afkMs = q[1] * 1000; } catch (_) {}
   function input() { lastInput = Date.now(); if (link.afk) { link.afk = false; changed(); } }
   ['keydown', 'pointerdown', 'touchstart'].forEach(function (e) { window.addEventListener(e, input, { capture: true, passive: true }); });
