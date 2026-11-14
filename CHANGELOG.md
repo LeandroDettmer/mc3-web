@@ -121,3 +121,4 @@ internals. The page header shows the first release (9 November 2026); each later
 ## 2026-11-14 (pending)
 
 - **Loading:** Game files are downloaded in larger pieces when read straight through, so first loads wait a little less on slow connections.
+- **Free Roam:** Other players' cars no longer show bare rims without tyres after a player changes car or parts, or when a car is passed on to another player.

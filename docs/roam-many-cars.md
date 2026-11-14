@@ -38,7 +38,14 @@ player object: builder ctor sub_002CB270(name, 0, slot, CarCfg*, flag, pad)
   (roam_game.c) now calls sub_00121970 itself, once per vehicle (slots and
   standalone), as soon as the rim geometry is loaded; '[ROAM] tyres:
   slot|car N sized after S s (radius ...)' once per build, or '... no rim
-  geometry after 10 s';
+  geometry after 10 s'. Still bare now and then (2026-11-14, a peer's Jetta
+  on f51e44b): roam_tyres keyed its 'done' by vehicle address, and a
+  rebuild (look change, the standalone cars rebuilt after a state request)
+  deletes the old car and builds the new one in the same heap, which often
+  hands back the same address -- 8,751 of 25,510 rebuilds in two days of
+  players' logs had no tyres line after them (98.8 % of those had sized the
+  entry's previous car). roam_rc_make now clears the entry's tyre state on
+  every build; each rebuild logs its own 'tyres: ... sized' line;
 - vt+0x20 sub_002CB2D0: car cache acquire sub_00105B80 -> builder+0x4C
   (cache [0x50A08C], 16 entries; key 0, as the builder asks, is never
   shared: one entry per car, same model or not; full = resource 0, see

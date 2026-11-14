@@ -1361,7 +1361,10 @@ static int roam_listed(uint32_t veh)
  * 0x001005E7 path sets 0x80 again and returns. Re-arming the bit (be2029f)
  * therefore sized nothing. So the sizing is called here, once per vehicle,
  * as soon as the rim geometry is loaded; the bit stays armed for a car whose
- * update does reach the step. One log line per car. */
+ * update does reach the step. One log line per car. A rebuild (roam_rc_make)
+ * clears the state: the new vehicle often gets the deleted one's address, and
+ * 'done' kept from the old car left every such rebuilt car bare (2026-11-14:
+ * 8,751 of 25,510 rebuilds in two days of players' logs never re-sized). */
 typedef struct {
     uint32_t veh;                               /* the vehicle this state is for (a rebuild starts over) */
     uint8_t done, said;                         /* said: "no rim geometry" logged */

@@ -623,6 +623,9 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
     }
     if (after < before)
         roam_pool_cost_note(car, before - after);
+    /* a new car: its tyres sized again. The heap often hands the new vehicle the deleted one's address, and
+     * roam_tyres (keyed by address) kept 'done': a rebuilt car stayed bare rims (2026-11-14, players' logs) */
+    memset(&c->tyre, 0, sizeof c->tyre);
     c->built = roam_now();
     if (mid) {                                  /* churn: the 8th build back within 10 s -> one a second */
         double oldest = s_churn_t[s_churn_n % ROAM_CHURN_N];
