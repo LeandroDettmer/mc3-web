@@ -512,7 +512,7 @@
     </div>
     <div id="cache" hidden>
       <p class="hint" id="cache-status" role="status" style="margin-top:16px"></p>
-      <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-clear">Clear</button></div>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-clear">Clear game data</button></div>
     </div>
     <ul class="checks" id="checks" aria-label="What the game needs"></ul>
   </section>
@@ -1619,9 +1619,7 @@
     cacheShow();
   }
 
-  // --- disc cache (web/disc_cache.js): what of the disc this browser keeps, all of it ahead, clearing it
-  const fmtBytes = n => n >= 1e9 ? (n / 2 ** 30).toFixed(2) + ' GB' : (n / 2 ** 20).toFixed(0) + ' MB';
-  const pct = (a, b) => b ? Math.floor(100 * a / b) + '%' : '–';
+  // --- disc cache (web/disc_cache.js): whether this browser keeps game files (no sizes), clearing it
   const discUrl = d => new URL(d.path, location.href).href;
   async function cacheShow() {
     const d = currentDisc(), on = opfs && !!d && typeof MC3DiscCache == 'object';
@@ -1633,7 +1631,10 @@
     }
     try {
       const s = await MC3DiscCache.scan(discUrl(d));
-      $('cache-status').textContent = `Disc kept in this browser: ${fmtBytes(s.have)} of ${fmtBytes(s.total)} (${pct(s.have, s.total)}). Kept parts load without the network.`;
+      // no sizes or progress (2026-11-14, owner): just whether anything is kept, and what Clear does
+      $('cache-status').textContent = s.have
+        ? 'Game files are kept in this browser, so the game starts and loads faster next time. Clear game data frees that space; your saves stay.'
+        : 'Game files download as you play and stay in this browser, so the next start is faster. Your saves are kept apart.';
     } catch (e) { $('cache-status').textContent = 'Disc cache: ' + (e.message || e); }
   }
   // 2026-11-14: no "Download the whole game now" button any more (R2 reads cost: ~4.5k a player); the game fetches what it reads
