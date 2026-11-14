@@ -172,7 +172,8 @@
     }
     // re-sent every 50 ms while on: the HOLD_MS releases and a runtime that came up after the last change
     // (a throw in send must not leave `timer` set with no tick coming: the controls would stop for good)
-    const tick = () => { try { send(); } finally { timer = on || sent !== words.join() ? setTimeout(tick, 50) : 0; } };
+    // (the Map button's hold also keeps it going with the controls off: else d-pad up was never released)
+    const tick = () => { try { send(); } finally { timer = on || sent !== words.join() || held(downAt.get('map'), performance.now(), frames()) ? setTimeout(tick, 50) : 0; } };
     const kick = () => { if (!timer) timer = setTimeout(tick, 50); send(); };
 
     function press(pid, id) {
