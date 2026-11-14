@@ -113,3 +113,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Loading:** The game no longer downloads the whole disc in the background, and the "Download the whole game now" button is gone: garage, menus and movies load the first time you open them.
 - **Page:** Donate and Ko-fi buttons on the start page: donations keep the online server running.
 - **Controls:** Controllers your browser does not recognise can now be set up: Controls, Controller, Set up buttons, then press each button when asked.
+
+## 2026-11-14 (pending)
+
+- **Keyboard:** A short tap of an arrow in a menu list (garage, showroom, paint) no longer moves two items.
