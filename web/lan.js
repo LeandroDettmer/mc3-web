@@ -213,11 +213,11 @@ window.mc3Lan = function (name, lanUrl) {
     if (d != link.roamDown) { link.roamDown = d; changed(); }
   }
   var watchT = setInterval(watch, 1000);
-  // Bundles (web/lan-worker/src/city.js head): one WebSocket message per drain of the game's mailbox (web/net.js drainTx
-  // is synchronous; flushed in a microtask after it, no delay), not one per frame: a Durable Object pays per message, and
-  // ~3k/s in one city overloaded it (2026-11-13). Only to a socket that said it takes them (the city's hello, the
-  // switch's welcome); up to BUNDLE_MAX bytes a message.
-  var outQ = [], outN = 1, BUNDLE = 4, BUNDLE_MAX = 16384;
+  // Bundles (web/lan-worker/src/city.js head): one WebSocket message per OUT_MS of frames, not one per frame: a Durable
+  // Object pays per message (inbound WS, 20:1), and ~3k/s in one city overloaded it (2026-11-13). Was one per drain of
+  // the game's mailbox (~20/s a player); 100 ms halves it (2026-11-14; P2P frames never come here, only relays and the
+  // hub's). Only to a socket that said it takes them (the city's hello, the switch's welcome); up to BUNDLE_MAX bytes.
+  var outQ = [], outN = 1, BUNDLE = 4, BUNDLE_MAX = 16384, OUT_MS = 100;
   function roamOut(f) {
     var s = cityUp() ? city.ws : null;
     if (!(s ? city.bundle : bundleSw && up())) {
@@ -226,7 +226,7 @@ window.mc3Lan = function (name, lanUrl) {
     }
     s = s || ws;
     if (outQ.length && (outQ.s !== s || outN + 2 + f.length > BUNDLE_MAX)) flush();
-    if (!outQ.length) { outQ.s = s; Promise.resolve().then(flush); }
+    if (!outQ.length) { outQ.s = s; setTimeout(flush, OUT_MS); }
     outQ.push(f); outN += 2 + f.length;
     return true;
   }
