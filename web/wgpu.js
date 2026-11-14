@@ -56,11 +56,17 @@
  * '[WGPU] slow frame N ms, M pipelines made' for a frame over 100 ms that
  * made pipelines.
  *
- * Pipelines (M3): PIPE_CREATE only describes one. Its first SET_PIPE makes it
- * (createRenderPipeline); one no SET_PIPE of its list used -- the prewarm
- * from wgpu_pipe.c's OPFS key list -- is made at the list's end with
- * createRenderPipelineAsync, and a SET_PIPE before that resolves makes it
- * synchronously.
+ * Pipelines (M3): PIPE_CREATE only describes one. One no SET_PIPE of its
+ * list used -- the prewarm from wgpu_pipe.c's OPFS key list -- is made at
+ * the list's end with createRenderPipelineAsync, at most A_MAX unresolved at
+ * once, the rest queued (2026-11-14: hundreds at once held the GPU process,
+ * and onSubmittedWorkDone behind them: 'slow frame N ms, M pipelines made',
+ * the ring-space stalls). A SET_PIPE of one not made yet: in a pass into a
+ * presented surface, the first SYNC_MAX a frame are made at once
+ * (createRenderPipeline), the others start asynchronously and their draws
+ * are skipped until they resolve (a pending one is never compiled twice);
+ * in any other pass (render to texture, maybe drawn once) it is made at
+ * once, as before.
  *
  * Device set-up, the error/lost handling, the present's fullscreen triangle,
  * the arena and the firstInstance draw record follow nfsu2-web's
@@ -163,6 +169,7 @@ addToLibrary({
     shaders: null, pipes: null, pipeByKey: null, bgl1: null, pl: null, bg1: null,
     smps: null, fbgl: null, fmods: null, fpipes: null, fillState: null, ps: null,
     pend: [], lastT: 0, fPipes: 0, fAsync: 0,
+    aQ: [], aRun: 0, A_MAX: 3, SYNC_MAX: 2, syncLeft: 2, fSkip: 0,
 
     log(s) { err('[WGPU] ' + s); },
     once(key, s) { if (!WGPU.said.has(key)) { WGPU.said.add(key); WGPU.log(s); } },
@@ -591,18 +598,32 @@ addToLibrary({
       e.desc = null;
       W.statPipe();
     },
-    pipeAsync(e) {
+    // started now (now: a live miss, ahead of the queue) or queued while
+    // A_MAX are unresolved; pumpAsync starts the queue's next as one resolves
+    pipeAsync(e, now) {
       var W = WGPU, d = e.desc;
-      e.desc = null; e.async = d;      // kept for a SET_PIPE before it resolves (made sync then)
+      if (!W.dev || (e.queued && !now)) return;
+      if (!now && W.aRun >= W.A_MAX) { e.queued = true; W.aQ.push(e); return; }
+      e.desc = null; e.async = d;      // kept for a render-to-texture SET_PIPE before it resolves (made sync then)
+      W.aRun++;
+      var fin = () => { e.async = null; W.aRun--; W.pumpAsync(); };
       W.dev.createRenderPipelineAsync(d).then((p) => {
         if (!e.gpu && !e.bad) e.gpu = p;
-        e.async = null;
+        fin();
       }, (x) => {
         if (!e.gpu) { e.bad = true; W.once('pcb' + e.what, e.what + (x && x.message || x)); }
-        e.async = null;
+        fin();
       });
       W.statPipe();
       W.fAsync++;
+    },
+    pumpAsync() {
+      var W = WGPU;
+      while (W.dev && W.aRun < W.A_MAX && W.aQ.length) {
+        var e = W.aQ.shift();
+        e.queued = false;
+        if (!e.gpu && !e.bad && e.desc) W.pipeAsync(e);   // made meanwhile (a SET_PIPE): nothing to do
+      }
     },
 
     // ---- pass state ----
@@ -610,7 +631,7 @@ addToLibrary({
     beginPass(enc, p, U, F) {
       var W = WGPU, B = W.BP, d = { colorAttachments: [] };
       var ct = U[(p + B.color_tex) >>> 2], dt = U[(p + B.depth_tex) >>> 2];
-      var tw = 0, th = 0, cf = null, df = null, ds = false;
+      var tw = 0, th = 0, cf = null, df = null, ds = false, sh = false;
       if (ct) {
         var t = W.tex.get(ct);
         if (!t) W.once('bpc', 'BEGIN_PASS: unknown colour texture ' + ct);
@@ -620,7 +641,7 @@ addToLibrary({
             storeOp: U[(p + B.color_store) >>> 2] === 1 ? 'discard' : 'store',
             clearValue: { r: F[(p + B.clear_r) >>> 2], g: F[(p + B.clear_g) >>> 2],
                           b: F[(p + B.clear_b) >>> 2], a: F[(p + B.clear_a) >>> 2] } });
-          tw = t.w; th = t.h; cf = t.format;
+          tw = t.w; th = t.h; cf = t.format; sh = !!t.shown;
         }
       }
       if (dt) {
@@ -650,7 +671,7 @@ addToLibrary({
       pass.setIndexBuffer(W.arena, 'uint32');
       if (W.ct) W.ct.dpass++;
       // WebGPU's state at a pass's start, as the contract says C assumes
-      W.ps = { pass: pass, tw: tw, th: th, cf: cf, df: df, ds: ds, pipe: null, bg1: null,
+      W.ps = { pass: pass, tw: tw, th: th, cf: cf, df: df, ds: ds, shown: sh, pipe: null, bg1: null,
                vp: [0, 0, tw, th, 0, 1], sc: [0, 0, tw, th], ref: 0, bc: { r: 0, g: 0, b: 0, a: 0 } };
       return pass;
     },
@@ -722,7 +743,18 @@ addToLibrary({
       var W = WGPU, s = W.ps, id = U[(p + W.SP.id) >>> 2], e = W.pipes.get(id);
       if (!e) { W.once('spu' + id, 'SET_PIPE: unknown pipeline ' + id + ': its draws dropped'); s.pipe = null; return; }
       if (!e.gpu && !e.bad && (e.desc || e.async)) {
-        if (!e.desc) e.desc = e.async;   // still compiling asynchronously: made now, as without prewarm
+        // into a presented surface: past the frame's sync budget, or already
+        // compiling, its draws are skipped until it resolves (no second compile)
+        if (s.shown && (e.async || W.syncLeft <= 0)) {
+          if (e.desc) W.pipeAsync(e, true);
+          W.fSkip++;
+          W.once('pskip', 'pipelines not made yet: their draws skipped until they compile asynchronously'
+                 + ' (more than ' + W.SYNC_MAX + ' new a frame; counted in the slow frame lines)');
+          s.pipe = null;
+          return;
+        }
+        if (!e.desc) e.desc = e.async;   // render to texture while compiling asynchronously: made now, as before
+        else if (s.shown) W.syncLeft--;
         W.pipeMake(e);
       }
       if (e.bad || !e.gpu) { s.pipe = null; return; }
@@ -871,6 +903,7 @@ addToLibrary({
       var W = WGPU, R = W.PR;
       var t = W.tex.get(U[(p + R.src_tex) >>> 2]);
       if (!t) { W.once('prt', 'PRESENT: unknown source texture ' + U[(p + R.src_tex) >>> 2]); return 0; }
+      t.shown = true;   // its passes may skip draws of pipelines still compiling (setPipe)
       var ow = U[(p + R.out_w) >>> 2], oh = U[(p + R.out_h) >>> 2], cv = W.canvas;
       if (ow && oh && (cv.width !== ow || cv.height !== oh)) {
         cv.width = ow; cv.height = oh;
@@ -1045,8 +1078,10 @@ addToLibrary({
       if (!(flags & W.FF_PARTIAL)) {
         if (W.lastT && tEnd - W.lastT > 100 && W.fPipes)
           W.log('slow frame ' + Math.round(tEnd - W.lastT) + ' ms, ' + W.fPipes + ' pipelines made'
-                + (W.fAsync ? ' (' + W.fAsync + ' asynchronously)' : ''));
-        W.lastT = tEnd; W.fPipes = 0; W.fAsync = 0;
+                + (W.fAsync ? ' (' + W.fAsync + ' asynchronously)' : '')
+                + (W.fSkip ? ', ' + W.fSkip + ' pipelines skipped' : '')
+                + (W.aQ.length ? ', ' + W.aQ.length + ' queued' : ''));
+        W.lastT = tEnd; W.fPipes = 0; W.fAsync = 0; W.fSkip = 0; W.syncLeft = W.SYNC_MAX;
       }
       U[W.ci('frames_presented')] += presented;
       U[W.ci('st_cmds')] += n;

@@ -262,7 +262,14 @@ generated files when the lift inputs did not change.
   go in one Range request (fetchRun: the stream hands each block over as it
   comes, the read's own first), a run past the window made 3 blocks long, so
   a file read straight through is one request per 3 MiB, not per 1 MiB;
-  '[WEB] disc: N requests for M blocks' once a session. Music track changes
+  '[WEB] disc: N requests for M blocks' once a session. 2026-11-14 (untested
+  in a browser): assets_x.dat_2 reads ahead on every read like the .xwb (a
+  car build jumps to a car's first entry, a 4 KB read, then reads ~2-4 MB on:
+  cold logs); a game miss no longer drops a background run within 4 blocks
+  (BG_FINISH) of its end. Pre-warming a car's blocks before its build (the
+  build holds the guest lock) is not done: it needs the pack's packed name
+  table ('Dave': 6-bit names with prefix references, TOC in block 0) to map a
+  model to its entries. Music track changes
   (2026-11-11, untested in a browser): every disc read waits under the guest
   lock; a change reads a random entry of mx.xwb (135, shuffled) from its
   start in 352 KB packets, and players' logs showed 0.5-2.5 s freezes per
@@ -819,6 +826,9 @@ generated files when the lift inputs did not change.
   Car radius (2026-11-12, untested in game): a peer gets a car only
   within 250 m of ours (2026-11-12: was 300; the game fades its traffic at 250 m, 0x4AFD18) (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
   a group race) and gives it back (parked, reused) after 3 s beyond 350 m;
+  since 2026-11-14 (untested in game) the car stays held for its peer
+  (roam_rc.far, scored as held: newcomers take free cars first), so a peer
+  coming back within 250 m gets its own car with no rebuild;
   beyond the radius a carless driving peer is a bright blip, not dimmed;
   the load's cars (roam_build, roam_pool_load) ignore it (our position may
   be stale then), the net loop parks them; '[ROAM] radius: N peers in R m,
@@ -973,6 +983,9 @@ no volatile, nfsu2-web's `g_guest` alias trick (needs a regen); (3) log
 spam proxied from workers to the page: RECOMP_QUIET=1 on the web, page log
 batched per frame. Not yet tried: -O3/-msimd128/no memory growth,
 nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
+2026-11-14: RECOMP_KERNEL_FAST is read once (was a getenv per kernel call)
+and the per-take guest-lock stats (gil_stats.c, a mutex per hand-off) run
+only with MC3_PERF, their only reader.
 
 ### WebGPU renderer and frame rate (2026-11-08)
 
@@ -1009,6 +1022,19 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   the next are consumed without drawing (game runs on, picture holds, input
   still read) until a frame completes ('[WGPU] GPU answered after ...'); at
   30 s '[WGPU] GPU stopped responding' -> box, restart on WebGL.
+  Pipeline bursts (2026-11-14, untested in a browser; ~604 of 1061 player
+  logs had 'slow frame N ms, N pipelines made', iPhone 9.5 s a log, iPad
+  28 s): web/wgpu.js keeps at most 3 createRenderPipelineAsync unresolved
+  (the prewarm's rest queued in JS, started as one resolves); a SET_PIPE of
+  a pipeline not made yet, in a pass into a presented surface, makes the
+  first 2 a frame at once and beyond that (or one already compiling) starts
+  it asynchronously and skips its draws until it resolves (brief pop-in;
+  never compiled twice); other passes (render to texture) still make it at
+  once. The slow-frame line adds ', N pipelines skipped, M queued'. Also:
+  texels go into an upload buffer of their own (wgpu_tex.c, <= 32 MB,
+  emptied each submit), not the frame arena (they crossed to the GPU twice);
+  the arena is no longer zeroed; GPU timestamps only with RECOMP_WGPU_STATS=1
+  or MC3_PERF (RECOMP_WGPU_GPUTIME=1/0 forces).
 - **Widescreen (Hor+)**: RECOMP_ASPECT=auto|16:9|21:9|32:9 (page 'Screen
   shape'; Auto follows the canvas through a ResizeObserver ->
   nv2a_wgpu_aspect_box). Surfaces drawn 720 wide (the back buffer's pitch
