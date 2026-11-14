@@ -143,12 +143,33 @@ addToLibrary({
     const SLOW_MS = 100;
     let slowN = 0, slowMs = 0, slowAt = 0;
     function slowRead(fi, offset, length, ms) {
+      learn(fi, ms);
       slowN++; slowMs += ms;
       const now = performance.now();
       if (now - slowAt < 1000) return;
       err(`[WEB] disc wait: ${fi.url} @${offset} ${(length / 1024).toFixed(0)} KB waited ${Math.round(ms)} ms (${slowN} slow`
         + ` read${slowN == 1 ? '' : 's'}, ${Math.round(slowMs)} ms in all, since the last such line)`);
       slowAt = now; slowN = 0; slowMs = 0;
+    }
+    // Learned fill (2026-11-14): a file whose own reads kept the game waiting LEARN_MS in all is fetched whole in the
+    // background (learnChain: one such file at a time, beside the fill: both wait for the game to be idle), so what this player's game actually reads
+    // (Flash screens, the other city packs, the rest of a sound bank) stops freezing it. Not the movies (played once),
+    // not files over LEARN_MAX, at most LEARN_BUDGET a session, never where the fill is off (MC3_PREFETCH=0).
+    const LEARN_MS = 2000, LEARN_MAX = 400 * BLOCK, LEARN_BUDGET = 1024 * BLOCK, learnMs = new Map();
+    let learnChain = Promise.resolve(), learnBytes = 0;
+    function learn(fi, ms) {
+      if (E.MC3_PREFETCH === '0' || !fi.key || fi.size > LEARN_MAX || /\/video\//i.test(fi.url)) return;
+      const t = (learnMs.get(fi.key) ?? 0) + ms;
+      learnMs.set(fi.key, t);
+      if (t < LEARN_MS || t - ms >= LEARN_MS || learnBytes + fi.size > LEARN_BUDGET) return;   // once, on crossing
+      learnBytes += fi.size;
+      learnChain = learnChain.then(async () => {
+        if (!(await cacheFolder())) return;
+        const t0 = performance.now(), nb = Math.ceil(fi.size / BLOCK);
+        err(`[WEB] prefetch: ${fi.url} kept the game waiting ${Math.round(t)} ms: the whole file (${nb} MiB) in the background`);
+        if (await fill(fi, Array.from({ length: nb }, (_, j) => j), false))
+          err(`[WEB] prefetch: ${fi.url} kept, after ${((performance.now() - t0) / 1000).toFixed(0)} s`);
+      }).catch(e => err(`[WEB] prefetch stopped: ${e}`));
     }
     const announce = new BroadcastChannel('mc3-disc');   // the predownload (web/disc_cache.js) stops for a game
     announce.postMessage({ t: 'game' });
