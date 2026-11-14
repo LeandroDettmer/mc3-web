@@ -587,6 +587,7 @@
       <p><b>Free Roam</b>: pick <b>Online</b> to drive the city with everyone who picked the same city. Every car and part is unlocked.</p>
       <p><b>Online Races</b>: hold <b>White</b> (<b>Q</b> or <b>Shift</b> on the keyboard, a shoulder button on a gamepad) while you pick <b>Online</b>, then <b>Online Races</b>: <b>Host Game</b> to start a race, or <b>Join Game</b> to race in someone else's.</p>
       <p>Set <b>Your name</b> below: it is what the other players see.</p>
+      <p class="hint">In Free Roam your browser connects straight to the nearest players (WebRTC), so they can see your IP address, as in most online games.</p>
     </div>
     <div class="online-now" id="online-now-tab" hidden style="margin-top:20px"><div class="on-body" role="status"></div><button type="button" class="btn on-view" aria-haspopup="dialog" aria-controls="players-dlg" hidden>View players</button></div>
     <p class="hint" id="lan-status" role="status"></p>
@@ -892,8 +893,6 @@
     // page-only (web/pre.js name tags; the game ignores it): a slider with a sample tag (settingRow's range branch)
     { key: 'MC3_NAMETAG_SIZE', label: 'Name tag size', help: 'How big the names over other players\' cars are. Changes live.',
       range: { min: 50, max: 150, step: 10, def: 100 }, opts: [] },
-    // page-only (web/rtc.js roamP2P; the game ignores it)
-    { key: 'MC3_ROAM_P2P', label: 'Direct connections (P2P) in Free Roam', help: 'The nearest players\' cars come straight from their browsers, not through the server: lighter on the server. It shares your IP address with those players. Off: everything goes through the server. Changes live.', opts: ONOFF() },
     { group: 'Keyboard' },
     { key: 'RECOMP_KEYBOARD', label: 'Keyboard as pad 1', help: 'Off leaves only controllers. Changes live.', opts: ONOFF() },
     { key: 'RECOMP_KEYBOARD_STICK_Y', label: 'Up and Down move the stick', help: 'Menus move with the stick. Auto: while driving (when the game says so) the arrows are gas and brake alone.',
@@ -1022,13 +1021,13 @@
   // Live (2026-11-12): web/pre.js mc3SetLive writes a box the game reads at its next use (resolution, filtering and
   // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
   // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
-  const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'MC3_ROAM_P2P', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
+  const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
     'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_CAREER_ONLINE', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']);
   const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
   const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
     ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
-    ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'MC3_ROAM_P2P', 'RECOMP_RAM_MB']],
+    ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_RAM_MB']],
     ['ig-controls', ['MC3_DRIFT', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
   ];
   function renderIngame() {
@@ -1046,7 +1045,6 @@
     $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
     if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
     if (key === 'MC3_NAMETAG_SIZE') window.Module?.mc3SetNameTagSize?.(Number(value) || 100);   // web/pre.js, live
-    if (key === 'MC3_ROAM_P2P' && lan?.rtc) lan.rtc.roamP2P = roamP2P();   // web/rtc.js, live
     if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
     if (key === 'MC3_DRIFT') syncDrift();
     if (live(key) && window.Module?.mc3SetLive) Module.mc3SetLive(key, buildEnv(null)[key]);   // the value a start would get
@@ -2623,8 +2621,9 @@
     }
     return lan;
   }
-  // Settings 'Direct connections (P2P) in Free Roam' (?MC3_ROAM_P2P=0 / =1 wins): on unless set to 0
-  function roamP2P() { return (new URLSearchParams(location.search).get('MC3_ROAM_P2P') ?? settings.MC3_ROAM_P2P) !== '0'; }
+  // Free Roam P2P is always on (2026-11-14, owner: a player turning it off moved all their frames onto the paid city
+  // object); no setting any more, a saved MC3_ROAM_P2P is ignored. ?MC3_ROAM_P2P=0 stays for debugging only.
+  function roamP2P() { return new URLSearchParams(location.search).get('MC3_ROAM_P2P') !== '0'; }
   $('saves-refresh').onclick = () => { savesMsg(''); listSaves(); listSnaps(); };
   $('saves-export').onclick = exportAll;
   $('oprof-export').onclick = oprofExport;
