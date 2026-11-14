@@ -1364,7 +1364,7 @@ static int roam_listed(uint32_t veh)
  * update does reach the step. One log line per car. A rebuild (roam_rc_make)
  * clears the state: the new vehicle often gets the deleted one's address, and
  * 'done' kept from the old car left every such rebuilt car bare (2026-11-14:
- * 8,751 of 25,510 rebuilds in two days of players' logs never re-sized). */
+ * 8,855 of 25,510 rebuilds in two days of players' logs never re-sized). */
 typedef struct {
     uint32_t veh;                               /* the vehicle this state is for (a rebuild starts over) */
     uint8_t done, said;                         /* said: "no rim geometry" logged */

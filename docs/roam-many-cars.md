@@ -42,7 +42,7 @@ player object: builder ctor sub_002CB270(name, 0, slot, CarCfg*, flag, pad)
   on f51e44b): roam_tyres keyed its 'done' by vehicle address, and a
   rebuild (look change, the standalone cars rebuilt after a state request)
   deletes the old car and builds the new one in the same heap, which often
-  hands back the same address -- 8,751 of 25,510 rebuilds in two days of
+  hands back the same address -- 8,855 of 25,510 rebuilds in two days of
   players' logs had no tyres line after them (98.8 % of those had sized the
   entry's previous car). roam_rc_make now clears the entry's tyre state on
   every build; each rebuild logs its own 'tyres: ... sized' line;

@@ -753,7 +753,7 @@ generated files when the lift inputs did not change.
   (hidden, out of the physics level, 30 km off). Tyres (2026-11-14, fix
   untested in game): roam_tyres sizes a remote car's tyres once per vehicle
   address; a rebuild often reuses the deleted car's address, so rebuilt cars
-  stayed bare rims (8,751 of 25,510 rebuilds in two days of logs); every
+  stayed bare rims (8,855 of 25,510 rebuilds in two days of logs); every
   build now clears the entry's tyre state ('[ROAM] tyres: ... sized' after
   each '[ROAM] look: ... rebuilt'). Nearest gets a car: while
   no car can be built (count or heap), the nearest driving peer without one
