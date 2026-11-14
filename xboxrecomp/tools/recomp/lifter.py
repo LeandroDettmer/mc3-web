@@ -2132,8 +2132,51 @@ class Lifter:
     def _lift_shrd(self, insn, ops):
         return self._lift_double_shift(insn, ops, "shrd")
 
+    def _lift_narrow_muldiv(self, ops, m, w):
+        """One-operand mul/imul/div/idiv at 8 and 16 bits.
+
+        These were lifted as the 32-bit forms (edx:eax = eax * src), so
+        `imul dl` wrote the product's high half into edx. x86's 8-bit form
+        writes AX alone (AL = AL * src8, AH the high byte) and leaves edx
+        untouched; the 16-bit form writes AX and DX's low halves. Midnight
+        Club 3 Remix's colour-shift palette fill (0x00270210: `mov al, cl;
+        imul dl; mov [esi+edx+0x50], al; inc edx; cmp edx, ebx; jl`) uses
+        edx as its counter: reset to 0 by every imul, it looped forever and
+        froze the garage's Custom Color Shift screen. The source is read
+        once into a local before any register is written, so `div word ptr
+        [edx]` or `imul al` see the old values.
+        """
+        src = _fmt_operand_read(ops[0])
+        signed = m in ("imul", "idiv")
+        if w == 1:
+            t = "int8_t" if signed else "uint8_t"
+            if m in ("mul", "imul"):
+                return [f"SET_LO16(eax, (uint32_t)((int32_t)({t})LO8(eax)"
+                        f" * (int32_t)({t}){src}));  /* {m} r/m8: ax = al * src */"]
+            d = "(int32_t)(int16_t)LO16(eax)" if signed else "(int32_t)LO16(eax)"
+            return [f"{{ int32_t _s = (int32_t)({t}){src}, _d = {d};",
+                    f"  SET_LO8(eax, _d / _s); SET_HI8(eax, _d % _s); }}"
+                    f"  /* {m} r/m8: al = ax / src, ah = ax % src */"]
+        t = "int16_t" if signed else "uint16_t"
+        if m in ("mul", "imul"):
+            return [f"{{ uint32_t _r = (uint32_t)((int32_t)({t})LO16(eax)"
+                    f" * (int32_t)({t}){src});",
+                    f"  SET_LO16(eax, _r); SET_LO16(edx, _r >> 16); }}"
+                    f"  /* {m} r/m16: dx:ax = ax * src */"]
+        if signed:
+            return [f"{{ int32_t _s = (int32_t)(int16_t){src};",
+                    "  int32_t _d = (int32_t)(((uint32_t)LO16(edx) << 16) | LO16(eax));",
+                    f"  SET_LO16(eax, _d / _s); SET_LO16(edx, _d % _s); }}"
+                    f"  /* idiv r/m16: ax = dx:ax / src, dx = dx:ax % src */"]
+        return [f"{{ uint32_t _s = (uint32_t)(uint16_t){src};",
+                "  uint32_t _d = ((uint32_t)LO16(edx) << 16) | LO16(eax);",
+                f"  SET_LO16(eax, _d / _s); SET_LO16(edx, _d % _s); }}"
+                f"  /* div r/m16: ax = dx:ax / src, dx = dx:ax % src */"]
+
     def _lift_imul(self, insn, ops):
         nops = len(ops)
+        if nops == 1 and (_operand_width(ops[0]) or 4) < 4:
+            return self._lift_narrow_muldiv(ops, "imul", _operand_width(ops[0]))
         if nops == 1:
             # One operand: edx:eax = eax * ops[0]
             src = _fmt_operand_read(ops[0])
@@ -2156,6 +2199,8 @@ class Lifter:
     def _lift_muldiv(self, insn, ops, m):
         if len(ops) < 1:
             return [f"/* {m}: no operand */"]
+        if (_operand_width(ops[0]) or 4) < 4:
+            return self._lift_narrow_muldiv(ops, m, _operand_width(ops[0]))
         src = _fmt_operand_read(ops[0])
         if m == "mul":
             return [
