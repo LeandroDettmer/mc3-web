@@ -425,7 +425,7 @@
       <p class="hint" id="skipintro-help" style="margin-top:4px">Boots past the Rockstar logos and the intro movie, none of them played. <code>MC3_SKIP_MOVIES=hard</code></p>
       <div id="cache" hidden>
         <p class="hint" id="cache-status" role="status" style="margin-top:16px"></p>
-        <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-get">Download the whole game now</button><button type="button" class="btn" id="cache-clear">Clear</button></div>
+        <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-clear">Clear</button></div>
       </div>
       <ul class="checks" id="checks" aria-label="What the game needs"></ul>
     </section>
@@ -1441,42 +1441,22 @@
   const fmtBytes = n => n >= 1e9 ? (n / 2 ** 30).toFixed(2) + ' GB' : (n / 2 ** 20).toFixed(0) + ' MB';
   const pct = (a, b) => b ? Math.floor(100 * a / b) + '%' : '–';
   const discUrl = d => new URL(d.path, location.href).href;
-  let fetcher = null;
   async function cacheShow() {
     const d = currentDisc(), on = opfs && !!d && typeof MC3DiscCache == 'object';
     $('cache').hidden = !on;
-    if (!on || fetcher) return;
+    if (!on) return;
     if (!MC3DiscCache.enabled(buildEnv(null).MC3_DISC_CACHE)) {
       $('cache-status').textContent = 'Local server: the disc is read directly, nothing is cached.';
-      $('cache-get').hidden = true;
       return;
     }
-    $('cache-get').hidden = false;
     try {
       const s = await MC3DiscCache.scan(discUrl(d));
       $('cache-status').textContent = `Disc kept in this browser: ${fmtBytes(s.have)} of ${fmtBytes(s.total)} (${pct(s.have, s.total)}). Kept parts load without the network.`;
-      $('cache-get').disabled = document.body.classList.contains('playing') || s.have >= s.total;
     } catch (e) { $('cache-status').textContent = 'Disc cache: ' + (e.message || e); }
   }
-  // the whole disc into the cache (disc_cache.js predownload worker); only on this click, never beside a game
-  function cacheGet() {
-    if (fetcher) { fetcher.postMessage({ t: 'stop' }); return; }
-    const d = currentDisc();
-    if (!d || document.body.classList.contains('playing')) return;
-    fetcher = new Worker('disc_cache.js', { name: 'mc3-predownload' });
-    $('cache-get').textContent = 'Stop downloading'; $('cache-clear').disabled = true;
-    fetcher.onmessage = e => {
-      const m = e.data;
-      if (m.t === 'progress') { $('cache-status').textContent = `Downloading the disc: ${fmtBytes(m.have)} of ${fmtBytes(m.total)} (${pct(m.have, m.total)}).`; return; }
-      fetcher.terminate(); fetcher = null;
-      $('cache-get').textContent = 'Download the whole game now'; $('cache-clear').disabled = false;
-      if (m.t === 'error') $('cache-status').textContent = 'The download stopped: ' + m.msg + '. What came is kept; try again.';
-      else cacheShow();
-    };
-    fetcher.postMessage({ t: 'start', disc: discUrl(d) });
-  }
+  // 2026-11-14: no "Download the whole game now" button any more (R2 reads cost: ~4.5k a player); the game fetches what it reads
   async function cacheClear() {
-    if (fetcher || !confirm('Delete the disc data kept in this browser? Saves stay.')) return;
+    if (!confirm('Delete the disc data kept in this browser? Saves stay.')) return;
     try { await MC3DiscCache.clear(); } catch (e) { $('cache-status').textContent = 'Not cleared: ' + (e.message || e); return; }
     cacheShow();
   }
@@ -2470,7 +2450,6 @@
   $('play').onclick = play;
   $('resume-btn').hidden = !resumeFresh();
   $('resume-btn').onclick = () => { restart = { resume: true }; play(); };
-  $('cache-get').onclick = cacheGet;
   $('cache-clear').onclick = cacheClear;
   // an iPhone's Safari has no element full screen: no button that does nothing (and a shorter bar)
   // (?.: a phone may still hold an older touch.js in its cache)
