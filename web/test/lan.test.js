@@ -19,6 +19,7 @@ class FakeWS {
 }
 const g = globalThis;
 g.window = g;
+g.addEventListener = () => {};   // lan.js listens for input (AFK kick)
 g.location = { protocol: 'https:', host: 'mc3.example' };
 g.WebSocket = FakeWS;
 g.setTimeout = (f, ms) => { timers.push({ f, ms, at: now + ms, iv: false }); return timers.length; };

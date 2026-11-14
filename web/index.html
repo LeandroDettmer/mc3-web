@@ -2026,7 +2026,14 @@
   const PIN_RE = /\[ICALL\]|\[GUEST\]|KeBugCheck|Heap overrun|\[ROAM\] shader check/;
   let logPins = [], pinLeft = 0, pinFatal = 0, logRep = 0;
   const logRepLine = () => `[WEB] log: ${logRep} repeated line(s) left out (each the same as one of the 4 above)`;
+  // The crash tail's "lines of note": the last line matching each pattern, kept as lines arrive (keepTail used to run
+  // every pattern over the whole ring every 5 s: 13 x ~20k lines).
+  const TAIL_CTX = [/\[WEB\] low-memory profile/, /\[WEB\] memory: /, /\[WEB\] memory in use/, /\[WEB\] out of memory/,
+    /\[WEB\] failure:/, /\[WEB\] (error|freeze|hitch):/, /\[WGPU\] (watchdog|device lost)/, /\[GL\] .*(lost|refused|failed)/,
+    /\[WEB\] graphics:/, /\[(GUEST|HEAP)\]/, /\[ROAM\] (heap|cars heap)/, /\[roam\] status/, /\[WEB\] tab (hidden|visible)/];
+  const tailLast = TAIL_CTX.map(() => '');
   function logPush(text) {
+    for (let i = 0; i < TAIL_CTX.length; i++) if (TAIL_CTX[i].test(text)) tailLast[i] = String(text).trim();
     logN++; logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
     if (logN <= 80) logPins.push([logN, text]);
     else if (pinLeft > 0) { pinLeft--; logPins.push([logN, text]); }
@@ -2214,20 +2221,20 @@
     try { let id = sessionStorage.getItem('mc3.tab'); if (!id) sessionStorage.setItem('mc3.tab', id = Math.random().toString(36).slice(2)); return id; }
     catch { return ''; }
   })();
-  const TAIL_CTX = [/\[WEB\] low-memory profile/, /\[WEB\] memory: /, /\[WEB\] memory in use/, /\[WEB\] out of memory/,
-    /\[WEB\] failure:/, /\[WEB\] (error|freeze|hitch):/, /\[WGPU\] (watchdog|device lost)/, /\[GL\] .*(lost|refused|failed)/,
-    /\[WEB\] graphics:/, /\[(GUEST|HEAP)\]/, /\[ROAM\] (heap|cars heap)/, /\[roam\] status/, /\[WEB\] tab (hidden|visible)/];
   const tailClear = () => { try { for (const k of ['crashTail', 'crashBeat', 'crashTab']) localStorage.removeItem('mc3.' + k); } catch {} };
   function keepTail() {
     let n = -1;
-    const write = () => {
+    let tailAt = 0;
+    // the heartbeat every 5 s; the ~200 KB tail only when the log changed and 15 s passed (or force: hidden tab, start),
+    // a localStorage write of that size every 5 s was main-thread time for nothing
+    const write = force => {
       try {
         localStorage.setItem('mc3.crashBeat', String(Date.now()));
         localStorage.setItem('mc3.crashTab', tabId);
-        if (n === logN) return;
-        n = logN;
+        if (n === logN || (!force && Date.now() - tailAt < 15000)) return;
+        n = logN; tailAt = Date.now();
         // the deciding lines first, whatever the tail still holds: 175 silent kills on 2026-11-11 said nothing
-        const ctx = TAIL_CTX.map(lastLine).filter(Boolean);
+        const ctx = tailLast.filter(Boolean);
         localStorage.setItem('mc3.crashTail', logHeader('previous-crash', 'the tab ended without a clean exit (killed, crashed or out of memory)')
           + (ctx.length ? '--- last lines of note ---\n' + ctx.join('\n') + '\n--- log tail ---\n' : '')
           + logDump(logText.slice(-4000), TAIL_CHARS));
@@ -2236,10 +2243,10 @@
     // a closing tab fires pagehide and then visibilitychange (hidden): that write came after the clear and every closed
     // tab was sent as a previous-crash (2026-11-11: 33 in the first hour of 60059b1). Nothing is written once gone.
     let gone = false;
-    write();
+    write(true);
     setInterval(() => { if (!gone) write(); }, 5000);
     // iOS/Android kill a hidden tab to free memory: the tail says whether it was hidden, and since when (since Play)
-    document.addEventListener('visibilitychange', () => { if (playing && !gone) { out(`[WEB] tab ${document.visibilityState} at ${since(tPlay)} since Play`); write(); } });
+    document.addEventListener('visibilitychange', () => { if (playing && !gone) { out(`[WEB] tab ${document.visibilityState} at ${since(tPlay)} since Play`); write(true); } });
     addEventListener('pagehide', () => { gone = true; if (playing) tailClear(); });
     addEventListener('pageshow', e => { if (e.persisted) gone = false; });   // back from the back/forward cache
   }
@@ -2595,6 +2602,8 @@
   setInterval(() => {
     const w = whereNow();
     lan?.where?.(w);
+    // the players push only where the list is read: the page, the main menu (Online (N)), the full map's panel
+    lan?.watchPlayers?.(!playing || w === 'menu' || !!window.Module?.mc3BigMapOpen);
     // Online career (MC3_CAREER_ONLINE): the free-roam session came from the career; it stays one until Free Roam
     // ('arcade') or the session's BYE (lan.js)
     if (lan?.roaming) { if (w === 'career') lan.career = true; else if (w === 'arcade') lan.career = false; }

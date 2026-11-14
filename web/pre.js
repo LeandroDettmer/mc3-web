@@ -369,6 +369,20 @@ Module['mc3FlagEl'] = function (code) {
   return f;
 };
 
+// Cached rects of the canvas and its parent for the overlays below (2026-11-14: each read a layout every frame right
+// after its own style writes: a forced layout per rAF). Refreshed at most every 250 ms and on resize; epoch counts
+// the refreshes, so an overlay can skip placing itself while nothing it reads changed. One shared object.
+(function () {
+  if (typeof window != 'object') return;
+  var pic = { r: null, L: null, epoch: 0 }, t = -1e9;
+  addEventListener('resize', function () { t = -1e9; });
+  Module['mc3Pic'] = function (now) {
+    var cv = Module['canvas'];
+    if (!(now - t < 250) && cv && cv.parentNode) { t = now; pic.r = cv.getBoundingClientRect(); pic.L = cv.parentNode.getBoundingClientRect(); pic.epoch++; }
+    return pic;
+  };
+})();
+
 // Name tags: other players' names over their cars in free roam, on the game's own opponent arrow. src/games/remix/
 // roam_tags.c publishes, each frame of the main camera, where each driven remote car's arrow tip is on the picture
 // (roam_tags_box: seq, n, picture width / height, the arrow's colour 0xRRGGBB, then n x 48 bytes: u, v (0..1), the
@@ -385,7 +399,7 @@ Module['mc3FlagEl'] = function (code) {
   if (!canvas) return;
   Module['mc3SetNameTags'] = function (v) { on = !!v; };
   Module['mc3SetNameTagSize'] = function (v) { size = Math.min(150, Math.max(50, Number(v) || 100)) / 100; };
-  function hideFrom(n) { for (; shown > n; shown--) pool[shown - 1].style.display = 'none'; }
+  function hideFrom(n) { for (; shown > n; shown--) { pool[shown - 1].style.display = 'none'; pool[shown - 1]._d = 0; } }
   function frame(now) {
     requestAnimationFrame(frame);
     if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_tags_box != 'function' || !canvas.parentNode) return;
@@ -401,11 +415,12 @@ Module['mc3FlagEl'] = function (code) {
     if (!on || now - seenAt > 400 || !(n > 0) || !(aspect > 0)) { hideFrom(0); return; }   // stale: game paused or gone
     n = Math.min(n, 32);
     // the picture inside the canvas: object-fit contain, or fill with the stage's Stretch
-    var r = canvas.getBoundingClientRect(), L = layer.getBoundingClientRect(), x = r.left - L.left, y = r.top - L.top,
+    var pc = Module['mc3Pic'](now), r = pc.r, L = pc.L, x = r.left - L.left, y = r.top - L.top,
         w = r.width, h = r.height;
     if (!canvas.parentNode.classList.contains('stretch')) {
       if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
     }
+    var fsz = (Math.max(10, h * 0.022) * size).toFixed(1) + 'px';
     for (var i = 0; i < n; i++) {
       var t = b + 4 + i * 12, el = pool[i], name = '', flag = '';
       for (var c = 0, p = (t + 3) * 4; c < 27 && U8[p + c]; c++) name += String.fromCharCode(U8[p + c]);
@@ -426,12 +441,15 @@ Module['mc3FlagEl'] = function (code) {
         if (fe) el.append(fe);
         el.append(name);
       }
-      el.style.color = racing ? '#ffd24a' : rgb;
-      el.style.fontSize = (Math.max(10, h * 0.022) * size).toFixed(1) + 'px';   // about the HUD's small text, times the setting
-      el.style.transform = 'translate(' + (x + F32[t] * w).toFixed(1) + 'px,' + (y + F32[t + 1] * h).toFixed(1) +
-        'px) translate(-50%,-100%)';
-      el.style.opacity = Math.max(0, Math.min(1, F32[t + 2])).toFixed(2);   // the arrow's own fade
-      el.style.display = '';
+      // styles are written only on change (an unchanged write still dirtied style)
+      var col = racing ? '#ffd24a' : rgb;
+      if (el._c !== col) el.style.color = el._c = col;
+      if (el._f !== fsz) el.style.fontSize = el._f = fsz;   // about the HUD's small text, times the setting
+      var tr = 'translate(' + (x + F32[t] * w).toFixed(1) + 'px,' + (y + F32[t + 1] * h).toFixed(1) + 'px) translate(-50%,-100%)';
+      if (el._t !== tr) el.style.transform = el._t = tr;
+      var op = Math.max(0, Math.min(1, F32[t + 2])).toFixed(2);   // the arrow's own fade
+      if (el._o !== op) el.style.opacity = el._o = op;
+      if (!el._d) { el.style.display = ''; el._d = 1; }
     }
     if (n > shown) shown = n;
     hideFrom(n);
@@ -481,7 +499,8 @@ Module['mc3FlagEl'] = function (code) {
     function flagged(d, name) { var f = Module['mc3FlagEl'] && Module['mc3FlagEl'](flags[String(name).toLowerCase()]); if (f) d.prepend(f); return d; }
     if (s !== seq) { seq = s; seenAt = now; }
     var lan = Module['mc3Lan'], list = lan && lan.players && Array.isArray(lan.players.list) ? lan.players.list : null;
-    var open = now - seenAt <= 400, show = open && !!list;   // map closed, paused or gone; no list: players hidden
+    var open = now - seenAt <= 400, show = open && !!list;
+    Module['mc3BigMapOpen'] = open;   // the page (index.html) subscribes to the players push only while the full map is up   // map closed, paused or gone; no list: players hidden
     if (!show) el.style.display = 'none';
     if (!open) { if (pel) pel.style.display = 'none'; if (rel) rel.style.display = 'none'; return; }
     var roam = (list || []).filter(function (p) { return p && p.mode == 'roam'; }), mine = [], other = [];
@@ -525,7 +544,7 @@ Module['mc3FlagEl'] = function (code) {
       el.scrollTop = keep;
     }
     // the picture inside the canvas (object-fit contain unless Stretch), its shape as the name tags got it
-    var r = canvas.getBoundingClientRect(), L = canvas.parentNode.getBoundingClientRect(), x = r.left - L.left,
+    var pc = Module['mc3Pic'](now), r = pc.r, L = pc.L, x = r.left - L.left,
         y = r.top - L.top, w = r.width, h = r.height, aspect = 16 / 9;
     if (typeof _roam_tags_box == 'function') {
       var a = F32[(_roam_tags_box() >>> 2) + 2];
@@ -639,7 +658,7 @@ Module['mc3RaceButton'] = function (act) {
 };
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
-  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null, big = false;
+  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null, big = false, placed = '';
   var ACTS = { 1: 'Cancel race', 2: 'Leave race', 3: 'Give up race', 4: 'Decline' };
   // the minimap's top-left in the HUD's 16:9 (720x480 layout): left edge and top, fractions of the HUD's width/height
   var MAP_LEFT = 0.055, MAP_TOP = 0.64, GAP = 0.015;
@@ -712,7 +731,7 @@ Module['mc3RaceButton'] = function (act) {
     }
     if (!text) { el.style.display = 'none'; return; }
     // the picture inside the canvas (object-fit contain unless Stretch), its shape as the name tags got it
-    var r = canvas.getBoundingClientRect(), L = canvas.parentNode.getBoundingClientRect(), x = r.left - L.left,
+    var pc = Module['mc3Pic'](now), r = pc.r, L = pc.L, x = r.left - L.left,
         y = r.top - L.top, w = r.width, h = r.height, aspect = 16 / 9;
     if (typeof _roam_tags_box == 'function') {
       var a = F32[(_roam_tags_box() >>> 2) + 2];
@@ -722,6 +741,10 @@ Module['mc3RaceButton'] = function (act) {
       if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
     }
     if (!(w > 0 && h > 0)) { el.style.display = 'none'; return; }
+    // placement only when an input changed: it read layout (offsetHeight, touch buttons' rects) after last frame's writes
+    var pk = shown + '|' + pc.epoch + '|' + x + '|' + y + '|' + w + '|' + h + '|' + el.style.display;
+    if (pk === placed) return;
+    placed = pk;
     var st = el.style;
     if (big) {
       st.fontSize = Math.max(14, h * 0.03).toFixed(1) + 'px';
@@ -757,7 +780,7 @@ Module['mc3RaceButton'] = function (act) {
 // under it (a phone's d-pad). Main thread only.
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
-  var canvas = Module['canvas'], el = null, bigEl = null, seq = -1, seenAt = 0, I32 = null, shown = null, bigShown = null;
+  var canvas = Module['canvas'], el = null, bigEl = null, seq = -1, seenAt = 0, I32 = null, shown = null, bigShown = null, placed = '';
   if (!canvas) return;
   function str(p, n) { var e = p; while (e < p + n && HEAPU8[e]) e++; return new TextDecoder().decode(HEAPU8.slice(p, e)); }
   function frame(now) {
@@ -789,7 +812,7 @@ Module['mc3RaceButton'] = function (act) {
     }
     if (big !== bigShown) { bigShown = big; bigEl.textContent = big; }
     if (!text && !big) { el.style.display = bigEl.style.display = 'none'; return; }
-    var r = canvas.getBoundingClientRect(), L = canvas.parentNode.getBoundingClientRect(), x = r.left - L.left,
+    var pc = Module['mc3Pic'](now), r = pc.r, L = pc.L, x = r.left - L.left,
         y = r.top - L.top, w = r.width, h = r.height, aspect = 16 / 9;
     if (typeof _roam_tags_box == 'function') {
       var a = new Float32Array(HEAPU8.buffer)[(_roam_tags_box() >>> 2) + 2];
@@ -799,6 +822,10 @@ Module['mc3RaceButton'] = function (act) {
       if (w / h > aspect) { x += (w - h * aspect) / 2; w = h * aspect; } else { y += (h - w / aspect) / 2; h = w / aspect; }
     }
     if (!(w > 0 && h > 0)) { el.style.display = bigEl.style.display = 'none'; return; }
+    // placement only when an input changed (it read offsetWidth/Height and touch rects after last frame's writes)
+    var pk = shown + '|' + bigShown + '|' + pc.epoch + '|' + x + '|' + y + '|' + w + '|' + h + '|' + el.style.display + bigEl.style.display;
+    if (pk === placed) return;
+    placed = pk;
     var st = el.style, bs = bigEl.style, hw = Math.min(w, h * 16 / 9),
         left = x + (w - hw) / 2 + hw * 0.055, top = y + h * 0.36, bt = y + h * 0.27,
         bw = Math.max(el.offsetWidth, bigEl.offsetWidth) || w * 0.2, bb = top + (el.offsetHeight || h * 0.08);

@@ -1061,6 +1061,12 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   (touch.js). Peers see our car crawl. A System Link race also slows for
   the hidden player. The render thread still draws the 4 fps (dropping
   frames would miss one-time render-to-texture work done while hidden).
+- **Page-side cost** (2026-11-14, untested in a browser): the crash tail keeps its
+  "lines of note" as lines arrive (index.html logPush, tailLast) and writes the ~200 KB at most every 15 s
+  (forced on tab hidden); the overlays in pre.js read the canvas rects from Module.mc3Pic (cached 250 ms) and
+  write styles only on change (no forced layout per rAF); the players push (lan.js link.watchPlayers) is
+  subscribed only on the page, in the main menu and while the full map is open (Module.mc3BigMapOpen), checked
+  by the 2 s whereNow() interval.
 - **Builds**: tools/build_web.sh uses ccache when installed (WSL:
   ~/.cache/ccache-mc3, CCACHE_BASEDIR = repo, so build folders share it;
   CCACHE=0 off). Builds on /mnt/e are slow; one relift per round.

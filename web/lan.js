@@ -48,7 +48,7 @@ window.mc3Lan = function (name, lanUrl) {
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
                players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null, city: null, roamDown: 0 };
   var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, TICKET_WAIT = 10000, cityOn = false, bundleSw = false, city = null;   // city: {n, ws, asked, askedAt, open, openAt, fails, retryAt, bundle}
-  var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, rejoin = null, pass = '', auto = false;
+  var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, wantPlayers = true, playersSub = false, rejoin = null, pass = '', auto = false;
   // The keep-alive: the Cloudflare switch's runtime answers this exact text itself (setWebSocketAutoResponse,
   // web/races-worker/src/index.js BEAT), so an idle page never wakes its Durable Object. web/server ignores it: until
   // a beat comes back, the page sends {"t":"ping"} instead (answered with a pong by every switch).
@@ -84,7 +84,8 @@ window.mc3Lan = function (name, lanUrl) {
       hello();
       told = ''; tellWhere();
       if (sub) ws.send(JSON.stringify({ t: 'rooms', sub: 1 }));
-      ws.send(JSON.stringify({ t: 'players', sub: 1 }));
+      playersSub = false;
+      if (wantPlayers) { ws.send(JSON.stringify({ t: 'players', sub: 1 })); playersSub = true; }
       if (rejoin) { auto = true; ws.send(JSON.stringify({ t: 'join', room: rejoin.id, pass: rejoin.pass })); }
       ws.send(BEAT);   // does this switch answer beats?
       // keeps an idle page joined (the server's IDLE, proxies); answered, so a dead link shows as silence
@@ -298,7 +299,15 @@ window.mc3Lan = function (name, lanUrl) {
   };
   link.rename = function (n) { name = n; if (up()) hello(); };
   // Subscribes to the players push again (the switch answers at once); the page calls it when it wants the list and has none.
-  link.askPlayers = function () { if (up()) ws.send(JSON.stringify({ t: 'players', sub: 1 })); };
+  link.askPlayers = function () { if (up()) { ws.send(JSON.stringify({ t: 'players', sub: 1 })); playersSub = true; } };
+  // Wants the players push or not (default yes). In game the list is read only by the main menu's count and the full
+  // map's panel, and the switch pushes up to 200 names on every change: the page asks only then. Sent on change only.
+  link.watchPlayers = function (on) {
+    on = !!on;
+    if (on === wantPlayers) return;
+    wantPlayers = on;
+    if (up() && playersSub !== on) { ws.send(JSON.stringify({ t: 'players', sub: on ? 1 : 0 })); playersSub = on; }
+  };
   // w: 'page' | 'loading' | 'menu' | 'career' | 'arcade' (the switch ignores any other); call as often as you like
   link.where = function (w) {
     now = w;
