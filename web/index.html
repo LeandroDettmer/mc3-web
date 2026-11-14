@@ -159,6 +159,8 @@
   .you .flag { font-size: 24px; cursor: pointer; }
   .you-main { flex: 1; min-width: 0; display: grid; }
   .you #you-edit { min-height: 32px; padding: 0 10px; font-size: 13px; flex: none; }
+  .you-online { flex: none; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .you-online b { color: var(--text, inherit); font-size: 15px; }
   .you-label { font-size: 11px; line-height: 14px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
   .you-nick { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; font-size: 20px;
               line-height: 26px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -411,6 +413,7 @@
       <div class="you" aria-label="You, as other players see you">
         <span class="flag" id="you-flag" role="img" title="Change flag"></span>
         <div class="you-main"><span class="you-label">You</span><strong class="you-nick" id="you-nick"></strong></div>
+        <span class="you-online" id="you-online" hidden title="Players online now"><span class="on-dot" aria-hidden="true"></span><b></b> online</span>
         <button type="button" class="btn" id="you-edit" aria-label="Change nick">Edit</button>
       </div>
       <label class="field"><span>Your flag, before your name over your car in free roam</span><select id="flag"></select></label>
@@ -2651,6 +2654,7 @@
     const n = v => Math.max(0, Math.floor(Number(v)) || 0), rooms = s.freeRoam.rooms;
     const el$ = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
     const online = n(s.online), roam = Math.min(online, n(s.freeRoam.total)), races = n(s.races?.rooms);
+    $('you-online').querySelector('b').textContent = online; $('you-online').hidden = false;   // the total on the You card too
     const head = el$('p', 'on-head'), dot = el$('span', 'on-dot'); dot.setAttribute('aria-hidden', 'true');
     head.append(dot, el$('b', '', online), el$('span', '', online === 1 ? 'player online' : 'players online'));
     const box = (k, label) => { const d = el$('div', 'on-mode'); d.append(el$('b', '', k), el$('span', '', label)); return d; };
