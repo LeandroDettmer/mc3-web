@@ -106,7 +106,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Another player's car no longer jumps forward or back when you get close to it.
 - **Free Roam:** Fixed a freeze in a full city, when many players come and go around you.
 
-## 2026-11-14 (de668d8)
+## 2026-11-14 (b82eee9)
 
 - **Online:** After 3 minutes without any key, touch or controller input in Free Roam or the Online career, you are taken offline to save server load; press any key or button to reconnect.
 - **Online career:** Fixed a crash when a race started with a player on a motorbike nearby; such players show on the map instead of as a ghost.
@@ -119,4 +119,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Controls:** Touch buttons and the steering stick no longer stay stuck on after a finger leaves the screen or the app is switched.
 - **Loading:** Game files are downloaded in larger pieces when read straight through, so first loads wait a little less on slow connections.
 - **Free Roam:** Other players' cars no longer show bare rims without tyres after a player changes car or parts, or when a car is passed on to another player.
-- **Page:** New start page: a side menu, one clean panel per section with settings split into tabs, and a bottom bar.
+- **Page:** New start page: a side menu, one clean panel per section with settings split into tabs, a bottom bar, and Donate and Ko-fi right under Play.
