@@ -129,7 +129,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** The street race offer is now a small green hint by the minimap (and a green Flash button on touch), not a big box.
 - **Keyboard:** A tap of an arrow in the garage and menus moves one item; hold it to scroll.
 
-## 2026-11-15 (32036b5)
+## 2026-11-15 (9799fd9)
 
 - **Free Roam:** Other players' cars no longer jump or smoke their tyres when you get close.
 - **Free Roam:** Race invites, the group race offer and the "waiting" message are now small hints instead of big boxes.
@@ -142,3 +142,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Race invites are one short line with Q / E buttons.
 - **Free Roam:** Race offers show only right at a race start or next to another player.
 - **Page:** No more "new version" message over the game after an update.
+- **Mods:** New Mods tab on the start page. First mod: Police (off by default), police cars in Free Roam that chase you.
