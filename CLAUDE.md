@@ -1226,7 +1226,15 @@ only with MC3_PERF, their only reader.
   runs DirectSound's own 500 ms stop timeout (sub_003C6B43) first for such
   a voice ('[XACT] stream voice ...'); sub_00405DDF's logs what still holds
   a bank after 3 s ('[XACT] wave bank ... release: still in use ...').
-  MC3_XACT_STOP_FIX=0 off.
+  Still froze (2026-11-15 logs 97B74F, K3ZNMC, N3WAMB): the tracks were in
+  state 7 (stopping; sub_00405CC1 skips 7/8) and their voices 0x010B --
+  playing, no stop asked -- front end trapped, so they never played out.
+  Now (browser, fix untested in a browser) at that 3 s mark, with the front
+  end trapped, each voice with (flags & 3) == 3 on a state 7/8 track of the
+  bank is stopped as DirectSound's device-wide stop does (sub_003C41CE:
+  sub_003C78AA(0), flags & 0x3111 | 0x8000 + voice-off) and confirmed at
+  once (sub_003C6A5A); '[XACT] wave bank ... stopped N playing voice(s)
+  ...', once per wait. MC3_XACT_STOP_FIX=0 off (all of it).
 - Rendering found and fixed 2026-10-17: vertex programs read the viewport
   scale/offset as constants c[-38]/c[-37] (NV2A mirrors the registers there:
   cars were invisible); a narrower clip into the back buffer (race minimap,
@@ -1320,6 +1328,20 @@ only with MC3_PERF, their only reader.
   vblank count +0x1C0, last target +0x1C8. `MC3_FLIP_TRACE=1` logs the
   pushbuffer callback (sub_003E52D0; param & 0x1F = command, 1 = flip,
   (param >> 5) & 7 = interval); `MC3_FLIP_PACE=0` / `MC3_TRAP_HOOK=0` undo.
+  Remix: device 0x004249A8 (= push-buffer state 0x422D80 + 0x1C28, as in
+  DUB), PGRAPH handler sub_0041B7C0, callback sub_0041B550 (command 5 =
+  KeSetEvent(device + 0x1A4)). D3D NOP-trap wait (browser, 2026-11-14/15,
+  8 freeze logs, fix untested in a browser): sub_004165A0, the GPU >= 0x2000
+  bytes short of its fence, clears that event (0x424B4C = state + 0x1DCC,
+  SignalState +0x1DD0), patches WAIT_FOR_IDLE + NOP(5) into the fence's
+  hole, kicks and sleeps on it with no timeout (0x4166FF); the logs had the
+  executor idle, ring empty, the event never set (cause not proven: GET
+  follows the walk). Hitch logs show the same wait ending when the executor
+  was only behind. Now the vblank handler override (sub_0041B250, D3D's
+  DPC) sets the event through the kernel's KeSetEvent (import 0x4477CC)
+  when a thread is in sub_004165A0, the event is clear and DMA_GET == PUT
+  has held 500 ms ('[D3D] NOP trap wait: ...'); harmless when nobody waits
+  (the event is cleared before each use). MC3_NOP_WAIT_FIX=0 off.
 
 - Career loading-screen hang (found 2026-10-21, fix under test): the main
   thread spun in D3D's fence wait (sub_003DF4D0, loop at 0x003DF607) while

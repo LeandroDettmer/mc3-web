@@ -209,6 +209,86 @@ static void fence_spin_hook(void)
     }
 }
 
+/* ── The same function's NOP-trap wait, rescued (browser) ──
+ *
+ * When the GPU is at least 0x2000 bytes short of the fence, sub_004165A0
+ * clears the event at device + 0x1A4 (= push-buffer state + 0x1DCC,
+ * 0x424B4C; its SignalState +0x1DD0 is the word it zeroes at 0x41664A),
+ * patches WAIT_FOR_IDLE + NOP(5) into the fence's hole in the ring, kicks,
+ * re-reads GET and, still that far short, sleeps on the event with no
+ * timeout (KeWaitForSingleObject at 0x4166FF). The executor's NOP trap
+ * runs D3D's PGRAPH handler, whose callback (sub_0041B550, command 5,
+ * 0x41B6D3) sets the event. Freeze class 'D3D NOP-trap wait' (8 player
+ * logs, 2026-11-14/15, WebGPU): main in that wait for good, event signal
+ * 0, while the executor sat idle with an empty ring and thousands of other
+ * NOP traps handled -- the trap for this NOP never came (cause not proven:
+ * GET follows the executor's walk, so the hole was not patched behind it
+ * by the second check). Hitch logs show the same wait ending by itself
+ * when the executor was only behind (waiting for ring space).
+ * So the vblank handler (sub_0041B250, D3D's DPC, where the callback runs
+ * too) watches: while a thread is in sub_004165A0, the event is clear and
+ * the executor has consumed everything submitted (DMA_GET == DMA_PUT, the
+ * hole is before PUT) for 500 ms, the NOP has been passed without its
+ * trap: set the event as the callback would, through the kernel's
+ * KeSetEvent (D3D's import 0x4477CC). Setting it while nobody waits is
+ * harmless: the event is used by this wait alone and cleared before each
+ * use. '[D3D] NOP trap wait ...'; MC3_NOP_WAIT_FIX=0 off. */
+#ifdef __EMSCRIPTEN__
+static volatile int s_nopwait_depth;
+static volatile uint64_t s_nopwait_since;
+static uint64_t nopwait_ms_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+static void nopwait_watch(void)
+{
+    static int on = -1, logged;
+    static uint64_t idle_since;
+    uint32_t state, ev, put;
+    uint64_t now;
+    if (on < 0) {
+        const char *e = getenv("MC3_NOP_WAIT_FIX");
+        on = !(e && e[0] == '0');
+    }
+    if (!on || !__atomic_load_n(&s_nopwait_depth, __ATOMIC_SEQ_CST)) {
+        idle_since = 0;
+        return;
+    }
+    state = MEM32(0x00422D78u);
+    put = MEM32(0xFD800040u);
+    if (!state || MEM32(state + 0x1DD0u) != 0 || MEM32(0xFD800044u) != put) {
+        idle_since = 0;
+        return;
+    }
+    now = nopwait_ms_now();
+    if (!idle_since)
+        idle_since = now;
+    if (now - idle_since < 500 || now - s_nopwait_since < 500)
+        return;
+    ev = state + 0x1DCCu;
+    {
+        recomp_func_t set = recomp_lookup_kernel(MEM32(0x004477CCu));
+        uint32_t sp = g_esp, a = g_eax, c = g_ecx, d = g_edx;
+        if (!set)
+            return;
+        g_esp -= 16;
+        MEM32(g_esp) = 0;                      /* return address */
+        MEM32(g_esp + 4) = ev;                 /* KeSetEvent(event, 1, FALSE) */
+        MEM32(g_esp + 8) = 1;
+        MEM32(g_esp + 12) = 0;
+        set();
+        g_esp = sp; g_eax = a; g_ecx = c; g_edx = d;
+    }
+    if (logged++ < 10)
+        fprintf(stderr, "[D3D] NOP trap wait: event %08X still clear %u ms after the executor"
+                " consumed everything (GET = PUT = %08X), %u ms in sub_004165A0 -- set\n",
+                ev, (unsigned)(now - idle_since), put, (unsigned)(now - s_nopwait_since));
+    idle_since = 0;
+}
+#endif
+
 extern void sub_004165A0_gen(void);
 extern void nv2a_pb_set_semaphore_target(uint32_t guest_va);
 void sub_004165A0(void)
@@ -233,14 +313,24 @@ void sub_004165A0(void)
         const char *e = getenv("MC3_FENCE_FIX");
         fix = !(e && e[0] == '0');
     }
+#ifdef __EMSCRIPTEN__
+    if (__atomic_add_fetch(&s_nopwait_depth, 1, __ATOMIC_SEQ_CST) == 1)
+        __atomic_store_n(&s_nopwait_since, nopwait_ms_now(), __ATOMIC_SEQ_CST);
+#endif
     if (!fix || !s_fence_sem_va) {
         sub_004165A0_gen();
+#ifdef __EMSCRIPTEN__
+        __atomic_sub_fetch(&s_nopwait_depth, 1, __ATOMIC_SEQ_CST);
+#endif
         return;
     }
     t_fence_target = MEM32(g_esp + 4);         /* (time, flags), stdcall */
     t_fence_fixed = 0;
     recomp_set_spin_hook(fence_spin_hook);
     sub_004165A0_gen();
+#ifdef __EMSCRIPTEN__
+    __atomic_sub_fetch(&s_nopwait_depth, 1, __ATOMIC_SEQ_CST);
+#endif
     if (t_fence_fixed)
         fence_cas(s_fence_sem_va, t_fence_target, t_fence_saved);
     t_fence_target = save_target;
@@ -1066,6 +1156,9 @@ void sub_0041B250(void)
     xbox_Nv2aVblankTaken();
 #endif
     sub_0041B250_gen();
+#ifdef __EMSCRIPTEN__
+    nopwait_watch();
+#endif
 }
 
 /* ── The main loop's passes, counted (MC3_PERF reports them) ──
@@ -2939,8 +3032,64 @@ void sub_003C8288(void)
  * called only from that loop): run as is, and when one bank stays in use
  * for 3 s say what holds it, once per wait -- each track still on it with
  * its state (+0x30) and its stream voice's flags, and the cues -- so a
- * freeze that is not a pending stop names its cause in the log. */
+ * freeze that is not a pending stop names its cause in the log.
+ *
+ * Playing voices on stopping tracks (browser, 2026-11-15 logs 97B74F,
+ * K3ZNMC, N3WAMB; fix untested in a browser): the bank still held after
+ * 3 s by tracks in state 7 (stopping: sub_00405CC1 skips 7 and 8) whose
+ * stream voices have flags 0x010B -- playing ((flags & 3) == 3, status
+ * sub_003C8288 answers DSSTATUS_PLAYING), no stop asked -- with the APU
+ * front end trapped. Such a track waits for its voice to play out, and the
+ * voice never does. Then each of those voices is stopped as DirectSound's
+ * device-wide stop does (sub_003C41CE: sub_003C78AA(0), which keeps flags
+ * & 0x3111, sets the pending stop 0x8000 and sends the voice-off), and
+ * the stop is confirmed at once as at DirectSound's own 500 ms timeout
+ * (sub_003C6A5A, as sub_003C77C0's override does on a trapped front end):
+ * the voice reads stopped, the track ends, the release returns. Once per
+ * wait; '[XACT] wave bank ... stopped N playing voice(s) ...'.
+ * MC3_XACT_STOP_FIX=0 off (this and the rest). */
 extern void sub_00405DDF_gen(void);
+#ifdef __EMSCRIPTEN__
+extern void sub_003C78AA(void);
+/* The stream voice of a track's i-th wave (the layout the log below reads). */
+static uint32_t xact_track_voice(uint32_t node, unsigned i)
+{
+    uint32_t t0 = MEM32(node + 0x34), w, s;
+    w = t0 ? MEM32(t0 + i * 0x88 + 4) : 0;
+    s = w ? MEM32(w + 0x1C) : 0;
+    return s ? MEM32(s - 0x1C + 0x20) : 0;
+}
+static void xact_stop_playing(uint32_t eng, uint32_t bank, unsigned waited)
+{
+    static int logs;
+    uint32_t head = eng + 0x5C, node = MEM32(head), keep = g_eax;
+    int guard = 0, n = 0;
+    if (!mcpx_apu_fe_trapped())
+        return;
+    for (; node && node != head && guard < 64; node = MEM32(node), guard++) {
+        uint32_t snd = MEM32(node + 0x44), v;
+        unsigned i, cnt, st = MEM16(node + 0x30);
+        if (!snd || MEM32(snd + 0x14) != bank || (st != 7 && st != 8))
+            continue;
+        cnt = MEM32(node + 0x10) ? MEM8(MEM32(node + 0x10) + 8) : 0;
+        for (i = 0; i < cnt && i < 4; i++) {
+            v = xact_track_voice(node, i);
+            if (!v || (MEM16(v + 0x12) & 3) != 3)
+                continue;
+            g_esp -= 4; MEM32(g_esp) = 0;      /* sub_003C78AA(0), thiscall, ret 4 */
+            voice_call(sub_003C78AA, v);
+            if ((MEM16(v + 0x12) & 0x8001) == 0x8001)
+                voice_call(sub_003C6A5A, v);
+            n++;
+        }
+    }
+    g_eax = keep;
+    g_ecx = eng;
+    if (n && logs++ < 20)
+        fprintf(stderr, "[XACT] wave bank %08X release: stopped %d playing voice(s) on stopping"
+                " tracks after %u ms (front end trapped)\n", bank, n, waited);
+}
+#endif
 void sub_00405DDF(void)
 {
     static uint32_t s_bank;
@@ -2960,9 +3109,18 @@ void sub_00405DDF(void)
         s_told = 0;
         return;
     }
-    if (s_told || now - s_since < 3000 || s_logs >= 5)
+    if (s_told || now - s_since < 3000)
         return;
     s_told = 1;
+#ifdef __EMSCRIPTEN__
+    if (s_logs >= 5) {
+        xact_stop_playing(eng, bank, (unsigned)(now - s_since));
+        return;
+    }
+#else
+    if (s_logs >= 5)
+        return;
+#endif
     s_logs++;
     {
         char line[768];
@@ -2999,6 +3157,9 @@ void sub_00405DDF(void)
         fprintf(stderr, "%s; %d cue(s); front end %s\n", line, cues,
                 mcpx_apu_fe_trapped() ? "trapped" : "running");
     }
+#ifdef __EMSCRIPTEN__
+    xact_stop_playing(eng, bank, (unsigned)(now - s_since));
+#endif
 }
 
 /* ── DirectSound's DSP command wait: its doorbell found at run time ──
