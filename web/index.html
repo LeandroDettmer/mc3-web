@@ -1545,7 +1545,8 @@
     };
     return modsSeen[d.name] = (async () => {
       let ids;
-      try { ids = (await get('mods/index.json')).mods; } catch { return; }   // no mods on this disc
+      try { ids = (await get('mods/index.json')).mods; }
+      catch { mods[d.name] = []; if (currentDisc() === d) renderMods(); return; }   // no mods on this disc
       let files = null;
       try { if (typeof MC3DiscCache == 'object') files = await MC3DiscCache.manifest(base); } catch {}
       const list = [];
@@ -1561,8 +1562,10 @@
     })();
   }
   function renderMods() {
-    const ul = $('mods-list'), list = mods[currentDisc()?.name];
+    const ul = $('mods-list'), d = currentDisc(), list = mods[d?.name];
     ul.textContent = '';
+    // file list or mods/index.json still on its way
+    if (!list && d && (!(d.name in discFiles) || discFiles[d.name] > 0)) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'Loading mods…'; ul.append(li); return; }
     if (!list?.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = 'No mods on this server.'; ul.append(li); return; }
     for (const m of list) {
       const li = document.createElement('li'), info = document.createElement('div'), b = document.createElement('b');
@@ -1644,7 +1647,8 @@
   async function refresh() {
     const g = currentGame(), d = currentDisc();
     const n = d ? await countDisc(d) : 0;
-    if (n) await modsLoad(d).catch(e => console.warn('[WEB] mods: ' + (e.message || e)));   // before Play is enabled: buildEnv needs the packs for MC3_MODS; a mods failure never blocks Play
+    if (!n) renderMods();   // no disc: the Mods tab stops saying loading
+    else await modsLoad(d).catch(e => console.warn('[WEB] mods: ' + (e.message || e)));   // before Play is enabled: buildEnv needs the packs for MC3_MODS; a mods failure never blocks Play
     const device = await deviceChecks;
     const checks = [
       [n > 0, 'Disc', d ? (n ? `${editionLabel(d)}, ${n} files` : signIn ? `${d.name}: sign in first` : `${d.name}: its file list did not load`) : 'none on this server (--disc)'],
