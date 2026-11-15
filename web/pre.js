@@ -681,7 +681,7 @@ Module['mc3RaceButton'] = function (act) {
 };
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
-  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null, big = false, placed = '';
+  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null, big = false, offer = false, placed = '', glow = false;
   var ACTS = { 1: 'Cancel race', 2: 'Leave race', 3: 'Give up race', 4: 'Decline' };
   // the minimap's top-left in the HUD's 16:9 (720x480 layout): left edge and top, fractions of the HUD's width/height
   var MAP_LEFT = 0.055, MAP_TOP = 0.64, GAP = 0.015;
@@ -711,9 +711,26 @@ Module['mc3RaceButton'] = function (act) {
     if (text + '|' + act !== shown) {
       shown = text + '|' + act;
       big = text.charCodeAt(0) === 1;
-      if (big) text = text.slice(1);
+      offer = text.charCodeAt(0) === 2;   // the idle street-race offer: a small green pill, "Race N" (roam_challenge.c)
+      if (big || offer) text = text.slice(1);
       el.textContent = '';
-      text.split('\n').forEach(function (line, i) {
+      var os = el.style;
+      os.background = offer ? 'rgba(20,110,50,.6)' : 'rgba(0,0,0,.72)';
+      os.borderColor = offer ? 'rgba(120,255,150,.7)' : 'rgba(255,255,255,.25)';
+      os.padding = offer ? '.2em .6em' : '.45em .8em';
+      os.whiteSpace = offer ? 'nowrap' : '';
+      os.boxShadow = offer ? 'none' : '0 2px 10px rgba(0,0,0,.6)';
+      if (offer) {
+        var pd = document.createElement('div');
+        pd.style.cssText = 'display:flex;align-items:center;gap:.4em';
+        pd.innerHTML = '<svg viewBox="0 0 16 16" width="1.1em" height="1.1em" fill="#7dff9a" aria-hidden="true">' +
+          '<path d="M3 1h1.5v14H3z"/><path d="M4.5 2h9l-2.5 3.2 2.5 3.2h-9z"/></svg>' +
+          '<span style="display:inline-block;min-width:1.3em;padding:0 .3em;border-radius:4px;border:1px solid #fff;' +
+          'border-bottom-width:2px;background:#333;text-align:center">Q</span>';
+        pd.append(text);
+        el.append(pd);
+      }
+      (offer ? [] : text.split('\n')).forEach(function (line, i) {
         var d = document.createElement('div');
         if (i === 0) d.style.cssText = big ? 'font-size:2.6em;line-height:1.05;color:#ffd24a' : 'font-size:1.15em;letter-spacing:.03em';
         else if (i === 1) d.style.cssText = 'opacity:.85;font-size:.9em';
@@ -752,6 +769,12 @@ Module['mc3RaceButton'] = function (act) {
         el.append(bar);
       }
     }
+    var wantGlow = !!text && offer;   // the touch Flash button turns green while the offer stands
+    if (wantGlow !== glow) {
+      glow = wantGlow;
+      var fb = document.querySelector('.tc-white');
+      if (fb) fb.classList.toggle('offer', glow);
+    }
     if (!text) { el.style.display = 'none'; return; }
     // the picture inside the canvas (object-fit contain unless Stretch), its shape as the name tags got it
     var pc = Module['mc3Pic'](now), r = pc.r, L = pc.L, x = r.left - L.left,
@@ -777,7 +800,7 @@ Module['mc3RaceButton'] = function (act) {
     } else {
       var hw = Math.min(w, h * 16 / 9), hx = x + (w - hw) / 2,   // the HUD keeps its 16:9 in the middle (Hor+)
           left = hx + hw * MAP_LEFT, bottom = y + h * (MAP_TOP - GAP);
-      st.fontSize = Math.max(10, h * 0.021).toFixed(1) + 'px';
+      st.fontSize = Math.max(10, h * (offer ? 0.018 : 0.021)).toFixed(1) + 'px';
       st.maxWidth = (w * 0.32).toFixed(0) + 'px';
       // touch buttons the box would cover: only those overlapping its own rect (a phone's top row of buttons sits
       // above the picture and pushed the box off it, 2026-11-10); it never leaves the picture's top

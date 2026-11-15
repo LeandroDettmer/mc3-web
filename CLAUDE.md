@@ -675,8 +675,10 @@ generated files when the lift inputs did not change.
   src/games/remix/roam_challenge.c, docs/roam-races.md F2): up to 8 racers
   (2026-11-12, untested in game; was a 1v1 headlight flash, flash back to
   accept): driving under 12 m/s within 40 m (height 10 m) of 1+ driving
-  players, the prompt box offers 'Street race? N nearby players will be
-  invited'; White (Q, touch 'Flash'; still also the game's headlight toggle)
+  players, the idle offer (2026-11-14, browser, untested: no box, a small green
+  pill 'Q Race N' by the minimap + the touch Flash button green; text '\x02Race N' in
+  roam_prompt_box, web/pre.js) lets White invite; native keeps the box 'Street race? N nearby players
+  will be invited'; White (Q, touch 'Flash'; still also the game's headlight toggle)
   sends INVITE to the up to 7 nearest every 0.3 s for 15 s (was 10 until
   2026-11-12); each invitee
   sees '<host> invites you to a race (N players)' and joins with White (under

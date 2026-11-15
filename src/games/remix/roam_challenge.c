@@ -1733,8 +1733,13 @@ static int rch_player(uint32_t p)
         }
         s_rch.ai = 0;
         if (!press) {
+#ifdef __EMSCRIPTEN__
+            /* '\x02' = the idle offer: web/pre.js draws a small pill and lights the touch Flash button, no box */
+            snprintf(text, sizeof text, "\x02" "Race %d", n);
+#else
             snprintf(text, sizeof text, "Street race?\n%d nearby player%s will be invited\nPress White [Q] (Flash) to invite",
                      n, n > 1 ? "s" : "");
+#endif
             rra_prompt(text);
             return 1;
         }

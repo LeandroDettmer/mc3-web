@@ -64,6 +64,7 @@
           font: 700 italic calc(var(--u) * .28)/1 "Helvetica Neue", Helvetica, Arial, sans-serif;
           background: rgba(20, 20, 20, .7); border: 2px solid rgba(255, 255, 255, .8); border-radius: 12px; }
   .tc-b.on { background: rgba(240, 180, 64, .85); color: #000; border-color: #f0b440; }   /* the game's gold (index.html --gold) */
+  .tc-b.offer:not(.on) { background: rgba(30, 170, 70, .9); border-color: #7dff9a; color: #fff; box-shadow: 0 0 10px #3fe06f; }   /* street race offer (pre.js) */
   .tc-b.cap { flex-direction: column; font-size: calc(var(--u) * .34); }
   .tc-b small { margin-top: 2px; font: 700 max(9px, calc(var(--u) * .17))/1.1 "Helvetica Neue", Helvetica, Arial, sans-serif; white-space: nowrap; }
   /* right thumb: Gas | Handbrake over Brake | Y B X over them | L3 over X */
