@@ -112,25 +112,9 @@ static double s_pol_cool_t;             /* cool-down until (roam_now), 0 none */
 
 static int police_cooling(void) { return s_pol_cool_t && roam_now() < s_pol_cool_t; }
 
-/* The pack is on: MC3_MODS named it and its files were found (mods.c). */
-static int police_pack(void)
-{
-    static int on = -1;
-#ifndef __EMSCRIPTEN__
-    return 0;                                   /* browser only: the native Online session stays as it was */
-#endif
-    if (on < 0) {
-        const char *e = getenv("MC3_POLICE");
-        on = 0;
-        for (int i = 0; i < s_mods_n && !on; i++)
-            on = !strncmp(s_mods[i].path, "police/", 7);
-        if (on && e && *e && atoi(e) <= 0)
-            on = 0;
-        fprintf(stderr, "[POLICE] pack %s\n", on ? "on: police cars in the Online Free Roam cruise"
-                                                 : e && *e && atoi(e) <= 0 ? "off (MC3_POLICE=0)" : "off");
-    }
-    return on;
-}
+/* The AI police mod is dropped (owner, 2026-11-15): no pack, no police opponents,
+ * every AI hook here stays inert. Only the helpers police_players.c uses are live. */
+static int police_pack(void) { return 0; }
 
 /* Police cars for a Free Roam cruise: 3 at a 128 MB window, 2 at 64 MB (phones, low memory). */
 static uint32_t police_count(void)

@@ -1,4 +1,4 @@
-/* police_players.c -- the mod pack "police", players in police cars: a player
+/* police_players.c -- a standard Online Free Roam feature (no mod pack), players in police cars: a player
  * driving a police car (CarType name with "_cop": vp_impalass_cop_s/a/d_96,
  * vp_d_tokyo_cop_01, the bike vp_kwz_cop_98) in the Online Free Roam cruise
  * arrests other players by ramming them: PPL_HITS hits on the same player,
@@ -6,8 +6,7 @@
  * PPL_FINE (never more than it has) out of its Online money, and the police
  * player gets what was paid.  Both profiles are saved at once.
  *
- * Included by recomp_manual.c right after police.c (uses police_pack,
- * police_p0, police_car, police_dist, police_acc, op_dollars, online_money_va,
+ * Included by recomp_manual.c right after police.c (uses police_p0, police_car, police_dist, police_acc, op_dollars, online_money_va,
  * s_on_money, online_garage_left, roam_now, s_roam_seen, the pool's
  * roam_pool_of/roam_rc_veh, roam_peer_rec, roam_cfg_name, s_rch, s_rra_race,
  * roam_free_cruise).  Hooks: sub_002C1520 (player update) calls ppl_frame,
@@ -36,7 +35,7 @@
  *        BUST is answered, a repeated one with the same answer (paid once).
  * The police player is credited once per bust id.  Old builds drop 'P'.
  *
- * Log lines '[POLICE] player: ...'.  Browser only (police_pack is). */
+ * Log lines '[POLICE] player: ...'.  Browser only. */
 
 #define PPL_HITS      9                 /* hits on the same player: busted (owner, 2026-11-15: "umas 9 vezes") */
 #define PPL_HIT_M     6.0f              /* m between car centres for a hit */
@@ -106,11 +105,14 @@ static int ppl_peer_cop(uint32_t id)    /* the peer's car record says a police c
     return roam_peer_rec(id, blob) && ppl_cop_name(roam_cfg_name(blob));
 }
 
-/* Driving in the Online Free Roam cruise with the pack on, not racing. */
+/* Driving in the Online Free Roam cruise, not racing. */
 static int ppl_live(void)
 {
     uint32_t setup = MEM32(ROAM_SETUP_VA);
-    return police_pack() && roam_free_cruise() && online_ram(setup) && MEM32(setup + 0x18u) == 0 &&
+#ifndef __EMSCRIPTEN__
+    return 0;                                   /* browser only: the native Online session stays as it was */
+#endif
+    return roam_free_cruise() && online_ram(setup) && MEM32(setup + 0x18u) == 0 &&
            s_rch.st == RCH_IDLE && !s_rra_race;
 }
 
@@ -173,7 +175,7 @@ static void ppl_rx(uint32_t from, const uint8_t *b, int n)
                 ppl_send(from, PPL_OP_PAID, s_ppl_ans[i].why, id, s_ppl_ans[i].amount);
                 return;
             }
-        why = !police_pack() ? PPL_NOMOD : !ppl_live() ? PPL_BUSY :
+        why = !ppl_live() ? PPL_BUSY :
               s_ppl_paid_t && now - s_ppl_paid_t < PPL_COOL_S ? PPL_COOL : !ppl_peer_cop(from) ? PPL_NOTCOP : PPL_PAID;
         if (why == PPL_PAID) {
             if (amount > PPL_FINE)

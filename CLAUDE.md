@@ -1513,8 +1513,10 @@ only with MC3_PERF, their only reader.
   patched <city>_traffic.xbck (textures replaced in place, same size). Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
   main's core 19 (country flag) and car-mod's core 19 (second car record)
   were separate bumps, then main took 20 for the near flag; RC_CORE_CFG2 = 21.
-  Police pack (2026-11-14, untested in game; src/games/remix/police.c,
-  tools/police_pack.py, kind gameplay): police are race AI opponents with a
+  Police pack (REMOVED 2026-11-15, owner: no AI police; police_pack() in
+  police.c is a constant 0, so every AI hook there is inert, the Mods tab lists
+  nothing, tools/police_pack.py deleted; kept below as history). It was
+  (2026-11-14, untested in game; src/games/remix/police.c, kind gameplay): police are race AI opponents with a
   COPCAR CarType (aiCop brain vt 0x46BFF8, list 0x534088, count 0x534110). The
   pack's four cruise .rac (tune/race/<city>/cruise/easy/*_cruise_race01.rac)
   list 3 police only (sd/atl/det impalass_cop_s/a/d_96, tokyo vp_d_tokyo_cop_01;
@@ -1563,7 +1565,7 @@ only with MC3_PERF, their only reader.
   pack is served everywhere its .rac is read (a career/Arcade cruise of the
   same event too). '[POLICE] ...'.
   Players in police cars (2026-11-15, untested in game; police_players.c,
-  pack on for both): our car's CarType name with '_cop' (setup entry 0's
+  standard Online Free Roam feature since 2026-11-15, always on, no mod pack on either side): our car's CarType name with '_cop' (setup entry 0's
   CarCfg: impalass_cop_s/a/d_96, d_tokyo_cop_01, the bike kwz_cop_98; they
   are in vehicle.lst and garage.xbck's list, so Online's all-cars unlock
   should offer them, not checked in game). Only the police side counts: a hit
@@ -1573,7 +1575,7 @@ only with MC3_PERF, their only reader.
   -> BUST. Messages 'P' v1 (roam GAME record beside the challenge's 'C';
   rch_recv hands them to ppl_rx, so none while MC3_ROAM_CHALLENGE=0): op,
   arg, id u32, amount u32; HIT (arg hits), BUST (bust id, fine 50,000, every
-  0.3 s for 5 s), PAID (arg 0 paid / 1 no mod / 2 busy / 3 cool-down / 4 not
+  0.3 s for 5 s), PAID (arg 0 paid / 1 unused (old builds: no mod) / 2 busy / 3 cool-down / 4 not
   a police car; amount paid). The player pays min(money, fine) once per bust
   id, the police player gets that amount once; both save the profile; 60 s
   cool-down per player both sides; notes in the prompt box (op_note).
