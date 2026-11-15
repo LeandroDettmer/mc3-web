@@ -179,6 +179,7 @@ typedef struct { int64_t at; uint32_t src, dst; uint16_t sport, dport; int len; 
 static dgram g_q[NQ]; static int g_qn;
 static int64_t g_now;
 static uint32_t g_snaps[3];   /* SNAPs seen per endpoint index */
+static uint32_t g_near[3];    /* of them with RC_HF_NEAR */
 typedef struct { uint32_t vip; } ep;
 static ep g_ep[2] = { { 0x0A4D0002u }, { 0x0A4D0102u } };
 static rc_session g_s[2];
@@ -220,14 +221,14 @@ static void deliver(void){
         for (int k = 0; k < 2; k++){
             if (q->src == g_ep[k].vip) continue;                         /* the switch never sends one back */
             if (q->dst != 0xFFFFFFFFu && q->dst != g_ep[k].vip) continue;
-            if (q->len > RC_HDR && q->d[5] == RC_MSG_SNAP) g_snaps[k]++;
+            if (q->len > RC_HDR && q->d[5] == RC_MSG_SNAP){ g_snaps[k]++; if (q->d[14] & RC_HF_NEAR) g_near[k]++; }
             rc_receive(&g_s[k], q->src, q->sport, q->d, q->len, g_now);
         }
     }
     g_qn = w;
 }
 static void t_loopback(int with_hub){
-    g_qn = 0; g_now = 1000000; g_snaps[0] = g_snaps[1] = 0; g_hub = with_hub; g_hub_rx = 0;
+    g_qn = 0; g_now = 1000000; g_snaps[0] = g_snaps[1] = g_near[0] = g_near[1] = 0; g_hub = with_hub; g_hub_rx = 0;
     for (int k = 0; k < 2; k++){
         rc_config c; memset(&c, 0, sizeof c);
         c.self_id = 0x1000u + (uint32_t)k; c.port = ROAM_PORT; c.discovery = !with_hub; c.max_players = 8; c.rate_hz = 20; c.snap_states = 1;
@@ -268,6 +269,8 @@ static void t_loopback(int with_hub){
     const char *how = with_hub ? "hub" : "discovery";
     CHECK(rc_established(&g_s[0]) == 1 && rc_established(&g_s[1]) == 1, "%s: both established (%d, %d)", how, rc_established(&g_s[0]), rc_established(&g_s[1]));
     CHECK(g_snaps[1] > 80, "%s: SNAPs flowed to Bob (%u)", how, g_snaps[1]);
+    /* 50-140 m apart: within RC_NEAR_M, so the SNAPs say near (a page relay never thins those) */
+    CHECK(g_near[1] > 80 && g_near[1] + 2 >= g_snaps[1], "%s: SNAPs to Bob marked near (%u of %u)", how, g_near[1], g_snaps[1]);
     CHECK(shown > 250, "%s: Ann shown on Bob's screen (%d frames)", how, shown);
     CHECK(max_err < 0.5f, "%s: interpolated pose within 0.5 m (max %.3f m)", how, max_err);
     int bob_sees_cfg = 0;

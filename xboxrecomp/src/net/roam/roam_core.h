@@ -53,7 +53,7 @@
 #include "roam_api.h"
 
 #define RC_PROTO_VER     1
-#define RC_CORE_VER      19
+#define RC_CORE_VER      20
 #define RC_MAGIC0        0x4D       /* "MC3R" */
 #define RC_MAGIC1        0x43
 #define RC_MAGIC2        0x33
@@ -85,13 +85,16 @@
 enum { RC_MSG_HELLO = 1, RC_MSG_PEERS = 2, RC_MSG_SNAP = 3, RC_MSG_CFG = 4, RC_MSG_CFG_REQ = 5,
        RC_MSG_PING = 6, RC_MSG_PONG = 7, RC_MSG_BYE = 8, RC_MSG_FAR = 9, RC_MSG_GAME = 10 };
 enum { RC_PLAT_WEB = 4 };
-/* header flags: SNAP every n-th (far peers), HELLO to everyone, state extensions, crews (here: the links byte) */
+/* header flags: SNAP every n-th (far peers), HELLO to everyone, state extensions, crews (here: the links byte),
+ * SNAP near (core 20: the peer within RC_NEAR_M; a relay must not thin it, web/rtc.js; older cores ignore it) */
 #define RC_HF_EVERY      0x000F
+#define RC_HF_NEAR       0x0010
 #define RC_HF_ALL        0x0020
 #define RC_HF_STATEX     0x0040
 #define RC_HF_CREW       0x0200
 #define RC_FAR_M         300.f      /* past this a peer gets every 4th snapshot */
 #define RC_VERYFAR_M     1000.f     /* and past this every 10th */
+#define RC_NEAR_M        150.f      /* within this a SNAP says RC_HF_NEAR */
 enum { RC_OK = 0, RC_E_SHORT = -1, RC_E_MAGIC = -2, RC_E_VERSION = -3, RC_E_LENGTH = -4,
        RC_E_CRC = -5, RC_E_TYPE = -6, RC_E_FIELD = -7, RC_E_TRAIL = -8, RC_E_RANGE = -9 };
 

@@ -1017,11 +1017,13 @@ void rc_set_cfg(rc_session *s, const uint8_t *rec, int len, int64_t now){
     s->cfg_rev++; if (!s->cfg_rev) s->cfg_rev = 1;
     for (int i = 0; i < RC_TABLE; i++) if (s->peer[i].state == RC_PS_EST) send_cfg(s, &s->peer[i], 0);
 }
-/* every how many snapshots peer p gets one: its newest state's distance from ours (3D) */
-static int snap_every(const rc_peer *p, const rc_state *st){
+/* every how many snapshots peer p gets one: its newest state's distance from ours (3D); *near: within RC_NEAR_M */
+static int snap_every(const rc_peer *p, const rc_state *st, int *near){
+    *near = 0;
     if (!p->mo.n) return 1;
     const float *q = p->mo.s[p->mo.n - 1].p;
     float dx = q[0] - st->p[0], dy = q[1] - st->p[1], dz = q[2] - st->p[2], d2 = dx * dx + dy * dy + dz * dz;
+    *near = d2 < RC_NEAR_M * RC_NEAR_M;
     return d2 > RC_VERYFAR_M * RC_VERYFAR_M ? 10 : d2 > RC_FAR_M * RC_FAR_M ? 4 : 1;
 }
 #define SNAP_MAX (RC_HDR + 6 + RC_SNAP_STATES * (RC_STATE_BYTES + RC_STATEX_BYTES) + RC_CRC)
@@ -1042,22 +1044,24 @@ int rc_push_state(rc_session *s, const rc_state *st, int64_t now){
     for (int k = 0; k < m.u.snap.n; k++) m.u.snap.s[k] = s->last[k];
     uint8_t b[RC_MAX_DGRAM]; int n = rc_encode(&m, b, sizeof b);
     if (n <= 0) return 0;
-    /* variants made when one needs them: bv[0] near and extended, bv[1 + 2x + j] far (x: extended, j: every 10th) */
+    /* variants made when one needs them: bv[0] full rate and extended, bv[1 + 2x + j] far (x: extended, j: every
+     * 10th), bv[5 + x] near (RC_HF_NEAR: the page's relay thinned peers 10 m away, its busiest-first ranking
+     * ties every peer within RC_FAR_M at 20 Hz and broke the tie by address; 2026-11-15) */
     int ext = 0;
     for (int k = 0; k < m.u.snap.n; k++) ext |= m.u.snap.s[k].ext_len != 0;
-    uint8_t bv[5][SNAP_MAX]; int nv[5] = { 0, 0, 0, 0, 0 };
+    uint8_t bv[7][SNAP_MAX]; int nv[7] = { 0, 0, 0, 0, 0, 0, 0 };
     for (int i = 0; i < RC_TABLE; i++){
         rc_peer *p = &s->peer[i];
         if (p->state != RC_PS_EST || !s->io.send) continue;
-        int e = snap_every(p, &s->last[0]), x = ext && p->statex;
+        int nr, e = snap_every(p, &s->last[0], &nr), x = ext && p->statex;
         if (e == 1 && p->far > 1) p->last_ping_tx = INT64_MIN / 4;   /* come near: its round trip now */
         p->far = (uint8_t)e;
         if (e > 1 && (uint16_t)(s->seq + i) % (uint16_t)e) continue;
         const uint8_t *d = b; int dn = n;
-        if (e > 1 || x){
-            int v = e == 1 ? 0 : 1 + 2 * x + (e == 4 ? 0 : 1);
+        if (e > 1 || x || nr){
+            int v = e > 1 ? 1 + 2 * x + (e == 4 ? 0 : 1) : nr ? 5 + x : 0;
             if (!nv[v]){
-                m.h.flags = (uint16_t)((e > 1 ? e : 0) | (x ? RC_HF_STATEX : 0));
+                m.h.flags = (uint16_t)((e > 1 ? e : 0) | (x ? RC_HF_STATEX : 0) | (nr ? RC_HF_NEAR : 0));
                 nv[v] = rc_encode(&m, bv[v], SNAP_MAX); m.h.flags = 0;
             }
             if (nv[v] <= 0) continue;
