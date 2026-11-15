@@ -1439,6 +1439,10 @@ static void rch_prompt(const char *text)
 #ifdef __EMSCRIPTEN__
     s_rch_btn.act = act;
 #endif
+#ifdef __EMSCRIPTEN__
+    if (text[0] == '\x03' && strchr(text, '\n'))   /* a compact card with its own key line */
+        act = 0;
+#endif
     if (!act) {
         rra_prompt(text);
         return;
@@ -1703,8 +1707,12 @@ static int rch_player(uint32_t p)
             s_rch.air = gr;
             if (!press || speed > RRA_SLOW) {
                 rch_ai_desc(d1, sizeof d1, &d2);
+#ifdef __EMSCRIPTEN__
+                snprintf(text, sizeof text, "\x02" "%s \xC2\xB7 %d", d1, n);   /* small green pill (web/pre.js) */
+#else
                 snprintf(text, sizeof text, "%s\n%s \xC2\xB7 %d nearby player%s invited\n%s", d1, d2, n, n > 1 ? "s" : "",
                          speed > RRA_SLOW ? "Slow down to race" : "Press White [Q] to race");
+#endif
                 rra_prompt(text);
                 return 1;
             }
@@ -1786,8 +1794,12 @@ static int rch_player(uint32_t p)
         if (s_rch.ai) {
             k = (int)(RCH_ASK_S - (now - s_rch.t0) + 0.99);
             rch_ai_desc(d1, sizeof d1, &d2);
+#ifdef __EMSCRIPTEN__
+            snprintf(text, sizeof text, "\x03" "Group race %d/%d \xC2\xB7 %d s \xC2\xB7 [Q] start", nj, nin, k > 0 ? k : 0);
+#else
             snprintf(text, sizeof text, "%s\nGroup race \xC2\xB7 %d of %d joined \xC2\xB7 %d s\nPress White [Q] to start now",
                      d1, nj, nin, k > 0 ? k : 0);
+#endif
             if (now - s_rch.tx >= RCH_RESEND) {
                 for (k = 0; k < s_rch.ninv; k++)
                     if (!s_rch.inv[k].out)
@@ -1813,12 +1825,19 @@ static int rch_player(uint32_t p)
             s_rch.tx = now;
         }
         k = (int)(RCH_ASK_S - (now - s_rch.t0) + 0.99);
+#ifdef __EMSCRIPTEN__
+        if (nj)
+            snprintf(text, sizeof text, "\x03" "Street race %d/%d \xC2\xB7 %d s \xC2\xB7 [Q] start", nj, nin, k > 0 ? k : 0);
+        else
+            snprintf(text, sizeof text, "\x03" "Street race \xC2\xB7 %d invited \xC2\xB7 %d s", nin, k > 0 ? k : 0);
+#else
         if (nj)
             snprintf(text, sizeof text, "Street race \xC2\xB7 %d of %d joined\n%d checkpoints \xC2\xB7 %.1f km\nPress White [Q] to start now \xC2\xB7 %d s",
                      nj, nin, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
         else
             snprintf(text, sizeof text, "Street race \xC2\xB7 %d invited\n%d checkpoints \xC2\xB7 %.1f km\nWaiting for players to join \xC2\xB7 %d s",
                      nin, s_rch.ncp, s_rch.km, k > 0 ? k : 0);
+#endif
         rch_prompt(text);
         return 1;
     case RCH_INVITED:
@@ -1842,6 +1861,14 @@ static int rch_player(uint32_t p)
         k = (int)(RCH_ASK_S - (now - s_rch.t0) + 0.99);
         if (s_rch.ai) {                         /* a group race */
             rch_ai_desc(d1, sizeof d1, &d2);
+#ifdef __EMSCRIPTEN__
+            if (s_rch.st == RCH_JOINED)
+                snprintf(text, sizeof text, "\x03" "Joined \xC2\xB7 %s \xC2\xB7 Group race (%d) \xC2\xB7 waiting", s_rch.name,
+                         s_rch.players);
+            else
+                snprintf(text, sizeof text, "\x03%s \xC2\xB7 Race (%d)\n%s \xC2\xB7 [E] decline \xC2\xB7 %d s", s_rch.name,
+                         s_rch.players, speed > RCH_JOIN_SLOW ? "Slow down" : "[Q] join", k > 0 ? k : 0);
+#else
             if (s_rch.st == RCH_JOINED)
                 snprintf(text, sizeof text, "%s\nGroup race with %s (%d players, %d joined)\nJoined: waiting for the start", d1,
                          s_rch.name, s_rch.players, s_rch.accepted);
@@ -1849,6 +1876,7 @@ static int rch_player(uint32_t p)
                 snprintf(text, sizeof text, "%s invites you: group race (%d players, %d joined)\n%s \xC2\xB7 %s\n%s \xC2\xB7 %d s",
                          s_rch.name, s_rch.players, s_rch.accepted, d1, d2, speed > RCH_JOIN_SLOW ? "Slow down to join" : "Press White [Q] to join",
                          k > 0 ? k : 0);
+#endif
             if (s_rch.st == RCH_INVITED && press && speed <= RCH_JOIN_SLOW) {
                 s_rch.st = RCH_JOINED;
                 s_rch.tx = 0;
@@ -1857,6 +1885,18 @@ static int rch_player(uint32_t p)
             rch_prompt(text);
             return 1;
         }
+#ifdef __EMSCRIPTEN__
+        if (s_rch.st == RCH_JOINED)
+            snprintf(text, sizeof text, "\x03" "Joined \xC2\xB7 %s \xC2\xB7 Race (%d) \xC2\xB7 waiting", s_rch.name, s_rch.players);
+        else
+            snprintf(text, sizeof text, "\x03%s \xC2\xB7 Race (%d)\n%s \xC2\xB7 [E] decline \xC2\xB7 %d s", s_rch.name,
+                     s_rch.players, speed > RCH_JOIN_SLOW ? "Slow down" : "[Q] join", k > 0 ? k : 0);
+        if (s_rch.st == RCH_INVITED && speed <= RCH_JOIN_SLOW && press) {
+            s_rch.st = RCH_JOINED;
+            s_rch.tx = 0;
+            fprintf(stderr, "[CHALLENGE] we join %s's race\n", s_rch.name);
+        }
+#else
         if (s_rch.st == RCH_JOINED)
             snprintf(text, sizeof text, "Race with %s (%d players, %d joined)\n%d checkpoints \xC2\xB7 %.1f km\nJoined: waiting for the start",
                      s_rch.name, s_rch.players, s_rch.accepted, s_rch.ncp, s_rch.km);
@@ -1872,6 +1912,7 @@ static int rch_player(uint32_t p)
                 fprintf(stderr, "[CHALLENGE] we join %s's race\n", s_rch.name);
             }
         }
+#endif
         rch_prompt(text);
         return 1;
     case RCH_COUNT:

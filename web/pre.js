@@ -681,7 +681,7 @@ Module['mc3RaceButton'] = function (act) {
 };
 (function () {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
-  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null, big = false, offer = false, placed = '', glow = false;
+  var canvas = Module['canvas'], el = null, seq = -1, seenAt = 0, I32 = null, F32 = null, shown = null, big = false, offer = false, card = false, placed = '', glow = false;
   var ACTS = { 1: 'Cancel race', 2: 'Leave race', 3: 'Give up race', 4: 'Decline' };
   // the minimap's top-left in the HUD's 16:9 (720x480 layout): left edge and top, fractions of the HUD's width/height
   var MAP_LEFT = 0.055, MAP_TOP = 0.64, GAP = 0.015;
@@ -712,14 +712,15 @@ Module['mc3RaceButton'] = function (act) {
       shown = text + '|' + act;
       big = text.charCodeAt(0) === 1;
       offer = text.charCodeAt(0) === 2;   // the idle street-race offer: a small green pill, "Race N" (roam_challenge.c)
-      if (big || offer) text = text.slice(1);
+      card = text.charCodeAt(0) === 3;   // compact card (invite, waiting lines): small, 1-2 lines, [Q]/[E] keycaps
+      if (big || offer || card) text = text.slice(1);
       el.textContent = '';
       var os = el.style;
       os.background = offer ? 'rgba(20,110,50,.6)' : 'rgba(0,0,0,.72)';
       os.borderColor = offer ? 'rgba(120,255,150,.7)' : 'rgba(255,255,255,.25)';
-      os.padding = offer ? '.2em .6em' : '.45em .8em';
+      os.padding = offer ? '.2em .6em' : card ? '.25em .6em' : '.45em .8em';
       os.whiteSpace = offer ? 'nowrap' : '';
-      os.boxShadow = offer ? 'none' : '0 2px 10px rgba(0,0,0,.6)';
+      os.boxShadow = offer || card ? 'none' : '0 2px 10px rgba(0,0,0,.6)';
       if (offer) {
         var pd = document.createElement('div');
         pd.style.cssText = 'display:flex;align-items:center;gap:.4em';
@@ -732,7 +733,8 @@ Module['mc3RaceButton'] = function (act) {
       }
       (offer ? [] : text.split('\n')).forEach(function (line, i) {
         var d = document.createElement('div');
-        if (i === 0) d.style.cssText = big ? 'font-size:2.6em;line-height:1.05;color:#ffd24a' : 'font-size:1.15em;letter-spacing:.03em';
+        if (card) d.style.cssText = i === 0 ? 'font-size:.95em' : 'font-size:.8em;opacity:.85';
+        else if (i === 0) d.style.cssText = big ? 'font-size:2.6em;line-height:1.05;color:#ffd24a' : 'font-size:1.15em;letter-spacing:.03em';
         else if (i === 1) d.style.cssText = 'opacity:.85;font-size:.9em';
         else if (i >= 3) d.style.cssText = 'margin-top:.2em;font-size:.8em;opacity:.8';   // the quit hint
         else d.style.cssText = 'margin-top:.25em;color:#ffd24a';
@@ -769,7 +771,7 @@ Module['mc3RaceButton'] = function (act) {
         el.append(bar);
       }
     }
-    var wantGlow = !!text && offer;   // the touch Flash button turns green while the offer stands
+    var wantGlow = !!text && (offer || (card && text.indexOf('[Q]') >= 0));   // touch Flash green while White can act (offer, invite, start)
     if (wantGlow !== glow) {
       glow = wantGlow;
       var fb = document.querySelector('.tc-white');
@@ -800,7 +802,7 @@ Module['mc3RaceButton'] = function (act) {
     } else {
       var hw = Math.min(w, h * 16 / 9), hx = x + (w - hw) / 2,   // the HUD keeps its 16:9 in the middle (Hor+)
           left = hx + hw * MAP_LEFT, bottom = y + h * (MAP_TOP - GAP);
-      st.fontSize = Math.max(10, h * (offer ? 0.018 : 0.021)).toFixed(1) + 'px';
+      st.fontSize = Math.max(10, h * (offer || card ? 0.018 : 0.021)).toFixed(1) + 'px';
       st.maxWidth = (w * 0.32).toFixed(0) + 'px';
       // touch buttons the box would cover: only those overlapping its own rect (a phone's top row of buttons sits
       // above the picture and pushed the box off it, 2026-11-10); it never leaves the picture's top

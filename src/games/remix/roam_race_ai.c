@@ -569,8 +569,22 @@ static void rra_player(uint32_t p)
         fprintf(stderr, "[RACE] near %s (%s, %u opponents), %.0f m\n", r->name, roam_races_kind_name(r->kind),
                 r->opponents, d);
     }
+#ifdef __EMSCRIPTEN__
+    /* '\x02' = small green pill by the minimap (web/pre.js): '<race name>'; too fast: nothing (White would not start it) */
+    if (speed > RRA_SLOW)
+        rra_prompt("");
+    else {
+        char *nl;
+        rra_text(text + 1, sizeof text - 1, r, 0);
+        text[0] = '\x02';
+        if ((nl = strchr(text, '\n')) != NULL)
+            *nl = 0;
+        rra_prompt(text);
+    }
+#else
     rra_text(text, sizeof text, r, speed > RRA_SLOW);
     rra_prompt(text);
+#endif
     if (white && !white_was && speed <= RRA_SLOW) {
         s_roam_group.on = 0;                    /* alone (others near: roam_challenge.c's group prompt instead) */
         rra_start(r, mtx, top);

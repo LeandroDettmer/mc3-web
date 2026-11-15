@@ -640,7 +640,7 @@ generated files when the lift inputs did not change.
   AI race from a start point (feature 3, 2026-11-09, untested in game;
   src/games/remix/roam_race_ai.c, docs/roam-races.md): within 30 m of a
   start point, slower than 8 m/s, the page shows "Race: <name> ... press
-  White (Q)" (roam_prompt_box, web/pre.js); White fills [0x53F2E4] (copy
+  White (Q)" (browser, 2026-11-14, untested: a small green pill 'Q <race name>', text '<name>', none above 12 m/s; roam_prompt_box, web/pre.js); White fills [0x53F2E4] (copy
   sub_00268E50, SetEvent sub_0026B8E0(city, event), 1 player) and sends
   Request(8) + Request(6), roam status RC_ST_EVENT (peers hide our car).
   roam_build adds no slots to a load with race type != 0, so the race ends
@@ -748,7 +748,7 @@ generated files when the lift inputs did not change.
   in the cruise (sub_000C2CE0 is race-type gated), so ours draw next + after
   in the map tune's colours. Page marker roam_cp_box only as fallback.
   Prompt box (web/pre.js): left, above the minimap; '\x01' first = big and
-  centred (countdown, GO, 2 s of result). Messages: roam core GAME record
+  centred (countdown, GO, 2 s of result). '' = small green pill by the minimap + green touch Flash (idle street offer: 'Race N'; group offer at a start point: '<race> · N'; AI race: '<race>'); '' = compact card, 1-2 small lines (browser, 2026-11-14, untested; native keeps the old long texts): invite received '<host> · Race (N)' + '[Q] join · [E] decline · S s', host 'Group/Street race j/n · S s · [Q] start', joiner 'Joined · <host> · Race (N) · waiting'; green Flash while a card has [Q]. Messages: roam core GAME record
   (type 10, core 17, peer to peer, the hubs untouched; challenge v5 since
   2026-11-12: INVITE/JOIN/NO/GO/PROG, v4 and v5 drop each other's).
   '[CHALLENGE]' lines; MC3_ROAM_CHALLENGE=0 off, =2 no HUD/audio calls,
