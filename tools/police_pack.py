@@ -12,14 +12,19 @@ and mod.json.
 The cruise .rac lists 7 vp_eclipse_04 racers first, then (San Diego, Detroit)
 2-3 police cars; the race takes the first min(count, 8, setup +0x40)
 opponents, so a cruise with opponents on would get Eclipses. Here the list is
-police only, 3 of them (the game takes 2 on low memory: police.c): one parked
-by the cruise's start (the farthest Eclipse spot), then the city's own police
-blocks (patrol routes kept), then more Eclipse spots. Every police car is
-enabled at the start (DisabledAtStart 0) and respawns near the player after a
-lost chase (RespawnCop 1, as the career's races do). The rest of the file
-(ambient cars, bangers, triggers) is the original's."""
+police only, 3 of them (the game takes 2 on low memory: police.c): the city's
+own police blocks (patrol routes kept), then Eclipse spots (no route). None
+stands where it was: each goes to a spot on a road FAR_MIN..FAR_MAX m from the
+cruise's start (PlayerPosDir), at least SPREAD m from the others, picked from
+the city's other race events (their PlayerPosDir, Opponent and route
+waypoint PosDir: grids and routes lie on roads), nearest to FAR_AIM first
+(owner, 2026-11-15: they stood 10-25 m from the Free Roam start). Every police
+car is enabled at the start (DisabledAtStart 0) and respawns near the player
+after a lost chase (RespawnCop 1, as the career's races do). The rest of the
+file (ambient cars, bangers, triggers) is the original's."""
 
 import json
+import math
 import os
 import re
 import sys
@@ -31,6 +36,8 @@ CITIES = {   # folder, file prefix, the city's police car (vehicle.lst Class COP
     'tokyo': ('tokyo', 'vp_d_tokyo_cop_01'),
 }
 COPS = 3
+FAR_MIN, FAR_AIM, FAR_MAX, SPREAD = 300.0, 450.0, 800.0, 250.0   # m: police start spots
+POSDIR = r'(?:PlayerPosDir|PosDir)[ \t]+' + r'[ \t]+'.join([r'(-?[\d.]+)'] * 6)
 
 MOD = {"id": "police", "name": "Police", "author": "mc3-web", "credit": "",
        "description": "Police cars patrol Free Roam and chase you when you speed or crash",
@@ -75,6 +82,29 @@ def cop_from(block, car, keep_route):
     return b
 
 
+def spots(src, city, start):
+    """Road spots (x, y, z, dx, dy, dz) of the city's race events, FAR_MIN..FAR_MAX m from start
+    (ground distance), nearest to FAR_AIM first, each at least SPREAD m from those before it."""
+    found = []
+    for root, _, files in os.walk(os.path.join(src, 'race', city)):
+        for name in sorted(files):
+            if name.endswith('.rac'):
+                with open(os.path.join(root, name), 'rb') as f:
+                    found += [tuple(map(float, m)) for m in re.findall(POSDIR, f.read().decode('latin-1'))]
+    gd = lambda a, b: math.hypot(a[0] - b[0], a[2] - b[2])
+    found = sorted(set(p for p in found if FAR_MIN <= gd(p, start) <= FAR_MAX and math.hypot(p[3], p[5]) > 0.5),
+                   key=lambda p: (abs(gd(p, start) - FAR_AIM), p))
+    out = []
+    for p in found:
+        if all(gd(p, q) >= SPREAD for q in out):
+            out.append(p)
+    return out
+
+
+def place(block, spot):
+    return re.sub(r'(\tPosDir )[^\r\n]*', lambda m: m.group(1) + '%f\t%f\t%f  %f\t%f\t%f ' % spot, block, count=1)
+
+
 def build(src, dst, city, prefix, car):
     rel = 'race/%s/cruise/easy/%s_cruise_easy_cruise_race01.rac' % (city, prefix)
     with open(os.path.join(src, rel), 'rb') as f:
@@ -84,15 +114,20 @@ def build(src, dst, city, prefix, car):
     others = [b for b in opps if b not in police]
     if not others:
         raise SystemExit('%s: no racer spots' % rel)
-    cops = [cop_from(others[-1], car, False)] + [cop_from(b, car, True) for b in police]
-    cops += [cop_from(b, car, False) for b in reversed(others[:-1])]
-    cops = cops[:COPS]
+    cops = [cop_from(b, car, True) for b in police] + [cop_from(b, car, False) for b in reversed(others)]
+    start = tuple(map(float, re.search(POSDIR, head).groups()))
+    far = spots(src, city, start)
+    if len(far) < COPS:
+        raise SystemExit('%s: %d road spots %d-%d m from the start, %d needed' % (rel, len(far), FAR_MIN, FAR_MAX, COPS))
+    cops = [place(b, p) for b, p in zip(cops[:COPS], far)]
     head = re.sub(r'numOpponents \d+', 'numOpponents %d' % len(cops), head, count=1)
     out = os.path.join(dst, 'tune', rel)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, 'wb') as f:
         f.write((head + ''.join(cops) + tail).encode('latin-1'))
-    print('%s: %d police (%s), %d of the city\'s own' % (rel, len(cops), car, min(len(police), COPS - 1)))
+    print('%s: %d police (%s), %d of the city\'s own; start %.0f %.0f, police at %s m' % (
+        rel, len(cops), car, min(len(police), COPS), start[0], start[2],
+        ', '.join('%.0f' % math.hypot(p[0] - start[0], p[2] - start[2]) for p in far[:COPS])))
 
 
 def main():

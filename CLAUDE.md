@@ -1518,7 +1518,12 @@ only with MC3_PERF, their only reader.
   COPCAR CarType (aiCop brain vt 0x46BFF8, list 0x534088, count 0x534110). The
   pack's four cruise .rac (tune/race/<city>/cruise/easy/*_cruise_race01.rac)
   list 3 police only (sd/atl/det impalass_cop_s/a/d_96, tokyo vp_d_tokyo_cop_01;
-  DisabledAtStart 0, RespawnCop 1); fr_no_opponents gives the Online Free Roam
+  DisabledAtStart 0, RespawnCop 1), each placed (2026-11-15, untested in game;
+  owner: they stood 10-25 m from the start) on a road spot ~450 m from the
+  cruise's PlayerPosDir and 250+ m from each other, taken from the city's other
+  .rac (PlayerPosDir, Opponent and waypoint PosDir); the tune files come from
+  `tools/dave.py extract game-remix-usa/assets_x.dat 'tune/race/*' <dir>`;
+  fr_no_opponents gives the Online Free Roam
   cruise setups +0x40 = 3 (128 MB window) / 2 (64 MB), MC3_POLICE=N, +0x10D = 1;
   roam_build keeps 1 + slots + police <= 8. The level load (sub_00029240) runs
   race init (.rac), the AI pool, then the player manager, so the police cars
@@ -1542,13 +1547,18 @@ only with MC3_PERF, their only reader.
   within 6 m of a police car while either's ground dv/dt > 25 m/s^2 (a hit);
   that car and every patrolling one within 300 m then get +0x20C = us, level 4
   ('[POLICE] chase starts: ...'); a car after us with no hit is sent back.
-  Bust: a car after us in state 7 within 30 m, our car under 2 m/s for 3 s
-  (not the first 2 s after the hit). Escape: none after us for 1 s (the
-  game's give-ups) or all beyond 250 m for 10 s -> prompt 'ESCAPED'.
+  Bust (2026-11-15, untested in game; state 7 / 30 m / 2 m/s / 3 s never
+  fired for the owner): a car after us in states 4-7 within 15 m, our car
+  under 4 m/s for 2 s (breaks under 0.5 s kept; not the first 2 s after the
+  hit); '[POLICE] bust check: ...' every 2 s while wanted. Escape: none after
+  us for 1 s (the game's give-ups) or all beyond 250 m for 10 s -> prompt
+  'ESCAPED'. After a bust or an escape, 10 s cool-down (owner: the chase went
+  on after BUSTED): every car after us back to patrol, wanted list cleared,
+  no hit counts, record +5 cleared without a fine ('[POLICE] after bust: ...').
   Arrest: our bust rule, or "racer finished" sub_001E06E0 (race vt+0x64,
   thiscall (idx), ret 4, indirect only; done = record +4, "hud_arrested" when
   record +5, race +0x1250 count, +0x1258 bit) for our racer with a police car
-  after us or record +5 set (not run): $5,000 fine from the Online money,
+  after us or record +5 set (not run): $50,000 fine from the Online money,
   profile saved, prompt box 'BUSTED', the cars after us back to patrol. The
   pack is served everywhere its .rac is read (a career/Arcade cruise of the
   same event too). '[POLICE] ...'.
