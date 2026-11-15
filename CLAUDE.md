@@ -283,6 +283,18 @@ generated files when the lift inputs did not change.
   kept in memory (pinned, ~206 MiB JS, only where deviceMemory >= 8:
   Safari has none, its Macs pinned and were killed until 2026-11-12; '[WEB]
   prefetch: no disc cache: the music's track starts ... kept in memory').
+  New players still froze at track changes (owner, fresh incognito
+  2026-11-15; fix untested in a browser): the heads waited the fill's 15 s,
+  then went one request at a time (94 requests for 206 blocks of the
+  364 MiB bank), and when the incognito quota ran out later in the fill
+  the cache turned off, OPFS was no longer read, and pinHeads fetched all
+  206 MiB again while the game read every city block on the network. Now
+  the heads start at the first disc file (idle() still gives way to the
+  game; the rest of the fill keeps its 15 s, the low-memory profile its
+  gate), and as the cache turns off the heads the music's cache file
+  already holds go to memory first (keepHeads, '[WEB] prefetch: disc
+  cache off: N of 206 MiB of the music's track starts kept in memory
+  from it').
   Emscripten's own WASMFS fetch
   backend left stale data across chunks, hence our backend.
 - **Input:** SDL keyboard/Gamepad on the GL thread; a key tap is held at

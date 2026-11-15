@@ -37,7 +37,8 @@
  * (unless within BG_FINISH blocks of its end: 2026-11-14), or
  * wants one of its blocks more than a block past the one coming (that read
  * then fetches its block alone); the blocks already in are kept. Only when
- * the cache is on. Log lines '[WEB] prefetch: ...'.
+ * the cache is on. Log lines '[WEB] prefetch: ...'. The music's track starts
+ * (below) do not wait PREFETCH_DELAY_MS (2026-11-15), only idle().
  *
  * Music track starts first (2026-11-11): every disc read waits under the
  * guest lock, and a track change reads a random track of mx.xwb (135 entries,
@@ -47,7 +48,8 @@
  * block 0; ~206 MiB). Where the cache was meant to be on but OPFS refused it
  * or ran out of room (a Chrome incognito tab: estimate() reports ~10 GiB, the
  * real quota is far smaller), those blocks are kept in memory for the session
- * instead (`pinned`, never evicted; only where the browser says 8 GB of
+ * instead (`pinned`, never evicted; those the cache file already held are
+ * read from it as the cache turns off, keepHeads; only where the browser says 8 GB of
  * device memory or more: Safari says nothing, and its Macs pinned 206 MiB,
  * then were killed, 2026-11-12 logs TYM47H/VJK9ZT).
  *
@@ -268,9 +270,24 @@ addToLibrary({
       if (failures++ < 3) err(`[WEB] ${e?.message || e}`);   // C.open/C.put messages start 'opfs: <op> <file>'
       if (e?.name !== 'UnknownError' && e?.name !== 'QuotaExceededError' && failures < 8) return;
       cacheOff = true; cacheDir = Promise.resolve(null);
-      for (const q of open.values()) q.then(C.close);
+      for (const q of open.values()) q.then(cf => { keepHeads(cf); C.close(cf); });
       open.clear();
       err(`[WEB] disc cache off for this session (${e?.name || e}): the disc is read from the server`);
+    }
+
+    // OPFS gone mid-session (an incognito tab's real quota is far below its estimate): the music's track starts its
+    // file already holds go into `pinned` before it is closed, so pinHeads does not fetch them all again (2026-11-15).
+    let heads = null;   // {key, size, list}: the music bank's head blocks, once the fill has read its table
+    function keepHeads(cf) {
+      if (!cf || !heads || cf.k !== heads.key || !(navigator.deviceMemory >= 8)) return;
+      let n = 0;
+      for (const j of heads.list) {
+        if (!cf.have[j]) continue;
+        const b = new Uint8Array(C.blockLen(heads.size, j));
+        try { if (cf.h.read(b, { at: j * BLOCK }) !== b.length) continue; } catch { break; }
+        pinned.set(cf.k + '#' + j, b); n++;
+      }
+      if (n) err(`[WEB] prefetch: disc cache off: ${n} of ${heads.list.length} MiB of the music's track starts kept in memory from it`);
     }
 
     function remember(k, b) {
@@ -466,8 +483,12 @@ addToLibrary({
     }
 
     // The background fill (see the header).
+    // The music's track starts go at once (2026-11-15: 15 s after the first disc file plus ~94 requests one at a time
+    // left a new player's first track changes cold; idle() keeps them off the game's reads), the rest after
+    // fillGate. The low-memory profile waits for the gate first (phones were killed).
     async function prefetch(disc, m) {
-      await fillGate();
+      const gated = fillGate();
+      if (E.MC3_PREFETCH === 'cars') await gated;
       const d = await cacheFolder();
       if (!d) return pinHeads(disc, m);           // no cache in this run: nothing to fill (track starts in memory if OPFS refused)
       const mib = n => (n / BLOCK).toFixed(0);
@@ -500,9 +521,11 @@ addToLibrary({
       const music = jobs.find(fi => fi.p.toLowerCase() === MUSIC);
       if (music) {                                // the music's track starts before anything else
         const list = await headBlocks(music);
+        heads = { key: music.key, size: music.size, list };
         if (!(await run(music, list))) return pinHeads(disc, m);
         err(`[WEB] prefetch: music track starts kept (${list.length} MiB) after ${((performance.now() - t0) / 1000).toFixed(0)} s`);
       }
+      await gated;
       for (const fi of jobs)
         if (!(E.MC3_PREFETCH === 'cars' && fi === music) && !(await run(fi, Array.from({ length: Math.ceil(fi.size / BLOCK) }, (_, j) => j)))) return pinHeads(disc, m);
       err(`[WEB] prefetch: done, ${mib(done)} MiB in ${((performance.now() - t0) / 1000).toFixed(0)} s`);
