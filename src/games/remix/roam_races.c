@@ -75,8 +75,8 @@ static int rr_medium(const char *name)
  * tracks and frenzies all stay, plus each other kind's first, and the rest fill up to RR_CITY_MAX by
  * farthest-point picks (the start farthest from every kept one first) while at least RR_SPACE_M away. */
 #define RR_MERGE_M      50.0f
-#define RR_SPACE_M      150.0f
-#define RR_CITY_MAX     28
+#define RR_SPACE_M      80.0f
+#define RR_CITY_MAX     56
 static int rr_curate(int from)
 {
     static roam_race v[RR_MAX];

@@ -645,8 +645,8 @@ generated files when the lift inputs did not change.
   (race type 0, not our AI race: in a race they sat over the game's own
   checkpoints). Each city's list is cut at load (rr_curate, ~70 in San
   Diego): variants of one course (same kind, starts within 50 m) become
-  the medium/normal one, every track and frenzy stays, then at most 28 a
-  city at least 150 m apart; only those get the prompt. roam_races_nearest() is
+  the medium/normal one, every track and frenzy stays, then at most 56 a
+  city at least 80 m apart (28 and 150 m until 2026-11-15); only those get the prompt. roam_races_nearest() is
   the API for starting races from the map. '[ROAM] races: ...' at first
   use; MC3_ROAM_RACES=0 off, =2 logs each race.
   AI race from a start point (feature 3, 2026-11-09, untested in game;
