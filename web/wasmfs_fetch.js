@@ -447,6 +447,15 @@ addToLibrary({
       }
       return [...out].sort((a, b) => a - b);
     }
+    // The music's track starts in HEAD_LANES requests at a time (list cut in that many slices, each filled in order):
+    // one at a time, ~94 requests took 1-2 min, past a new player's boot and first track changes (2026-11-15).
+    // True when every slice was.
+    const HEAD_LANES = 3;
+    async function lanes(list, f) {
+      const k = Math.ceil(list.length / HEAD_LANES), parts = [];
+      for (let i = 0; i < list.length; i += k) parts.push(list.slice(i, i + k));
+      return (await Promise.all(parts.map(f))).every(Boolean);
+    }
     // Blocks `list` (ascending) of fi in the background while the game is idle, runs of up to PREFETCH_RUN: into the
     // OPFS cache, or into `pinned` (pin). onRun(bi, got) after each request. False when the cache went away.
     async function fill(fi, list, pin, onRun = () => {}) {
@@ -478,7 +487,7 @@ addToLibrary({
       const fi = fileInfo(disc, f), list = await headBlocks(fi);
       err(`[WEB] prefetch: no disc cache: the music's track starts (${list.length} MiB) kept in memory instead`);
       const t0 = performance.now();
-      await fill(fi, list, true);
+      await lanes(list, l => fill(fi, l, true));
       err(`[WEB] prefetch: music track starts in memory, ${pinned.size} MiB in ${((performance.now() - t0) / 1000).toFixed(0)} s`);
     }
 
@@ -522,7 +531,7 @@ addToLibrary({
       if (music) {                                // the music's track starts before anything else
         const list = await headBlocks(music);
         heads = { key: music.key, size: music.size, list };
-        if (!(await run(music, list))) return pinHeads(disc, m);
+        if (!(await lanes(list, l => run(music, l)))) return pinHeads(disc, m);
         err(`[WEB] prefetch: music track starts kept (${list.length} MiB) after ${((performance.now() - t0) / 1000).toFixed(0)} s`);
       }
       await gated;

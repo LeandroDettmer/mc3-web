@@ -270,7 +270,7 @@ generated files when the lift inputs did not change.
   build holds the guest lock) is not done: it needs the pack's packed name
   table ('Dave': 6-bit names with prefix references, TOC in block 0) to map a
   model to its entries. Music track changes
-  (2026-11-11, untested in a browser): every disc read waits under the guest
+  (2026-11-11, untested in a browser; since 2026-11-15 the heads go 3 requests at a time, HEAD_LANES, to land within a new player's boot): every disc read waits under the guest
   lock; a change reads a random entry of mx.xwb (135, shuffled) from its
   start in 352 KB packets, and players' logs showed 0.5-2.5 s freezes per
   change on a cold cache (one at the start, one when a packet crossed into
