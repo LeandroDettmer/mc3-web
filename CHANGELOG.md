@@ -106,7 +106,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Another player's car no longer jumps forward or back when you get close to it.
 - **Free Roam:** Fixed a freeze in a full city, when many players come and go around you.
 
-## 2026-11-14 (304bf1b)
+## 2026-11-14 (53fadff)
 
 - **Page:** New start page with a side menu and tidy settings; Donate and Ko-fi buttons under Play.
 - **Free Roam:** Other players' cars no longer show up with bare rims.
@@ -125,3 +125,6 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Other players' cars now really show their tyres (they could still appear as bare rims).
 - **Phones:** Lighter on memory, so the browser closes the game less often; a game left in the background goes offline after a minute and comes back when you return.
 - **Game:** Fixed freezes when leaving a race, the garage or Free Roam, and a rare freeze while the picture was being drawn.
+- **Free Roam:** Shared weather and time of day: dawn, dusk or midnight, clear, cloudy or rain, changing every 24 minutes and the same for everyone in the city (shows on your next load).
+- **Free Roam:** The street race offer is now a small green hint by the minimap (and a green Flash button on touch), not a big box.
+- **Keyboard:** A tap of an arrow in the garage and menus moves one item; hold it to scroll.
