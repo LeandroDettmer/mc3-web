@@ -129,7 +129,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** The street race offer is now a small green hint by the minimap (and a green Flash button on touch), not a big box.
 - **Keyboard:** A tap of an arrow in the garage and menus moves one item; hold it to scroll.
 
-## 2026-11-15 (e6faa9e)
+## 2026-11-15 (cc57707)
 
 - **Free Roam:** Other players' cars no longer jump or smoke their tyres when you get close.
 - **Free Roam:** Race invites, the group race offer and the "waiting" message are now small hints instead of big boxes.
@@ -144,3 +144,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Page:** No more "new version" message over the game after an update.
 - **Free Roam:** Online: drive a police car in Free Roam and bust other players: 9 hits and they pay you $50,000.
 - **Mods:** New Mods tab on the start page (no mods listed for now).
+- **Graphics:** Cars no longer show blocky holes on some Android tablets and phones (Snapdragon).
