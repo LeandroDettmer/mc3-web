@@ -68,12 +68,19 @@ static volatile Uint32 s_hold_ms[SDL_NUM_SCANCODES];
  * b33e71f). In menus (dir_held) the arrows and I J K L reach the pad as a
  * key repeat: a DIR_PULSE_MS pulse at the press (about two game frames,
  * however short or long the tap), then nothing until the key has been held
- * DIR_REPEAT_MS, then held (the lists scroll at their own pace). s_dir_at
- * is the up-to-down moment only: the browser's auto-repeat keydowns do not
+ * DIR_REPEAT_MS, then held (the lists scroll at their own pace). The pulse
+ * ends only after the pad state was also read twice since the press
+ * (s_reads, counted in xbox_sdl_keyboard_state, which the game's
+ * XInputGetState merges): below ~15 fps in menus (phones) 70 ms can pass
+ * between two reads and the pulse would never be seen. s_dir_at is the
+ * up-to-down moment only: the browser's auto-repeat keydowns do not
  * restart it. */
 #define DIR_PULSE_MS 70
 #define DIR_REPEAT_MS 350
 static volatile Uint32 s_dir_at[SDL_NUM_SCANCODES];    /* SDL_GetTicks() | 1 */
+#define DIR_PULSE_READS 2
+static volatile Uint32 s_reads;                        /* pad-state merges so far */
+static volatile Uint32 s_dir_rd[SDL_NUM_SCANCODES];    /* s_reads at the press */
 #endif
 
 void xbox_sdl_keyboard_event(int scancode, int down)
@@ -81,8 +88,10 @@ void xbox_sdl_keyboard_event(int scancode, int down)
     if (scancode < 0 || scancode >= SDL_NUM_SCANCODES)
         return;
 #ifdef __EMSCRIPTEN__
-    if (down && !s_down[scancode])
+    if (down && !s_down[scancode]) {
+        s_dir_rd[scancode] = s_reads;
         s_dir_at[scancode] = SDL_GetTicks() | 1;
+    }
     if (down)
         s_hold_ms[scancode] = KEY_MIN_HOLD_MS;
     else if (s_down[scancode] && SDL_GetTicks() - s_press_at[scancode] >= KEY_SAME_PUMP_MS)
@@ -193,7 +202,8 @@ static int dir_held(int scancode, int menu)
     if (!t)
         return 0;
     el = SDL_GetTicks() - t;
-    return el < DIR_PULSE_MS || (el >= DIR_REPEAT_MS && s_down[scancode]);
+    return el < DIR_PULSE_MS || s_reads - s_dir_rd[scancode] < DIR_PULSE_READS
+           || (el >= DIR_REPEAT_MS && s_down[scancode]);
 }
 #else
 #define dir_held(scancode, menu) held(scancode)
@@ -225,6 +235,9 @@ void xbox_sdl_keyboard_state(XBOX_INPUT_STATE *s)
     SHORT x;
     int menu = keyboard_menu();
     (void)menu;   /* native: dir_held is held */
+#ifdef __EMSCRIPTEN__
+    s_reads++;
+#endif
 
     if (dir_held(SDL_SCANCODE_I, menu)) b |= XBOX_GAMEPAD_DPAD_UP;
     if (dir_held(SDL_SCANCODE_K, menu)) b |= XBOX_GAMEPAD_DPAD_DOWN;

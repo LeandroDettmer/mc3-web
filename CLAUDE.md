@@ -292,7 +292,7 @@ generated files when the lift inputs did not change.
   step again whenever a slide ends with the direction still held, so a
   normal 80-200 ms tap moved two garage items. Not driving
   (xbox_keyboard_driving says so), the arrows and I J K L reach the pad as
-  a 70 ms pulse at the press, then nothing until held 350 ms, then held.
+  a pulse at the press (70 ms and at least 2 pad reads, so slow menus see it), then nothing until held 350 ms, then held.
   Driving and native builds unchanged. Keyboard left/right feed the left
   stick X only (no d-pad, no trigger): one source.
   Gamepads (2026-11-14, issue #6, untested in a browser): SDL2's
