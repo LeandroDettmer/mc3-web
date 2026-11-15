@@ -892,7 +892,7 @@
     { key: 'MC3_NAMETAGS', label: 'Name tags', help: 'Each other player\'s name over their car in free roam (not hidden behind buildings). Changes live.', opts: ONOFF() },
     // page-only (web/pre.js name tags; the game ignores it): a slider with a sample tag (settingRow's range branch)
     { key: 'MC3_NAMETAG_SIZE', label: 'Name tag size', help: 'How big the names over other players\' cars are. Changes live.',
-      range: { min: 50, max: 150, step: 10, def: 100 }, opts: [] },
+      range: { min: 50, max: 150, step: 10, def: 50 }, opts: [] },
     { group: 'Keyboard' },
     { key: 'RECOMP_KEYBOARD', label: 'Keyboard as pad 1', help: 'Off leaves only controllers. Changes live.', opts: ONOFF() },
     { key: 'RECOMP_KEYBOARD_STICK_Y', label: 'Up and Down move the stick', help: 'Menus move with the stick. Auto: while driving (when the game says so) the arrows are gas and brake alone.',
@@ -1044,7 +1044,7 @@
     store.set('settings', settings);
     $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
     if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
-    if (key === 'MC3_NAMETAG_SIZE') window.Module?.mc3SetNameTagSize?.(Number(value) || 100);   // web/pre.js, live
+    if (key === 'MC3_NAMETAG_SIZE') window.Module?.mc3SetNameTagSize?.(Number(value) || 50);   // web/pre.js, live
     if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
     if (key === 'MC3_DRIFT') syncDrift();
     if (live(key) && window.Module?.mc3SetLive) Module.mc3SetLive(key, buildEnv(null)[key]);   // the value a start would get

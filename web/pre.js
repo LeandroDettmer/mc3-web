@@ -417,11 +417,11 @@ Module['mc3FlagEl'] = function (code) {
   if (typeof document != 'object' || typeof requestAnimationFrame != 'function') return;
   var canvas = Module['canvas'], on = (Module['mc3Env'] || {}).MC3_NAMETAGS !== '0';
   // Settings 'Name tag size' (MC3_NAMETAG_SIZE, %, 50..150, page-only), live through Module.mc3SetNameTagSize
-  var size = Math.min(150, Math.max(50, Number((Module['mc3Env'] || {}).MC3_NAMETAG_SIZE) || 100)) / 100;
+  var size = Math.min(150, Math.max(50, Number((Module['mc3Env'] || {}).MC3_NAMETAG_SIZE) || 50)) / 100;
   var layer = null, pool = [], shown = 0, seq = -1, seenAt = 0, I32 = null, F32 = null, U8 = null;
   if (!canvas) return;
   Module['mc3SetNameTags'] = function (v) { on = !!v; };
-  Module['mc3SetNameTagSize'] = function (v) { size = Math.min(150, Math.max(50, Number(v) || 100)) / 100; };
+  Module['mc3SetNameTagSize'] = function (v) { size = Math.min(150, Math.max(50, Number(v) || 50)) / 100; };
   function hideFrom(n) { for (; shown > n; shown--) { pool[shown - 1].style.display = 'none'; pool[shown - 1]._d = 0; } }
   function frame(now) {
     requestAnimationFrame(frame);
