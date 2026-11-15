@@ -1527,13 +1527,31 @@ only with MC3_PERF, their only reader.
   skipped) for each player; recomp_lookup_manual answers 0 there for any player
   but ours (no relift); targets brain +0x20C/+0x210, wanted list 0x534120
   ({who, level} x16, count 0x534114) scrubbed of remote players each frame.
-  Arrest: "racer finished" sub_001E06E0 (race vt+0x64, thiscall (idx), ret 4,
-  indirect only; done = record +4, "hud_arrested" when record +5, race +0x1250
-  count, +0x1258 bit) for our racer with a police car after us or record +5 set
-  is not run: $5,000 fine from the Online money, profile saved, prompt box
-  'BUSTED', targets and wanted list cleared. The arrest's decider was not found
-  (cop states 4/6/7 of sub_001F0790 unread). The pack is served everywhere its
-  .rac is read (a career/Arcade cruise of the same event too). '[POLICE] ...'.
+  Chase, bust, escape (2026-11-15, untested in game; owner: cops chased at
+  once, no bust, no escape): a brain picks a target only while it has none, by
+  the heat test sub_001E4A70 (0 unless over 60/100 x 0x449990 m/s, the wrong
+  way, or a type-3 road; player +1) within its scan radius (+0x218); state
+  machine sub_001F0790 (+0x1B4; 8/9 off): target in 0-3 -> 4 (closing in,
+  > 225 m) or 6 (chase); 4/5 give up past 1000 m or 20 s / 300 m and 10 s; 6
+  gives up past 300 m, -> 7 (close pursuit) within 30 m; 7 boxes in a target
+  under 1 m/s (behaviour 6/0x24); +0x214 timer; backup sub_001F00F0 after 5 s;
+  giving up = sub_001EFB00 (state 2, target 0, patrol). The game has no
+  cruise arrest. Zeroing +0x20C alone (the old calm/scrub) left a car in state
+  4-7 with no target, which the brain update dereferences: now always
+  sub_001EFB00. Ours: the player check answers 0 for us too until our car is
+  within 6 m of a police car while either's ground dv/dt > 25 m/s^2 (a hit);
+  that car and every patrolling one within 300 m then get +0x20C = us, level 4
+  ('[POLICE] chase starts: ...'); a car after us with no hit is sent back.
+  Bust: a car after us in state 7 within 30 m, our car under 2 m/s for 3 s
+  (not the first 2 s after the hit). Escape: none after us for 1 s (the
+  game's give-ups) or all beyond 250 m for 10 s -> prompt 'ESCAPED'.
+  Arrest: our bust rule, or "racer finished" sub_001E06E0 (race vt+0x64,
+  thiscall (idx), ret 4, indirect only; done = record +4, "hud_arrested" when
+  record +5, race +0x1250 count, +0x1258 bit) for our racer with a police car
+  after us or record +5 set (not run): $5,000 fine from the Online money,
+  profile saved, prompt box 'BUSTED', the cars after us back to patrol. The
+  pack is served everywhere its .rac is read (a career/Arcade cruise of the
+  same event too). '[POLICE] ...'.
 - Saves (2026-10-22): a profile is UDATA/54540079/<12 hex>/<name>.mc3
   (99,162 bytes) + SaveMeta.xbx (UTF-16 "Name=<name>"). The .mc3 starts
   with a format stamp (Xbox 0x02F59447) and ends with HMAC-SHA1 of the

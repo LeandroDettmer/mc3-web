@@ -26,18 +26,42 @@
  *
  * Who they chase: each brain update (sub_001EFCC0) lists the players
  * (GetPlayer sub_002BF570 for each index; [[player+0x14]+8] vt+0x2C must
- * answer al != 0, call returning to 0x001EFF03) and the traffic, rates each
- * with the heat test sub_001E4A70 (speed over the road's limit x tune
- * 0x4B2AB8 / 0x4B2AB4, ...) and the highest becomes the target (brain +0x20C,
- * level +0x210) and goes on the wanted list 0x534120 ({who, level} x16,
- * count 0x534114). The remote players' cars are players 1..7 in our game:
- * that indirect call answers 0 for any player but ours (police_icall, via
- * recomp_lookup_manual on its return address, no relift), so a remote car
- * is never a candidate. Each frame a brain whose target is another player
- * anyway is cleared, and such entries leave the wanted list.
+ * answer al != 0, call returning to 0x001EFF03) and the traffic within its
+ * scan radius (+0x218: 50 m states 0/1, 70 m 2/3; sub_001F1150), rates each
+ * with the heat test sub_001E4A70 (0 unless over 60/100 x 0x449990 m/s,
+ * 0x4B2AB4/0x4B2AB8, or the wrong way / on a road of type 3 within 10 m; a
+ * player +1) and, while it has no target, one hotter than +0x210 becomes the
+ * target (brain +0x20C, level +0x210) and goes on the wanted list 0x534120
+ * ({who, level} x16, count 0x534114). That indirect call answers 0 for any
+ * player but ours (police_icall, via recomp_lookup_manual on its return
+ * address, no relift), and for ours too until our car hits a police car:
+ * police cars never pick us on their own (they did right after the cruise
+ * started). Each frame a police car after a remote player or after us with
+ * no hit gives it up the game's way (sub_001EFB00).
  *
- * Arrest: the racer-finished call (police_finish) for us while a police car
- * is after us, or our record's arrested byte (police_arrest). Fine POLICE_FINE from the Online money
+ * State machine sub_001F0790 (brain +0x1B4; 8/9 off): with a target, states
+ * 0-3 (patrol) go to 4 (closing in) beyond 225 m, else 6 (chase); 4 -> 6
+ * under 150 m, gives up past 1000 m or 20 s; 5 likewise (300 m and 10 s);
+ * 6 gives up past 300 m (radio 0x2A), goes to 7 (close pursuit, formation
+ * sub_001E4CE0) within 30 m or not facing us; 7 back to 6 beyond 30 m or not
+ * facing us, at our speed under 1 m/s within 30 m behaviour 6/0x24 (box in).
+ * Timer +0x214 counts 1/60 a brain update while it has a target; after 5 s
+ * in 6 it calls backup (sub_001F00F0 -> sub_001E4970, up to [0x4B2AB0]
+ * cars). Giving up = sub_001EFB00 (state 2, target 0, patrol). The game has
+ * no arrest of its own in a cruise (the checkpoint race sub_001DED30 only
+ * counts chasers for its HUD messages 6/7 and its finish flag rec+0x5D).
+ *
+ * Chase: our car within 6 m of a police car while either one's ground
+ * velocity changes faster than 25 m/s^2 (a hit; drift.c's hit test is ours
+ * only) -> that car and every patrolling one within 300 m take us as their
+ * target (police_chase), '[POLICE] chase starts: ...'.
+ * Bust: a police car after us in close pursuit (7) within 30 m, our car under
+ * 2 m/s for 3 s (not in the first 2 s after the hit). Escape: no police car
+ * after us for 1 s (the game's own give-up rules above), or every one farther
+ * than 250 m for 10 s: they give up (sub_001EFB00), prompt 'ESCAPED'.
+ *
+ * Arrest: our bust rule, the racer-finished call (police_finish) for us while a
+ * police car is after us, or our record's arrested byte (police_arrest). Fine POLICE_FINE from the Online money
  * ([[0x557F0C]+0xC]+0xACC; never below 0), the Online profile saved
  * (online_garage_left, as the race prizes), the prompt box says BUSTED and
  * the fine, the chase ends (targets, wanted list cleared) and play goes on.
@@ -56,10 +80,24 @@
 #define POLICE_FINE     5000u
 #define POL_NOTE_S      6.0             /* s the BUSTED line shows (big the first 2) */
 
+#define POL_STATE       0x1B4u          /* brain: state; 0-3 patrol, 4/5 closing in, 6 chase, 7 close pursuit, 8/9 off */
+#define POL_TIMER       0x214u          /* brain: s since the last state change (1/60 a brain update) */
+#define POL_HIT_M       6.0f            /* car centres closer than this ... */
+#define POL_HIT_ACC     25.0f           /* ... and either car's ground velocity changing faster (m/s^2): a hit */
+#define POL_BUST_M      30.0f           /* bust: a police car in close pursuit (state 7) within 30 m (0x4B2B5C) ... */
+#define POL_BUST_MS     2.0f            /* ... and our car under 2 m/s (the game's own stop test is 1.0, 0x4B2B60) ... */
+#define POL_BUST_S      3.0             /* ... for 3 s */
+#define POL_GRACE_S     2.0             /* no bust in the first 2 s after the hit (the hit itself stops us) */
+#define POL_LOST_M      250.0f          /* escape, fallback: every police car after us farther than this ... */
+#define POL_LOST_S      10.0            /* ... for 10 s (the game's own: a chasing car drops us past 300 m) */
+void sub_001EFB00(void);                /* brain: give up the target, back to patrol (state 2, +0x20C/+0x210 = 0) */
+
 static int s_pol_live;                  /* the Online Free Roam cruise with police: the filters run */
 static uint32_t s_pol_va;               /* the indirect call's real target (police_icall) */
 static double s_pol_note_t;             /* when the fine's line went up, 0 none */
 static char s_pol_note[96];
+static int s_pol_wanted;                /* our car hit a police car: the chase is on until a bust or an escape */
+static double s_pol_hit_t;              /* when the hit was */
 
 /* The pack is on: MC3_MODS named it and its files were found (mods.c). */
 static int police_pack(void)
@@ -134,11 +172,13 @@ static int police_remote(uint32_t who)
 }
 
 /* In place of the brain's player check (thiscall on [[player+0x14]+8], no
- * args): edi is the player. Ours: the game's own; another: al 0, skipped. */
+ * args): edi is the player. Ours while wanted: the game's own (a police car
+ * we pass speeding joins the chase); ours not wanted, or another: al 0,
+ * skipped, so no police car picks us by its own heat rules. */
 static void police_icall(void)
 {
     recomp_func_t fn;
-    if (g_edi != police_p0()) {
+    if (g_edi != police_p0() || !s_pol_wanted) {
         static unsigned said;
         if (said++ < 4u)
             fprintf(stderr, "[POLICE] remote player %08X left out of a police car's suspects\n", (unsigned)g_edi);
@@ -169,35 +209,28 @@ static recomp_func_t police_lookup(uint32_t va)
     return police_icall;
 }
 
-/* The chase is over: no target for any police car, the wanted list empty. */
-static void police_calm(void)
+/* A police car gives up its target the game's way (sub_001EFB00: state 2,
+ * target and level 0, patrol behaviour). Zeroing the target alone left a
+ * car in state 4-7 with none, and the brain update (sub_001EFCC0, states 4-7)
+ * reads the target's vtable. */
+static void police_drop(uint32_t b)
 {
-    uint32_t n = MEM32(POL_NCOPS_VA), i, b;
-    for (i = 0; i < n && i < 16u; i++)
-        if (online_ram(b = MEM32(POL_COPS_VA + 4u * i))) {
-            MEM32(b + POL_TARGET) = 0;
-            MEM32(b + POL_LEVEL) = 0;
-        }
-    for (i = 0; i < 32u; i++)
-        MEM32(POL_WANTED_VA + 4u * i) = 0;
-    MEM32(POL_NWANTED_VA) = 0;
+    roam_call(sub_001EFB00, b, (g_esp - 0x400u) & ~0xFu, 0, NULL);
 }
 
-/* Remote players out of the targets and the wanted list (a safety net: police_icall keeps them out). */
-static void police_scrub(void)
+static uint32_t police_cop(uint32_t i)  /* cop brain i, 0 none or off (states 8/9) */
 {
-    uint32_t n = MEM32(POL_NCOPS_VA), i, j, b, w;
-    for (i = 0; i < n && i < 16u; i++)
-        if (online_ram(b = MEM32(POL_COPS_VA + 4u * i)) && police_remote(MEM32(b + POL_TARGET))) {
-            fprintf(stderr, "[POLICE] police car %u was after remote player %08X: target cleared\n", (unsigned)i,
-                    (unsigned)MEM32(b + POL_TARGET));
-            MEM32(b + POL_TARGET) = 0;
-            MEM32(b + POL_LEVEL) = 0;
-        }
-    n = MEM32(POL_NWANTED_VA);
+    uint32_t b = i < 16u && i < MEM32(POL_NCOPS_VA) ? MEM32(POL_COPS_VA + 4u * i) : 0;
+    return online_ram(b) && MEM32(b + POL_STATE) <= 7u ? b : 0;
+}
+
+/* The entries for which out() says 1 leave the wanted list ({who, level} x16). */
+static void police_unwant(int (*out)(uint32_t))
+{
+    uint32_t n = MEM32(POL_NWANTED_VA), i, j, w;
     for (i = j = 0; i < n && i < 16u; i++) {
         w = MEM32(POL_WANTED_VA + 8u * i);
-        if (police_remote(w))
+        if (out(w))
             continue;
         MEM32(POL_WANTED_VA + 8u * j) = w;
         MEM32(POL_WANTED_VA + 8u * j + 4u) = MEM32(POL_WANTED_VA + 8u * i + 4u);
@@ -205,6 +238,32 @@ static void police_scrub(void)
     }
     if (j != n && n <= 16u)
         MEM32(POL_NWANTED_VA) = j;
+}
+
+static int police_is_p0(uint32_t w) { return w && w == police_p0(); }
+
+/* The chase is over: every police car after us back to patrol, we leave the wanted list. */
+static void police_calm(void)
+{
+    uint32_t p = police_p0(), i, b;
+    for (i = 0; i < 16u; i++)
+        if ((b = police_cop(i)) && p && MEM32(b + POL_TARGET) == p)
+            police_drop(b);
+    police_unwant(police_is_p0);
+    s_pol_wanted = 0;
+}
+
+/* Remote players out of the targets and the wanted list (a safety net: police_icall keeps them out). */
+static void police_scrub(void)
+{
+    uint32_t i, b;
+    for (i = 0; i < 16u; i++)
+        if ((b = police_cop(i)) && police_remote(MEM32(b + POL_TARGET))) {
+            fprintf(stderr, "[POLICE] police car %u was after remote player %08X: back to patrol\n", (unsigned)i,
+                    (unsigned)MEM32(b + POL_TARGET));
+            police_drop(b);
+        }
+    police_unwant(police_remote);
 }
 
 /* We were arrested: the fine, the profile saved, the line, the chase over. */
@@ -232,11 +291,11 @@ static uint32_t police_race(void)        /* the race object (the cruise's mcRace
     return online_ram(h) && online_ram(MEM32(h + 4u)) ? MEM32(h + 4u) : 0;
 }
 
-static uint32_t police_on_us(uint32_t p) /* police cars whose target is player p */
+static uint32_t police_on_us(uint32_t p) /* police cars (not off) whose target is player p */
 {
-    uint32_t n = MEM32(POL_NCOPS_VA), i, b, k = 0;
-    for (i = 0; i < n && i < 16u; i++)
-        if (online_ram(b = MEM32(POL_COPS_VA + 4u * i)) && p && MEM32(b + POL_TARGET) == p)
+    uint32_t i, b, k = 0;
+    for (i = 0; i < 16u; i++)
+        if ((b = police_cop(i)) && p && MEM32(b + POL_TARGET) == p)
             k++;
     return k;
 }
@@ -309,25 +368,181 @@ static const char *police_note(void)
     return out;
 }
 
-/* Each player update (sub_002C1520), before the game's: player 0's only, once a frame. */
+/* A vehicle's position ([veh+0x1C]+0x34, as the brain's sub_001E9340) and its
+ * body's velocity (phInertialCS [[[veh+8]+0x68]+0x10] +0x44); 0 unreadable. */
+static int police_car(uint32_t veh, float pos[3], float vel[3])
+{
+    uint32_t m, car, ph, ics;
+    int k;
+    if (!(online_ram(veh) && online_ram(m = MEM32(veh + 0x1Cu)) && online_ram(car = MEM32(veh + 8u)) &&
+          online_ram(ph = MEM32(car + 0x68u)) && online_ram(ics = MEM32(ph + 0x10u))))
+        return 0;
+    for (k = 0; k < 3; k++) {
+        pos[k] = MEMF(m + 0x34u + 4u * k);
+        vel[k] = MEMF(ics + 0x44u + 4u * k);
+    }
+    return 1;
+}
+
+static uint32_t police_veh(uint32_t b)  /* a cop brain's vehicle (sub_001E93B0: [[brain+0xC]+0x20]) */
+{
+    uint32_t c = MEM32(b + 0xCu);
+    return online_ram(c) ? MEM32(c + 0x20u) : 0;
+}
+
+static float police_dist(const float a[3], const float b[3])
+{
+    float x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2];
+    return sqrtf(x * x + y * y + z * z);
+}
+
+static float police_acc(const float v[3], const float v0[3], double dt)    /* ground-plane dv/dt (world y up) */
+{
+    float x = v[0] - v0[0], z = v[2] - v0[2];
+    return (float)(sqrt((double)(x * x + z * z)) / dt);
+}
+
+/* We hit police car `hit`: it, and every patrolling one (states 0-3) within
+ * 300 m, takes us as its target the way the brain's own pick does (+0x20C =
+ * us, level 4 = a speeding player's heat, sub_001E4A70; the state machine
+ * sub_001F0790 then goes to 4, closing in, beyond 225 m or 6, chase); we go
+ * on the wanted list (the backup call sub_001F00F0 reads it). */
+static void police_chase(uint32_t p, uint32_t hit, const float up[3], const char *why)
+{
+    uint32_t i, b, n, k = 0;
+    float cp[3], cv[3], d;
+    s_pol_wanted = 1;
+    s_pol_hit_t = roam_now();
+    for (i = 0; i < 16u; i++) {
+        if (!(b = police_cop(i)) || !police_car(police_veh(b), cp, cv))
+            continue;
+        d = police_dist(cp, up);
+        if (i != hit && (d >= 300.0f || MEM32(b + POL_STATE) > 3u))
+            continue;
+        if (MEM32(b + POL_STATE) > 3u && MEM32(b + POL_TARGET) != p)
+            police_drop(b);                     /* it was after a traffic car */
+        MEM32(b + POL_TARGET) = p;
+        MEM32(b + POL_LEVEL) = 4;
+        MEMF(b + POL_TIMER) = 0;
+        k++;
+    }
+    n = MEM32(POL_NWANTED_VA);
+    for (i = 0; i < n && i < 16u && MEM32(POL_WANTED_VA + 8u * i) != p; i++)
+        ;
+    if (i == n && n < 16u) {
+        MEM32(POL_WANTED_VA + 8u * n) = p;
+        MEM32(POL_WANTED_VA + 8u * n + 4u) = 4;
+        MEM32(POL_NWANTED_VA) = n + 1u;
+    }
+    fprintf(stderr, "[POLICE] chase starts: our car hit police car %u (%s); %u police car%s after us\n", (unsigned)hit,
+            why, (unsigned)k, k == 1 ? "" : "s");
+}
+
+static void police_escaped(const char *why)
+{
+    police_calm();
+    snprintf(s_pol_note, sizeof s_pol_note, "ESCAPED");
+    s_pol_note_t = roam_now();
+    fprintf(stderr, "[POLICE] escaped (%s): the chase is over, the police back on patrol\n", why);
+}
+
+/* Each player update (sub_002C1520), before the game's: player 0's only, once a frame.
+ * Chase only after our car hits a police car (police_icall keeps us out of
+ * their own picks until then); bust = pulled over next to one; escape = the
+ * game's own give-up for every car after us, or all of them far for long. */
 static void police_frame(uint32_t p)
 {
     static uint32_t chased;                     /* police cars after us at the last frame (log on change) */
-    uint32_t setup = MEM32(ROAM_SETUP_VA), n, us;
+    static uint32_t seen[16];                   /* brain whose velocity cv[i] holds */
+    static float cv0[16][3], uv0[3];
+    static double last_t, bust_t, gone_t, far_t;
+    static unsigned stray;
+    uint32_t setup = MEM32(ROAM_SETUP_VA), n, us, i, b, hit = 16u;
+    float up[3], uv[3], cp[3], cv[3], d, a_us = 0, a_cop = 0, hd = 0, sp;
+    double now, dt;
+    int have, ok, near = 0, all_far = 1;
+    char why[160];
     if (!p || p != police_p0())
         return;
     s_pol_live = police_pack() && roam_free_cruise() && online_ram(setup) && MEM32(setup + 0x18u) == 0;
     if (!s_pol_live) {
         chased = 0;
+        s_pol_wanted = 0;
+        last_t = 0;
         return;
     }
     police_scrub();
+    now = roam_now();
+    dt = last_t ? now - last_t : 0;
+    last_t = now;
+    ok = dt > 0.002 && dt < 0.2;                /* not after a pause or a load */
+    have = police_car(MEM32(p + 0x14u), up, uv);
+    for (i = 0; i < 16u; i++) {
+        if (!(b = police_cop(i)) || !police_car(police_veh(b), cp, cv)) {
+            seen[i] = 0;
+            continue;
+        }
+        d = have ? police_dist(cp, up) : 1e9f;
+        if (!s_pol_wanted && MEM32(b + POL_TARGET) == p) {
+            if (stray++ < 8u)
+                fprintf(stderr, "[POLICE] police car %u went after us with no hit (state %u, its own pick): back to "
+                                "patrol\n", (unsigned)i, (unsigned)MEM32(b + POL_STATE));
+            police_drop(b);
+        } else if (!s_pol_wanted && have && ok && seen[i] == b && hit == 16u && d < POL_HIT_M) {
+            float au = police_acc(uv, uv0, dt), ac = police_acc(cv, cv0[i], dt);
+            if (au > POL_HIT_ACC || ac > POL_HIT_ACC) {
+                hit = i;
+                hd = d;
+                a_us = au;
+                a_cop = ac;
+            }
+        } else if (s_pol_wanted && MEM32(b + POL_TARGET) == p) {
+            if (MEM32(b + POL_STATE) == 7u && d < POL_BUST_M)
+                near = 1;
+            if (d <= POL_LOST_M)
+                all_far = 0;
+        }
+        seen[i] = b;
+        memcpy(cv0[i], cv, sizeof cv);
+    }
+    if (have)
+        memcpy(uv0, uv, sizeof uv);
+    if (hit < 16u) {
+        snprintf(why, sizeof why, "%.1f m apart, our speed changed %.0f m/s^2, its %.0f m/s^2, we at %.0f km/h",
+                 (double)hd, (double)a_us, (double)a_cop,
+                 (double)sqrtf(uv[0] * uv[0] + uv[1] * uv[1] + uv[2] * uv[2]) * 3.6);
+        police_chase(p, hit, up, why);
+        bust_t = gone_t = far_t = 0;
+    }
     n = MEM32(POL_NCOPS_VA);
     us = police_on_us(p);
     if (us != chased) {
         fprintf(stderr, "[POLICE] chase: %u of %u police car%s after us\n", (unsigned)us, (unsigned)n,
                 n == 1 ? "" : "s");
         chased = us;
+    }
+    if (s_pol_wanted) {
+        sp = have ? sqrtf(uv[0] * uv[0] + uv[1] * uv[1] + uv[2] * uv[2]) : 1e9f;
+        if (near && sp < POL_BUST_MS && now - s_pol_hit_t > POL_GRACE_S) {
+            if (!bust_t)
+                bust_t = now;
+            else if (now - bust_t >= POL_BUST_S) {
+                snprintf(why, sizeof why, "pulled over: a police car in close pursuit within %.0f m, our car under "
+                         "%.0f m/s for %.0f s", (double)POL_BUST_M, (double)POL_BUST_MS, POL_BUST_S);
+                police_fine(why);
+                bust_t = 0;
+            }
+        } else
+            bust_t = 0;
+    }
+    if (s_pol_wanted) {
+        gone_t = us ? 0 : gone_t ? gone_t : now;
+        far_t = us && all_far ? (far_t ? far_t : now) : 0;
+        if (gone_t && now - gone_t >= 1.0)
+            police_escaped("every police car gave us up: the game's own rule, past 300 m in a chase, 1000 m or 20 s "
+                           "closing in");
+        else if (far_t && now - far_t >= POL_LOST_S)
+            police_escaped("every police car after us farther than 250 m for 10 s");
     }
     police_arrest();
 }
