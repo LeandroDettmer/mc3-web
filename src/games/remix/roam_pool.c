@@ -464,12 +464,70 @@ static int roam_pool_look(uint32_t id, uint8_t blob[ROAM_CFG_SIZE + 4], int32_t 
 
 /* ── Build, drop, park ── */
 
+void sub_000A5E50(void);                        /* vehWheel reset (vtable 0x44EBF4 +8), thiscall: no calls */
+void sub_0021E8B0(void);                        /* a vehicle's 0x54-byte record cleared, thiscall */
+void sub_00343300(void);                        /* SetAngVel, thiscall (const Vector3 *), ret 4 */
+
+/* A car coming into the physics level settled at its pose, as the game's own
+ * teleports leave it (the vehicle reset sub_000FFC50 -> vehCar reset
+ * sub_000A2460, minus its move to the stored reset pose). Out of the level
+ * the step never integrates the body: the force and torque the vehicle
+ * update keeps adding ([ics+0xA4] / [ics+0xB0], cleared only by the
+ * integrator sub_00343910) and the wheels' state (contact, suspension, spin,
+ * slip: wheel +0x58.. +0x184, zeroed only by the wheel reset sub_000A5E50,
+ * from vehCar's ctor/reset) were whatever the last frames left, and the
+ * first step spent them at once: the hop and tyre smoke within 20 m
+ * (2026-11-15, owner; cause not proven). Now: every wheel reset (its
+ * radius/width/ride height kept as they were), the vehicle's 0x54-byte records
+ * cleared as sub_000FFC50 does, accumulators zeroed, angular velocity 0 (the
+ * peer's: roam_send_local sends w = 0); the velocity is the peer's already
+ * (roam_set_pose before the add). The stale values are logged first: the
+ * proof of the cause. */
+static void roam_rc_settle(uint32_t veh, uint32_t top)
+{
+    static int said;
+    uint32_t car = MEM32(veh + 8u), phys, ics, list, n, w, buf = (top - 0x40u) & ~0xFu, i, j;
+    float frc = 0.0f, trq = 0.0f, ang = 0.0f, wmax = 0.0f, x;
+    if (!online_ram(car) || !online_ram(phys = MEM32(car + 0x68u)) || !online_ram(ics = MEM32(phys + 0x10u)))
+        return;
+    for (i = 0; i < 3; i++) {
+        frc += MEMF(ics + 0xA4u + 4u * i) * MEMF(ics + 0xA4u + 4u * i);
+        trq += MEMF(ics + 0xB0u + 4u * i) * MEMF(ics + 0xB0u + 4u * i);
+        ang += MEMF(ics + 0x50u + 4u * i) * MEMF(ics + 0x50u + 4u * i);
+        MEMF(ics + 0xA4u + 4u * i) = MEMF(ics + 0xB0u + 4u * i) = 0.0f;
+        MEMF(buf + 4u * i) = 0.0f;
+    }
+    list = MEM32(car + 0x1Cu);
+    n = MEM32(car + 0x18u);
+    for (i = 0; online_ram(list) && i < n && i < 8u; i++) {
+        if (!online_ram(w = MEM32(list + 4u * i)) || MEM32(w) != 0x0044EBF4u)
+            continue;
+        uint32_t keep[3] = { MEM32(w + 0x100u), MEM32(w + 0x104u), MEM32(w + 0x10Cu) };
+        for (j = 0x128u; j <= 0x184u; j += 4u)
+            if ((x = fabsf(MEMF(w + j))) > wmax && x == x)
+                wmax = x;
+        roam_call(sub_000A5E50, w, top, 0, NULL);
+        /* the drawn wheel's radius, width, ride height stay sub_00105450's (the reset copies the tune's) */
+        MEM32(w + 0x100u) = keep[0];
+        MEM32(w + 0x104u) = keep[1];
+        MEM32(w + 0x10Cu) = keep[2];
+    }
+    for (i = 0, n = MEM32(veh + 0x38u), list = MEM32(veh + 0x3Cu); online_ram(list) && i < n && i < 16u; i++)
+        roam_call(sub_0021E8B0, list + 0x54u * i, top, 0, NULL);
+    roam_call(sub_00343300, ics, top, 1, &buf);
+    if (said++ < 20)
+        fprintf(stderr, "[ROAM] cars: car %08X into the physics level settled: it had force %.0f, torque %.0f, "
+                        "angular speed %.2f, wheel state up to %.1f (logged 20 times)\n", (unsigned)veh,
+                sqrtf(frc), sqrtf(trq), sqrtf(ang), wmax);
+}
+
 /* Entry k's car in (on 1) or out of the physics level. Never out while a
  * state request is queued: the cruise may end in that pass, and the game's
  * player delete takes the car out of the level itself (sub_000FFB40). */
 static void roam_rc_phys(roam_rc *c, uint32_t veh, int on)
 {
-    uint32_t sm = MEM32(0x00557ED0u);
+    uint32_t sm = MEM32(0x00557ED0u), top = (g_esp - 0x400u) & ~0xFu;
+    int was;
     if (!online_ram(veh))
         return;
     if (veh != c->pveh) {                       /* built or rebuilt: in the level as the game left it */
@@ -478,7 +536,10 @@ static void roam_rc_phys(roam_rc *c, uint32_t veh, int on)
     }
     if (!on && online_ram(sm) && MEM32(sm + 0x3Cu))
         return;
-    roam_veh_phys(veh, &c->phys, on, (g_esp - 0x400u) & ~0xFu);
+    was = c->phys;
+    roam_veh_phys(veh, &c->phys, on, top);
+    if (on && was == 0 && c->phys == 1)         /* came in: settled at its pose before the next step */
+        roam_rc_settle(veh, top);
 }
 
 /* A standalone car out of the world (physics level, drawing, vehicle

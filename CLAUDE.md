@@ -762,7 +762,20 @@ generated files when the lift inputs did not change.
   pose blend (tau 100 ms) trailed a moving peer by ~speed x 0.085 s (1.7 m
   at 20 m/s) and the lag vanished in the level: the car leapt forward at
   20 m and fell back at 30 m. roam_pool_frame now blends an unmoved car
-  from its position advanced by vel x dt (c->setp). MC3_ROAM_CARS=N remote cars at most, slots
+  from its position advanced by vel x dt (c->setp). Hop and tyre smoke
+  near (2026-11-15, owner; cause not proven, fix untested in game): out of
+  the level the body is never integrated, so its force/torque accumulators
+  ([ics+0xA4]/+0xB0, cleared only by the integrator sub_00343910) and the
+  wheels' state (vehWheel vtable 0x44EBF4, list [car+0x1C] count +0x18;
+  +0x58.. +0x184 zeroed only by its reset sub_000A5E50) stay stale until the
+  first step in the level. roam_rc_phys now settles a car each time it comes
+  in (standalone at 20 m, a slot unparked): wheel reset (radius/width/ride
+  height kept), the vehicle's 0x54-byte records cleared (sub_0021E8B0, as the
+  vehicle reset sub_000FFC50 does), accumulators 0, SetAngVel 0 (we send
+  w = 0); velocity is the peer's already. '[ROAM] cars: car X into the
+  physics level settled: it had force F, torque T, angular speed A, wheel
+  state up to W' (20 a session) shows what was stale. Every host.
+  MC3_ROAM_CARS=N remote cars at most, slots
   included (page 'Players shown'; auto 32 at RECOMP_RAM_MB=128, 12 at
   64 MB; 7 = slots only); also the K asked of the hub, 32 at least
   (roam_set_k; hub default_k 32 for a HELLO asking none, mc3-server
