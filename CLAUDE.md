@@ -630,7 +630,9 @@ generated files when the lift inputs did not change.
   full map draws, roam_bigmap_box (seq, city) tells web/pre.js, which
   lists the Free Roam players from the switch's players push on the
   picture's right edge (same city first; none on web/server, which has no
-  push). Open: names on the full map.
+  push). Folded (2026-11-15, untested in a browser): one chip (people + count, a flag while our race
+  has standings) on the right edge; a tap opens the players, progress and race panels under it (localStorage
+  mc3.mapPanels). Open: names on the full map.
   Race start points (2026-11-09, untested in game; roam_races.{c,h},
   roam_map.c): the cities' event lists are loaded at boot (sub_0026F910,
   tune/race/<city>.loc + .locinf) into the city table [0x557EE4]: +0x14
@@ -646,7 +648,10 @@ generated files when the lift inputs did not change.
   checkpoints). Each city's list is cut at load (rr_curate, ~70 in San
   Diego): variants of one course (same kind, starts within 50 m) become
   the medium/normal one, every track and frenzy stays, then at most 56 a
-  city at least 80 m apart (28 and 150 m until 2026-11-15); only those get the prompt. roam_races_nearest() is
+  city at least 80 m apart (28 and 150 m until 2026-11-15); only those get the prompt. Names on the full map (2026-11-15, untested in game): after each icon
+  roam_map.c reads its centre from the game's composite W*V*P (0x5598E0, transposed, 4th column; sub_000E32A0 ->
+  sub_002D3040) into roam_mapicons_box (u, v of 720x480 + the prompt's two lines); pre.js labels the icon under
+  the mouse or a tap (4 s), in the HUD's middle 16:9. roam_races_nearest() is
   the API for starting races from the map. '[ROAM] races: ...' at first
   use; MC3_ROAM_RACES=0 off, =2 logs each race.
   AI race from a start point (feature 3, 2026-11-09, untested in game;
@@ -760,7 +765,10 @@ generated files when the lift inputs did not change.
   in the cruise (sub_000C2CE0 is race-type gated), so ours draw next + after
   in the map tune's colours. Page marker roam_cp_box only as fallback.
   Prompt box (web/pre.js): left, above the minimap; '\x01' first = big and
-  centred (countdown, GO, 2 s of result). '' = small green pill by the minimap + green touch Flash (idle street offer: 'Race N'; group offer at a start point: '<race> · N'; AI race: '<race>'); '' = compact card, 1-2 small lines (browser, 2026-11-14, untested; native keeps the old long texts): invite received '<host> · Race (N)' + '[Q] join · [E] decline · S s', host 'Group/Street race j/n · S s · [Q] start', joiner 'Joined · <host> · Race (N) · waiting'; green Flash while a card has [Q]. Messages: roam core GAME record
+  centred (countdown, GO, 2 s of result). '' = small green pill by the minimap + green touch Flash (idle street offer: 'Race N'; group offer at a start point: '<race> · N'; AI race: '<race>'); '' = compact card, 1-2 small lines (browser, 2026-11-14, untested; native keeps the old long texts): invite received '<host> · Race (N)' + '[Q] join · [E] decline · S s', host 'Group/Street race j/n · S s · [Q] start', joiner 'Joined · <host> · Race (N) · waiting'; green Flash while a card has [Q]. Page only (2026-11-15, untested in a browser): the pill is an icon chip (flag + Q),
+  its name on hover/tap; an invite is one line '<host> invited you to race with N others · S s' + small Accept (act 5) /
+  Decline (4); cards one line with the quit button inline; invites go into an inbox (envelope + badge left of the box,
+  5 min, 8 max; Accept only on the one offered now). Messages: roam core GAME record
   (type 10, core 17, peer to peer, the hubs untouched; challenge v5 since
   2026-11-12: INVITE/JOIN/NO/GO/PROG, v4 and v5 drop each other's).
   '[CHALLENGE]' lines; MC3_ROAM_CHALLENGE=0 off, =2 no HUD/audio calls,
