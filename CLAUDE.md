@@ -792,7 +792,15 @@ generated files when the lift inputs did not change.
   address; a rebuild often reuses the deleted car's address, so rebuilt cars
   stayed bare rims (8,855 of 25,510 rebuilds in two days of logs); every
   build now clears the entry's tyre state ('[ROAM] tyres: ... sized' after
-  each '[ROAM] look: ... rebuilt'). Nearest gets a car: while
+  each '[ROAM] look: ... rebuilt'). Still bare with a 'sized' line after
+  every build (2026-11-15, owner's log; fix untested in game): sub_00121970
+  sizes only the tyre tunes ([sim+0x54]/+0x58 +4 radius, +8 width); the
+  drawn wheels [veh+8]+0xD8..0xE4 (+0x100 radius, +0x104 width) get them
+  only from sub_00105450(veh) (wheel step 0x00100738, reset sub_000FFC50),
+  never reached by a remote car. roam_tyres now calls it after the sizing
+  ('... wheel was R0, now R') and sizes a done car again when its front-left
+  wheel's radius leaves the tune's (once a second at most, '... sized
+  again (N)'). Every host. Nearest gets a car: while
   no car can be built (count or heap), the nearest driving peer without one
   takes the farthest holder's (away = farthest) once 50 m nearer for 3 s;
   '[ROAM] nearest: ...'. Failures (2026-11-12, untested in game): a
