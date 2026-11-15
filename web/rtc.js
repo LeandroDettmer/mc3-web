@@ -314,11 +314,15 @@
       return out(f);
     };
     // Through the server: a SNAP (roam datagram 'MC3R', type 3 at +5) to a peer outside the nearMax() busiest goes
-    // 1 in ROAM.thin, unless the core thinned it already (flags u16 little-endian at +14, every-n nibble 4 or 10).
+    // 1 in ROAM.thin, unless the core thinned it already (flags u16 little-endian at +14, every-n nibble 4 or 10)
+    // or marked it near (flags & 0x10).
     // Until nearMax() peers are ranked, every peer is near.
     function thin(dst, f) {
       if (f.length < HDR + 6 || f[HDR] != 0x4D || f[HDR + 1] != 0x43 || f[HDR + 2] != 0x33 || f[HDR + 3] != 0x52 || f[HDR + 5] != 3) return false;
       if ((f[HDR + 14] & 0x0F) > 1) return false;
+      // near flag (core 20, RC_HF_NEAR: within 150 m): every peer within 300 m sends 20/s, so the busiest ranking
+      // below ties them and picks by vip; a car 10 m away got 5 Hz and jumped at each late state (2026-11-15)
+      if (f[HDR + 14] & 0x10) return false;
       if (nearN < nearMax() || near[dst]) return false;
       return act[dst].skip++ % ROAM.thin != 0;
     }

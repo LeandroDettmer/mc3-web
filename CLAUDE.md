@@ -794,7 +794,20 @@ generated files when the lift inputs did not change.
   vehicle reset sub_000FFC50 does), accumulators 0, SetAngVel 0 (we send
   w = 0); velocity is the peer's already. '[ROAM] cars: car X into the
   physics level settled: it had force F, torque T, angular speed A, wheel
-  state up to W' (20 a session) shows what was stale. Every host.
+  state up to W' (20 a session) shows what was stale. Every host. That
+  line, in 79 of 492 logs of 2026-11-15, always read force 0, torque 0,
+  angular speed 0 (wheel field 2^27, a constant): nothing stale, not the
+  cause. Jump near, cause (2026-11-15, fix untested in a browser): rtc.js
+  thins a relayed SNAP to 1 in 4 (5 Hz) for peers outside its max(8,
+  roamMax) busiest, by frames sent in the last second; every peer within
+  300 m (RC_FAR_M) gets 20/s, so they tie and the vip breaks it: a car
+  10 m away came at 5 Hz (extrapolated past the 100 ms delay, corrected at
+  each late state) and flipped 5/20 Hz as +-1 frame counts reranked.
+  Phones (roamMax 7) in a busy city thin (90 of 206 Free Roam logs,
+  'thinned N/s'; G4MJH9: 25 peers, 10 within 250 m, 14 thinned). Now core
+  20 sets header flag RC_HF_NEAR 0x10 on a SNAP to a peer within
+  RC_NEAR_M 150 m and rtc.js never thins it (older cores ignore the bit;
+  test_roam checks it).
   MC3_ROAM_CARS=N remote cars at most, slots
   included (page 'Players shown'; auto 32 at RECOMP_RAM_MB=128, 12 at
   64 MB; 7 = slots only); also the K asked of the hub, 32 at least
