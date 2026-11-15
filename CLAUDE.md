@@ -766,8 +766,8 @@ generated files when the lift inputs did not change.
   in the map tune's colours. Page marker roam_cp_box only as fallback.
   Prompt box (web/pre.js): left, above the minimap; '\x01' first = big and
   centred (countdown, GO, 2 s of result). '' = small green pill by the minimap + green touch Flash (idle street offer: 'Race N'; group offer at a start point: '<race> · N'; AI race: '<race>'); '' = compact card, 1-2 small lines (browser, 2026-11-14, untested; native keeps the old long texts): invite received '<host> · Race (N)' + '[Q] join · [E] decline · S s', host 'Group/Street race j/n · S s · [Q] start', joiner 'Joined · <host> · Race (N) · waiting'; green Flash while a card has [Q]. Page only (2026-11-15, untested in a browser): the pill is an icon chip (flag + Q),
-  its name on hover/tap; an invite is one line '<host> invited you to race with N others · S s' + small Accept (act 5) /
-  Decline (4); cards one line with the quit button inline; invites go into an inbox (envelope + badge left of the box,
+  its name on hover/tap; an invite is one line, flag + '<host> +N' (others racing) + a green Q (act 5, join) and a red E
+  (4, decline) keycap button (shorter since 2026-11-15, owner); cards one line with the quit button inline; invites go into an inbox (envelope + badge left of the box,
   5 min, 8 max; Accept only on the one offered now). Messages: roam core GAME record
   (type 10, core 17, peer to peer, the hubs untouched; challenge v5 since
   2026-11-12: INVITE/JOIN/NO/GO/PROG, v4 and v5 drop each other's).

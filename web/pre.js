@@ -714,7 +714,7 @@ Module['mc3RaceButton'] = function (act) {
 };
 // Minimal (2026-11-15, owner: race prompts cluttered the HUD): the idle offer ('\x02') is an icon chip (flag + Q
 // keycap), its name only on hover or a tap of the chip; an invite received ('\x03' card '<host> · Race (N)\n[Q] join ·
-// [E] decline · S s') is one line '<host> invited you to race with N others · S s' + small Accept (act 5) / Decline (4);
+// [E] decline · S s') is one line: flag, '<host> +N' (N other racers) + a green Q (act 5, join) and a red E (4, decline) button;
 // other cards one line, the quit button inline (the native 'Hold Black [E] ...' line becomes its E keycap). Invites go
 // into an inbox (envelope + badge of those still open, left of the box; kept 5 min, 8 at most): a tap lists host,
 // players, seconds left (expired greyed); Accept only on the one the game offers now. Page only: the game's texts are
@@ -768,7 +768,6 @@ Module['mc3RaceButton'] = function (act) {
     var m = /^Race (\d+)$/.exec(t);
     return m ? 'Street race · ' + m[1] + ' nearby' : t.replace(/ · (\d+)$/, ' · $1 nearby');
   }
-  function others(n) { var o = n - 2; return o > 0 ? ' with ' + o + ' other' + (o > 1 ? 's' : '') : ''; }   // n: the host and us included
   function frame(now) {
     requestAnimationFrame(frame);
     if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_prompt_box != 'function' || !canvas.parentNode) return;
@@ -856,8 +855,9 @@ Module['mc3RaceButton'] = function (act) {
         var cd = flexRow();
         if (inv) {
           cd.insertAdjacentHTML('beforeend', FLAG);
-          cd.append(inv.host + ' invited you to race' + others(inv.n) + ' · ' + inv.left + ' s' + (inv.slow ? ' · slow down' : ''));
-          if (act == 4) cd.append(smallBtn('Accept', 'Q', '#2a8a3a', 5), smallBtn('Decline', 'E', '#a3262a', 4));
+          // owner 2026-11-15: as short as it gets: flag, '<host> +N' and two keycap buttons (green Q join, red E no)
+          cd.append(inv.host + (inv.n > 2 ? ' +' + (inv.n - 2) : '') + (inv.slow ? ' · slow' : ''));
+          if (act == 4) cd.append(smallBtn('', 'Q', '#2a8a3a', 5), smallBtn('', 'E', '#a3262a', 4));
         } else {
           withKeys(cd, lines[0]);   // a second line is the native 'Hold Black [E] ...': the button's keycap instead
           if (act) cd.append(smallBtn(ACTS[act].replace(' race', ''), 'E', '#a3262a', act));
