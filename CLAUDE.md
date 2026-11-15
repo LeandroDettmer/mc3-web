@@ -1510,7 +1510,14 @@ only with MC3_PERF, their only reader.
   resources/city/<city>_traffic.xbck (sub_0006D9F0, fatal if missing) with
   their textures inside and never read the loose vehicle/va_*/texture_x/*.tex;
   only the roster's other cars do. The pack therefore also carries the four
-  patched <city>_traffic.xbck (textures replaced in place, same size). Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
+  patched <city>_traffic.xbck (textures replaced in place, same size). Speedometer
+  packs (2026-11-15, untested in game; tools/hud_speedo_pack.py, local speedo_<design>
+  packs from almightypear's PS2 "MC3 Speedometer Pack", not in index.json): the HUD
+  speedometer is assets_x.dat texture_x/hud_speed_1/2/3.tex (dial to 175/200/250) +
+  garage_hud_speed.tex, 128x128 type 0x0E (BGRA palette 1024 B + u8 indices, linear),
+  dial and needle in one atlas, stored transposed (layout in tune/hud/dynamic/
+  speedometer.huddamageshared); the PS2 texture has the same layout (packs at 3x, alpha
+  0x80 = opaque). Tachometer hud_tac_1..4 untouched. Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
   main's core 19 (country flag) and car-mod's core 19 (second car record)
   were separate bumps, then main took 20 for the near flag; RC_CORE_CFG2 = 21.
   Police pack (REMOVED 2026-11-15, owner: no AI police; police_pack() in
