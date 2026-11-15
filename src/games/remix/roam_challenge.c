@@ -143,7 +143,7 @@
  * MC3_ROAM_CHALLENGE=0 turns it off, =2 native without the HUD/audio calls,
  * =3 without native checkpoints.  Log lines '[CHALLENGE]'. */
 
-#define RCH_NEAR       200.0f           /* m: a player this near can be invited (the grid moves everyone to the start) */
+#define RCH_NEAR       50.0f            /* m (200 until 2026-11-15, owner: too far): a player this near can be invited (the grid moves everyone to the start) */
 #define RCH_AWAY       250.0f           /* m: before the start, farther apart than this = declined (RCH_NEAR + margin: both move in the window) */
 #define RCH_JOIN_SLOW  25.0f            /* m/s: an invitee joins slower than this (a cruising player can accept) */
 #define RCH_DY         30.0f            /* m: height difference limit of an invite */

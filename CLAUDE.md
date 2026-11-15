@@ -655,7 +655,7 @@ generated files when the lift inputs did not change.
   the API for starting races from the map. '[ROAM] races: ...' at first
   use; MC3_ROAM_RACES=0 off, =2 logs each race.
   AI race from a start point (feature 3, 2026-11-09, untested in game;
-  src/games/remix/roam_race_ai.c, docs/roam-races.md): within 30 m of a
+  src/games/remix/roam_race_ai.c, docs/roam-races.md): within 20 m (RRA_RADIUS; was 60 m to 2026-11-15) of a
   start point, slower than 8 m/s, the page shows "Race: <name> ... press
   White (Q)" (browser, 2026-11-14, untested: a small green pill 'Q <race name>', text '<name>', none above 12 m/s; roam_prompt_box, web/pre.js); White fills [0x53F2E4] (copy
   sub_00268E50, SetEvent sub_0026B8E0(city, event), 1 player) and sends
@@ -691,7 +691,7 @@ generated files when the lift inputs did not change.
   Street challenge (feature 2, 2026-11-09, untested in game;
   src/games/remix/roam_challenge.c, docs/roam-races.md F2): up to 8 racers
   (2026-11-12, untested in game; was a 1v1 headlight flash, flash back to
-  accept): driving under 12 m/s within 40 m (height 10 m) of 1+ driving
+  accept): driving under 12 m/s within 50 m (RCH_NEAR; 200 m to 2026-11-15) of 1+ driving
   players, the idle offer (2026-11-14, browser, untested: no box, a small green
   pill 'Q Race N' by the minimap + the touch Flash button green; text '\x02Race N' in
   roam_prompt_box, web/pre.js) lets White invite; native keeps the box 'Street race? N nearby players
