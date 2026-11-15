@@ -287,6 +287,14 @@ generated files when the lift inputs did not change.
   backend left stale data across chunks, hence our backend.
 - **Input:** SDL keyboard/Gamepad on the GL thread; a key tap is held at
   least 120 ms (a down+up in one rAF pump was lost by the menus).
+  Menu key repeat (2026-11-14, untested in a browser; sdl_keyboard.c
+  dir_held): the Remix's lists (mcUiGroup, sub_0034B870 / sub_0034BD50)
+  step again whenever a slide ends with the direction still held, so a
+  normal 80-200 ms tap moved two garage items. Not driving
+  (xbox_keyboard_driving says so), the arrows and I J K L reach the pad as
+  a 70 ms pulse at the press, then nothing until held 350 ms, then held.
+  Driving and native builds unchanged. Keyboard left/right feed the left
+  stick X only (no d-pad, no trigger): one source.
   Gamepads (2026-11-14, issue #6, untested in a browser): SDL2's
   Emscripten driver gives every pad its one "default" mapping (the
   standard layout) and ignores Gamepad.mapping, so a pad the browser does
