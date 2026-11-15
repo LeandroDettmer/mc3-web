@@ -998,7 +998,26 @@ generated files when the lift inputs did not change.
   16 a row, index.html FLAG_CODES' order, Module.mc3Flags) before the name.
   No flag: an older build or 'No flag'; far players (FAR list) and the
   page's players list have none.
-  Open: hub-distributed world settings, names over cars, ghost mode for
+  Shared world (2026-11-14, untested in a browser; recomp_manual.c fr_world,
+  browser only): time of day and weather of the Online cruise come from the
+  wall clock, no server. Setup +4 time: 0 dawn, 1 midnight, 2 dusk; +8
+  weather: 0 clear, 1 cloudy (label Fog), 2 rainy (Rain; Snow in city 2)
+  (resource names 0x4B3714 / 0x4B3720). Arcade's options screen (0x1A,
+  cyclers sub_00165D00/D40) adds -1 = Any = the event's own: SetEvent
+  sub_0026B8E0 takes them from the event's bytes +0xD/+0xC (.locinf; event
+  -1: midnight, clear), so Free Roam was always San Diego's cruise event's.
+  Load only: the world takes city_time_weather resources by name at the load
+  (fog sub_00032D80 from [0x53F2E0], glows sub_00093720); no mid-cruise
+  setter found. At every state pass (sub_00020EC0, before the game's) the
+  next setup [0x53F2E4], when it is Free Roam's cruise (s_online, type 0) or
+  the Online career's (type 1, game mode 2), not the garage or a network
+  game, gets the slot's values (state 2's enter loads it inside the pass):
+  first load, garage round trip, AI race way back. 24-min UTC slots (unix s
+  / 1440), time dawn -> dusk -> midnight for every city, weather per slot and
+  city (hash) clear 4/8, cloudy 2/8, rainy 2/8; a slot change shows at the
+  next load. '[ONLINE] world: slot N, time X, weather Y (shared by clock;
+  ...)'. MC3_FR_WEATHER=0 off, =fixed:<time>,<weather> (0-2 or the names).
+  Open: names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
   (nfsu2-web uses a grid), KIND_BUNDLE.
 

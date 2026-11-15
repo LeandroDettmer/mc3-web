@@ -2585,6 +2585,7 @@ static void manual_save_pass(uint32_t obj);     /* the page's Save progress butt
 static void roam_pool_pass(uint32_t obj, int after); /* free roam: remote cars at state requests (roam_pool.c) */
 #ifdef __EMSCRIPTEN__
 static void fr_direct_pass(uint32_t obj);       /* Online: the deferred cruise load (below) */
+static void fr_world(void);                     /* Online: time of day and weather by the clock (below) */
 #endif
 extern void sub_00020EC0_gen(void);
 void sub_00020EC0(void)
@@ -2593,6 +2594,7 @@ void sub_00020EC0(void)
     s_state_obj = obj;
 #ifdef __EMSCRIPTEN__
     fr_direct_pass(obj);                        /* Online's Request(6), outside the menu's Flash dispatch */
+    fr_world();                                 /* the next setup's time/weather, before a request loads it */
 #endif
     roam_pool_pass(obj, 0);                     /* standalone cars out before a cruise teardown (roam_pool.c) */
     manual_save_pass(obj);                      /* before the state's update: the save pump runs after it, same frame */
@@ -4784,6 +4786,84 @@ static uint32_t fr_settings(void)
     uint32_t s = MEM32(FR_SETTINGS_VA);
     return online_ram(s) ? s : 0;
 }
+
+#ifdef __EMSCRIPTEN__
+#include <time.h>
+/* Shared world (browser): time of day and weather of the Online cruise from
+ * the wall clock, the same on every client, no server. Values (setup +4
+ * time, +8 weather): time 0 dawn, 1 midnight, 2 dusk (resource names
+ * 0x4B3714; labels RO_Dawn/RO_Midnight/RO_Dusk), weather 0 clear, 1 cloudy
+ * (label RO_Fog), 2 rainy (RO_Rain, RO_Snow in city 2) (names 0x4B3720).
+ * The options screen's -1 (RO_Any_*, 0x4B36BC/C0, cycler sub_00165D00 /
+ * sub_00165D40: -1..2) means "keep the event's": SetEvent sub_0026B8E0 sets
+ * +4/+8 from the event's bytes +0xD/+0xC (.locinf; event -1: midnight,
+ * clear), so every Free Roam load was San Diego's cruise event's own. Load
+ * only: the world takes its resources by name at the load (city_time_weather:
+ * fog sub_00032D80 '$/resources/city/%s_%s_%s_fog' from [0x53F2E0], glows
+ * sub_00093720, walla); no mid-cruise setter found. The next setup [0x53F2E4]
+ * is set at every state pass (state 2's enter sub_00021D30 -> sub_00021170 ->
+ * sub_00020260(1) loads it, from inside the pass), so the first Free Roam
+ * load, a garage visit, an AI race's way back and the Online career's cruise
+ * all get the slot current at their load. Schedule: 24-minute slots of UTC
+ * (slot = unix s / 1440), time dawn -> dusk -> midnight (72-min day, every
+ * city), weather per slot and city: clear 4/8, cloudy 2/8, rainy 2/8.
+ * MC3_FR_WEATHER=0 off (the event's own), =fixed:T,W (digits or the names
+ * above) for tests. */
+static void fr_world(void)
+{
+    static const char *const tn[3] = { "dawn", "midnight", "dusk" }, *const wn[3] = { "clear", "cloudy", "rainy" };
+    static const uint8_t tcycle[3] = { 0, 2, 1 }, wpick[8] = { 0, 0, 0, 0, 1, 1, 2, 2 };
+    static int mode = -1, ft, fw;                /* -1 unread, 0 off, 1 clock, 2 fixed */
+    static uint32_t said = 0xFFFFFFFFu;
+    uint32_t s = MEM32(0x0053F2E4u), slot, h, t, w, city, key;
+    if (mode < 0) {
+        const char *e = getenv("MC3_FR_WEATHER");
+        mode = 1;
+        if (e && e[0] == '0')
+            mode = 0;
+        else if (e && !strncmp(e, "fixed:", 6)) {
+            const char *p = e + 6, *c = strchr(p, ',');
+            int i;
+            ft = fw = -1;
+            for (i = 0; i < 3; i++) {
+                if (p[0] == '0' + i || !strncmp(p, tn[i], strlen(tn[i])))
+                    ft = i;
+                if (c && (c[1] == '0' + i || !strncmp(c + 1, wn[i], strlen(wn[i]))))
+                    fw = i;
+            }
+            mode = ft >= 0 && fw >= 0 ? 2 : 1;
+            if (mode == 1)
+                fprintf(stderr, "[ONLINE] world: MC3_FR_WEATHER=%s not understood (fixed:<time>,<weather>), by the clock\n", e);
+        }
+    }
+    if (!mode || !online_ram(s) || MEM8(s + 0x108u) || MEM8(s + ROAM_ENTRY + 0x26u) || MEM32(s) >= 12u)
+        return;                                  /* off, none, a network game or the garage */
+    if (!(s_online && MEM32(0x0050F14Cu) == 0 && MEM32(s + 0x18u) == 0) &&              /* Free Roam's cruise */
+        !(!s_online && roam_career_on() && MEM32(0x0053F2D4u) == 2u && MEM32(s + 0x18u) == 1u)) /* Online career's */
+        return;
+    city = MEM32(s);
+    slot = (uint32_t)(time(NULL) / 1440);        /* UTC seconds (the browser's Date.now) */
+    if (mode == 2) {
+        t = (uint32_t)ft;
+        w = (uint32_t)fw;
+    } else {
+        h = slot * 0x9E3779B1u ^ (city + 1u) * 0x85EBCA77u;
+        h ^= h >> 15;
+        h *= 0x2C1B3C6Du;
+        h ^= h >> 12;
+        t = tcycle[slot % 3u];
+        w = wpick[h & 7u];
+    }
+    MEM32(s + 4u) = t;
+    MEM32(s + 8u) = w;
+    key = slot << 8 | city << 4 | t << 2 | w;
+    if (key != said) {
+        said = key;
+        fprintf(stderr, "[ONLINE] world: slot %u, time %s, weather %s (%s; city %u, next load)\n", (unsigned)slot,
+                tn[t], wn[w], mode == 2 ? "fixed, MC3_FR_WEATHER" : "shared by clock", (unsigned)city);
+    }
+}
+#endif
 
 /* No AI racers in the Free Roam cruise. Go (sub_0013B110) sets the
  * settings' opponent count +0x40 from the event (sub_00165F50: the cruise
