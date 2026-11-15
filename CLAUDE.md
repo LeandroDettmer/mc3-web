@@ -332,10 +332,18 @@ generated files when the lift inputs did not change.
   Module.mc3Pool || 40. Low-memory profile (index.html lowMem: a TV user
   agent, a phone or tablet (iOS/iPadOS, Android phones, MC3Touch.isPhone)
   or deviceMemory <= 2; MC3_LOWMEM=1/0 forces): memory from 512 MB,
-  12 pool workers (more made on demand and kept; WebKit too since
+  8 pool workers (12 until 2026-11-14; more made on demand; WebKit too since
   2026-11-12, every iPhone ran 40 before, each a JS heap; '[WEB] workers: N'
-  logs each new peak), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
-  MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=cars (since 2026-11-14 the background fill takes assets_x.dat_2, 233 MiB once, and the music track starts, ~206 MiB, nothing else; on every profile a file whose reads kept the game waiting 2 s in all is then fetched whole in the background, learned fill, not movies, <= 400 MiB a file, 1 GiB a session, "[WEB] prefetch: <file> kept the game waiting ..."): phones read each new car model on demand, ~1.4 s a block from R2 under the guest lock, 3.6-6.9 s frozen per new car; was 0), no 60 fps, light
+  logs each new peak; since 2026-11-14 a worker whose thread ended is
+  terminated while more than 16 exist, pre.js, not a hard cap: a refused
+  pthread_create breaks the game), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
+  MC3_DISC_MEM_MB 8 (disc LRU, default 48; 16 until 2026-11-14), hidden 60 s
+  = AFK (lan.afkHiddenMs, below; city socket and P2P channels closed), WebGL
+  without asking for a WebGPU adapter where deviceMemory <= 2 (desktops too),
+  background fill and learned fill from 60 s after the first frame (2026-11-14,
+  untested in a browser: 146 previous-crash logs, wasm 202-286 MB of 1 GB, so
+  process kills: Android 15-165 s after Play, 'workers: 22' in 27, iOS hidden
+  or in a busy Free Roam), MC3_PREFETCH=cars (since 2026-11-14 the background fill takes assets_x.dat_2, 233 MiB once, and the music track starts, ~206 MiB, nothing else; on every profile a file whose reads kept the game waiting 2 s in all is then fetched whole in the background, learned fill, not movies, <= 400 MiB a file, 1 GiB a session, "[WEB] prefetch: <file> kept the game waiting ..."): phones read each new car model on demand, ~1.4 s a block from R2 under the guest lock, 3.6-6.9 s frozen per new car; was 0), no 60 fps, light
   filtering. Loading overlay (2026-11-13, untested in a browser; index.html bootStart/bootWhat, #boot-load,
   page-only, no wasm access): from Play to the first frame (mc3Frames > 0, polled 250 ms) a box over the
   picture: the .wasm download MB (bytes counted through a TransformStream into compileStreaming;
@@ -361,7 +369,11 @@ generated files when the lift inputs did not change.
   too old' box. Crash tracing (2026-11-10, untested in a browser): every
   failure box, page error after boot (no box, 3 a session), freeze (15 s
   without a new frame, tab visible) and killed tab (log tail + heartbeat
-  in localStorage every 5 s, cleared on pagehide, sent on the next visit)
+  in localStorage every 5 s, cleared on pagehide, sent on the next visit;
+  2026-11-14: the heartbeat also keeps a 'heartbeat: N s since Play, tab
+  ..., JS heap U MB of L MB (Chrome), workers N (R running), wasm M MB'
+  line, put under the previous-crash header: the tail's own header is up to
+  15 s older)
   goes to config.json logUrl as POST ?tag=fatal|error|freeze|
   previous-crash, headed by build, UA, GPU, memory, online state, times
   (previous-crash also lists the last memory/failure/watchdog/roam lines
@@ -468,7 +480,7 @@ generated files when the lift inputs did not change.
   by the game's HELLO room, closed by its BYE) carrying that city's hub, relay
   frames and roam signals; the Switch keeps lobby, races, players list (city
   reports) and its own hub as fallback; '[net] free roam: own socket to city N
-  open'; a lost link (switch or city socket not open for 3 s after a HELLO) shows a notice over the picture (lan.js roamDown, pre.js; reload button after 30 s; '[net] free roam: link lost'). AFK kick (2026-11-14, untested in a browser; page only, no Worker change): Free Roam / Online career, not in a race room, with no keydown/pointerdown/touchstart/gamepad change for 180 s (a hidden tab too; ?MC3_AFK_S=N, 0 off) -> lan.afk: city socket closed without retry, every free-roam frame, signal and P2P send dropped (the hubs drop us by their stale timer), pre.js's notice says 'Disconnected for inactivity' instead of roamDown's; any input clears it and the game's next HELLO reopens the city; '[net] afk: kicked after N s idle' / '[net] afk: back'. Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
+  open'; a lost link (switch or city socket not open for 3 s after a HELLO) shows a notice over the picture (lan.js roamDown, pre.js; reload button after 30 s; '[net] free roam: link lost'). AFK kick (2026-11-14, untested in a browser; page only, no Worker change): Free Roam / Online career, not in a race room, with no keydown/pointerdown/touchstart/gamepad change for 180 s (a hidden tab too; ?MC3_AFK_S=N, 0 off), or, in the low-memory profile (index.html lan.afkHiddenMs, 2026-11-14), 60 s with the tab hidden (shown again clears it; '[net] afk: kicked after 60 s with the tab hidden ...') -> lan.afk (rtc.js then closes every free-roam channel and takes no offer): city socket closed without retry, every free-roam frame, signal and P2P send dropped (the hubs drop us by their stale timer), pre.js's notice says 'Disconnected for inactivity' instead of roamDown's; any input clears it and the game's next HELLO reopens the city; '[net] afk: kicked after N s idle' / '[net] afk: back'. Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
   pairs without a P2P channel (the larger share while K > roamMax).
   City object overload (2026-11-13, fix untested live, Worker not deployed):
   at the evening peak (~65 online, ~26 in San Diego's object) the object took
@@ -1079,7 +1091,9 @@ only with MC3_PERF, their only reader.
   schedule restarts at once (no burst of owed vblanks). audio.js suspends
   the AudioContext (the APU waits on a full queue) and resumes on visible
   (index.html's unlock kick skips hidden); wasmfs_fetch.js idle() holds the
-  background fill. Stays alive: the roam core's own net thread (rc_tick on
+  background fill; since 2026-11-14 it also empties its memory LRU, drops
+  background runs and does no readahead while hidden ('[WEB] disc: tab
+  hidden: ...'). Stays alive: the roam core's own net thread (rc_tick on
   its clock: snapshots, keepalive), the sockets, net.js's TX pump (a bell
   rung during a drain loops by microtask now, not setTimeout 0: a hidden
   tab clamps that to 1 s, and Chrome's intensive throttling, possible once

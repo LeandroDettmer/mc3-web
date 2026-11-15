@@ -1119,8 +1119,9 @@
     if (env.RECOMP_GL_ORPHAN === undefined && /Macintosh|iPhone|iPad|iPod/.test(navigator.userAgent)) env.RECOMP_GL_ORPHAN = '1';
     if (low) {   // TVs and small devices (lowMem): lighter on memory, 1x (above), unless the player picked otherwise
       // A 32-bit TV browser gives 256 MB and never grows it (2026-11-09): GL record queue 4 MB (48), GL ring copies
-      // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory)
-      const d = { RECOMP_RAM_MB: '64', MC3_ROAM_CARS: '7', MC3_DISC_MEM_MB: '16', MC3_PREFETCH: 'cars',
+      // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory); disc LRU
+      // 8 MB (48; 16 until 2026-11-14: phones were killed with the wasm at 202-286 MB of 1 GB, so JS memory counts)
+      const d = { RECOMP_RAM_MB: '64', MC3_ROAM_CARS: '7', MC3_DISC_MEM_MB: '8', MC3_PREFETCH: 'cars',
         RECOMP_GL_SHARPEN: '0', RECOMP_GL_FXAA: '0', MC3_MOVIE_HD: '0',
         RECOMP_GL_QUEUE_MB: '4', RECOMP_GL_RING_MB: '4', RECOMP_GL_MAX_PROG: '256', RECOMP_GL_VPOOL: '8',
         MC3_THREAD_STACK_KB: '1024' };
@@ -2221,7 +2222,16 @@
     try { let id = sessionStorage.getItem('mc3.tab'); if (!id) sessionStorage.setItem('mc3.tab', id = Math.random().toString(36).slice(2)); return id; }
     catch { return ''; }
   })();
-  const tailClear = () => { try { for (const k of ['crashTail', 'crashBeat', 'crashTab']) localStorage.removeItem('mc3.' + k); } catch {} };
+  const tailClear = () => { try { for (const k of ['crashTail', 'crashBeat', 'crashTab', 'crashInfo']) localStorage.removeItem('mc3.' + k); } catch {} };
+  // The heartbeat's line (every 5 s, put under the previous-crash header): which memory grew before a kill. The tail's
+  // header is as old as the tail (rewritten every 15 s at most), this line is at most 5 s old. JS heap: Chrome only.
+  function beatInfo() {
+    const mb = n => Math.round(n / 1048576), m = performance.memory, w = window.Module?.mc3Workers?.(), wm = window.Module?.wasmMemory?.buffer?.byteLength;
+    return `heartbeat: ${since(tPlay)} since Play, tab ${document.visibilityState}`
+      + (m ? `; JS heap ${mb(m.usedJSHeapSize)} MB of ${mb(m.jsHeapSizeLimit)} MB` : '; JS heap ? (not Chrome)')
+      + (w ? `; workers ${w.all} (${w.run} running${w.ended ? ', ' + w.ended + ' idle ones ended' : ''})` : '; workers ?')
+      + `; wasm ${wm ? mb(wm) + ' MB' : '?'}`;
+  }
   function keepTail() {
     let n = -1;
     let tailAt = 0;
@@ -2231,6 +2241,7 @@
       try {
         localStorage.setItem('mc3.crashBeat', String(Date.now()));
         localStorage.setItem('mc3.crashTab', tabId);
+        localStorage.setItem('mc3.crashInfo', beatInfo());
         if (n === logN || (!force && Date.now() - tailAt < 15000)) return;
         n = logN; tailAt = Date.now();
         // the deciding lines first, whatever the tail still holds: 175 silent kills on 2026-11-11 said nothing
@@ -2251,12 +2262,12 @@
     addEventListener('pageshow', e => { if (e.persisted) gone = false; });   // back from the back/forward cache
   }
   function sendPreviousCrash() {
-    let tail, beat, tab;
-    try { tail = localStorage.getItem('mc3.crashTail'); beat = Number(localStorage.getItem('mc3.crashBeat')); tab = localStorage.getItem('mc3.crashTab'); }
+    let tail, beat, tab, info;
+    try { tail = localStorage.getItem('mc3.crashTail'); beat = Number(localStorage.getItem('mc3.crashBeat')); tab = localStorage.getItem('mc3.crashTab'); info = localStorage.getItem('mc3.crashInfo'); }
     catch { return; }
     if (!tail || (tab !== tabId && Date.now() - beat < 15000)) return;
     if (!cfg?.logUrl) { tailClear(); return; }
-    logPost('previous-crash', tail).then(code => { try { if (localStorage.getItem('mc3.crashTail') === tail) tailClear(); } catch {} console.warn('[WEB] the last game here ended without a clean exit; its log was sent, code ' + code); },
+    logPost('previous-crash', info ? tail.replace('\n===\n', '\n' + info + '\n===\n') : tail).then(code => { try { if (localStorage.getItem('mc3.crashTail') === tail) tailClear(); } catch {} console.warn('[WEB] the last game here ended without a clean exit; its log was sent, code ' + code); },
       e => console.warn('[WEB] previous crash log not sent (kept for the next visit):', e));
   }
   function logFlush() {
@@ -2285,6 +2296,13 @@
   async function gpuChoice(env) {
     if (env.RECOMP_GPU === 'webgl') return 'webgl';
     if (/Firefox\//.test(navigator.userAgent)) { out('[WEB] graphics: Firefox shows no WebGPU picture from the game\'s worker: WebGL'); return 'webgl'; }
+    // A device that says 2 GB or less (the low profile; 8 Windows PCs saying 2 GB were killed right after Play, 2026-11-14):
+    // WebGL, without even asking for an adapter (WebGPU's adapter, device and pipelines cost the browser memory)
+    if (env.RECOMP_GPU !== 'webgpu' && lowMem(env) && navigator.deviceMemory > 0 && navigator.deviceMemory <= 2) {
+      gpuNote = ` Drawing with WebGL: this device says ${navigator.deviceMemory} GB of memory (Settings, Renderer: WebGPU tries it).`;
+      out('[WEB] graphics:' + gpuNote);
+      return 'webgl';
+    }
     let a = null, i = {};
     try { a = navigator.gpu && await navigator.gpu.requestAdapter(); i = a?.info || {}; } catch {}
     if (!a) return 'webgl';
@@ -2399,9 +2417,10 @@
       monitorRunDependencies: n => out(`[WEB] module: ${n} start-up step(s) left`),
     };
     // Low-memory profile: a fixed wasm memory, 1 GB or the largest down to 320 MB the browser gives (web/pre.js;
-    // else 2 GB up front, smaller only if refused), and 12 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; more
+    // else 2 GB up front, smaller only if refused), and 8 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; more
     // get a worker on demand from the page thread, which never blocks; each worker is a JS heap of its own, 2026-11-09 Firefox on a TV).
-    if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 12; out('[WEB] low-memory profile (TV, phone, tablet or small device; MC3_LOWMEM=0 turns it off)'); }
+    // 2026-11-14: was 12; phones killed in menus ran 22-40 (web/pre.js ends idle workers beyond 16 in this profile).
+    if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 8; out('[WEB] low-memory profile (TV, phone, tablet or small device; MC3_LOWMEM=0 turns it off)'); }
     // The runtime never up (the module or disc never arrives): 5 minutes after Play. 'No picture' is timed from the runtime.
     setTimeout(() => { if (!booted) failShow('The game did not start', `the runtime is not up ${since(tPlay)} after Play`); }, 300000);
     // the game's disc reads take the cache choice from OPFS (web/disc_cache.js use()): written before it starts
@@ -2442,7 +2461,7 @@
     for (let i = 0; i < 20; i++) {
       try {
         Module.wasmMemory = new WebAssembly.Memory({ initial: mb * 16, maximum: mb * 16, shared: true });
-        if (!Module.mc3MemMB) delete Module.mc3Pool;   // as pre.js does for WebKit: pool 40, the light profile's (12) kept
+        if (!Module.mc3MemMB) delete Module.mc3Pool;   // as pre.js does for WebKit: pool 40, the light profile's (8) kept
         out(`[WEB] memory: ${mb} MB to start, ${mb} MB at most (WebKit: fixed, pool ${Module.mc3Pool || 40}` + (i ? ', after ' + i + ' s' : '') + ')');
         return;
       } catch (e) {
@@ -2617,12 +2636,14 @@
     if (!lan || lan.state === 'offline') {
       lan?.rtc?.close?.();
       lan?.close(); lan = mc3Lan($('name').value.trim(), cfg?.lanUrl); lan.where?.(whereNow()); lan.on(lanShow);
-      const rtc = window.mc3Rtc?.(lan, cfg?.iceServers);
+      const rtc = window.mc3Rtc?.(lan, cfg?.iceServers), e = buildEnv(null);
+      // low-memory profile: hidden 60 s = AFK (city socket and P2P channels closed; iOS/Android kill hidden game tabs)
+      if (lowMem(e)) lan.afkHiddenMs = 60000;
       if (rtc) {   // Free Roam P2P: the setting, one channel per hub link (the game's MC3_ROAM_CARS), outcomes in the log
         rtc.roamP2P = roamP2P();
         // as many channels as the game has links (roam_cars.c roam_cars_total: 32 with 128 MB, 12 with 64, 7 in
         // low-memory mode): a link without a channel went through the switch at 20 Hz (the relay was most of the cost)
-        const e = buildEnv(null), cars = parseInt(e.MC3_ROAM_CARS, 10);
+        const cars = parseInt(e.MC3_ROAM_CARS, 10);
         rtc.roamMax = cars > 0 ? cars : e.RECOMP_RAM_MB === '128' ? 32 : 12;
         rtc.log = out;
         rtc.on(raceShow);

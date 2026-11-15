@@ -28,7 +28,9 @@
  * assets_x* and the movies come only when the game reads them (the fill was
  * the whole disc, ~4.4 GiB a player); at most PREFETCH_BUDGET_MB still to fetch and what the browser
  * says it has room for. It starts PREFETCH_DELAY_MS after the first disc
- * file, fetches up to PREFETCH_RUN missing blocks in one request (a small
+ * file (MC3_PREFETCH=cars, the page's low-memory profile: also LOW_DELAY_MS
+ * after the game's first frame, the learned fill too; 2026-11-14, phones
+ * were killed 15-165 s after Play), fetches up to PREFETCH_RUN missing blocks in one request (a small
  * file whole) and only when the game has had no read of its own on the
  * network for IDLE_MS; blocks already kept (earlier visits too) are skipped.
  * Such a request is dropped the moment the game reads the network itself
@@ -66,6 +68,11 @@
  * once a session. A game read of several blocks fetches each run of missing
  * ones in one request; a read of a file of at most SMALL bytes fetches all of
  * it. Other reads (a jump elsewhere) fetch their block alone, as before.
+ *
+ * Hidden tab (web/pre.js -> xbox_page_hidden_box, 2026-11-14): the memory
+ * LRU is emptied (checked each second; the pinned track starts stay, kept
+ * only where deviceMemory >= 8), no readahead, every background run is
+ * dropped and the fill waits (idle()). '[WEB] disc: tab hidden: ...'.
  *
  * The game's own network reads give up a try after GAME_STALL_MS without
  * data (and try again); the background ones keep the disc cache's FETCH_MS.
@@ -106,7 +113,7 @@ addToLibrary({
     // MC3_DISC_MEM_MB (the LRU's size), MC3_PREFETCH=0 (no background fill), =cars (car models only).
     const env = k => withStackSave(() => { const p = _getenv(stringToUTF8OnStack(k)); return p ? UTF8ToString(p) : ''; });
     const E = { MC3_DISC_MEM_MB: env('MC3_DISC_MEM_MB'), MC3_PREFETCH: env('MC3_PREFETCH') };
-    const MEM_BYTES = (Number(E.MC3_DISC_MEM_MB) || 48) << 20;   // the memory LRU (16 in the page's low-memory profile)
+    const MEM_BYTES = (Number(E.MC3_DISC_MEM_MB) || 48) << 20;   // the memory LRU (8 in the page's low-memory profile)
     // Cache files kept open (two sync handles each): 16 on WebKit (iOS browsers, Safari) and in the low-memory
     // profile, whose handle limits and memory are tighter; 128 elsewhere.
     const ua = navigator.userAgent, webkit = /AppleWebKit/.test(ua) && !/Chrome\/|Chromium|Android/.test(ua);
@@ -121,7 +128,7 @@ addToLibrary({
     const open = new Map();         // cache key -> Promise<cache file | null>, least recently used first
     let cacheDir = null, cacheOn = null, cacheOff = false, failures = 0;
     const BANKS = ['mx', 'RaceStarters', 'Engine_Revs', 'dx', 'City_Walla'].map(n => `audio/xstreams/${n.toLowerCase()}.xwb`);
-    const PREFETCH_DELAY_MS = 15000, IDLE_MS = 300, PREFETCH_BUDGET_MB = 4608;
+    const PREFETCH_DELAY_MS = 15000, LOW_DELAY_MS = 60000, IDLE_MS = 300, PREFETCH_BUDGET_MB = 4608;
     const READAHEAD = 2, RA_RUN = READAHEAD + 1, GAME_STALL_MS = 4000, PREFETCH_RUN = 16, SMALL = 2 * BLOCK;
     // the game's own requests (misses, readahead) and the blocks they asked for: '[WEB] disc: ...' once
     let odReq = 0, odBlk = 0;
@@ -143,6 +150,31 @@ addToLibrary({
       while (netReads > 0 || performance.now() - lastNet < IDLE_MS || hidden()) await new Promise(r => setTimeout(r, IDLE_MS));
     };
     const bgRuns = new Set();       // the background fill's requests in progress (fetchRun)
+    // Hidden: the LRU emptied, background runs dropped (see the header); the pinned blocks stay
+    let wasHidden = false;
+    setInterval(() => {
+      if (!hidden()) { wasHidden = false; return; }
+      if (!wasHidden) err(`[WEB] disc: tab hidden: ${(memBytes / BLOCK).toFixed(0)} MiB of disc memory dropped, background reads stopped`);
+      wasHidden = true;
+      mem.clear(); memBytes = 0;
+      for (const run of bgRuns) run.ac.abort();
+    }, 1000);
+    // The game's presented frames (either renderer's counter), 0 before the first
+    const frames = () => {
+      const u = new Uint32Array(HEAPU8.buffer), w = typeof _nv2a_wgpu_fps_box == 'function' ? _nv2a_wgpu_fps_box() : 0,
+        g = typeof _nv2a_gl_fps_box == 'function' ? _nv2a_gl_fps_box() : 0;
+      return (w ? Atomics.load(u, w >>> 2) : 0) + (g ? Atomics.load(u, g >>> 2) : 0);
+    };
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    // When background fetching may begin (see the header): once, shared by the fill and the learned fill
+    let gate = null;
+    const fillGate = () => gate ??= (async () => {
+      await sleep(PREFETCH_DELAY_MS);
+      if (E.MC3_PREFETCH !== 'cars') return;
+      while (!frames()) await sleep(1000);
+      err(`[WEB] prefetch: low-memory profile: background reads start ${LOW_DELAY_MS / 1000} s after the first frame`);
+      await sleep(LOW_DELAY_MS);
+    })();
     // A game read that waited SLOW_MS or more (the guest thread that asked stood still meanwhile; a free-roam car
     // build waits under the guest lock, so every player's frame does): '[WEB] disc wait: ...', at most a line a
     // second, with the slow reads since the last line summed (web/index.html's '[WEB] hitch' names the last one).
@@ -170,6 +202,7 @@ addToLibrary({
       if (t < LEARN_MS || t - ms >= LEARN_MS || learnBytes + fi.size > LEARN_BUDGET) return;   // once, on crossing
       learnBytes += fi.size;
       learnChain = learnChain.then(async () => {
+        if (E.MC3_PREFETCH === 'cars') await fillGate();
         if (!(await cacheFolder())) return;
         const t0 = performance.now(), nb = Math.ceil(fi.size / BLOCK);
         err(`[WEB] prefetch: ${fi.url} kept the game waiting ${Math.round(t)} ms: the whole file (${nb} MiB) in the background`);
@@ -434,7 +467,7 @@ addToLibrary({
 
     // The background fill (see the header).
     async function prefetch(disc, m) {
-      await new Promise(r => setTimeout(r, PREFETCH_DELAY_MS));
+      await fillGate();
       const d = await cacheFolder();
       if (!d) return pinHeads(disc, m);           // no cache in this run: nothing to fill (track starts in memory if OPFS refused)
       const mib = n => (n / BLOCK).toFixed(0);
@@ -490,7 +523,7 @@ addToLibrary({
         // Before block(): its read of a block in such a run joins the run and gets it as soon as it has come.
         const small = fi.size <= SMALL, nb = Math.ceil(fi.size / BLOCK), prev = fi.last;   // prev: this file's last read's last block
         fi.last = last;
-        const ahead = !small && (STREAM.test(fi.url) || CARS.test(fi.url) || (prev !== undefined && first >= prev && first <= prev + 1 && last > prev));
+        const ahead = !small && !hidden() && (STREAM.test(fi.url) || CARS.test(fi.url) || (prev !== undefined && first >= prev && first <= prev + 1 && last > prev));
         const lo = small ? 0 : first, hi = small ? nb - 1 : ahead ? Math.min(last + READAHEAD, nb - 1) : last;
         if (hi > lo) {
           let j = lo;

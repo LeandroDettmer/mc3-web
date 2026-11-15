@@ -42,8 +42,8 @@ Module['preRun'] = [].concat(Module['preRun'] || [], function () {
 // refused every size from 448 MB up and gave 256/512, 2026-11-09).
 // WebKit (iPhone, iPad, Safari) sets aside a shared memory's whole maximum (256 MB with a 2 GB maximum was
 // refused on an iPhone): fixed sizes only (maximum = initial). Pool 40 (the 2 GB baseline), but the light profile's
-// (12, index.html) since 2026-11-12: every iPhone ran 40 workers, each a JS heap of its own (Android's light profile
-// runs 12 and makes the rest on demand); '[WEB] workers: N' below gives the real need. A Mac's
+// (8, index.html; 12 until 2026-11-14) since 2026-11-12: every iPhone ran 40 workers, each a JS heap of its own (Android's
+// light profile makes the rest on demand); '[WEB] workers: N' below gives the real need. A Mac's
 // Safari starts at 2 GB; iOS/iPadOS (the low profile, or the iPad's desktop user agent) at 1 GB: with a fixed 2 GB,
 // 61 iPhones were killed silently in the menus (previous-crash logs, 2026-11-11; the game's peak is ~400 MB).
 // Every refused size is logged; when nothing is given a page error says so (index.html failShow shows it).
@@ -135,9 +135,32 @@ if (!ENVIRONMENT_IS_PTHREAD && !ENVIRONMENT_IS_NODE && typeof Worker == 'functio
 })();
 
 // How many workers the run really needed (pool + made on demand; idle ones are kept): logged at each new peak, so the
-// pool size (Module.mc3Pool) can follow the logs. '[WEB] workers: N (R threads running)'.
+// pool size (Module.mc3Pool) can follow the logs. '[WEB] workers: N (R threads running)'. Module.mc3Workers() gives
+// { all, run, ended } now (web/index.html's crash heartbeat), undefined before the runtime's PThread exists.
+// Low-memory profile (Module.mc3MemMB, 2026-11-14): a worker whose thread ended is terminated instead of kept idle while
+// more than KEEP exist (each is a JS heap; phones killed in menus ran 22-40). Not a cap on new ones: Emscripten's
+// pthread_create gets EAGAIN (spawnThread returns 6) when no worker can be had, and a guest thread that fails to start
+// breaks the game; an ended worker only costs the next thread a worker start. '[WEB] workers: idle ones beyond 16 ended ...'.
 if (!ENVIRONMENT_IS_PTHREAD && !ENVIRONMENT_IS_NODE && typeof setInterval == 'function') (function () {
-  var peak = 0, log = Module['print'] || console.log;
+  var peak = 0, ended = 0, KEEP = 16, log = Module['print'] || console.log;
+  if (Module['mc3MemMB']) Module['preRun'] = [].concat(Module['preRun'] || [], function () {
+    if (typeof PThread != 'object' || typeof PThread.returnWorkerToPool != 'function') return;
+    var back = PThread.returnWorkerToPool;
+    PThread.returnWorkerToPool = function (w) {
+      back(w);
+      var i = PThread.unusedWorkers.indexOf(w);
+      if (i < 0 || Object.keys(PThread.pthreads).length + PThread.unusedWorkers.length <= KEEP) return;
+      PThread.unusedWorkers.splice(i, 1);
+      w.onmessage = function () {};
+      try { w.terminate(); } catch (e) {}
+      if (!ended++) log('[WEB] workers: idle ones beyond ' + KEEP + ' ended (low-memory profile)');
+    };
+  });
+  Module['mc3Workers'] = function () {
+    if (typeof PThread != 'object' || !PThread.unusedWorkers) return;
+    var run = Object.keys(PThread.pthreads).length;
+    return { all: run + PThread.unusedWorkers.length, run: run, ended: ended };
+  };
   setInterval(function () {
     if (typeof PThread != 'object' || !PThread.unusedWorkers) return;
     var run = Object.keys(PThread.pthreads).length, all = run + PThread.unusedWorkers.length;
