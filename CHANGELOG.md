@@ -128,3 +128,9 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Shared weather and time of day: dawn, dusk or midnight, clear, cloudy or rain, changing every 24 minutes and the same for everyone in the city (shows on your next load).
 - **Free Roam:** The street race offer is now a small green hint by the minimap (and a green Flash button on touch), not a big box.
 - **Keyboard:** A tap of an arrow in the garage and menus moves one item; hold it to scroll.
+
+## 2026-11-15 (428151c)
+
+- **Free Roam:** Other players' cars no longer jump or smoke their tyres when you get close.
+- **Free Roam:** Race invites, the group race offer and the "waiting" message are now small hints instead of big boxes.
+- **Free Roam:** Name tags over other players' cars are smaller by default (Settings, Name tag size, to make them bigger).
