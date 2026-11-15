@@ -1570,7 +1570,7 @@
       b.textContent = name + (m.version ? ' v' + m.version : '');
       by.className = p.className = 'hint';
       by.textContent = [m.kind === 'car' ? 'Car' : m.kind === 'textures' ? 'Textures' : m.kind === 'gameplay' ? 'Gameplay' : '', m.author && 'by ' + m.author,
-        m.size ? fmtBytes(m.size) : ''].filter(Boolean).join(' · ') + (m.credit ? '. ' + m.credit : '');
+        m.size ? Math.max(1, Math.round(m.size / 1024)) + ' KB' : ''].filter(Boolean).join(' · ') + (m.credit ? '. ' + m.credit : '');
       p.textContent = m.description || '';
       info.append(b, by, p);
       const lab = document.createElement('label'), cb = document.createElement('input'), s = document.createElement('span');
@@ -1644,7 +1644,7 @@
   async function refresh() {
     const g = currentGame(), d = currentDisc();
     const n = d ? await countDisc(d) : 0;
-    if (n) await modsLoad(d);   // before Play is enabled: buildEnv needs the packs for MC3_MODS
+    if (n) await modsLoad(d).catch(e => console.warn('[WEB] mods: ' + (e.message || e)));   // before Play is enabled: buildEnv needs the packs for MC3_MODS; a mods failure never blocks Play
     const device = await deviceChecks;
     const checks = [
       [n > 0, 'Disc', d ? (n ? `${editionLabel(d)}, ${n} files` : signIn ? `${d.name}: sign in first` : `${d.name}: its file list did not load`) : 'none on this server (--disc)'],
