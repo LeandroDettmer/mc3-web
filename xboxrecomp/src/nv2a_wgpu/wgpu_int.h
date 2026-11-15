@@ -72,10 +72,12 @@
 
 /* WGSL every generated module starts with (A's and B's): the draw record,
  * group 0 (the arena) and the stage interface. rec is the draw record's
- * index (instance_index), flat, for the fragment stage. */
+ * index (instance_index), flat, for the fragment stage. pos is @invariant:
+ * a mesh drawn again by another vertex module (depth EQUAL passes) must land
+ * on the same depth; Adreno (issue #11) otherwise left blocky holes in cars. */
 #define WGSL_VSOUT \
     "struct VsOut {\n" \
-    "  @builtin(position) pos: vec4f,\n" \
+    "  @builtin(position) @invariant pos: vec4f,\n" \
     "  @location(0) d0: vec4f,\n" \
     "  @location(1) d1: vec4f,\n" \
     "  @location(2) t0: vec4f,\n" \
