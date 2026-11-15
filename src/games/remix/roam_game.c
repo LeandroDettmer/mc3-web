@@ -1370,13 +1370,18 @@ static int roam_listed(uint32_t veh)
  * 8,855 of 25,510 rebuilds in two days of players' logs never re-sized).
  * Still bare with a 'sized' line after every build (2026-11-15, owner's log
  * on 6e23ffe): sub_00121970 sizes only the tyre tunes ([sim+0x54]/+0x58: +4
- * radius, +8 width, +0x48); the wheels drawn, [veh+8] +0xD8/+0xDC (front)
- * +0xE0/+0xE4 (rear), get them (+0x100 radius, +0x104 width) only from
- * sub_00105450(veh), which the step runs after the sizing (0x00100738, and
- * the reset sub_000FFC50) and a remote car never reaches either: its wheels
- * kept the build's radius. So it runs here too, after the sizing; and a done
- * car whose front-left wheel no longer has its tune's radius is sized again
- * (at most once a second: sub_00105450 also scales SteeringLimit). */
+ * radius, +8 width, +0x48); the wheels drawn, [veh+8] +0xD8/+0xE0 (front,
+ * tune +0x54) +0xDC/+0xE4 (rear, +0x58), get them (+0x100 radius, +0x104
+ * width) from sub_00105450(veh), which the step runs after the sizing
+ * (0x00100738) and the reset sub_000FFC50 twice. 304bf1b called it after
+ * every sizing, but players' logs on it (2026-11-15, 249 builds) had every
+ * drawn wheel at its tune's radius already ('wheel was R, now R'), and the
+ * call is not free: SteeringLimit x 0.66 each call (front tune +0x24, when
+ * [[veh+8]+0x188] and CarCfg +0x63), centre of mass [sim+0x18] recomputed,
+ * the body's vt+0x5C and sub_00121440 on [veh+8]. So it runs only when a
+ * drawn wheel's radius differs from its tune's after the sizing (never seen
+ * so far); a done car whose wheel leaves its tune's radius is sized again
+ * (at most once a second). */
 typedef struct {
     uint32_t veh;                               /* the vehicle this state is for (a rebuild starts over) */
     uint8_t done, said;                         /* said: "no rim geometry" logged */
@@ -1384,11 +1389,20 @@ typedef struct {
     double t0, t1;                              /* t1: last sizing */
 } roam_tyre;
 
+/* A drawn wheel (front-left or rear-left) without its tune's radius. */
+static int roam_wheels_off(uint32_t v, uint32_t w)
+{
+    uint32_t f = MEM32(v + 0xD8u), b = MEM32(v + 0xDCu);
+    return (online_ram(f) && MEM32(f + 0x100u) != MEM32(MEM32(w + 0x54u) + 4u)) ||
+           (online_ram(b) && MEM32(b + 0x100u) != MEM32(MEM32(w + 0x58u) + 4u));
+}
+
 static void roam_tyres(roam_tyre *t, uint32_t veh, const char *who, int idx)
 {
     uint32_t cfg = MEM32(veh + 0x64u), r = MEM32(veh + 0xCu), w = MEM32(veh + 0x50u), v = MEM32(veh + 8u), h, g = 0,
              a[2], wl;
     float was;
+    int set = 0;
     if (t->veh != veh) {
         memset(t, 0, sizeof *t);
         t->veh = veh;
@@ -1399,7 +1413,7 @@ static void roam_tyres(roam_tyre *t, uint32_t veh, const char *who, int idx)
         return;
     wl = MEM32(v + 0xD8u);
     if (t->done) {
-        if (!online_ram(wl) || MEM32(wl + 0x100u) == MEM32(MEM32(w + 0x54u) + 4u) || roam_now() - t->t1 < 1.0)
+        if (!roam_wheels_off(v, w) || roam_now() - t->t1 < 1.0)
             return;
         t->done = 0;                            /* the drawn wheel lost its size: again */
         if (++t->again <= 3)
@@ -1422,15 +1436,19 @@ static void roam_tyres(roam_tyre *t, uint32_t veh, const char *who, int idx)
     a[1] = h;
     roam_call(sub_00121970, w, (g_esp - 0x400u) & ~0xFu, 2, a);
     was = online_ram(wl) ? MEMF(wl + 0x100u) : -1.0f;
-    a[0] = veh;
-    roam_call(sub_00105450, MEM32(veh + 0x4Cu), (g_esp - 0x400u) & ~0xFu, 1, a);
+    if (roam_wheels_off(v, w)) {                /* only then: sub_00105450 also cuts SteeringLimit, resets the CoM */
+        a[0] = veh;
+        roam_call(sub_00105450, MEM32(veh + 0x4Cu), (g_esp - 0x400u) & ~0xFu, 1, a);
+        set = 1;
+    }
     t->done = 1;
     t->t1 = roam_now();
-    if (t->again)
+    if (t->again && !set)
         return;
     fprintf(stderr, "[ROAM] tyres: %s %d sized after %.1f s (radius front %.3f rear %.3f, rim %.3f; wheel was %.3f, "
-            "now %.3f)\n", who, idx, roam_now() - t->t0, MEMF(MEM32(w + 0x54u) + 4u), MEMF(MEM32(w + 0x58u) + 4u),
-            MEMF(MEM32(g + 0x3818u) + 0x14u), was, online_ram(wl) ? MEMF(wl + 0x100u) : -1.0f);
+            "now %.3f%s)\n", who, idx, roam_now() - t->t0, MEMF(MEM32(w + 0x54u) + 4u), MEMF(MEM32(w + 0x58u) + 4u),
+            MEMF(MEM32(g + 0x3818u) + 0x14u), was, online_ram(wl) ? MEMF(wl + 0x100u) : -1.0f,
+            set ? ", wheels set" : "");
 }
 
 /* Free Roam starts every player on the same spot: the city cruise's start
