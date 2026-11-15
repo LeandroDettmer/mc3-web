@@ -1325,7 +1325,7 @@
   }
   // New version published (2026-11-12): the deploy's stage script stamps config.json "version" (commit hash). While a game
   // runs and the tab is visible the page re-reads it every 5 min (and on turning visible, at most once per 5 min).
-  // Different and non-empty: every player gets a dismissable notice. Only when config.json "reload" equals that version (a protocol-breaking deploy, RELOAD=1 at stage)
+  // Different and non-empty: nothing shown (the notice is gone since 2026-11-15). Only when config.json "reload" equals that version (a protocol-breaking deploy, RELOAD=1 at stage)
   // do online players (Free Roam or a race room) get a 60 s reload box. An online career (lan.career) keeps the notice:
   // its progress since the last save would be lost. No version (local dev) = off.
   let verNew = false, verForce = false, verBox = null, verTxt = null, verBtn = null, verEnd = 0, verMode = '', verDismissed = false, verAt = 0;
@@ -1344,7 +1344,7 @@
   function versionTick() {
     const online = !!(lan && ((lan.roaming && !lan.career) || lan.room));
     const force = verForce && online;
-    const mode = force ? 'force' : verDismissed ? '' : 'notice';
+    const mode = force ? 'force' : '';   // owner 2026-11-15: no notice for a normal release, only RELOAD=1's box
     const host = $('canvas').parentNode;
     if (!verBox && mode && host) {
       verBox = document.createElement('div');
