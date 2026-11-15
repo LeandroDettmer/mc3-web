@@ -51,7 +51,7 @@
 #define RRA_NEXT_VA   0x0053F2E4u       /* the race setup to load next */
 #define RRA_SM_VA     0x00557ED0u       /* the state machine (request: vtable +4, sub_00020E40) */
 #define RRA_TEXT      192               /* prompt box bytes (web/pre.js reads the same) */
-#define RRA_RADIUS   60.0f             /* m: a start point this near gets the prompt (and beats the street race's) */
+#define RRA_RADIUS   20.0f             /* m (60 until 2026-11-15, owner: too far): a start point this near gets the prompt (and beats the street race's) */
 #define RRA_SLOW     12.0f              /* m/s: slower than this to start (= the street race's RCH_SLOW: no flicker between) */
 #define RRA_HOLD      1.5               /* s: the car held on its spot after the way back */
 #define RRA_WATCH     6.0               /* s: then watched for a fall through unstreamed ground */

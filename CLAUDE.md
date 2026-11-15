@@ -655,7 +655,7 @@ generated files when the lift inputs did not change.
   the API for starting races from the map. '[ROAM] races: ...' at first
   use; MC3_ROAM_RACES=0 off, =2 logs each race.
   AI race from a start point (feature 3, 2026-11-09, untested in game;
-  src/games/remix/roam_race_ai.c, docs/roam-races.md): within 30 m of a
+  src/games/remix/roam_race_ai.c, docs/roam-races.md): within 20 m (RRA_RADIUS; was 60 m to 2026-11-15) of a
   start point, slower than 8 m/s, the page shows "Race: <name> ... press
   White (Q)" (browser, 2026-11-14, untested: a small green pill 'Q <race name>', text '<name>', none above 12 m/s; roam_prompt_box, web/pre.js); White fills [0x53F2E4] (copy
   sub_00268E50, SetEvent sub_0026B8E0(city, event), 1 player) and sends
@@ -691,7 +691,7 @@ generated files when the lift inputs did not change.
   Street challenge (feature 2, 2026-11-09, untested in game;
   src/games/remix/roam_challenge.c, docs/roam-races.md F2): up to 8 racers
   (2026-11-12, untested in game; was a 1v1 headlight flash, flash back to
-  accept): driving under 12 m/s within 40 m (height 10 m) of 1+ driving
+  accept): driving under 12 m/s within 50 m (RCH_NEAR; 200 m to 2026-11-15) of 1+ driving
   players, the idle offer (2026-11-14, browser, untested: no box, a small green
   pill 'Q Race N' by the minimap + the touch Flash button green; text '\x02Race N' in
   roam_prompt_box, web/pre.js) lets White invite; native keeps the box 'Street race? N nearby players
@@ -794,7 +794,20 @@ generated files when the lift inputs did not change.
   vehicle reset sub_000FFC50 does), accumulators 0, SetAngVel 0 (we send
   w = 0); velocity is the peer's already. '[ROAM] cars: car X into the
   physics level settled: it had force F, torque T, angular speed A, wheel
-  state up to W' (20 a session) shows what was stale. Every host.
+  state up to W' (20 a session) shows what was stale. Every host. That
+  line, in 79 of 492 logs of 2026-11-15, always read force 0, torque 0,
+  angular speed 0 (wheel field 2^27, a constant): nothing stale, not the
+  cause. Jump near, cause (2026-11-15, fix untested in a browser): rtc.js
+  thins a relayed SNAP to 1 in 4 (5 Hz) for peers outside its max(8,
+  roamMax) busiest, by frames sent in the last second; every peer within
+  300 m (RC_FAR_M) gets 20/s, so they tie and the vip breaks it: a car
+  10 m away came at 5 Hz (extrapolated past the 100 ms delay, corrected at
+  each late state) and flipped 5/20 Hz as +-1 frame counts reranked.
+  Phones (roamMax 7) in a busy city thin (90 of 206 Free Roam logs,
+  'thinned N/s'; G4MJH9: 25 peers, 10 within 250 m, 14 thinned). Now core
+  20 sets header flag RC_HF_NEAR 0x10 on a SNAP to a peer within
+  RC_NEAR_M 150 m and rtc.js never thins it (older cores ignore the bit;
+  test_roam checks it).
   MC3_ROAM_CARS=N remote cars at most, slots
   included (page 'Players shown'; auto 32 at RECOMP_RAM_MB=128, 12 at
   64 MB; 7 = slots only); also the K asked of the hub, 32 at least
@@ -1497,9 +1510,9 @@ only with MC3_PERF, their only reader.
   resources/city/<city>_traffic.xbck (sub_0006D9F0, fatal if missing) with
   their textures inside and never read the loose vehicle/va_*/texture_x/*.tex;
   only the roster's other cars do. The pack therefore also carries the four
-  patched <city>_traffic.xbck (textures replaced in place, same size). Roam core 20 (merge 2026-11-14):
+  patched <city>_traffic.xbck (textures replaced in place, same size). Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
   main's core 19 (country flag) and car-mod's core 19 (second car record)
-  were separate bumps; RC_CORE_CFG2 = 20.
+  were separate bumps, then main took 20 for the near flag; RC_CORE_CFG2 = 21.
   Police pack (2026-11-14, untested in game; src/games/remix/police.c,
   tools/police_pack.py, kind gameplay): police are race AI opponents with a
   COPCAR CarType (aiCop brain vt 0x46BFF8, list 0x534088, count 0x534110). The

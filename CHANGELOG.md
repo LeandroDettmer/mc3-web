@@ -129,7 +129,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** The street race offer is now a small green hint by the minimap (and a green Flash button on touch), not a big box.
 - **Keyboard:** A tap of an arrow in the garage and menus moves one item; hold it to scroll.
 
-## 2026-11-15 (4f7687e)
+## 2026-11-15 (32036b5)
 
 - **Free Roam:** Other players' cars no longer jump or smoke their tyres when you get close.
 - **Free Roam:** Race invites, the group race offer and the "waiting" message are now small hints instead of big boxes.
@@ -138,3 +138,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** About twice as many race start points on each city's map.
 - **Free Roam:** Race offers and invites are tiny now; received invites wait in a small inbox you can open.
 - **Free Roam:** The full map's player list folds into a small button; race names show when you point at a race on the map.
+- **Free Roam:** Cars of players near you no longer jump around in a busy city.
+- **Free Roam:** Race invites are one short line with Q / E buttons.
+- **Free Roam:** Race offers show only right at a race start or next to another player.
+- **Page:** No more "new version" message over the game after an update.
