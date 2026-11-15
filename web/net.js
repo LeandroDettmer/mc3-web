@@ -26,7 +26,8 @@
     }
     if (!!l.afk != saidAfk) {
       saidAfk = !!l.afk;
-      err(saidAfk ? '[net] afk: kicked after ' + Math.round(l.afkMs / 1000) + ' s idle' : '[net] afk: back');
+      err(saidAfk ? (l.afkHidden ? '[net] afk: kicked after ' + Math.round(l.afkHiddenMs / 1000) + ' s with the tab hidden (low-memory profile)'
+        : '[net] afk: kicked after ' + Math.round(l.afkMs / 1000) + ' s idle') : '[net] afk: back');
     }
     var rd = l.roamDown || 0;
     if (rd != saidDown) {

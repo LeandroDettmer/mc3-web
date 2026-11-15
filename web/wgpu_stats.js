@@ -11,7 +11,7 @@
  * or a submit with no free readback buffer, are skipped and counted.
  *
  * Chrome rounds timestamps to 100 us unless "WebGPU Developer Features" is on.
- * Off with RECOMP_WGPU_GPUTIME=0 (wgpu_stats.c passes on=0).
+ * On with RECOMP_WGPU_STATS=1 or MC3_PERF; RECOMP_WGPU_GPUTIME=1/0 forces (wgpu_stats.c).
  */
 addToLibrary({
   $WGPU_GT__deps: ['$wasmMemory'],

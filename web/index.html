@@ -33,46 +33,53 @@
 <link rel="icon" href="icons/mc3.svg" type="image/svg+xml">
 <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<!-- Archivo Expanded Black for headings and buttons. Google Fonts answers with CORS (ACAO *) and
-     CORP cross-origin, so it loads under COEP require-corp; offline it falls back to Arial Black. -->
+<!-- Barlow Condensed for the menu, titles and buttons. Google Fonts answers with CORS (ACAO *) and CORP
+     cross-origin, so it loads under COEP require-corp; offline it falls back to Arial Narrow. -->
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@125,800..900&display=swap" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,700;0,800;1,700;1,800&display=swap" crossorigin>
 <script src="lan.js"></script>
 <script src="rtc.js"></script>
 <script src="touch.js"></script>
-<title>mcdub3 web</title>
+<title>mcdub3.xyz</title>
 <style>
-  /* the game's own menus: blood-red title bars with a grid of lighter squares, silver frames,
-     white wide caps, the selected item gold */
+  /* the start page (2026-11-14): a dark full-bleed page, a big italic condensed menu on the left (the picked item on a
+     red slanted bar), the picked section in a panel on the right under a red rule, a thin bar at the bottom. One accent: red. */
   :root {
-    --bg: #07070a; --frame: #121216; --panel: #1e1e23; --field: #0b0b0e;
-    --line: #3a3a42; --edge: #8c9098; --silver: #c8ccd2; --text: #fff; --muted: #c4c6cc;
-    --red: #9c1418; --red-lo: #7a0c10; --red-grid: #5e080b;
-    --gold: #f0b440; --gold-fill: rgba(240, 180, 64, .14); --gold-glow: rgba(240, 180, 64, .35);
-    --ok: #9be08a; --bad: #ff8a80;
-    --r: 4px;
-    --font: "Helvetica Neue", Helvetica, Arial, sans-serif;
-    --display: "Archivo", "Arial Black", Impact, "Helvetica Neue", Arial, sans-serif;
+    --bg: #08080b; --frame: #111115; --panel: rgba(16, 16, 21, .9); --field: #0d0d11; --raise: #1b1b21;
+    --line: #2a2a32; --edge: #4a4c55; --silver: #c8ccd2; --text: #f4f4f6; --muted: #a2a4ad;
+    --red: #c4161f; --red-lo: #7a0c10; --accent: #e5262f; --accent-hi: #ff5a61;
+    --accent-fill: rgba(229, 38, 47, .15); --accent-glow: rgba(229, 38, 47, .4);
+    --gold: var(--accent-hi); --gold-fill: var(--accent-fill); --gold-glow: var(--accent-glow);   /* old names, the in-game window's */
+    --ok: #8fdc7e; --bad: #ff8a80;
+    --r: 2px;
+    --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
     --mono: ui-monospace, Menlo, Consolas, monospace;
-    --outline: 0 1px 0 #000, 1px 0 0 #000, 0 -1px 0 #000, -1px 0 0 #000, 1px 2px 3px rgba(0, 0, 0, .6);
-    --grid: repeating-linear-gradient(90deg, var(--red-grid) 0 3px, transparent 3px 26px),
-            repeating-linear-gradient(0deg, var(--red-grid) 0 3px, transparent 3px 26px), var(--red);
+    --outline: 0 1px 2px rgba(0, 0, 0, .55);
+    --grid: linear-gradient(90deg, var(--red), var(--red-lo));
+    --slant: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+    --slant-sm: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; }
   body {
     min-height: 100vh; color: var(--text); font: 400 16px/24px var(--font);
-    background: radial-gradient(1200px 480px at 50% -160px, #24242c, transparent 70%) no-repeat, var(--bg);
+    background:
+      radial-gradient(900px 640px at -10% 110%, rgba(196, 22, 31, .3), transparent 65%),
+      radial-gradient(1100px 520px at 110% -10%, rgba(255, 255, 255, .06), transparent 60%),
+      repeating-linear-gradient(118deg, rgba(255, 255, 255, .022) 0 1px, transparent 1px 18px),
+      var(--bg);
+    background-attachment: fixed;
   }
   h1, h2, h3, p, ul, fieldset { margin: 0; }
   button, input, select, textarea { font: inherit; color: inherit; }
   [hidden] { display: none !important; }
-  a { color: var(--gold); text-underline-offset: 3px; }
-  code { font: 14px/20px var(--mono); }
-  :focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+  a { color: var(--accent-hi); text-underline-offset: 3px; }
+  code { font: 13px/20px var(--mono); overflow-wrap: anywhere; }
+  :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
   .modal { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: rgba(0, 0, 0, .75); padding: 16px; }
-  .modal form { background: var(--panel); border: 2px solid var(--silver); border-radius: var(--r); padding: 24px;
+  .modal form { background: var(--frame); border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--r); padding: 24px;
                    width: min(520px, 100%); display: grid; gap: 16px; }
   .modal h2 { margin: 0; font-size: 28px; }
   .modal .field { font-size: 28px; padding: 14px 16px; background: var(--field); color: var(--text);
@@ -81,30 +88,57 @@
   .modal .pw-show input { width: 24px; height: 24px; }
   .modal .pw-row { display: flex; gap: 12px; }
   .modal .pw-row .btn { flex: 1; font-size: 24px; padding: 16px; min-height: 60px; }
-  .modal :focus { outline: 4px solid var(--gold); outline-offset: 3px; }
+  .modal :focus { outline: 4px solid #fff; outline-offset: 3px; }
   .set-label, kbd { font-weight: 700; }
-  /* the game's menu face: heavy, wide; titles in caps, menu items in small caps, a dark outline */
+  /* display face: Barlow Condensed, upper case; titles and the menu italic */
   h1, h2, h3, .status, .btn, .play, .tab, legend, .opt, summary, #settings-dlg .dlg-head strong {
-    font-family: var(--display); font-stretch: 125%; font-weight: 800; letter-spacing: .02em; text-shadow: var(--outline);
+    font-family: var(--display); font-weight: 700; letter-spacing: .03em; text-shadow: var(--outline);
   }
-  h1, h2, h3, .status, .play, #settings-dlg .dlg-head strong { text-transform: uppercase; font-weight: 900; }
-  .btn, .tab, legend, .opt, summary { font-variant-caps: small-caps; }
+  h1, h2, h3, .status, .play, .btn, .tab, #settings-dlg .dlg-head strong { text-transform: uppercase; }
+  h1, h2, .status, .play { font-style: italic; font-weight: 800; }
 
+  /* the frame: brand and menu on the left, the picked section on the right, the bar at the bottom */
   .app {
-    max-width: 1200px; margin: 0 auto; padding: 24px 16px;
-    display: grid; gap: 24px; grid-template-columns: minmax(0, 1fr);
+    min-height: 100vh; max-width: 1360px; margin: 0 auto; padding: 40px 48px 72px;
+    display: grid; gap: 0 56px; align-content: start;
+    grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    grid-template-areas: "brand screen" "menu screen";
   }
-  @media (min-width: 900px) {
-    .app { grid-template-columns: minmax(300px, 384px) minmax(0, 1fr); align-items: start; }
-    .top { grid-column: 1 / -1; }
-  }
-  .side, .content { display: grid; gap: 24px; min-width: 0; }
-  .panel { background: var(--panel); border: 1px solid #44464e; border-radius: var(--r); padding: 24px; min-width: 0; }
-  /* the title bar: red, its grid of squares fading in from the right, a silver frame and a grey block on the left */
-  .top { background: linear-gradient(90deg, var(--red-lo) 35%, rgba(122, 12, 16, .5) 70%, transparent), var(--grid);
-         border: 2px solid var(--silver); border-left: 16px solid #8e9096; border-radius: 0;
-         display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; justify-content: space-between; }
-  #released { margin-left: 12px; font-weight: 700; }
+  .brand { grid-area: brand; padding: 4px 0 28px; }
+  .brand h1 { font-size: 42px; line-height: 42px; }
+  .brand h1 span { color: var(--accent); }
+  .brand .logo { display: block; width: min(340px, 100%); height: auto; filter: drop-shadow(0 4px 14px rgba(0, 0, 0, .6)); }
+  .brand p { margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 18px; letter-spacing: .04em; }
+  /* the menu (initTabs: arrow keys move, the pick is kept): big italic words, the picked one on a red slanted bar */
+  .menu { grid-area: menu; align-self: start; position: sticky; top: 24px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  .menu > .tab { position: relative; isolation: isolate; padding: 2px 30px 2px 14px; border: 0; background: none;
+                 font-size: clamp(34px, 3.6vw, 52px); line-height: 1.15; font-style: italic; font-weight: 800; letter-spacing: .01em;
+                 color: rgba(244, 244, 246, .4); transition: color .15s; }
+  .menu > .tab::before { content: ""; position: absolute; inset: 4px 0 4px -6px; z-index: -1; transform: skewX(-16deg);
+                         background: linear-gradient(90deg, var(--accent), var(--red-lo)); opacity: 0; transition: opacity .15s; }
+  .menu > .tab:hover { color: var(--text); }
+  .menu > .tab[aria-selected=true] { color: #fff; }
+  .menu > .tab[aria-selected=true]::before { opacity: 1; }
+  .menu > .tab:focus-visible { outline: none; color: #fff; }
+  .menu > .tab:focus-visible::before { opacity: 1; box-shadow: 0 0 0 2px #fff; }
+  @media (prefers-reduced-motion: reduce) { .menu > .tab, .menu > .tab::before { transition: none; } }
+  .app > [role=tabpanel] { grid-area: screen; min-width: 0; align-self: start;
+                           background: var(--panel); border-top: 3px solid var(--accent); padding: 28px 32px 32px;
+                           box-shadow: 0 24px 60px rgba(0, 0, 0, .45); }
+  .screen-title { font-size: 36px; line-height: 40px; margin-bottom: 20px; }
+  /* the bar: release, keys, links; fixed on a wide screen, at the end of the page on a narrow one */
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 20px;
+         padding: 8px 48px; padding-bottom: max(8px, env(safe-area-inset-bottom)); background: rgba(8, 8, 11, .94);
+         border-top: 1px solid var(--line); font-size: 13px; line-height: 20px; color: var(--muted); }
+  body.playing .bar { display: none; }
+  .bar-ver { font-family: var(--display); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--silver); }
+  .bar-keys { display: flex; gap: 6px; align-items: center; }
+  .bar-keys kbd { min-width: 22px; padding: 0 4px; line-height: 18px; font-size: 12px; }
+  .bar-links { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
+  .bar .btn { min-height: 30px; padding: 0 12px; font-size: 15px; }
+  @media (pointer: coarse) { .bar-keys { display: none; } }
+  #released { margin-left: 8px; }
   #released::before { content: "\00b7  "; }
   #changelog-dlg h3 { margin: 24px 0 8px; color: var(--gold); font-style: italic; }
   dialog#changelog-dlg { width: min(640px, calc(100% - 32px)); }
@@ -114,55 +148,57 @@
   #changelog-dlg summary { cursor: pointer; color: var(--muted); font-style: italic; margin-bottom: 6px; }
   #changelog-dlg h3:first-child { margin-top: 0; }
   #changelog-dlg ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
-  .top .hint { color: #e6e7ea; text-shadow: var(--outline); }
   h1 { font-size: 32px; line-height: 40px; }
-  h1 span { color: var(--gold); }
-  h3 { font-size: 15px; color: var(--silver); letter-spacing: .06em; margin: 24px 0 8px; }
+  h1 span { color: var(--accent); }
+  h3 { font-size: 16px; color: var(--accent-hi); letter-spacing: .08em; margin: 24px 0 4px; }
   h3:first-child { margin-top: 0; }
-  #settings-body h3:first-child { margin-top: 16px; }
+  #settings-body [role=tabpanel] > h3:only-of-type { display: none; }   /* a tab of one group needs no heading */
+  #settings-body [role=tabpanel] > h3:first-child { margin-top: 16px; }
   .hint { color: var(--muted); font-size: 14px; line-height: 20px; }
   .msg { font-size: 14px; line-height: 20px; margin-top: 8px; min-height: 20px; }
   .msg.bad, .bad-text { color: var(--bad); }
 
-  /* the hero */
-  .status { font-size: 32px; line-height: 40px; color: var(--text); }
+  /* Play */
+  .status { font-size: 32px; line-height: 38px; color: var(--text); }
   .status.bad { color: var(--bad); }
-  .status-sub { color: var(--muted); margin: 4px 0 20px; overflow-wrap: anywhere; }
+  .status-sub { color: var(--muted); margin: 6px 0 20px; overflow-wrap: anywhere; }
   .pick { border: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
   .pick[hidden] { display: none; }
   .pick legend { padding: 0; margin-bottom: 8px; font-size: 14px; color: var(--muted); }
-  .opt { flex: 1 1 140px; display: flex; gap: 8px; align-items: center; padding: 8px 12px; border: 2px solid var(--line);
-         border-radius: var(--r); background: var(--field); cursor: pointer; }
-  .opt:has(input:checked) { border-color: var(--gold); background: var(--gold-fill); color: var(--gold); }
+  .opt { flex: 1 1 140px; display: flex; gap: 8px; align-items: center; padding: 8px 12px; border: 1px solid var(--line);
+         border-radius: var(--r); background: var(--field); cursor: pointer; font-size: 17px; }
+  .opt:has(input:checked) { border-color: var(--accent); background: var(--accent-fill); color: #fff; }
   .opt:has(input:disabled) { opacity: .5; cursor: not-allowed; }
-  .opt input { accent-color: var(--gold); margin: 0; }
+  .opt input { accent-color: var(--accent); margin: 0; }
   .field { display: grid; gap: 4px; margin-bottom: 16px; font-size: 14px; color: var(--muted); }
   select, input[type=text], textarea {
-    background: var(--field); border: 2px solid var(--edge); border-radius: var(--r); padding: 6px 10px; min-height: 40px; max-width: 100%;
+    background: var(--field); border: 1px solid var(--edge); border-radius: var(--r); padding: 6px 10px; min-height: 40px; max-width: 100%;
   }
   textarea { width: 100%; font: 14px/20px var(--mono); resize: vertical; }
   .play {
-    width: 100%; height: 56px; display: flex; gap: 12px; align-items: center; justify-content: center; font-size: 24px;
-    border: 2px solid var(--silver); border-radius: var(--r); background: var(--grid); color: var(--text); cursor: pointer;
+    width: 100%; height: 64px; display: flex; gap: 14px; align-items: center; justify-content: center; font-size: 36px; letter-spacing: .04em;
+    border: 0; clip-path: var(--slant); background: linear-gradient(90deg, var(--accent), var(--red-lo)); color: #fff; cursor: pointer;
   }
-  .play:hover:not(:disabled), .play:focus-visible { border-color: var(--gold); box-shadow: 0 0 14px var(--gold-glow); }
-  .play:disabled { opacity: .45; cursor: not-allowed; box-shadow: none; }
-  kbd { display: inline-block; min-width: 28px; padding: 0 6px; border: 2px solid var(--edge); border-radius: var(--r);
+  .play:hover:not(:disabled), .play:focus-visible { outline: none; background: linear-gradient(90deg, var(--accent-hi), var(--accent)); }
+  .play:disabled { opacity: .4; cursor: not-allowed; filter: grayscale(.6); }
+  kbd { display: inline-block; min-width: 28px; padding: 0 6px; border: 1px solid var(--edge); border-radius: var(--r);
         background: var(--field); color: var(--text); font-size: 14px; line-height: 22px; text-align: center; }
-  .play kbd { border-color: var(--silver); color: var(--text); background: rgba(0, 0, 0, .35); text-transform: none; text-shadow: none; }
+  .play kbd { border-color: rgba(255, 255, 255, .6); color: #fff; background: rgba(0, 0, 0, .3); text-transform: none; text-shadow: none;
+              font-style: normal; font-family: var(--font); }
+  .play-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; margin-top: 24px; align-items: start; }
+  .play-cols .online-now { margin: 0; }
   /* the player's card: nick and country flag (flags.png: 48x36 flags, 16 a row, FLAG_CODES' order; flagSet) */
   .flag { display: inline-block; flex: none; width: 1.3333em; height: 1em; vertical-align: -.15em; border-radius: 2px;
           background: url(flags.png) no-repeat; background-size: 21.3333em auto; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6); }
   .flag:not([style]) { visibility: hidden; }
-  .you { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin-bottom: 12px; background: var(--field);
-         border: 2px solid var(--silver); border-left: 4px solid var(--gold); border-radius: var(--r); }
+  .you { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin-bottom: 12px; background: var(--field);
+         border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: var(--r); }
   .you .flag { font-size: 24px; cursor: pointer; }
   .you-main { flex: 1; min-width: 0; display: grid; }
-  .you #you-edit { min-height: 32px; padding: 0 10px; font-size: 13px; flex: none; }
-  .you-label { font-size: 11px; line-height: 14px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
-  .you-nick { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; font-size: 20px;
-              line-height: 26px; color: var(--gold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-              padding-right: .2em; text-shadow: var(--outline); }
+  .you #you-edit { min-height: 32px; padding: 0 12px; font-size: 14px; flex: none; }
+  .you-label { font-size: 11px; line-height: 14px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+  .you-nick { font-family: var(--display); font-weight: 800; font-style: italic; font-size: 24px; line-height: 28px; color: #fff;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: .2em; text-shadow: var(--outline); }
   .checks { list-style: none; padding: 0; margin-top: 20px; display: grid; gap: 4px; font-size: 14px; line-height: 20px; }
   .checks li { display: flex; gap: 8px; }
   .checks .mark { flex: none; width: 16px; font-weight: 700; }
@@ -170,34 +206,50 @@
   .checks .no .mark { color: var(--bad); }
   .checks span:last-child { color: var(--muted); overflow-wrap: anywhere; }
 
-  /* tabs */
-  .tabs { display: flex; flex-wrap: wrap; gap: 4px 20px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
-  .tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 4px 0 8px; color: var(--muted); cursor: pointer; font-size: 18px; }
-  .tab[aria-selected=true] { color: var(--gold); border-bottom-color: var(--gold); }
-  .tabs.small .tab { font-size: 16px; }
+  /* tabs inside a section */
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px 24px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+  .tab { background: none; border: 0; border-bottom: 3px solid transparent; padding: 4px 0 8px; color: var(--muted); cursor: pointer; font-size: 19px; }
+  .tab:hover { color: var(--text); }
+  .tab[aria-selected=true] { color: #fff; border-bottom-color: var(--accent); }
+  .tabs.small .tab { font-size: 18px; }
 
-  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 16px;
-         border: 2px solid var(--edge); border-radius: var(--r); background: var(--field); cursor: pointer; text-decoration: none; color: var(--text); }
-  .btn:hover:not(:disabled) { border-color: var(--gold); }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 38px; padding: 0 16px; font-size: 16px;
+         border: 1px solid var(--edge); border-radius: var(--r); background: var(--raise); cursor: pointer; text-decoration: none; color: var(--text); }
+  .btn:hover:not(:disabled) { border-color: var(--accent); }
   .btn:disabled { opacity: .5; cursor: not-allowed; }
   .btn.danger { border-color: var(--bad); color: var(--bad); }
   .file-btn { position: relative; }
   .file-btn input { position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer; }
-  .file-btn:focus-within { outline: 2px solid var(--gold); outline-offset: 2px; }
+  .file-btn:focus-within { outline: 2px solid #fff; outline-offset: 2px; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .head { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 12px; }
   .head h3 { margin: 0; }
 
-  /* settings rows */
-  .set { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
-         padding: 12px 0; border-bottom: 1px solid var(--line); }
+  /* settings rows: label and hint on the left, the choice on the right (a few short choices: a row of buttons, settingRow) */
+  .set { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; justify-content: space-between;
+         padding: 14px 0; border-bottom: 1px solid rgba(255, 255, 255, .07); }
   .set > div { flex: 1 1 260px; min-width: 0; }
   .set-label { display: block; }
-  .set .hint code { color: var(--muted); }
-  .set select { flex: 0 0 auto; min-width: 160px; }
-  .preview { margin-top: 16px; padding: 12px; background: var(--field); border-radius: var(--r); overflow-wrap: anywhere; }
+  .set .hint { font-size: 13px; line-height: 18px; margin-top: 2px; }
+  .set .hint code { color: #74767f; font-size: 12px; }
+  .set select { flex: 0 0 auto; min-width: 180px; }
+  .seg { flex: 0 1 auto; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px; }
+  /* a slider row (rangeRow): slider, value, and a sample name tag drawn as web/pre.js draws them in game */
+  .range-ctl { flex: 0 1 auto; display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px 10px; }
+  .range-ctl input { width: 160px; accent-color: var(--accent); }
+  .range-ctl output { min-width: 3.2em; font-variant-numeric: tabular-nums; }
+  .tag-sample { min-width: 140px; min-height: 40px; display: flex; align-items: center; justify-content: center; padding: 4px 10px;
+                border-radius: var(--r); background: linear-gradient(#3a4656, #1d242e); color: #ffb43c; white-space: nowrap; font-weight: 700;
+                font-family: "Arial Narrow", "Roboto Condensed", Arial, sans-serif; letter-spacing: .02em; text-shadow: 0 0 2px #000, 0 1px 1px #000; }
+  .tag-sample .flag { margin-right: .3em; vertical-align: -.12em; }
+  .seg button { min-height: 36px; min-width: 64px; padding: 0 16px; border: 0; clip-path: var(--slant-sm); background: var(--raise); color: var(--muted);
+                font: italic 700 17px/1 var(--display); letter-spacing: .04em; text-transform: uppercase; cursor: pointer; }
+  .seg button:hover { background: #2a2a33; color: var(--text); }
+  .seg button:focus-visible { outline: none; background: #3a3a45; color: #fff; }
+  .seg button[aria-pressed=true] { background: var(--accent); color: #fff; }
+  .preview { margin-top: 8px; padding: 12px; background: var(--field); border-radius: var(--r); overflow-wrap: anywhere; }
   details { margin-top: 16px; }
-  summary { cursor: pointer; color: var(--gold); }
+  summary { cursor: pointer; color: var(--accent-hi); }
 
   /* controls */
   .keys { list-style: none; padding: 0; }
@@ -208,7 +260,7 @@
   /* saves */
   .profiles { list-style: none; padding: 0; display: grid; gap: 8px; }
   .profiles li { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between;
-                 padding: 12px; background: var(--field); border-radius: var(--r); }
+                 padding: 12px; background: var(--field); border-left: 3px solid var(--line); border-radius: var(--r); }
   .profiles b { font-style: italic; }
   .empty { padding: 12px; background: var(--field); border-radius: var(--r); color: var(--muted); font-size: 14px; }
 
@@ -217,35 +269,80 @@
   .prose b { color: var(--text); }
 
   /* who is online (showOnline): a live dot and the total, then one value box per mode (after nfsu2-web's
-     "Playing now" boxes), the cities with someone in them gold, the empty ones dimmed */
+     "Playing now" boxes), the cities with someone in them lit, the empty ones dimmed */
   .online-now { margin: 0 0 20px; padding: 12px; background: var(--field); border: 1px solid var(--line); border-radius: var(--r); }
   .on-head { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; line-height: 20px; }
-  .on-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(155, 224, 138, .6); animation: on-pulse 2s infinite; }
+  .on-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 0 rgba(143, 220, 126, .6); animation: on-pulse 2s infinite; }
   .boot-load { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; color: #fff; font: 600 15px/1.3 system-ui, sans-serif; pointer-events: none; z-index: 2; }
   .boot-load { background: #000c; text-align: center; padding: 0 16px; }
   .boot-load[hidden] { display: none; }
   .boot-load span, .boot-load small { font-weight: 400; max-width: min(520px, 100%); word-break: break-word; }
   .boot-load small { font-size: 13px; opacity: .7; }
-  .boot-load progress { width: min(320px, 80vw); height: 8px; }
-  .boot-load::before { content: ''; width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .25); border-top-color: #fff; animation: boot-spin .9s linear infinite; }
+  .boot-load progress { width: min(320px, 80vw); height: 8px; accent-color: var(--accent); }
+  .boot-load::before { content: ''; width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255, 255, 255, .25); border-top-color: var(--accent); animation: boot-spin .9s linear infinite; }
   @keyframes boot-spin { to { transform: rotate(360deg); } }
-  @keyframes on-pulse { 70% { box-shadow: 0 0 0 8px rgba(155, 224, 138, 0); } 100% { box-shadow: 0 0 0 0 rgba(155, 224, 138, 0); } }
+  @keyframes on-pulse { 70% { box-shadow: 0 0 0 8px rgba(143, 220, 126, 0); } 100% { box-shadow: 0 0 0 0 rgba(143, 220, 126, 0); } }
   @media (prefers-reduced-motion: reduce) { .on-dot { animation: none; } }
-  .on-head b, .on-mode b { font-family: var(--display); font-stretch: 125%; font-weight: 900; font-style: italic; color: var(--gold);
+  .on-head b, .on-mode b { font-family: var(--display); font-weight: 800; font-style: italic; color: #fff;
                            text-shadow: var(--outline); font-variant-numeric: tabular-nums; }
-  .on-head b { font-size: 28px; line-height: 32px; }
+  .on-head b { font-size: 30px; line-height: 32px; }
   .on-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
-  .on-mode { padding: 8px; border-radius: var(--r); background: var(--panel); color: var(--muted); font-size: 13px; line-height: 18px; min-width: 0; overflow-wrap: anywhere; }
-  .on-mode b { display: block; font-size: 20px; line-height: 26px; }
+  .on-mode { padding: 8px; border-radius: var(--r); background: var(--raise); color: var(--muted); font-size: 13px; line-height: 18px; min-width: 0; overflow-wrap: anywhere; }
+  .on-mode b { display: block; font-size: 22px; line-height: 26px; }
   .on-cities { display: flex; flex-wrap: wrap; gap: 4px 8px; margin-top: 8px; font-size: 13px; line-height: 18px; color: var(--silver); }
   .on-cities span.none { opacity: .45; }
-  .on-cities b { color: var(--gold); font-variant-numeric: tabular-nums; }
+  .on-cities b { color: var(--accent-hi); font-variant-numeric: tabular-nums; }
   /* the names, pushed live over the link (web/lan.js l.players): the first few in the box, every one in #players-dlg */
   .on-names { margin-top: 8px; color: var(--silver); font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
-  .on-view { margin-top: 8px; min-height: 36px; padding: 0 12px; font-size: 14px; }
+  .on-view { margin-top: 8px; min-height: 36px; padding: 0 12px; font-size: 15px; }
   #players-dlg h4 { margin: 16px 0 4px; color: var(--gold); font-size: 14px; line-height: 20px; }
   .pl-names { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 2px 12px; }
   .pl-names li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 22px; }
+
+  /* About: features, the donation box */
+  .feat-lede { color: var(--text); margin: 12px 0 4px; }
+  .feat-grid { list-style: none; padding: 12px 0 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+  .feat { padding: 14px 16px 16px; background: var(--field); border-left: 3px solid var(--accent); border-radius: var(--r); }
+  .feat svg { width: 26px; height: 26px; color: var(--accent-hi); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .feat h3 { margin: 6px 0 4px; font-size: 18px; color: var(--text); letter-spacing: .03em; }
+  .feat p { color: var(--muted); font-size: 14px; line-height: 20px; }
+  .feat b { color: var(--text); font-weight: 700; }
+  .donate-btn { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .donate-btn:hover:not(:disabled) { border-color: #fff; }
+  .donate-box { margin-top: 24px; padding: 16px; background: var(--field); border-left: 3px solid var(--accent); border-radius: var(--r); }
+  .donate-box p { margin: 0 0 10px; color: var(--muted); }
+  .donate-box p strong { color: var(--text); }
+
+  /* narrow (tablet, phone): the menu becomes a bar of tabs on top, the section takes the width */
+  @media (max-width: 899px) {
+    .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-template-areas: "brand" "menu" "screen";
+           gap: 0; padding: 12px max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-area-inset-left)); }
+    .brand { padding: 4px 0 10px; }
+    .brand h1 { font-size: 30px; line-height: 32px; }
+    .brand .logo { width: min(220px, 100%); }
+    .menu { top: 0; z-index: 4; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0;
+            margin: 0 -16px 16px; padding: 6px 16px; background: rgba(8, 8, 11, .96); border-bottom: 1px solid var(--line); }
+    .menu > .tab { padding: 6px 2px; font-size: 21px; line-height: 26px; text-align: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .menu > .tab::before { inset: 2px 4px; }
+    .app > [role=tabpanel] { padding: 20px 16px 24px; }
+    .screen-title { font-size: 30px; line-height: 34px; margin-bottom: 14px; }
+    .bar { position: static; margin: 16px -16px 0; padding-left: 16px; padding-right: 16px; }
+    .bar-links { margin-left: 0; }
+  }
+  @media (max-width: 560px) {
+    .menu { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .status { font-size: 26px; line-height: 32px; }
+    .play { height: 58px; font-size: 30px; }
+    .set select { min-width: 0; width: 100%; }
+    .seg, .range-ctl { justify-content: flex-start; }
+    .tabs { gap: 4px 16px; }
+  }
+  /* a wide screen with little height (a laptop, a phone on its side at desktop width): a smaller menu */
+  @media (min-width: 900px) and (max-height: 640px) {
+    .app { padding-top: 20px; }
+    .brand { padding-bottom: 12px; }
+    .menu > .tab { font-size: 30px; }
+  }
 
   /* playing: the canvas takes the window */
   body.playing { overflow: hidden; background: #000; }
@@ -259,7 +356,7 @@
   .stage-bar .btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
   .pad-sel { max-width: 220px; min-height: 32px; font-size: 14px; }
   #settings-dlg, #players-dlg, #changelog-dlg { width: min(520px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 16px; margin: auto;
-                  background: var(--frame); color: inherit; border: 2px solid var(--silver); border-radius: var(--r); touch-action: pan-y; }
+                  background: var(--frame); color: inherit; border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--r); touch-action: pan-y; }
   #settings-dlg::backdrop, #players-dlg::backdrop, #changelog-dlg::backdrop { background: rgba(0, 0, 0, .6); }
   #settings-dlg .dlg-head, #players-dlg .dlg-head, #changelog-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -16px -16px 12px;
                             padding: 8px 16px; background: linear-gradient(90deg, var(--red-lo) 40%, transparent), var(--grid);
@@ -341,14 +438,6 @@
     .stage-bar { gap: 12px; }
     .stage-bar .btn { min-height: 40px; min-width: 48px; padding: 0 12px; font-size: 13px; }
   }
-  /* the start page on a phone */
-  @media (max-width: 480px) {
-    .app { padding: 12px max(16px, env(safe-area-inset-left)) 24px; gap: 16px; }
-    .panel { padding: 16px; }
-    h1, .status { font-size: 24px; line-height: 32px; }
-    .tab { font-size: 16px; }
-    .set select { min-width: 0; width: 100%; }
-  }
   .checks .warn .mark { color: var(--gold); }
   .stage.stretch canvas { object-fit: fill; }
   #fps { position: absolute; left: 8px; top: 8px; margin: 0; padding: 2px 8px; font: 14px/1.4 ui-monospace, Consolas, monospace;
@@ -367,114 +456,213 @@
   #races-box { margin-top: 24px; }
   #races-box input[type=password] { background: var(--field); border: 2px solid var(--edge); border-radius: var(--r); padding: 6px 10px; min-height: 40px; max-width: 100%; }
   .races li .meta { color: var(--muted); font-size: 14px; }
-  /* features showcase: the game box's back cover, a red title bar and a grid of cards */
-  .top h1 { font-size: clamp(28px, 4vw, 40px); line-height: 1.2; }
-  .features { padding: 0; overflow: hidden; }
-  .feat-head { padding: 16px 24px; background: linear-gradient(90deg, var(--red-lo) 40%, rgba(122, 12, 16, .4)), var(--grid);
-               border-bottom: 2px solid var(--silver); }
-  .feat-head h2 { font-size: 22px; line-height: 28px; }
-  .feat-head p { color: #e6e7ea; font-size: 14px; line-height: 20px; margin-top: 2px; text-shadow: var(--outline); }
-  .feat-grid { list-style: none; padding: 20px 24px 24px; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
-  .feat { position: relative; padding: 14px 16px 16px; background: var(--field); border: 1px solid var(--line); border-left: 3px solid var(--red);
-          border-radius: var(--r); transition: border-color .15s, transform .15s; }
-  .feat:hover { border-color: var(--edge); border-left-color: var(--gold); transform: translateY(-2px); }
-  .feat svg { width: 28px; height: 28px; color: var(--gold); fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-  .feat h3 { margin: 8px 0 4px; font-size: 16px; color: var(--text); }
-  .feat p { color: var(--muted); font-size: 14px; line-height: 20px; }
-  .feat b { color: var(--gold); font-weight: 700; }
-  @media (max-width: 480px) { .feat-head { padding: 12px 16px; } .feat-grid { padding: 16px; } }
-  @media (prefers-reduced-motion: reduce) { .feat { transition: none; } .feat:hover { transform: none; } }
-  .donate-btn { background: var(--gold); color: #000; border-color: var(--gold); font-weight: 700; }
-  .donate-box { margin-top: 14px; padding: 10px 12px; border: 2px solid var(--gold); border-radius: var(--r); }
-  .donate-box p { margin: 0 0 8px; }
 </style>
 </head>
 <body>
+<!-- the start page (2026-11-14): the menu is a tablist (initTabs) whose panels are the sections; .app is their parent -->
 <div class="app">
-  <header class="panel top">
-    <h1>Midnight Club <span>3</span></h1>
-    <p class="hint">DUB Edition Remix · Xbox version · Fan project<span id="released" hidden></span></p>
-    <span style="display:flex; gap:8px; flex-wrap:wrap">
-      <button type="button" class="btn" id="changelog-btn" aria-haspopup="dialog" aria-controls="changelog-dlg">Changelog</button>
-      <a class="btn" id="bug-btn" href="https://github.com/LeandroDettmer/mc3-web/issues/new" target="_blank" rel="noopener">Report a bug</a>
-      <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
-      <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
-    </span>
+  <header class="brand">
+    <h1><img class="logo" src="icons/logo.png" width="523" height="153" alt="Midnight Club 3: DUB Edition Remix"></h1>
+    <p>DUB Edition Remix · Xbox version · Fan project</p>
   </header>
+  <div class="menu" role="tablist" aria-label="Menu" aria-orientation="vertical">
+    <button type="button" class="tab" role="tab" data-tab="play">Play</button>
+    <button type="button" class="tab" role="tab" data-tab="settings">Settings</button>
+    <button type="button" class="tab" role="tab" data-tab="controls">Controls</button>
+    <button type="button" class="tab" role="tab" data-tab="online">Online</button>
+    <button type="button" class="tab" role="tab" data-tab="saves">Saves</button>
+    <button type="button" class="tab" role="tab" data-tab="mods">Mods</button>
+    <button type="button" class="tab" role="tab" data-tab="project">About</button>
+  </div>
   <dialog id="changelog-dlg" aria-label="Changelog">
     <div class="dlg-head"><strong>What's new</strong><button type="button" class="btn" id="changelog-close" aria-label="Close">Close</button></div>
     <div id="changelog-body"></div>
   </dialog>
 
-  <div class="side">
-    <section class="panel hero" aria-label="Play">
-      <div class="you" aria-label="You, as other players see you">
-        <span class="flag" id="you-flag" role="img" title="Change flag"></span>
-        <div class="you-main"><span class="you-label">You</span><strong class="you-nick" id="you-nick"></strong></div>
-        <button type="button" class="btn" id="you-edit" aria-label="Change nick">Edit</button>
+  <section role="tabpanel" data-pane="play">
+    <p class="status" id="status" role="status">Checking…</p>
+    <p class="status-sub" id="status-sub">Looking for the discs and the build.</p>
+    <p class="row" id="signin" hidden style="margin-bottom:16px"><a class="btn" id="signin-link" href="#">Sign in</a> <span class="hint">The disc server wants you signed in; it sends you back here.</span></p>
+    <fieldset class="pick" id="game-pick">
+      <legend>Game</legend>
+      <label class="opt"><input type="radio" name="game" value="dub"> <span>DUB Edition</span></label>
+      <label class="opt"><input type="radio" name="game" value="remix"> <span>Remix</span></label>
+    </fieldset>
+    <label class="field" id="edition-row" hidden><span>Disc</span><select id="edition"></select></label>
+    <button type="button" class="play" id="play" disabled>Play <kbd>Enter</kbd></button>
+    <button type="button" class="btn" id="resume-btn" hidden style="margin-top:8px">Back to Free Roam</button>
+    <div class="donate-box" style="margin-top:16px">
+      <p><strong>Keep the project alive.</strong> The online server costs money every month: a donation of any size keeps it running.</p>
+      <span class="row">
+        <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
+        <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
+      </span>
+    </div>
+    <label class="opt" style="margin-top:16px"><input type="checkbox" id="skipintro" aria-describedby="skipintro-help"> <span>Skip intro</span></label>
+    <p class="hint" id="skipintro-help" style="margin-top:4px">Boots past the Rockstar logos and the intro movie, none of them played. <code>MC3_SKIP_MOVIES=hard</code></p>
+    <div class="play-cols">
+      <div>
+        <div class="you" aria-label="You, as other players see you">
+          <span class="flag" id="you-flag" role="img" title="Change flag"></span>
+          <div class="you-main"><span class="you-label">You</span><strong class="you-nick" id="you-nick"></strong></div>
+          <button type="button" class="btn" id="you-edit" aria-label="Change nick">Edit</button>
+        </div>
+        <label class="field"><span>Your flag, before your name over your car in free roam</span><select id="flag"></select></label>
       </div>
-      <label class="field"><span>Your flag, before your name over your car in free roam</span><select id="flag"></select></label>
-      <p class="status" id="status" role="status">Checking…</p>
-      <p class="status-sub" id="status-sub">Looking for the discs and the build.</p>
       <div class="online-now" id="online-now" hidden><div class="on-body" role="status"></div><button type="button" class="btn on-view" aria-haspopup="dialog" aria-controls="players-dlg" hidden>View players</button></div>
-      <p class="row" id="signin" hidden style="margin-bottom:16px"><a class="btn" id="signin-link" href="#">Sign in</a> <span class="hint">The disc server wants you signed in; it sends you back here.</span></p>
-      <fieldset class="pick" id="game-pick">
-        <legend>Game</legend>
-        <label class="opt"><input type="radio" name="game" value="dub"> <span>DUB Edition</span></label>
-        <label class="opt"><input type="radio" name="game" value="remix"> <span>Remix</span></label>
-      </fieldset>
-      <label class="field" id="edition-row" hidden><span>Disc</span><select id="edition"></select></label>
-      <button type="button" class="play" id="play" disabled>Play <kbd>Enter</kbd></button>
-      <button type="button" class="btn" id="resume-btn" hidden style="margin-top:8px">Back to Free Roam</button>
-      <div class="donate-box">
-        <p><strong>Keep the project alive.</strong> The online server costs money every month, and this is built in free time. A donation of any size keeps it running and growing.</p>
-        <span style="display:flex; gap:8px; flex-wrap:wrap">
-          <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
-          <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
-        </span>
-      </div>
-      <label class="opt" style="margin-top:12px"><input type="checkbox" id="skipintro" aria-describedby="skipintro-help"> <span>Skip intro</span></label>
-      <p class="hint" id="skipintro-help" style="margin-top:4px">Boots past the Rockstar logos and the intro movie, none of them played. <code>MC3_SKIP_MOVIES=hard</code></p>
-      <div id="cache" hidden>
-        <p class="hint" id="cache-status" role="status" style="margin-top:16px"></p>
-        <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-clear">Clear</button></div>
-      </div>
-      <ul class="checks" id="checks" aria-label="What the game needs"></ul>
-    </section>
+    </div>
+    <div id="cache" hidden>
+      <p class="hint" id="cache-status" role="status" style="margin-top:16px"></p>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-clear">Clear game data</button></div>
+    </div>
+    <ul class="checks" id="checks" aria-label="What the game needs"></ul>
+  </section>
 
-    <section class="panel" aria-label="About this project">
-      <div class="tabs small" role="tablist" aria-label="About this project">
-        <button type="button" class="tab" role="tab" data-tab="about">About</button>
-        <button type="button" class="tab" role="tab" data-tab="credits">Credits</button>
-        <button type="button" class="tab" role="tab" data-tab="legal">Legal</button>
+  <section role="tabpanel" data-pane="settings" hidden>
+    <h2 class="screen-title">Settings</h2>
+    <p class="hint">Saved in this browser. Changes apply the next time you press Play. The first choice of each row is the game's own (default).</p>
+    <!-- renderSettings puts each SETTINGS group's rows into its tab's panel (SET_PANE) -->
+    <div id="settings-body">
+      <div class="tabs small" role="tablist" aria-label="Settings">
+        <button type="button" class="tab" role="tab" data-tab="sg-picture">Picture</button>
+        <button type="button" class="tab" role="tab" data-tab="sg-game">Game</button>
+        <button type="button" class="tab" role="tab" data-tab="sg-online">Online</button>
+        <button type="button" class="tab" role="tab" data-tab="sg-input">Controls</button>
+        <button type="button" class="tab" role="tab" data-tab="sg-perf">Performance</button>
+        <button type="button" class="tab" role="tab" data-tab="sg-adv">Advanced</button>
       </div>
-      <div class="pane prose" role="tabpanel" data-pane="about">
-        <p>Midnight Club 3: DUB Edition Remix in the browser: the Xbox game's own code, statically recompiled to C with xboxrecomp and built for WebAssembly, drawn with WebGPU (WebGL 2 as a fallback). Plays on PC, phones (touch controls) and TVs, with keyboard or controller.</p>
-        <p>Online: free roam with other players in the same city, and the garage with every car and part unlocked. Your online profile is kept in this browser.</p>
-        <p>You need your own copy of the game: extract your disc and serve it from your own machine with <code>tools/web_serve.py</code> or <code>web/server</code>. Nothing of the game ships with this page; saves stay in this browser.</p>
-        <p>Source: <a href="https://github.com/LeandroDettmer/mc3-web" target="_blank" rel="noopener noreferrer">github.com/LeandroDettmer/mc3-web</a>. Bugs and ideas: open an issue there; contributions by fork and pull request.</p>
+      <div role="tabpanel" data-pane="sg-picture"></div>
+      <div role="tabpanel" data-pane="sg-game" hidden></div>
+      <div role="tabpanel" data-pane="sg-online" hidden></div>
+      <div role="tabpanel" data-pane="sg-input" hidden></div>
+      <div role="tabpanel" data-pane="sg-perf" hidden></div>
+      <div role="tabpanel" data-pane="sg-adv" hidden>
+        <details id="advanced">
+          <summary>More switches</summary>
+          <p class="hint" style="margin:8px 0">One <code>KEY=VALUE</code> per line, any <code>RECOMP_*</code> or <code>MC3_*</code> switch (README, Configuration). These win over the rows above; the address's <code>?KEY=VALUE</code> wins over both.</p>
+          <label for="raw" class="hint">Extra switches</label>
+          <textarea id="raw" rows="6" spellcheck="false" placeholder="RECOMP_GL_FRAMETIME=2"></textarea>
+          <p class="msg bad" id="raw-msg" role="status"></p>
+        </details>
+        <p class="hint" style="margin-top:16px">Passed to the game:</p>
+        <p class="preview"><code id="env-preview"></code></p>
+        <div class="row" style="margin-top:16px"><button type="button" class="btn" id="reset">Reset all settings</button></div>
       </div>
-      <div class="pane prose" role="tabpanel" data-pane="credits" hidden>
-        <p>mcdub3 web by Leandro Dettmer, a browser port of <a href="https://github.com/laureladastra/mcdub3-nx" target="_blank" rel="noopener noreferrer">mcdub3-nx</a> by Laure Ladastra (MIT).</p>
-        <p>Based on <a href="https://github.com/LeandroDettmer/mc3-web" target="_blank" rel="noopener noreferrer">mc3-web</a> by Leandro Dettmer: AGPL-3.0. Copies must keep this credit and offer their source.</p>
-        <p><strong>Support the project:</strong> donations help pay for the online server and further development. <a href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">Donate (Stripe)</a></p>
-        <p>Built on <a href="https://github.com/sp00nznet/xboxrecomp" target="_blank" rel="noopener noreferrer">xboxrecomp</a>, the Xbox static recompilation toolkit by Ned Heller (sp00nznet) and its contributors (xboxrecomp/CONTRIBUTORS.md; MIT).</p>
-        <p>Modelled on antoxa2584x's <a href="https://github.com/antoxa2584x/nfsu2-sw" target="_blank" rel="noopener noreferrer">nfsu2-sw</a>.</p>
-        <p>This start page follows th0mk's <a href="https://github.com/th0mk/nfsu2-web" target="_blank" rel="noopener noreferrer">nfsu2-web</a> (MIT), whose free-roam networking the online mode is ported from; itself based on Talha Müderrisoğlu's <a href="https://github.com/TalhaMudo/NFSU2Recomp" target="_blank" rel="noopener noreferrer">NFSU2Recomp</a>.</p>
-      </div>
-      <div class="pane prose" role="tabpanel" data-pane="legal" hidden>
-        <p>Midnight Club is a trademark of Take-Two Interactive / Rockstar Games. This is an unofficial fan project, not affiliated with or endorsed by them or Microsoft.</p>
-        <p>This page and its repository contain no game code or data. Play only with a disc you own.</p>
-      </div>
-    </section>
-  </div>
+    </div>
+  </section>
 
-  <div class="content">
-    <section class="panel features" aria-labelledby="feat-title">
-      <div class="feat-head">
-        <h2 id="feat-title">The city is online</h2>
-        <p>Midnight Club 3 like you never played it: real players, real races, every ride in the garage.</p>
+  <section role="tabpanel" data-pane="controls" hidden>
+    <h2 class="screen-title">Controls</h2>
+    <div class="tabs small" role="tablist" aria-label="Controls">
+      <button type="button" class="tab" role="tab" data-tab="keyboard">Keyboard</button>
+      <button type="button" class="tab" role="tab" data-tab="pad">Controller</button>
+    </div>
+    <div class="pane" role="tabpanel" data-pane="keyboard">
+      <p class="hint" style="margin:8px 0">The keyboard is pad 1 (Settings, Keyboard to turn it off). Click the game first so it gets the keys.</p>
+      <ul class="keys" id="keys"></ul>
+    </div>
+    <div class="pane prose" role="tabpanel" data-pane="pad" hidden>
+      <p style="margin-top:8px">Xbox, PlayStation and other controllers work through the browser's Gamepad API, as pads 1 to 4 in the order they are connected; one plugged in later is picked up within a second. Press a button on it once the game is running so the browser shows it to the page.</p>
+      <div class="set">
+        <div><label class="set-label" for="pad-sel">Controller for this tab</label><p class="hint">Only this controller drives pad 1 here, so two tabs can each use their own. Remembered for this tab only. The keyboard acts on the focused tab.</p></div>
+        <select class="pad-sel" id="pad-sel"></select>
       </div>
+      <div class="set">
+        <div><span class="set-label">Buttons</span><p class="hint" id="pad-map-hint">Buttons in the wrong place, or not working? Set them up: press each one when asked.</p></div>
+        <button type="button" class="btn" id="pad-map-btn">Set up buttons</button>
+        <button type="button" class="btn" id="pad-map-reset" hidden>Reset</button>
+      </div>
+      <div id="pad-map-run" hidden>
+        <p class="set-label" id="pad-map-step" role="status"></p>
+        <div class="row"><button type="button" class="btn" id="pad-map-skip">Skip</button><button type="button" class="btn" id="pad-map-cancel">Cancel</button></div>
+      </div>
+      <p>The keyboard stays on top of pad 1. Buttons sit where the Xbox pad has them: A, B, X, Y, Start, Back, the triggers, White and Black on the shoulders, both sticks and their clicks.</p>
+    </div>
+  </section>
+
+  <section role="tabpanel" data-pane="online" hidden>
+    <h2 class="screen-title">Online</h2>
+    <div class="prose">
+      <p>Everyone who plays on this site shares one online world. Nothing to set up: it is always on.</p>
+      <p>In the game, <b>Online</b> is the first item of the main menu; the number beside it is how many players are in Free Roam now.</p>
+      <p><b>Free Roam</b>: pick <b>Online</b> to drive the city with everyone who picked the same city. Every car and part is unlocked.</p>
+      <p><b>Online Races</b>: hold <b>White</b> (<b>Q</b> or <b>Shift</b> on the keyboard, a shoulder button on a gamepad) while you pick <b>Online</b>, then <b>Online Races</b>: <b>Host Game</b> to start a race, or <b>Join Game</b> to race in someone else's.</p>
+      <p>Set <b>Your name</b> below: it is what the other players see.</p>
+      <p class="hint">In Free Roam your browser connects straight to the nearest players (WebRTC), so they can see your IP address, as in most online games.</p>
+    </div>
+    <div class="online-now" id="online-now-tab" hidden style="margin-top:20px"><div class="on-body" role="status"></div><button type="button" class="btn on-view" aria-haspopup="dialog" aria-controls="players-dlg" hidden>View players</button></div>
+    <p class="hint" id="lan-status" role="status"></p>
+    <p class="hint" id="race-links" role="status"></p>
+    <div class="set">
+      <div><label class="set-label" for="name">Your name</label><p class="hint">What other players will see. Shown in the game's sign-in texts and on the server link.</p></div>
+      <input type="text" id="name" maxlength="15" autocomplete="nickname" placeholder="Profile name">
+    </div>
+    <h3>Online profile</h3>
+    <p class="hint" id="oprof-status" role="status"></p>
+    <div class="row" style="margin-top:8px">
+      <button type="button" class="btn" id="oprof-export">Export online profile</button>
+      <label class="btn file-btn">Import online profile<input type="file" id="oprof-import" accept=".bin"></label>
+    </div>
+    <p class="msg" id="oprof-msg" role="status"></p>
+    <p class="hint">Free Roam's money and garage, apart from your career, in this browser's private storage (<code>online/profile.bin</code>). Saved when you leave the garage and when you go back to Career, Tokyo or Arcade. An import counts from the next Free Roam.</p>
+    <div id="races-box" hidden>   <!-- hidden 2026-11-09: the game's own Join Game list is better; rooms stay on the server -->
+      <h3>Races</h3>
+      <p class="hint">Make a race or join one here, before or while the game runs. Then in the game: Online, Online Races, and Host or Join Game: only the players of your race show there. Not in a race: you meet everyone else not in one, as before.</p>
+      <p class="hint" id="races-off">Joining the server…</p>
+      <div id="races-on" hidden>
+        <div id="race-mine" hidden>
+          <p><b id="race-mine-name"></b> <span class="hint" id="race-mine-who"></span></p>
+          <div class="row" style="margin-top:8px">
+            <button type="button" class="btn" id="race-invite">Copy invite link</button>
+            <button type="button" class="btn danger" id="race-leave">Leave race</button>
+          </div>
+        </div>
+        <ul class="profiles races" id="race-list" aria-label="Races on this server" style="margin-top:12px"></ul>
+        <form class="row" id="race-new" style="margin-top:12px">
+          <input type="text" id="race-name" maxlength="32" placeholder="Race name" aria-label="Race name" autocomplete="off">
+          <input type="password" id="race-pass" maxlength="64" placeholder="Password (optional)" aria-label="Password (optional)" autocomplete="new-password">
+          <button type="submit" class="btn">Create race</button>
+        </form>
+        <p class="msg" id="race-msg" role="status"></p>
+      </div>
+    </div>
+  </section>
+
+  <section role="tabpanel" data-pane="saves" hidden>
+    <h2 class="screen-title">Saves</h2>
+    <div class="head">
+      <h3>Profiles in this browser</h3>
+      <div class="row">
+        <button type="button" class="btn" id="saves-refresh">Refresh</button>
+        <button type="button" class="btn" id="saves-export">Export all saves</button>
+        <label class="btn file-btn">Import save<input type="file" id="import" accept=".mc3,.mc3Remix,.gsx"></label>
+      </div>
+    </div>
+    <ul class="profiles" id="profiles" aria-label="Profiles in this browser"></ul>
+    <p class="msg" id="saves-msg" role="status"></p>
+    <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>; the game keeps the last two copies of each one and puts the newest good one back if a save is ever cut short. <b>Export all saves</b> downloads every profile, the online profile and those copies as one <code>.zip</code>: keep it somewhere safe. Download saves a profile (the Remix's is <code>.mc3Remix</code>, the DUB Edition's <code>.mc3</code>). Import takes one downloaded from this site (another browser or device) or, for the DUB Edition, from an Xbox, and signs it for the port; a file of the other game is refused; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
+    <h3 style="margin-top:24px">Snapshots</h3>
+    <ul class="profiles" id="snaps" aria-label="Save snapshots"></ul>
+    <p class="hint" style="margin-top:8px">Every 2 days, when it starts, the game copies all your saves (profiles and the online profile) into a dated snapshot in this browser; snapshots over 7 days old are removed, the newest always kept. <b>Restore</b> puts a snapshot's saves back (before Play) and keeps the current ones as a snapshot first.</p>
+  </section>
+
+  <section role="tabpanel" data-pane="mods" hidden>
+    <h2 class="screen-title">Mods</h2>
+    <h3>Mods on this server</h3>
+    <ul class="profiles" id="mods-list" aria-label="Mods on this server"></ul>
+    <p class="hint" style="margin-top:12px">Saved in this browser. Every mod starts off: turn one on and it applies the next time you press Play. Online, players without a mod car see it as the car it is built on.</p>
+  </section>
+
+  <section role="tabpanel" data-pane="project" hidden>
+    <h2 class="screen-title">About</h2>
+    <div class="tabs small" role="tablist" aria-label="About this project">
+      <button type="button" class="tab" role="tab" data-tab="features">Features</button>
+      <button type="button" class="tab" role="tab" data-tab="about">About</button>
+      <button type="button" class="tab" role="tab" data-tab="credits">Credits</button>
+      <button type="button" class="tab" role="tab" data-tab="legal">Legal</button>
+    </div>
+    <div class="pane" role="tabpanel" data-pane="features">
+      <p class="feat-lede"><b>The city is online.</b> Midnight Club 3 like you never played it: real players, real races, every ride in the garage.</p>
       <ul class="feat-grid">
         <li class="feat">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
@@ -517,131 +705,44 @@
           <p>PC, phone with touch controls, or the TV. Keyboard or controller. Up to <b>144 fps</b> if your screen keeps up.</p>
         </li>
       </ul>
-    </section>
+    </div>
+    <div class="pane prose" role="tabpanel" data-pane="about" hidden>
+      <p style="margin-top:12px">Midnight Club 3: DUB Edition Remix in the browser: the Xbox game's own code, statically recompiled to C with xboxrecomp and built for WebAssembly, drawn with WebGPU (WebGL 2 as a fallback). Plays on PC, phones (touch controls) and TVs, with keyboard or controller.</p>
+      <p>Online: free roam with other players in the same city, and the garage with every car and part unlocked. Your online profile is kept in this browser.</p>
+      <p>You need your own copy of the game: extract your disc and serve it from your own machine with <code>tools/web_serve.py</code> or <code>web/server</code>. Nothing of the game ships with this page; saves stay in this browser.</p>
+      <p>Source: <a href="https://github.com/LeandroDettmer/mc3-web" target="_blank" rel="noopener noreferrer">github.com/LeandroDettmer/mc3-web</a>. Bugs and ideas: open an issue there; contributions by fork and pull request.</p>
+    </div>
+    <div class="pane prose" role="tabpanel" data-pane="credits" hidden>
+      <p style="margin-top:12px">mcdub3 web by Leandro Dettmer, a browser port of <a href="https://github.com/laureladastra/mcdub3-nx" target="_blank" rel="noopener noreferrer">mcdub3-nx</a> by Laure Ladastra (MIT).</p>
+      <p>Based on <a href="https://github.com/LeandroDettmer/mc3-web" target="_blank" rel="noopener noreferrer">mc3-web</a> by Leandro Dettmer: AGPL-3.0. Copies must keep this credit and offer their source.</p>
+      <p><strong>Support the project:</strong> donations help pay for the online server and further development. <a href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">Donate (Stripe)</a></p>
+      <p>Built on <a href="https://github.com/sp00nznet/xboxrecomp" target="_blank" rel="noopener noreferrer">xboxrecomp</a>, the Xbox static recompilation toolkit by Ned Heller (sp00nznet) and its contributors (xboxrecomp/CONTRIBUTORS.md; MIT).</p>
+      <p>Modelled on antoxa2584x's <a href="https://github.com/antoxa2584x/nfsu2-sw" target="_blank" rel="noopener noreferrer">nfsu2-sw</a>.</p>
+      <p>This start page follows th0mk's <a href="https://github.com/th0mk/nfsu2-web" target="_blank" rel="noopener noreferrer">nfsu2-web</a> (MIT), whose free-roam networking the online mode is ported from; itself based on Talha Müderrisoğlu's <a href="https://github.com/TalhaMudo/NFSU2Recomp" target="_blank" rel="noopener noreferrer">NFSU2Recomp</a>.</p>
+    </div>
+    <div class="pane prose" role="tabpanel" data-pane="legal" hidden>
+      <p style="margin-top:12px">Midnight Club is a trademark of Take-Two Interactive / Rockstar Games. This is an unofficial fan project, not affiliated with or endorsed by them or Microsoft.</p>
+      <p>This page and its repository contain no game code or data. Play only with a disc you own.</p>
+    </div>
+    <div class="donate-box">
+      <p><strong>Keep the project alive.</strong> The online server costs money every month, and this is built in free time. A donation of any size keeps it running and growing.</p>
+      <span class="row">
+        <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
+        <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
+      </span>
+    </div>
+  </section>
 
-    <section class="panel" aria-label="Options">
-      <div class="tabs" role="tablist" aria-label="Options">
-        <button type="button" class="tab" role="tab" data-tab="settings">Settings</button>
-        <button type="button" class="tab" role="tab" data-tab="controls">Controls</button>
-        <button type="button" class="tab" role="tab" data-tab="saves">Saves</button>
-        <button type="button" class="tab" role="tab" data-tab="online">Online</button>
-        <button type="button" class="tab" role="tab" data-tab="mods">Mods</button>
-      </div>
-
-      <div class="pane" role="tabpanel" data-pane="settings">
-        <p class="hint">Saved in this browser. Changes apply the next time you press Play. “Default” leaves the game's own choice.</p>
-        <div id="settings-body"></div>
-        <details id="advanced">
-          <summary>Advanced: more switches</summary>
-          <p class="hint" style="margin:8px 0">One <code>KEY=VALUE</code> per line, any <code>RECOMP_*</code> or <code>MC3_*</code> switch (README, Configuration). These win over the rows above; the address's <code>?KEY=VALUE</code> wins over both.</p>
-          <label for="raw" class="hint">Extra switches</label>
-          <textarea id="raw" rows="6" spellcheck="false" placeholder="RECOMP_GL_FRAMETIME=2"></textarea>
-          <p class="msg bad" id="raw-msg" role="status"></p>
-        </details>
-        <p class="hint" style="margin-top:16px">Passed to the game:</p>
-        <p class="preview"><code id="env-preview"></code></p>
-        <div class="row" style="margin-top:16px"><button type="button" class="btn" id="reset">Reset all settings</button></div>
-      </div>
-
-      <div class="pane" role="tabpanel" data-pane="controls" hidden>
-        <div class="tabs small" role="tablist" aria-label="Controls">
-          <button type="button" class="tab" role="tab" data-tab="keyboard">Keyboard</button>
-          <button type="button" class="tab" role="tab" data-tab="pad">Controller</button>
-        </div>
-        <div class="pane" role="tabpanel" data-pane="keyboard">
-          <p class="hint" style="margin-bottom:8px">The keyboard is pad 1 (Settings, Keyboard to turn it off). Click the game first so it gets the keys.</p>
-          <ul class="keys" id="keys"></ul>
-        </div>
-        <div class="pane prose" role="tabpanel" data-pane="pad" hidden>
-          <p>Xbox, PlayStation and other controllers work through the browser's Gamepad API, as pads 1 to 4 in the order they are connected; one plugged in later is picked up within a second. Press a button on it once the game is running so the browser shows it to the page.</p>
-          <div class="set">
-            <div><label class="set-label" for="pad-sel">Controller for this tab</label><p class="hint">Only this controller drives pad 1 here, so two tabs can each use their own. Remembered for this tab only. The keyboard acts on the focused tab.</p></div>
-            <select class="pad-sel" id="pad-sel"></select>
-          </div>
-          <div class="set">
-            <div><span class="set-label">Buttons</span><p class="hint" id="pad-map-hint">Buttons in the wrong place, or not working? Set them up: press each one when asked.</p></div>
-            <button type="button" class="btn" id="pad-map-btn">Set up buttons</button>
-            <button type="button" class="btn" id="pad-map-reset" hidden>Reset</button>
-          </div>
-          <div id="pad-map-run" hidden>
-            <p class="set-label" id="pad-map-step" role="status"></p>
-            <div class="row"><button type="button" class="btn" id="pad-map-skip">Skip</button><button type="button" class="btn" id="pad-map-cancel">Cancel</button></div>
-          </div>
-          <p>The keyboard stays on top of pad 1. Buttons sit where the Xbox pad has them: A, B, X, Y, Start, Back, the triggers, White and Black on the shoulders, both sticks and their clicks.</p>
-        </div>
-      </div>
-
-      <div class="pane" role="tabpanel" data-pane="saves" hidden>
-        <div class="head">
-          <h3>Profiles in this browser</h3>
-          <div class="row">
-            <button type="button" class="btn" id="saves-refresh">Refresh</button>
-            <button type="button" class="btn" id="saves-export">Export all saves</button>
-            <label class="btn file-btn">Import save<input type="file" id="import" accept=".mc3,.mc3Remix,.gsx"></label>
-          </div>
-        </div>
-        <ul class="profiles" id="profiles" aria-label="Profiles in this browser"></ul>
-        <p class="msg" id="saves-msg" role="status"></p>
-        <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>; the game keeps the last two copies of each one and puts the newest good one back if a save is ever cut short. <b>Export all saves</b> downloads every profile, the online profile and those copies as one <code>.zip</code>: keep it somewhere safe. Download saves a profile (the Remix's is <code>.mc3Remix</code>, the DUB Edition's <code>.mc3</code>). Import takes one downloaded from this site (another browser or device) or, for the DUB Edition, from an Xbox, and signs it for the port; a file of the other game is refused; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
-        <h3 style="margin-top:20px">Snapshots</h3>
-        <ul class="profiles" id="snaps" aria-label="Save snapshots"></ul>
-        <p class="hint">Every 2 days, when it starts, the game copies all your saves (profiles and the online profile) into a dated snapshot in this browser; snapshots over 7 days old are removed, the newest always kept. <b>Restore</b> puts a snapshot's saves back (before Play) and keeps the current ones as a snapshot first.</p>
-      </div>
-
-      <div class="pane" role="tabpanel" data-pane="online" hidden>
-        <h3>Play together</h3>
-        <div class="prose">
-          <p>Everyone who plays on this site shares one online world. Nothing to set up: it is always on.</p>
-          <p>In the game, <b>Online</b> is the first item of the main menu; the number beside it is how many players are in Free Roam now.</p>
-          <p><b>Free Roam</b>: pick <b>Online</b> to drive the city with everyone who picked the same city. Every car and part is unlocked.</p>
-          <p><b>Online Races</b>: hold <b>White</b> (<b>Q</b> or <b>Shift</b> on the keyboard, a shoulder button on a gamepad) while you pick <b>Online</b>, then <b>Online Races</b>: <b>Host Game</b> to start a race, or <b>Join Game</b> to race in someone else's.</p>
-          <p>Set <b>Your name</b> below: it is what the other players see.</p>
-        </div>
-        <div class="online-now" id="online-now-tab" hidden><div class="on-body" role="status"></div><button type="button" class="btn on-view" aria-haspopup="dialog" aria-controls="players-dlg" hidden>View players</button></div>
-        <p class="hint" id="lan-status" role="status"></p>
-        <p class="hint" id="race-links" role="status"></p>
-        <div class="set">
-          <div><label class="set-label" for="name">Your name</label><p class="hint">What other players will see. Shown in the game's sign-in texts and on the server link.</p></div>
-          <input type="text" id="name" maxlength="15" autocomplete="nickname" placeholder="Profile name">
-        </div>
-        <h3>Online profile</h3>
-        <p class="hint" id="oprof-status" role="status"></p>
-        <div class="row" style="margin-top:8px">
-          <button type="button" class="btn" id="oprof-export">Export online profile</button>
-          <label class="btn file-btn">Import online profile<input type="file" id="oprof-import" accept=".bin"></label>
-        </div>
-        <p class="msg" id="oprof-msg" role="status"></p>
-        <p class="hint">Free Roam's money and garage, apart from your career, in this browser's private storage (<code>online/profile.bin</code>). Saved when you leave the garage and when you go back to Career, Tokyo or Arcade. An import counts from the next Free Roam.</p>
-        <div id="races-box" hidden>   <!-- hidden 2026-11-09: the game's own Join Game list is better; rooms stay on the server -->
-          <h3>Races</h3>
-          <p class="hint">Make a race or join one here, before or while the game runs. Then in the game: Online, Online Races, and Host or Join Game: only the players of your race show there. Not in a race: you meet everyone else not in one, as before.</p>
-          <p class="hint" id="races-off">Joining the server…</p>
-          <div id="races-on" hidden>
-            <div id="race-mine" hidden>
-              <p><b id="race-mine-name"></b> <span class="hint" id="race-mine-who"></span></p>
-              <div class="row" style="margin-top:8px">
-                <button type="button" class="btn" id="race-invite">Copy invite link</button>
-                <button type="button" class="btn danger" id="race-leave">Leave race</button>
-              </div>
-            </div>
-            <ul class="profiles races" id="race-list" aria-label="Races on this server" style="margin-top:12px"></ul>
-            <form class="row" id="race-new" style="margin-top:12px">
-              <input type="text" id="race-name" maxlength="32" placeholder="Race name" aria-label="Race name" autocomplete="off">
-              <input type="password" id="race-pass" maxlength="64" placeholder="Password (optional)" aria-label="Password (optional)" autocomplete="new-password">
-              <button type="submit" class="btn">Create race</button>
-            </form>
-            <p class="msg" id="race-msg" role="status"></p>
-          </div>
-        </div>
-      </div>
-
-      <div class="pane" role="tabpanel" data-pane="mods" hidden>
-        <h3>Mods on this server</h3>
-        <ul class="profiles" id="mods-list" aria-label="Mods on this server"></ul>
-        <p class="hint" style="margin-top:12px">Saved in this browser. Changes apply the next time you press Play. Turn every mod off to play the game as it shipped. Online, players without a mod car see it as the car it is built on.</p>
-      </div>
-    </section>
-  </div>
+  <footer class="bar">
+    <span class="bar-ver">mcdub3 web<span id="released" hidden></span></span>
+    <span class="bar-keys" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> Menu <kbd>Tab</kbd> Options</span>
+    <span class="bar-links">
+      <button type="button" class="btn" id="changelog-btn" aria-haspopup="dialog" aria-controls="changelog-dlg">Changelog</button>
+      <a class="btn" id="bug-btn" href="https://github.com/LeandroDettmer/mc3-web/issues/new" target="_blank" rel="noopener">Report a bug</a>
+      <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
+      <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
+    </span>
+  </footer>
 </div>
 
 <dialog id="players-dlg" aria-labelledby="players-title">   <!-- outside .app and the stage: over the start page and the game -->
@@ -740,7 +841,7 @@
     set(k, v) { try { localStorage.setItem('mc3.' + k, JSON.stringify(v)); } catch {} },
   };
   const mods = {};                                           // disc name -> its mod packs (modsLoad), for buildEnv
-  const modOn = m => store.get('mods', {})[m.id] !== false;  // mc3.mods {id: on}; a pack never toggled is on
+  const modOn = m => store.get('mods', {})[m.id] === true;   // mc3.mods {id: on}; a pack never toggled is off
 
   // --- settings: each key is a getenv() of the port or its toolkit (CLAUDE.md; README, Configuration)
   const ONOFF = (def = 'On') => def === 'On' ? [['', 'On (default)'], ['0', 'Off']] : [['', 'Off (default)'], ['1', 'On']];
@@ -799,8 +900,9 @@
       opts: [['', 'Auto (default)'], ['7', '7'], ['16', '16'], ['32', '32']] },
     { key: 'MC3_CAREER_ONLINE', label: 'Online career', help: 'Show and meet online players in your career\'s city. Changes live.', opts: ONOFF('On') },
     { key: 'MC3_NAMETAGS', label: 'Name tags', help: 'Each other player\'s name over their car in free roam (not hidden behind buildings). Changes live.', opts: ONOFF() },
-    // page-only (web/rtc.js roamP2P; the game ignores it)
-    { key: 'MC3_ROAM_P2P', label: 'Direct connections (P2P) in Free Roam', help: 'The nearest players\' cars come straight from their browsers, not through the server: lighter on the server. It shares your IP address with those players. Off: everything goes through the server. Changes live.', opts: ONOFF() },
+    // page-only (web/pre.js name tags; the game ignores it): a slider with a sample tag (settingRow's range branch)
+    { key: 'MC3_NAMETAG_SIZE', label: 'Name tag size', help: 'How big the names over other players\' cars are. Changes live.',
+      range: { min: 50, max: 150, step: 10, def: 50 }, opts: [] },
     { group: 'Keyboard' },
     { key: 'RECOMP_KEYBOARD', label: 'Keyboard as pad 1', help: 'Off leaves only controllers. Changes live.', opts: ONOFF() },
     { key: 'RECOMP_KEYBOARD_STICK_Y', label: 'Up and Down move the stick', help: 'Menus move with the stick. Auto: while driving (when the game says so) the arrows are gas and brake alone.',
@@ -842,6 +944,7 @@
 
   // one row of a setting; prefix keeps the ids apart (start page 'set-', in-game window 'ig-'); tag: in-game live/restart
   function settingRow(s, prefix, tag) {
+    if (s.range) return rangeRow(s, prefix, tag);
     const row = document.createElement('div'), text = document.createElement('div');
     const label = document.createElement('label'), help = document.createElement('p'), code = document.createElement('code');
     const sel = document.createElement('select');
@@ -860,15 +963,67 @@
     };
     text.append(label, help);
     row.append(text, sel);
+    // start page: a few short choices become a row of buttons; the hidden select keeps the value and its onchange
+    const names = s.opts.map(o => o[1].replace(' (default)', ''));
+    if (prefix === 'set-' && names.length <= 4 && names.join('').length <= 32) {
+      const seg = document.createElement('div');
+      label.id = sel.id + '-label';
+      seg.className = 'seg'; seg.setAttribute('role', 'group');
+      seg.setAttribute('aria-labelledby', label.id); seg.setAttribute('aria-describedby', help.id);
+      s.opts.forEach(([v], i) => {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = names[i]; b.setAttribute('aria-pressed', sel.value === v);
+        if (!v) b.title = 'Default';
+        b.onclick = () => { sel.value = v; sel.onchange(); for (const x of seg.children) x.setAttribute('aria-pressed', x === b); };
+        seg.append(b);
+      });
+      sel.hidden = true;
+      row.append(seg);
+    }
     return row;
   }
+  // a slider row (s.range: min, max, step, def, in %): the value, and a sample name tag at that size as in game
+  // (web/pre.js: max(10, 2.2% of the picture's height) px, ~16 px on a 720 px picture, times the %)
+  function rangeRow(s, prefix, tag) {
+    const { min, max, step, def } = s.range, row = document.createElement('div'), text = document.createElement('div');
+    const label = document.createElement('label'), help = document.createElement('p'), code = document.createElement('code');
+    const ctl = document.createElement('div'), inp = document.createElement('input'), out = document.createElement('output');
+    const sample = document.createElement('div'), flag = document.createElement('span');
+    row.className = 'set';
+    label.className = 'set-label'; label.htmlFor = inp.id = prefix + s.key; label.textContent = s.label;
+    if (tag) { const t = document.createElement('span'); t.className = 'ig-tag ' + tag; t.textContent = tag; label.append(t); }
+    help.className = 'hint'; help.id = inp.id + '-help'; help.append(s.help + ' '); code.textContent = s.key; help.append(code);
+    if (tag) { help.classList.add('one'); help.title = s.help; help.onclick = () => help.classList.toggle('open'); }
+    inp.type = 'range'; inp.min = min; inp.max = max; inp.step = step;
+    inp.value = Number(settings[s.key]) || def;
+    inp.setAttribute('aria-describedby', help.id);
+    out.htmlFor = inp.id;
+    flag.className = 'flag';
+    sample.className = 'tag-sample'; sample.setAttribute('aria-hidden', 'true');
+    sample.append(flag, 'Player');
+    const show = () => {
+      out.textContent = inp.value + '%';
+      sample.style.fontSize = (16 * inp.value / 100).toFixed(1) + 'px';
+      try { flagSet(flag, flagCode()); } catch { /* flags not set up yet */ }
+    };
+    inp.oninput = () => { show(); setSetting(s.key, Number(inp.value) === def ? '' : inp.value); };
+    show();
+    ctl.className = 'range-ctl';
+    ctl.append(inp, out, sample);
+    text.append(label, help);
+    row.append(text, ctl);
+    return row;
+  }
+  // the start page's Settings tabs: each SETTINGS group's rows go into its tab's panel (a tab of one group hides its heading, CSS)
+  const SET_PANE = { Picture: 'sg-picture', Movies: 'sg-game', Game: 'sg-game', Online: 'sg-online', Keyboard: 'sg-input', Touch: 'sg-input', Performance: 'sg-perf' };
   function renderSettings() {
-    const body = $('settings-body');
-    body.textContent = '';
+    const rows = {};
+    let cur;
     for (const s of SETTINGS) {
-      if (s.group) { const h = document.createElement('h3'); h.textContent = s.group; body.append(h); continue; }
-      body.append(settingRow(s, 'set-'));
+      if (s.group) { cur = rows[SET_PANE[s.group]] ??= []; const h = document.createElement('h3'); h.textContent = s.group; cur.push(h); }
+      else cur.push(settingRow(s, 'set-'));
     }
+    for (const id in rows) document.querySelector(`#settings-body [data-pane="${id}"]`).replaceChildren(...rows[id]);
   }
   // In-game Settings window (2026-11-11): the rows a player changes while playing, from SETTINGS and the same store.
   // Live ones apply at once (setSetting); the rest are what the game read at start: Restart (restartGame).
@@ -876,13 +1031,13 @@
   // Live (2026-11-12): web/pre.js mc3SetLive writes a box the game reads at its next use (resolution, filtering and
   // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
   // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
-  const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
+  const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
     'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_CAREER_ONLINE', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']);
   const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
   const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
     ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
-    ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_ROAM_P2P', 'RECOMP_RAM_MB']],
+    ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_RAM_MB']],
     ['ig-controls', ['MC3_DRIFT', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
   ];
   function renderIngame() {
@@ -899,7 +1054,7 @@
     store.set('settings', settings);
     $('skipintro').checked = settings.MC3_SKIP_MOVIES === 'hard';
     if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
-    if (key === 'MC3_ROAM_P2P' && lan?.rtc) lan.rtc.roamP2P = roamP2P();   // web/rtc.js, live
+    if (key === 'MC3_NAMETAG_SIZE') window.Module?.mc3SetNameTagSize?.(Number(value) || 50);   // web/pre.js, live
     if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
     if (key === 'MC3_DRIFT') syncDrift();
     if (live(key) && window.Module?.mc3SetLive) Module.mc3SetLive(key, buildEnv(null)[key]);   // the value a start would get
@@ -968,10 +1123,15 @@
     // The remote cars heap (RoamCars, b66285a) stays off: a car swap mid-cruise froze the game (log D5JVHR, 2026-11-10:
     // swaps took 0.6 s and 10-45 s hitches, then a PGRAPH trap never served); =48 tries it
     if (env.MC3_ROAM_HEAP_MB === undefined) env.MC3_ROAM_HEAP_MB = '0';
+    // WebGL on Apple (Safari and Chrome: ANGLE on Metal; Firefox: Apple's GL): each draw's vertices in new buffer
+    // storage. An in-place update of the 64 MB vertex buffer copied all of it per draw: 7-30 s frames at the
+    // profile screen, then context lost (Intel Mac Safari 27.2, 2026-11-14). The WebGPU renderer ignores it.
+    if (env.RECOMP_GL_ORPHAN === undefined && /Macintosh|iPhone|iPad|iPod/.test(navigator.userAgent)) env.RECOMP_GL_ORPHAN = '1';
     if (low) {   // TVs and small devices (lowMem): lighter on memory, 1x (above), unless the player picked otherwise
       // A 32-bit TV browser gives 256 MB and never grows it (2026-11-09): GL record queue 4 MB (48), GL ring copies
-      // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory)
-      const d = { RECOMP_RAM_MB: '64', MC3_ROAM_CARS: '7', MC3_DISC_MEM_MB: '16', MC3_PREFETCH: '0',
+      // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory); disc LRU
+      // 8 MB (48; 16 until 2026-11-14: phones were killed with the wasm at 202-286 MB of 1 GB, so JS memory counts)
+      const d = { RECOMP_RAM_MB: '64', MC3_ROAM_CARS: '7', MC3_DISC_MEM_MB: '8', MC3_PREFETCH: 'cars',
         RECOMP_GL_SHARPEN: '0', RECOMP_GL_FXAA: '0', MC3_MOVIE_HD: '0',
         RECOMP_GL_QUEUE_MB: '4', RECOMP_GL_RING_MB: '4', RECOMP_GL_MAX_PROG: '256', RECOMP_GL_VPOOL: '8',
         MC3_THREAD_STACK_KB: '1024' };
@@ -1178,7 +1338,7 @@
   }
   // New version published (2026-11-12): the deploy's stage script stamps config.json "version" (commit hash). While a game
   // runs and the tab is visible the page re-reads it every 5 min (and on turning visible, at most once per 5 min).
-  // Different and non-empty: every player gets a dismissable notice. Only when config.json "reload" equals that version (a protocol-breaking deploy, RELOAD=1 at stage)
+  // Different and non-empty: nothing shown (the notice is gone since 2026-11-15). Only when config.json "reload" equals that version (a protocol-breaking deploy, RELOAD=1 at stage)
   // do online players (Free Roam or a race room) get a 60 s reload box. An online career (lan.career) keeps the notice:
   // its progress since the last save would be lost. No version (local dev) = off.
   let verNew = false, verForce = false, verBox = null, verTxt = null, verBtn = null, verEnd = 0, verMode = '', verDismissed = false, verAt = 0;
@@ -1197,7 +1357,7 @@
   function versionTick() {
     const online = !!(lan && ((lan.roaming && !lan.career) || lan.room));
     const force = verForce && online;
-    const mode = force ? 'force' : verDismissed ? '' : 'notice';
+    const mode = force ? 'force' : '';   // owner 2026-11-15: no notice for a normal release, only RELOAD=1's box
     const host = $('canvas').parentNode;
     if (!verBox && mode && host) {
       verBox = document.createElement('div');
@@ -1522,9 +1682,7 @@
     cacheShow();
   }
 
-  // --- disc cache (web/disc_cache.js): what of the disc this browser keeps, all of it ahead, clearing it
-  const fmtBytes = n => n >= 1e9 ? (n / 2 ** 30).toFixed(2) + ' GB' : (n / 2 ** 20).toFixed(0) + ' MB';
-  const pct = (a, b) => b ? Math.floor(100 * a / b) + '%' : '–';
+  // --- disc cache (web/disc_cache.js): whether this browser keeps game files (no sizes), clearing it
   const discUrl = d => new URL(d.path, location.href).href;
   async function cacheShow() {
     const d = currentDisc(), on = opfs && !!d && typeof MC3DiscCache == 'object';
@@ -1536,7 +1694,10 @@
     }
     try {
       const s = await MC3DiscCache.scan(discUrl(d));
-      $('cache-status').textContent = `Disc kept in this browser: ${fmtBytes(s.have)} of ${fmtBytes(s.total)} (${pct(s.have, s.total)}). Kept parts load without the network.`;
+      // no sizes or progress (2026-11-14, owner): just whether anything is kept, and what Clear does
+      $('cache-status').textContent = s.have
+        ? 'Game files are kept in this browser, so the game starts and loads faster next time. Clear game data frees that space; your saves stay.'
+        : 'Game files download as you play and stay in this browser, so the next start is faster. Your saves are kept apart.';
     } catch (e) { $('cache-status').textContent = 'Disc cache: ' + (e.message || e); }
   }
   // 2026-11-14: no "Download the whole game now" button any more (R2 reads cost: ~4.5k a player); the game fetches what it reads
@@ -1930,7 +2091,14 @@
   const PIN_RE = /\[ICALL\]|\[GUEST\]|KeBugCheck|Heap overrun|\[ROAM\] shader check/;
   let logPins = [], pinLeft = 0, pinFatal = 0, logRep = 0;
   const logRepLine = () => `[WEB] log: ${logRep} repeated line(s) left out (each the same as one of the 4 above)`;
+  // The crash tail's "lines of note": the last line matching each pattern, kept as lines arrive (keepTail used to run
+  // every pattern over the whole ring every 5 s: 13 x ~20k lines).
+  const TAIL_CTX = [/\[WEB\] low-memory profile/, /\[WEB\] memory: /, /\[WEB\] memory in use/, /\[WEB\] out of memory/,
+    /\[WEB\] failure:/, /\[WEB\] (error|freeze|hitch):/, /\[WGPU\] (watchdog|device lost)/, /\[GL\] .*(lost|refused|failed)/,
+    /\[WEB\] graphics:/, /\[(GUEST|HEAP)\]/, /\[ROAM\] (heap|cars heap)/, /\[roam\] status/, /\[WEB\] tab (hidden|visible)/];
+  const tailLast = TAIL_CTX.map(() => '');
   function logPush(text) {
+    for (let i = 0; i < TAIL_CTX.length; i++) if (TAIL_CTX[i].test(text)) tailLast[i] = String(text).trim();
     logN++; logText.push(text); if (logText.length > 20000) logText.splice(0, 5000);
     if (logN <= 80) logPins.push([logN, text]);
     else if (pinLeft > 0) { pinLeft--; logPins.push([logN, text]); }
@@ -2118,20 +2286,30 @@
     try { let id = sessionStorage.getItem('mc3.tab'); if (!id) sessionStorage.setItem('mc3.tab', id = Math.random().toString(36).slice(2)); return id; }
     catch { return ''; }
   })();
-  const TAIL_CTX = [/\[WEB\] low-memory profile/, /\[WEB\] memory: /, /\[WEB\] memory in use/, /\[WEB\] out of memory/,
-    /\[WEB\] failure:/, /\[WEB\] (error|freeze|hitch):/, /\[WGPU\] (watchdog|device lost)/, /\[GL\] .*(lost|refused|failed)/,
-    /\[WEB\] graphics:/, /\[(GUEST|HEAP)\]/, /\[ROAM\] (heap|cars heap)/, /\[roam\] status/, /\[WEB\] tab (hidden|visible)/];
-  const tailClear = () => { try { for (const k of ['crashTail', 'crashBeat', 'crashTab']) localStorage.removeItem('mc3.' + k); } catch {} };
+  const tailClear = () => { try { for (const k of ['crashTail', 'crashBeat', 'crashTab', 'crashInfo']) localStorage.removeItem('mc3.' + k); } catch {} };
+  // The heartbeat's line (every 5 s, put under the previous-crash header): which memory grew before a kill. The tail's
+  // header is as old as the tail (rewritten every 15 s at most), this line is at most 5 s old. JS heap: Chrome only.
+  function beatInfo() {
+    const mb = n => Math.round(n / 1048576), m = performance.memory, w = window.Module?.mc3Workers?.(), wm = window.Module?.wasmMemory?.buffer?.byteLength;
+    return `heartbeat: ${since(tPlay)} since Play, tab ${document.visibilityState}`
+      + (m ? `; JS heap ${mb(m.usedJSHeapSize)} MB of ${mb(m.jsHeapSizeLimit)} MB` : '; JS heap ? (not Chrome)')
+      + (w ? `; workers ${w.all} (${w.run} running${w.ended ? ', ' + w.ended + ' idle ones ended' : ''})` : '; workers ?')
+      + `; wasm ${wm ? mb(wm) + ' MB' : '?'}`;
+  }
   function keepTail() {
     let n = -1;
-    const write = () => {
+    let tailAt = 0;
+    // the heartbeat every 5 s; the ~200 KB tail only when the log changed and 15 s passed (or force: hidden tab, start),
+    // a localStorage write of that size every 5 s was main-thread time for nothing
+    const write = force => {
       try {
         localStorage.setItem('mc3.crashBeat', String(Date.now()));
         localStorage.setItem('mc3.crashTab', tabId);
-        if (n === logN) return;
-        n = logN;
+        localStorage.setItem('mc3.crashInfo', beatInfo());
+        if (n === logN || (!force && Date.now() - tailAt < 15000)) return;
+        n = logN; tailAt = Date.now();
         // the deciding lines first, whatever the tail still holds: 175 silent kills on 2026-11-11 said nothing
-        const ctx = TAIL_CTX.map(lastLine).filter(Boolean);
+        const ctx = tailLast.filter(Boolean);
         localStorage.setItem('mc3.crashTail', logHeader('previous-crash', 'the tab ended without a clean exit (killed, crashed or out of memory)')
           + (ctx.length ? '--- last lines of note ---\n' + ctx.join('\n') + '\n--- log tail ---\n' : '')
           + logDump(logText.slice(-4000), TAIL_CHARS));
@@ -2140,20 +2318,20 @@
     // a closing tab fires pagehide and then visibilitychange (hidden): that write came after the clear and every closed
     // tab was sent as a previous-crash (2026-11-11: 33 in the first hour of 60059b1). Nothing is written once gone.
     let gone = false;
-    write();
+    write(true);
     setInterval(() => { if (!gone) write(); }, 5000);
     // iOS/Android kill a hidden tab to free memory: the tail says whether it was hidden, and since when (since Play)
-    document.addEventListener('visibilitychange', () => { if (playing && !gone) { out(`[WEB] tab ${document.visibilityState} at ${since(tPlay)} since Play`); write(); } });
+    document.addEventListener('visibilitychange', () => { if (playing && !gone) { out(`[WEB] tab ${document.visibilityState} at ${since(tPlay)} since Play`); write(true); } });
     addEventListener('pagehide', () => { gone = true; if (playing) tailClear(); });
     addEventListener('pageshow', e => { if (e.persisted) gone = false; });   // back from the back/forward cache
   }
   function sendPreviousCrash() {
-    let tail, beat, tab;
-    try { tail = localStorage.getItem('mc3.crashTail'); beat = Number(localStorage.getItem('mc3.crashBeat')); tab = localStorage.getItem('mc3.crashTab'); }
+    let tail, beat, tab, info;
+    try { tail = localStorage.getItem('mc3.crashTail'); beat = Number(localStorage.getItem('mc3.crashBeat')); tab = localStorage.getItem('mc3.crashTab'); info = localStorage.getItem('mc3.crashInfo'); }
     catch { return; }
     if (!tail || (tab !== tabId && Date.now() - beat < 15000)) return;
     if (!cfg?.logUrl) { tailClear(); return; }
-    logPost('previous-crash', tail).then(code => { try { if (localStorage.getItem('mc3.crashTail') === tail) tailClear(); } catch {} console.warn('[WEB] the last game here ended without a clean exit; its log was sent, code ' + code); },
+    logPost('previous-crash', info ? tail.replace('\n===\n', '\n' + info + '\n===\n') : tail).then(code => { try { if (localStorage.getItem('mc3.crashTail') === tail) tailClear(); } catch {} console.warn('[WEB] the last game here ended without a clean exit; its log was sent, code ' + code); },
       e => console.warn('[WEB] previous crash log not sent (kept for the next visit):', e));
   }
   function logFlush() {
@@ -2182,6 +2360,13 @@
   async function gpuChoice(env) {
     if (env.RECOMP_GPU === 'webgl') return 'webgl';
     if (/Firefox\//.test(navigator.userAgent)) { out('[WEB] graphics: Firefox shows no WebGPU picture from the game\'s worker: WebGL'); return 'webgl'; }
+    // A device that says 2 GB or less (the low profile; 8 Windows PCs saying 2 GB were killed right after Play, 2026-11-14):
+    // WebGL, without even asking for an adapter (WebGPU's adapter, device and pipelines cost the browser memory)
+    if (env.RECOMP_GPU !== 'webgpu' && lowMem(env) && navigator.deviceMemory > 0 && navigator.deviceMemory <= 2) {
+      gpuNote = ` Drawing with WebGL: this device says ${navigator.deviceMemory} GB of memory (Settings, Renderer: WebGPU tries it).`;
+      out('[WEB] graphics:' + gpuNote);
+      return 'webgl';
+    }
     let a = null, i = {};
     try { a = navigator.gpu && await navigator.gpu.requestAdapter(); i = a?.info || {}; } catch {}
     if (!a) return 'webgl';
@@ -2296,9 +2481,10 @@
       monitorRunDependencies: n => out(`[WEB] module: ${n} start-up step(s) left`),
     };
     // Low-memory profile: a fixed wasm memory, 1 GB or the largest down to 320 MB the browser gives (web/pre.js;
-    // else 2 GB up front, smaller only if refused), and 12 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; more
+    // else 2 GB up front, smaller only if refused), and 8 workers before main instead of 40 (CMakeLists.txt PTHREAD_POOL_SIZE; more
     // get a worker on demand from the page thread, which never blocks; each worker is a JS heap of its own, 2026-11-09 Firefox on a TV).
-    if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 12; out('[WEB] low-memory profile (TV, phone, tablet or small device; MC3_LOWMEM=0 turns it off)'); }
+    // 2026-11-14: was 12; phones killed in menus ran 22-40 (web/pre.js ends idle workers beyond 16 in this profile).
+    if (lowMem(env)) { Module.mc3MemMB = 512; Module.mc3Pool = 8; out('[WEB] low-memory profile (TV, phone, tablet or small device; MC3_LOWMEM=0 turns it off)'); }
     // The runtime never up (the module or disc never arrives): 5 minutes after Play. 'No picture' is timed from the runtime.
     setTimeout(() => { if (!booted) failShow('The game did not start', `the runtime is not up ${since(tPlay)} after Play`); }, 300000);
     // the game's disc reads take the cache choice from OPFS (web/disc_cache.js use()): written before it starts
@@ -2339,7 +2525,7 @@
     for (let i = 0; i < 20; i++) {
       try {
         Module.wasmMemory = new WebAssembly.Memory({ initial: mb * 16, maximum: mb * 16, shared: true });
-        if (!Module.mc3MemMB) delete Module.mc3Pool;   // as pre.js does for WebKit: pool 40, the light profile's (12) kept
+        if (!Module.mc3MemMB) delete Module.mc3Pool;   // as pre.js does for WebKit: pool 40, the light profile's (8) kept
         out(`[WEB] memory: ${mb} MB to start, ${mb} MB at most (WebKit: fixed, pool ${Module.mc3Pool || 40}` + (i ? ', after ' + i + ' s' : '') + ')');
         return;
       } catch (e) {
@@ -2499,6 +2685,8 @@
   setInterval(() => {
     const w = whereNow();
     lan?.where?.(w);
+    // the players push only where the list is read: the page, the main menu (Online (N)), the full map's panel
+    lan?.watchPlayers?.(!playing || w === 'menu' || !!window.Module?.mc3BigMapOpen);
     // Online career (MC3_CAREER_ONLINE): the free-roam session came from the career; it stays one until Free Roam
     // ('arcade') or the session's BYE (lan.js)
     if (lan?.roaming) { if (w === 'career') lan.career = true; else if (w === 'arcade') lan.career = false; }
@@ -2512,12 +2700,14 @@
     if (!lan || lan.state === 'offline') {
       lan?.rtc?.close?.();
       lan?.close(); lan = mc3Lan($('name').value.trim(), cfg?.lanUrl); lan.where?.(whereNow()); lan.on(lanShow);
-      const rtc = window.mc3Rtc?.(lan, cfg?.iceServers);
+      const rtc = window.mc3Rtc?.(lan, cfg?.iceServers), e = buildEnv(null);
+      // low-memory profile: hidden 60 s = AFK (city socket and P2P channels closed; iOS/Android kill hidden game tabs)
+      if (lowMem(e)) lan.afkHiddenMs = 60000;
       if (rtc) {   // Free Roam P2P: the setting, one channel per hub link (the game's MC3_ROAM_CARS), outcomes in the log
         rtc.roamP2P = roamP2P();
         // as many channels as the game has links (roam_cars.c roam_cars_total: 32 with 128 MB, 12 with 64, 7 in
         // low-memory mode): a link without a channel went through the switch at 20 Hz (the relay was most of the cost)
-        const e = buildEnv(null), cars = parseInt(e.MC3_ROAM_CARS, 10);
+        const cars = parseInt(e.MC3_ROAM_CARS, 10);
         rtc.roamMax = cars > 0 ? cars : e.RECOMP_RAM_MB === '128' ? 32 : 12;
         rtc.log = out;
         rtc.on(raceShow);
@@ -2525,8 +2715,9 @@
     }
     return lan;
   }
-  // Settings 'Direct connections (P2P) in Free Roam' (?MC3_ROAM_P2P=0 / =1 wins): on unless set to 0
-  function roamP2P() { return (new URLSearchParams(location.search).get('MC3_ROAM_P2P') ?? settings.MC3_ROAM_P2P) !== '0'; }
+  // Free Roam P2P is always on (2026-11-14, owner: a player turning it off moved all their frames onto the paid city
+  // object); no setting any more, a saved MC3_ROAM_P2P is ignored. ?MC3_ROAM_P2P=0 stays for debugging only.
+  function roamP2P() { return new URLSearchParams(location.search).get('MC3_ROAM_P2P') !== '0'; }
   $('saves-refresh').onclick = () => { savesMsg(''); listSaves(); listSnaps(); };
   $('saves-export').onclick = exportAll;
   $('oprof-export').onclick = oprofExport;

@@ -55,8 +55,7 @@ uint32_t wg_arena_alloc(uint32_t bytes, uint32_t align, void **out)
     if (at + bytes > s_arena_cap)
         return UINT32_MAX;
     s_arena_len = (uint32_t)(at + bytes);
-    memset(s_arena + at, 0, bytes);
-    *out = s_arena + at;
+    *out = s_arena + at;                /* not zeroed: every caller writes the whole range */
     return (uint32_t)at;
 }
 

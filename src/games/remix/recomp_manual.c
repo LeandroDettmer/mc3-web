@@ -212,6 +212,86 @@ static void fence_spin_hook(void)
     }
 }
 
+/* ── The same function's NOP-trap wait, rescued (browser) ──
+ *
+ * When the GPU is at least 0x2000 bytes short of the fence, sub_004165A0
+ * clears the event at device + 0x1A4 (= push-buffer state + 0x1DCC,
+ * 0x424B4C; its SignalState +0x1DD0 is the word it zeroes at 0x41664A),
+ * patches WAIT_FOR_IDLE + NOP(5) into the fence's hole in the ring, kicks,
+ * re-reads GET and, still that far short, sleeps on the event with no
+ * timeout (KeWaitForSingleObject at 0x4166FF). The executor's NOP trap
+ * runs D3D's PGRAPH handler, whose callback (sub_0041B550, command 5,
+ * 0x41B6D3) sets the event. Freeze class 'D3D NOP-trap wait' (8 player
+ * logs, 2026-11-14/15, WebGPU): main in that wait for good, event signal
+ * 0, while the executor sat idle with an empty ring and thousands of other
+ * NOP traps handled -- the trap for this NOP never came (cause not proven:
+ * GET follows the executor's walk, so the hole was not patched behind it
+ * by the second check). Hitch logs show the same wait ending by itself
+ * when the executor was only behind (waiting for ring space).
+ * So the vblank handler (sub_0041B250, D3D's DPC, where the callback runs
+ * too) watches: while a thread is in sub_004165A0, the event is clear and
+ * the executor has consumed everything submitted (DMA_GET == DMA_PUT, the
+ * hole is before PUT) for 500 ms, the NOP has been passed without its
+ * trap: set the event as the callback would, through the kernel's
+ * KeSetEvent (D3D's import 0x4477CC). Setting it while nobody waits is
+ * harmless: the event is used by this wait alone and cleared before each
+ * use. '[D3D] NOP trap wait ...'; MC3_NOP_WAIT_FIX=0 off. */
+#ifdef __EMSCRIPTEN__
+static volatile int s_nopwait_depth;
+static volatile uint64_t s_nopwait_since;
+static uint64_t nopwait_ms_now(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)ts.tv_nsec / 1000000u;
+}
+static void nopwait_watch(void)
+{
+    static int on = -1, logged;
+    static uint64_t idle_since;
+    uint32_t state, ev, put;
+    uint64_t now;
+    if (on < 0) {
+        const char *e = getenv("MC3_NOP_WAIT_FIX");
+        on = !(e && e[0] == '0');
+    }
+    if (!on || !__atomic_load_n(&s_nopwait_depth, __ATOMIC_SEQ_CST)) {
+        idle_since = 0;
+        return;
+    }
+    state = MEM32(0x00422D78u);
+    put = MEM32(0xFD800040u);
+    if (!state || MEM32(state + 0x1DD0u) != 0 || MEM32(0xFD800044u) != put) {
+        idle_since = 0;
+        return;
+    }
+    now = nopwait_ms_now();
+    if (!idle_since)
+        idle_since = now;
+    if (now - idle_since < 500 || now - s_nopwait_since < 500)
+        return;
+    ev = state + 0x1DCCu;
+    {
+        recomp_func_t set = recomp_lookup_kernel(MEM32(0x004477CCu));
+        uint32_t sp = g_esp, a = g_eax, c = g_ecx, d = g_edx;
+        if (!set)
+            return;
+        g_esp -= 16;
+        MEM32(g_esp) = 0;                      /* return address */
+        MEM32(g_esp + 4) = ev;                 /* KeSetEvent(event, 1, FALSE) */
+        MEM32(g_esp + 8) = 1;
+        MEM32(g_esp + 12) = 0;
+        set();
+        g_esp = sp; g_eax = a; g_ecx = c; g_edx = d;
+    }
+    if (logged++ < 10)
+        fprintf(stderr, "[D3D] NOP trap wait: event %08X still clear %u ms after the executor"
+                " consumed everything (GET = PUT = %08X), %u ms in sub_004165A0 -- set\n",
+                ev, (unsigned)(now - idle_since), put, (unsigned)(now - s_nopwait_since));
+    idle_since = 0;
+}
+#endif
+
 extern void sub_004165A0_gen(void);
 extern void nv2a_pb_set_semaphore_target(uint32_t guest_va);
 void sub_004165A0(void)
@@ -236,14 +316,24 @@ void sub_004165A0(void)
         const char *e = getenv("MC3_FENCE_FIX");
         fix = !(e && e[0] == '0');
     }
+#ifdef __EMSCRIPTEN__
+    if (__atomic_add_fetch(&s_nopwait_depth, 1, __ATOMIC_SEQ_CST) == 1)
+        __atomic_store_n(&s_nopwait_since, nopwait_ms_now(), __ATOMIC_SEQ_CST);
+#endif
     if (!fix || !s_fence_sem_va) {
         sub_004165A0_gen();
+#ifdef __EMSCRIPTEN__
+        __atomic_sub_fetch(&s_nopwait_depth, 1, __ATOMIC_SEQ_CST);
+#endif
         return;
     }
     t_fence_target = MEM32(g_esp + 4);         /* (time, flags), stdcall */
     t_fence_fixed = 0;
     recomp_set_spin_hook(fence_spin_hook);
     sub_004165A0_gen();
+#ifdef __EMSCRIPTEN__
+    __atomic_sub_fetch(&s_nopwait_depth, 1, __ATOMIC_SEQ_CST);
+#endif
     if (t_fence_fixed)
         fence_cas(s_fence_sem_va, t_fence_target, t_fence_saved);
     t_fence_target = save_target;
@@ -1069,6 +1159,9 @@ void sub_0041B250(void)
     xbox_Nv2aVblankTaken();
 #endif
     sub_0041B250_gen();
+#ifdef __EMSCRIPTEN__
+    nopwait_watch();
+#endif
 }
 
 /* ── The main loop's passes, counted (MC3_PERF reports them) ──
@@ -2502,6 +2595,7 @@ static void manual_save_pass(uint32_t obj);     /* the page's Save progress butt
 static void roam_pool_pass(uint32_t obj, int after); /* free roam: remote cars at state requests (roam_pool.c) */
 #ifdef __EMSCRIPTEN__
 static void fr_direct_pass(uint32_t obj);       /* Online: the deferred cruise load (below) */
+static void fr_world(void);                     /* Online: time of day and weather by the clock (below) */
 #endif
 extern void sub_00020EC0_gen(void);
 void sub_00020EC0(void)
@@ -2510,6 +2604,7 @@ void sub_00020EC0(void)
     s_state_obj = obj;
 #ifdef __EMSCRIPTEN__
     fr_direct_pass(obj);                        /* Online's Request(6), outside the menu's Flash dispatch */
+    fr_world();                                 /* the next setup's time/weather, before a request loads it */
 #endif
     roam_pool_pass(obj, 0);                     /* standalone cars out before a cruise teardown (roam_pool.c) */
     manual_save_pass(obj);                      /* before the state's update: the save pump runs after it, same frame */
@@ -2950,8 +3045,64 @@ void sub_003C8288(void)
  * called only from that loop): run as is, and when one bank stays in use
  * for 3 s say what holds it, once per wait -- each track still on it with
  * its state (+0x30) and its stream voice's flags, and the cues -- so a
- * freeze that is not a pending stop names its cause in the log. */
+ * freeze that is not a pending stop names its cause in the log.
+ *
+ * Playing voices on stopping tracks (browser, 2026-11-15 logs 97B74F,
+ * K3ZNMC, N3WAMB; fix untested in a browser): the bank still held after
+ * 3 s by tracks in state 7 (stopping: sub_00405CC1 skips 7 and 8) whose
+ * stream voices have flags 0x010B -- playing ((flags & 3) == 3, status
+ * sub_003C8288 answers DSSTATUS_PLAYING), no stop asked -- with the APU
+ * front end trapped. Such a track waits for its voice to play out, and the
+ * voice never does. Then each of those voices is stopped as DirectSound's
+ * device-wide stop does (sub_003C41CE: sub_003C78AA(0), which keeps flags
+ * & 0x3111, sets the pending stop 0x8000 and sends the voice-off), and
+ * the stop is confirmed at once as at DirectSound's own 500 ms timeout
+ * (sub_003C6A5A, as sub_003C77C0's override does on a trapped front end):
+ * the voice reads stopped, the track ends, the release returns. Once per
+ * wait; '[XACT] wave bank ... stopped N playing voice(s) ...'.
+ * MC3_XACT_STOP_FIX=0 off (this and the rest). */
 extern void sub_00405DDF_gen(void);
+#ifdef __EMSCRIPTEN__
+extern void sub_003C78AA(void);
+/* The stream voice of a track's i-th wave (the layout the log below reads). */
+static uint32_t xact_track_voice(uint32_t node, unsigned i)
+{
+    uint32_t t0 = MEM32(node + 0x34), w, s;
+    w = t0 ? MEM32(t0 + i * 0x88 + 4) : 0;
+    s = w ? MEM32(w + 0x1C) : 0;
+    return s ? MEM32(s - 0x1C + 0x20) : 0;
+}
+static void xact_stop_playing(uint32_t eng, uint32_t bank, unsigned waited)
+{
+    static int logs;
+    uint32_t head = eng + 0x5C, node = MEM32(head), keep = g_eax;
+    int guard = 0, n = 0;
+    if (!mcpx_apu_fe_trapped())
+        return;
+    for (; node && node != head && guard < 64; node = MEM32(node), guard++) {
+        uint32_t snd = MEM32(node + 0x44), v;
+        unsigned i, cnt, st = MEM16(node + 0x30);
+        if (!snd || MEM32(snd + 0x14) != bank || (st != 7 && st != 8))
+            continue;
+        cnt = MEM32(node + 0x10) ? MEM8(MEM32(node + 0x10) + 8) : 0;
+        for (i = 0; i < cnt && i < 4; i++) {
+            v = xact_track_voice(node, i);
+            if (!v || (MEM16(v + 0x12) & 3) != 3)
+                continue;
+            g_esp -= 4; MEM32(g_esp) = 0;      /* sub_003C78AA(0), thiscall, ret 4 */
+            voice_call(sub_003C78AA, v);
+            if ((MEM16(v + 0x12) & 0x8001) == 0x8001)
+                voice_call(sub_003C6A5A, v);
+            n++;
+        }
+    }
+    g_eax = keep;
+    g_ecx = eng;
+    if (n && logs++ < 20)
+        fprintf(stderr, "[XACT] wave bank %08X release: stopped %d playing voice(s) on stopping"
+                " tracks after %u ms (front end trapped)\n", bank, n, waited);
+}
+#endif
 void sub_00405DDF(void)
 {
     static uint32_t s_bank;
@@ -2971,9 +3122,18 @@ void sub_00405DDF(void)
         s_told = 0;
         return;
     }
-    if (s_told || now - s_since < 3000 || s_logs >= 5)
+    if (s_told || now - s_since < 3000)
         return;
     s_told = 1;
+#ifdef __EMSCRIPTEN__
+    if (s_logs >= 5) {
+        xact_stop_playing(eng, bank, (unsigned)(now - s_since));
+        return;
+    }
+#else
+    if (s_logs >= 5)
+        return;
+#endif
     s_logs++;
     {
         char line[768];
@@ -3010,6 +3170,9 @@ void sub_00405DDF(void)
         fprintf(stderr, "%s; %d cue(s); front end %s\n", line, cues,
                 mcpx_apu_fe_trapped() ? "trapped" : "running");
     }
+#ifdef __EMSCRIPTEN__
+    xact_stop_playing(eng, bank, (unsigned)(now - s_since));
+#endif
 }
 
 /* ── DirectSound's DSP command wait: its doorbell found at run time ──
@@ -4637,6 +4800,84 @@ static uint32_t fr_settings(void)
     uint32_t s = MEM32(FR_SETTINGS_VA);
     return online_ram(s) ? s : 0;
 }
+
+#ifdef __EMSCRIPTEN__
+#include <time.h>
+/* Shared world (browser): time of day and weather of the Online cruise from
+ * the wall clock, the same on every client, no server. Values (setup +4
+ * time, +8 weather): time 0 dawn, 1 midnight, 2 dusk (resource names
+ * 0x4B3714; labels RO_Dawn/RO_Midnight/RO_Dusk), weather 0 clear, 1 cloudy
+ * (label RO_Fog), 2 rainy (RO_Rain, RO_Snow in city 2) (names 0x4B3720).
+ * The options screen's -1 (RO_Any_*, 0x4B36BC/C0, cycler sub_00165D00 /
+ * sub_00165D40: -1..2) means "keep the event's": SetEvent sub_0026B8E0 sets
+ * +4/+8 from the event's bytes +0xD/+0xC (.locinf; event -1: midnight,
+ * clear), so every Free Roam load was San Diego's cruise event's own. Load
+ * only: the world takes its resources by name at the load (city_time_weather:
+ * fog sub_00032D80 '$/resources/city/%s_%s_%s_fog' from [0x53F2E0], glows
+ * sub_00093720, walla); no mid-cruise setter found. The next setup [0x53F2E4]
+ * is set at every state pass (state 2's enter sub_00021D30 -> sub_00021170 ->
+ * sub_00020260(1) loads it, from inside the pass), so the first Free Roam
+ * load, a garage visit, an AI race's way back and the Online career's cruise
+ * all get the slot current at their load. Schedule: 24-minute slots of UTC
+ * (slot = unix s / 1440), time dawn -> dusk -> midnight (72-min day, every
+ * city), weather per slot and city: clear 4/8, cloudy 2/8, rainy 2/8.
+ * MC3_FR_WEATHER=0 off (the event's own), =fixed:T,W (digits or the names
+ * above) for tests. */
+static void fr_world(void)
+{
+    static const char *const tn[3] = { "dawn", "midnight", "dusk" }, *const wn[3] = { "clear", "cloudy", "rainy" };
+    static const uint8_t tcycle[3] = { 0, 2, 1 }, wpick[8] = { 0, 0, 0, 0, 1, 1, 2, 2 };
+    static int mode = -1, ft, fw;                /* -1 unread, 0 off, 1 clock, 2 fixed */
+    static uint32_t said = 0xFFFFFFFFu;
+    uint32_t s = MEM32(0x0053F2E4u), slot, h, t, w, city, key;
+    if (mode < 0) {
+        const char *e = getenv("MC3_FR_WEATHER");
+        mode = 1;
+        if (e && e[0] == '0')
+            mode = 0;
+        else if (e && !strncmp(e, "fixed:", 6)) {
+            const char *p = e + 6, *c = strchr(p, ',');
+            int i;
+            ft = fw = -1;
+            for (i = 0; i < 3; i++) {
+                if (p[0] == '0' + i || !strncmp(p, tn[i], strlen(tn[i])))
+                    ft = i;
+                if (c && (c[1] == '0' + i || !strncmp(c + 1, wn[i], strlen(wn[i]))))
+                    fw = i;
+            }
+            mode = ft >= 0 && fw >= 0 ? 2 : 1;
+            if (mode == 1)
+                fprintf(stderr, "[ONLINE] world: MC3_FR_WEATHER=%s not understood (fixed:<time>,<weather>), by the clock\n", e);
+        }
+    }
+    if (!mode || !online_ram(s) || MEM8(s + 0x108u) || MEM8(s + ROAM_ENTRY + 0x26u) || MEM32(s) >= 12u)
+        return;                                  /* off, none, a network game or the garage */
+    if (!(s_online && MEM32(0x0050F14Cu) == 0 && MEM32(s + 0x18u) == 0) &&              /* Free Roam's cruise */
+        !(!s_online && roam_career_on() && MEM32(0x0053F2D4u) == 2u && MEM32(s + 0x18u) == 1u)) /* Online career's */
+        return;
+    city = MEM32(s);
+    slot = (uint32_t)(time(NULL) / 1440);        /* UTC seconds (the browser's Date.now) */
+    if (mode == 2) {
+        t = (uint32_t)ft;
+        w = (uint32_t)fw;
+    } else {
+        h = slot * 0x9E3779B1u ^ (city + 1u) * 0x85EBCA77u;
+        h ^= h >> 15;
+        h *= 0x2C1B3C6Du;
+        h ^= h >> 12;
+        t = tcycle[slot % 3u];
+        w = wpick[h & 7u];
+    }
+    MEM32(s + 4u) = t;
+    MEM32(s + 8u) = w;
+    key = slot << 8 | city << 4 | t << 2 | w;
+    if (key != said) {
+        said = key;
+        fprintf(stderr, "[ONLINE] world: slot %u, time %s, weather %s (%s; city %u, next load)\n", (unsigned)slot,
+                tn[t], wn[w], mode == 2 ? "fixed, MC3_FR_WEATHER" : "shared by clock", (unsigned)city);
+    }
+}
+#endif
 
 /* No AI racers in the Free Roam cruise. Go (sub_0013B110) sets the
  * settings' opponent count +0x40 from the event (sub_00165F50: the cruise

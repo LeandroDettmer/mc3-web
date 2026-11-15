@@ -58,7 +58,9 @@
  * ROAM_RADIUS m of our car (3D; MC3_ROAM_RADIUS m, 0 off; off in a group
  * race) and gives it back once beyond ROAM_RADIUS + ROAM_RADIUS_OUT m for
  * ROAM_RADIUS_HOLD s (parked, free for the next peer coming in; a slot keeps
- * its slot): a full city needs only the cars of the players around us, the
+ * its slot; since 2026-11-14, untested in game, held for its peer like one
+ * that dropped out, so a newcomer takes a free car first and the peer coming
+ * back within ROAM_RADIUS gets its own car, no rebuild): a full city needs only the cars of the players around us, the
  * rest are bright map blips (roam_map.c). The caps, the nearest rule and the
  * nearest-first order work inside it. '[ROAM] radius: ...' on change.
  *
@@ -87,6 +89,7 @@ typedef struct roam_rc {
     float    setp[3];                   /* standalone: the drawn position our last pose left (roam_pool_frame) */
     uint8_t  ctl[ROAM_CTL], has_ctl;    /* has_ctl 0: the peer sends no inputs */
     uint8_t  here, away, live, want;    /* linked now; in its garage/loading/race; posed; rebuild with the peer's look */
+    uint8_t  far;                       /* parked for its peer beyond the car radius (held: no rebuild when back) */
     double   lost;                      /* when its peer dropped out */
     double   wait;                      /* no rebuild before (one refused for heap room) */
     double   out;                       /* its peer beyond the car radius since (0: within) */
@@ -461,12 +464,70 @@ static int roam_pool_look(uint32_t id, uint8_t blob[ROAM_CFG_SIZE + 4], int32_t 
 
 /* ── Build, drop, park ── */
 
+void sub_000A5E50(void);                        /* vehWheel reset (vtable 0x44EBF4 +8), thiscall: no calls */
+void sub_0021E8B0(void);                        /* a vehicle's 0x54-byte record cleared, thiscall */
+void sub_00343300(void);                        /* SetAngVel, thiscall (const Vector3 *), ret 4 */
+
+/* A car coming into the physics level settled at its pose, as the game's own
+ * teleports leave it (the vehicle reset sub_000FFC50 -> vehCar reset
+ * sub_000A2460, minus its move to the stored reset pose). Out of the level
+ * the step never integrates the body: the force and torque the vehicle
+ * update keeps adding ([ics+0xA4] / [ics+0xB0], cleared only by the
+ * integrator sub_00343910) and the wheels' state (contact, suspension, spin,
+ * slip: wheel +0x58.. +0x184, zeroed only by the wheel reset sub_000A5E50,
+ * from vehCar's ctor/reset) were whatever the last frames left, and the
+ * first step spent them at once: the hop and tyre smoke within 20 m
+ * (2026-11-15, owner; cause not proven). Now: every wheel reset (its
+ * radius/width/ride height kept as they were), the vehicle's 0x54-byte records
+ * cleared as sub_000FFC50 does, accumulators zeroed, angular velocity 0 (the
+ * peer's: roam_send_local sends w = 0); the velocity is the peer's already
+ * (roam_set_pose before the add). The stale values are logged first: the
+ * proof of the cause. */
+static void roam_rc_settle(uint32_t veh, uint32_t top)
+{
+    static int said;
+    uint32_t car = MEM32(veh + 8u), phys, ics, list, n, w, buf = (top - 0x40u) & ~0xFu, i, j;
+    float frc = 0.0f, trq = 0.0f, ang = 0.0f, wmax = 0.0f, x;
+    if (!online_ram(car) || !online_ram(phys = MEM32(car + 0x68u)) || !online_ram(ics = MEM32(phys + 0x10u)))
+        return;
+    for (i = 0; i < 3; i++) {
+        frc += MEMF(ics + 0xA4u + 4u * i) * MEMF(ics + 0xA4u + 4u * i);
+        trq += MEMF(ics + 0xB0u + 4u * i) * MEMF(ics + 0xB0u + 4u * i);
+        ang += MEMF(ics + 0x50u + 4u * i) * MEMF(ics + 0x50u + 4u * i);
+        MEMF(ics + 0xA4u + 4u * i) = MEMF(ics + 0xB0u + 4u * i) = 0.0f;
+        MEMF(buf + 4u * i) = 0.0f;
+    }
+    list = MEM32(car + 0x1Cu);
+    n = MEM32(car + 0x18u);
+    for (i = 0; online_ram(list) && i < n && i < 8u; i++) {
+        if (!online_ram(w = MEM32(list + 4u * i)) || MEM32(w) != 0x0044EBF4u)
+            continue;
+        uint32_t keep[3] = { MEM32(w + 0x100u), MEM32(w + 0x104u), MEM32(w + 0x10Cu) };
+        for (j = 0x128u; j <= 0x184u; j += 4u)
+            if ((x = fabsf(MEMF(w + j))) > wmax && x == x)
+                wmax = x;
+        roam_call(sub_000A5E50, w, top, 0, NULL);
+        /* the drawn wheel's radius, width, ride height stay sub_00105450's (the reset copies the tune's) */
+        MEM32(w + 0x100u) = keep[0];
+        MEM32(w + 0x104u) = keep[1];
+        MEM32(w + 0x10Cu) = keep[2];
+    }
+    for (i = 0, n = MEM32(veh + 0x38u), list = MEM32(veh + 0x3Cu); online_ram(list) && i < n && i < 16u; i++)
+        roam_call(sub_0021E8B0, list + 0x54u * i, top, 0, NULL);
+    roam_call(sub_00343300, ics, top, 1, &buf);
+    if (said++ < 20)
+        fprintf(stderr, "[ROAM] cars: car %08X into the physics level settled: it had force %.0f, torque %.0f, "
+                        "angular speed %.2f, wheel state up to %.1f (logged 20 times)\n", (unsigned)veh,
+                sqrtf(frc), sqrtf(trq), sqrtf(ang), wmax);
+}
+
 /* Entry k's car in (on 1) or out of the physics level. Never out while a
  * state request is queued: the cruise may end in that pass, and the game's
  * player delete takes the car out of the level itself (sub_000FFB40). */
 static void roam_rc_phys(roam_rc *c, uint32_t veh, int on)
 {
-    uint32_t sm = MEM32(0x00557ED0u);
+    uint32_t sm = MEM32(0x00557ED0u), top = (g_esp - 0x400u) & ~0xFu;
+    int was;
     if (!online_ram(veh))
         return;
     if (veh != c->pveh) {                       /* built or rebuilt: in the level as the game left it */
@@ -475,7 +536,10 @@ static void roam_rc_phys(roam_rc *c, uint32_t veh, int on)
     }
     if (!on && online_ram(sm) && MEM32(sm + 0x3Cu))
         return;
-    roam_veh_phys(veh, &c->phys, on, (g_esp - 0x400u) & ~0xFu);
+    was = c->phys;
+    roam_veh_phys(veh, &c->phys, on, top);
+    if (on && was == 0 && c->phys == 1)         /* came in: settled at its pose before the next step */
+        roam_rc_settle(veh, top);
 }
 
 /* A standalone car out of the world (physics level, drawing, vehicle
@@ -623,6 +687,9 @@ static int roam_rc_make(int k, const uint8_t look[ROAM_CFG_SIZE], int32_t car, i
     }
     if (after < before)
         roam_pool_cost_note(car, before - after);
+    /* a new car: its tyres sized again. The heap often hands the new vehicle the deleted one's address, and
+     * roam_tyres (keyed by address) kept 'done': a rebuilt car stayed bare rims (2026-11-14, players' logs) */
+    memset(&c->tyre, 0, sizeof c->tyre);
     c->built = roam_now();
     if (mid) {                                  /* churn: the 8th build back within 10 s -> one a second */
         double oldest = s_churn_t[s_churn_n % ROAM_CHURN_N];
@@ -710,7 +777,7 @@ static void roam_rc_give(int k, const roam_peer *pp, const char *why)
 {
     roam_rc *c = &s_rc[k];
     c->id = pp->id;
-    c->live = c->away = c->want = 0;
+    c->live = c->away = c->want = c->far = 0;
     c->wait = c->out = 0;
     c->gen = 0;
     c->said = 0;
@@ -779,13 +846,27 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
             continue;
         for (i = 0; i < n && (used[i] || peers[i].id != c->id); i++)
             ;
-        if (i < n && rad > 0.0f && peers[i].dist > rad + ROAM_RADIUS_OUT) {
+        if (i < n && rad > 0.0f && peers[i].dist > (c->far ? rad : rad + ROAM_RADIUS_OUT)) {
+            if (c->far) {                       /* held beyond the radius: its own car back once within */
+                used[i] = 1;
+                continue;
+            }
             if (!c->out)
                 c->out = now;
-            else if (now - c->out >= ROAM_RADIUS_HOLD) {    /* beyond the radius: its car parked, free for another */
+            else if (now - c->out >= ROAM_RADIUS_HOLD) {
+                /* beyond the radius: its car parked and held for it (a newcomer takes a free car first), so
+                 * coming back needs no rebuild; was given up (id 0), and every return was a rebuild */
+#ifdef __EMSCRIPTEN__
+                fprintf(stderr, "[ROAM] %s %d: %s parked (%.0f m, beyond the %.0f m car radius), held\n",
+                        roam_rc_slot(k) ? "slot" : "car", k, c->name, peers[i].dist, rad);
+                c->far = 1;
+                c->lost = now;
+                used[i] = 1;
+#else
                 fprintf(stderr, "[ROAM] %s %d: %s parked (%.0f m, beyond the %.0f m car radius)\n",
                         roam_rc_slot(k) ? "slot" : "car", k, c->name, peers[i].dist, rad);
                 c->id = 0;
+#endif
                 c->here = c->live = 0;
                 c->out = 0;
                 continue;
@@ -793,6 +874,7 @@ static void roam_pool_net(const roam_peer *peers, int n, double now)
         } else
             c->out = 0;
         if (i < n) {
+            c->far = 0;
             used[i] = 1;
             at[k] = i;
             held++;
@@ -1372,9 +1454,18 @@ static void roam_pool_load(void)
     static roam_peer peers[ROAM_K_MAX];
     uint8_t blob[ROAM_CFG_SIZE + 4];
     int32_t car;
-    int i = 0, np, want = 0, cap = roam_cars_total() - s_roam_slots, built = 0;
+    int i = 0, np, want = 0, cap = roam_cars_total() - s_roam_slots, built = 0, nobike = 0, bikes = 0;
     s_nrc = 1 + s_roam_slots;
-    if (!roam_bslots() || s_roam_fake || !roam_running() || cap <= 0)
+#ifdef __EMSCRIPTEN__
+    /* No motorbike standalone car at load either (2026-11-14, fix untested in game): 22 freeze logs of 2026-11-14,
+     * every one in Free Roam, main spinning on Sleep(1) in the rider's wait sub_00117E20 (0x00117EF3-0x00117F3C:
+     * until its resource [rider+0xCC] is in, sub_001B6A10, and the streams are idle, sub_000F16B0), stack 117F2A
+     * 119490 10056E 331125 35DCFB 0FEF8A 2BE0E8 (the vehicle update sub_002BDEC0), 17 of them on the first cruise
+     * frames after a load; in 18 that load had built a peer's bike (cuevito/ducati/aprilia) as a standalone car
+     * here, about one load in four of those that did; no such freeze after a load without one. Mid-cruise and
+     * race-ghost builds already refuse bikes: the peer gets a stand-in (our car) as mid-cruise. Slots unchanged. */
+    nobike = 1;
+#endif
         return;
     if (cap > ROAM_RC_MAX - s_nrc)
         cap = ROAM_RC_MAX - s_nrc;
@@ -1393,7 +1484,9 @@ static void roam_pool_load(void)
     for (i = 0; built < want; built++) {
         while (i < np && roam_pool_of(peers[i].id))
             i++;
-        if (!roam_pool_look(i < np ? peers[i].id : 0, blob, &car, 1, 0) || !roam_pool_room(car, 0, "a car at load") ||
+        if (nobike && i < np && roam_peer_rec(peers[i].id, blob) && roam_car_bike(roam_car_index(roam_cfg_name(blob))))
+            bikes++;
+        if (!roam_pool_look(i < np ? peers[i].id : 0, blob, &car, 1, nobike) || !roam_pool_room(car, 0, "a car at load") ||
             !roam_pool_fit(s_nrc, "a car at load"))
             break;
         i++;
@@ -1403,6 +1496,9 @@ static void roam_pool_load(void)
     }
     fprintf(stderr, "[ROAM] cars: %d standalone car%s at load (%d remote cars at most, %d slots; %d peers known)\n",
             built, built == 1 ? "" : "s", roam_cars_total(), s_roam_slots, np);
+    if (bikes)
+        fprintf(stderr, "[ROAM] cars: %d player%s on a motorbike in a stand-in car at load (no bike rider in Free Roam)\n",
+                bikes, bikes == 1 ? "" : "s");
 }
 
 /* Each player's update (roam_player), slot k: driven the System Link way

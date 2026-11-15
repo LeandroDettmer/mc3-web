@@ -871,7 +871,12 @@ taken:
     s_gil_holder_tid = GetCurrentThreadId();
     s_gil_holder_label = xbox_gil_my_label();
     {
+        /* MC3_PERF read once: its report (src/main.c) is the only reader of
+         * the per-take stats, a mutex + slot scan per hand-off without it. */
+        static int perf = -1;
         int64_t us = 0;
+        if (perf < 0)
+            perf = getenv("MC3_PERF") != NULL;
 #if defined(__EMSCRIPTEN__)
         if (t0.QuadPart)
 #endif
@@ -885,18 +890,17 @@ taken:
             if (us > 50000) {
                 /* A dropped frame's worth: who had the lock when the main
                  * thread asked (with MC3_PERF; at most 20 lines a run). */
-                static int perf = -1, lines;
+                static int lines;
                 InterlockedIncrement(&s_gil_main_long);
-                if (perf < 0)
-                    perf = getenv("MC3_PERF") != NULL;
                 if (perf && lines++ < 20)
                     fprintf(stderr, "[gil] main thread waited %lld ms for the guest lock: held by"
                             " thread %u (%s), %d in line before it\n", (long long)(us / 1000),
                             (unsigned)blocker, blocker_label ? blocker_label : "?", ahead - 1);
             }
         }
-        xbox_gil_stat_take((uint32_t)s_gil_holder_tid, s_gil_holder_label, t_gil_main,
-                           waited, (uint32_t)blocker, blocker_label, us);
+        if (perf)
+            xbox_gil_stat_take((uint32_t)s_gil_holder_tid, s_gil_holder_label, t_gil_main,
+                               waited, (uint32_t)blocker, blocker_label, us);
     }
 }
 
@@ -10638,9 +10642,11 @@ static int kernel_call_tries_first(int slot)
     if (slot < 0 || slot >= XBOX_KERNEL_THUNK_TABLE_SIZE)
         return 0;
     {
-        const char *e = getenv("RECOMP_KERNEL_FAST");
-        static int on = -1;
-        if (on < 0) on = !(e && *e == '0');
+        static int on = -1;                  /* getenv once: this runs on every kernel call */
+        if (on < 0) {
+            const char *e = getenv("RECOMP_KERNEL_FAST");
+            on = !(e && *e == '0');
+        }
         if (!on) return 0;
     }
     ord = g_slot_ordinals[slot];

@@ -35,6 +35,9 @@
 //                                    // (180 s; ?MC3_AFK_S=N, 0 off): the city socket closes (no retry), every free-roam frame
 //                                    // and signal is dropped, so the hubs drop us by their stale timer; pre.js shows its
 //                                    // notice instead of roamDown's. Any input clears it; the game's next HELLO reopens the city.
+//   l.afkHiddenMs, l.afkHidden       // the same after afkHiddenMs (0 off; the page's low-memory profile: 60 s) with the tab
+//                                    // hidden (2026-11-14: phones killed hidden game tabs); the tab shown again clears it too.
+//                                    // afkHidden: this kick came from the hidden tab (web/net.js's line)
 // The game's HELLO to the hub (10.77.0.253:47210) names its room (MC3: the city): a new one closes the old socket, asks
 // the switch {"t":"ticket"} and opens wss .../lan/roam?city=N&vip&exp&sig; its BYE closes it. Until the socket is open,
 // and whenever it is not (refused, a server without it), the frames go through the switch as before. A socket that never
@@ -48,7 +51,7 @@ window.mc3Lan = function (name, lanUrl) {
   var link = { url: url, state: 'connecting', vip: 0, vipStr: '', mac: '', peers: [], roam: [], sent: 0, recv: 0, onframe: null,
                players: null, rooms: [], roomsSeen: false, room: null, members: [], left: null, error: null, onsignal: null, refused: null, city: null, roamDown: 0 };
   var HUB = 0x0A4D00FD, ROAM_PORT = 47210, CITIES = 14, TICKET_WAIT = 10000, cityOn = false, bundleSw = false, city = null;   // city: {n, ws, asked, askedAt, open, openAt, fails, retryAt, bundle}
-  var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, rejoin = null, pass = '', auto = false;
+  var fns = [], msgFns = [], ws = null, beat = 0, want = true, tries = 0, retry = 0, heard = 0, pongs = false, beats = false, sub = 1, wantPlayers = true, playersSub = false, rejoin = null, pass = '', auto = false;
   // The keep-alive: the Cloudflare switch's runtime answers this exact text itself (setWebSocketAutoResponse,
   // web/races-worker/src/index.js BEAT), so an idle page never wakes its Durable Object. web/server ignores it: until
   // a beat comes back, the page sends {"t":"ping"} instead (answered with a pong by every switch).
@@ -84,7 +87,8 @@ window.mc3Lan = function (name, lanUrl) {
       hello();
       told = ''; tellWhere();
       if (sub) ws.send(JSON.stringify({ t: 'rooms', sub: 1 }));
-      ws.send(JSON.stringify({ t: 'players', sub: 1 }));
+      playersSub = false;
+      if (wantPlayers) { ws.send(JSON.stringify({ t: 'players', sub: 1 })); playersSub = true; }
       if (rejoin) { auto = true; ws.send(JSON.stringify({ t: 'join', room: rejoin.id, pass: rejoin.pass })); }
       ws.send(BEAT);   // does this switch answer beats?
       // keeps an idle page joined (the server's IDLE, proxies); answered, so a dead link shows as silence
@@ -213,7 +217,12 @@ window.mc3Lan = function (name, lanUrl) {
   var roaming = false, badSince = 0, WATCH_GRACE = 3000;
   function watch() {
     var t = Date.now();
-    if (!link.afk && link.afkMs && (roaming || link.career) && !link.room && t - lastInput >= link.afkMs) { link.afk = true; cityClose(); changed(); }
+    var hid = typeof document == 'object' && document.hidden;
+    if (!hid) hiddenAt = 0; else if (!hiddenAt) hiddenAt = t;
+    var gone = link.afkHiddenMs && hiddenAt && t - hiddenAt >= link.afkHiddenMs;
+    if (!link.afk && link.afkMs && (roaming || link.career) && !link.room && (t - lastInput >= link.afkMs || gone)) {
+      link.afk = true; link.afkHidden = !!gone && t - lastInput < link.afkMs; cityClose(); changed();
+    }
     var bad = roaming && !link.afk && (!up() || (cityOn && !cityUp()));
     if (!bad) badSince = 0; else if (!badSince) badSince = t;
     var d = bad && t - badSince >= WATCH_GRACE ? badSince : 0;
@@ -221,11 +230,12 @@ window.mc3Lan = function (name, lanUrl) {
   }
   var watchT = setInterval(watch, 1000);
   // AFK (see the head): the page's own input, every event in the capture phase (the game's handlers may stop it).
-  var lastInput = Date.now(), pads = [];
-  link.afk = false; link.afkMs = 180000;
+  var lastInput = Date.now(), pads = [], hiddenAt = 0;
+  link.afk = false; link.afkMs = 180000; link.afkHiddenMs = 0; link.afkHidden = false;
   try { var q = /[?&]MC3_AFK_S=(\d+)/.exec(location.search); if (q) link.afkMs = q[1] * 1000; } catch (_) {}
   function input() { lastInput = Date.now(); if (link.afk) { link.afk = false; changed(); } }
   ['keydown', 'pointerdown', 'touchstart'].forEach(function (e) { window.addEventListener(e, input, { capture: true, passive: true }); });
+  if (typeof document == 'object') document.addEventListener('visibilitychange', function () { if (!document.hidden) { hiddenAt = 0; input(); } });
   // a gamepad counts when a button is held or changed, or an axis moved more than DEAD since the last look (stick drift does not)
   var DEAD = 0.2;
   setInterval(function () {
@@ -298,7 +308,13 @@ window.mc3Lan = function (name, lanUrl) {
   };
   link.rename = function (n) { name = n; if (up()) hello(); };
   // Subscribes to the players push again (the switch answers at once); the page calls it when it wants the list and has none.
-  link.askPlayers = function () { if (up()) ws.send(JSON.stringify({ t: 'players', sub: 1 })); };
+  link.askPlayers = function () { if (up()) { ws.send(JSON.stringify({ t: 'players', sub: 1 })); playersSub = true; } };
+  // Wants the players push or not (default yes). In game the list is read only by the main menu's count and the full
+  // map's panel, and the switch pushes up to 200 names on every change: the page asks only then. Sent on change only.
+  link.watchPlayers = function (on) {
+    wantPlayers = on = !!on;   // compared with playersSub: askPlayers may have subscribed meanwhile
+    if (up() && playersSub !== on) { ws.send(JSON.stringify({ t: 'players', sub: on ? 1 : 0 })); playersSub = on; }
+  };
   // w: 'page' | 'loading' | 'menu' | 'career' | 'arcade' (the switch ignores any other); call as often as you like
   link.where = function (w) {
     now = w;

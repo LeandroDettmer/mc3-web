@@ -16,10 +16,14 @@ uint32_t g_wgpu_gt[8];
 
 extern void wgpu_gt_js_bind(uint32_t *ptr, int on);
 
+/* On only for whoever reads it (RECOMP_WGPU_STATS=1, MC3_PERF), or forced
+ * with RECOMP_WGPU_GPUTIME=1 / =0: timestamp writes on every pass and a
+ * readback a frame cost weak GPUs (Mali, Adreno, Intel) for every player. */
 void wgpu_stats_init(void)
 {
-    const char *e = getenv("RECOMP_WGPU_GPUTIME");
-    wgpu_gt_js_bind(g_wgpu_gt, !(e && *e == '0'));
+    const char *e = getenv("RECOMP_WGPU_GPUTIME"), *s = getenv("RECOMP_WGPU_STATS");
+    int on = e && *e ? *e != '0' : (s && *s && *s != '0') || getenv("MC3_PERF") != NULL;
+    wgpu_gt_js_bind(g_wgpu_gt, on);
 }
 
 size_t wgpu_stats_text(WgGtSnap *snap, uint32_t frames, char *out, size_t n)

@@ -106,14 +106,35 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Another player's car no longer jumps forward or back when you get close to it.
 - **Free Roam:** Fixed a freeze in a full city, when many players come and go around you.
 
-## 2026-11-14 (f51e44b)
+## 2026-11-14 (53fadff)
 
-- **Online:** After 3 minutes without any key, touch or controller input in Free Roam or the Online career, you are taken offline to save server load; press any key or button to reconnect.
-- **Online career:** Fixed a crash when a race started with a player on a motorbike nearby; such players show on the map instead of as a ghost.
-- **Loading:** The game no longer downloads the whole disc in the background, and the "Download the whole game now" button is gone: garage, menus and movies load the first time you open them.
-- **Page:** Donate and Ko-fi buttons on the start page: donations keep the online server running.
-- **Controls:** Controllers your browser does not recognise can now be set up: Controls, Controller, Set up buttons, then press each button when asked.
-- **Keyboard:** A short tap of an arrow in a menu list (garage, showroom, paint) no longer moves two items.
+- **Page:** New start page with a side menu and tidy settings; Donate and Ko-fi buttons under Play.
+- **Free Roam:** Other players' cars no longer show up with bare rims.
+- **Free Roam:** Fewer stutters while driving and when other players' cars appear, especially on phones.
+- **Free Roam:** Fixed freezes and crashes when a player on a motorbike was nearby.
+- **Free Roam:** After 3 minutes without touching anything you are taken offline; press any key or button to come back.
+- **Settings:** Name tag size: make the names over other players' cars smaller or bigger.
 - **Garage:** Fixed a freeze when opening Custom Color Shift in the paint menu.
-- **Controls:** The Map button on the page no longer leaves the pause menu scrolling forever after you press it twice.
-- **Controls:** Touch buttons and the steering stick no longer stay stuck on after a finger leaves the screen or the app is switched.
+- **Controls:** Controllers your browser does not recognise can now be set up (Controls, Controller, Set up buttons).
+- **Controls:** Touch buttons and the steering no longer get stuck; the Map button no longer makes the pause menu scroll forever.
+- **Keyboard:** A short tap of an arrow in a menu no longer moves two items.
+- **Phones:** A new music track no longer freezes the game for a moment.
+- **Mac:** Fixed the game freezing at the profile screen on some Macs.
+- **Graphics:** Fewer freezes when new scenery or cars first appear (shaders now build in the background).
+- **Free Roam:** A player who drives away and comes back keeps their car instead of reloading it.
+- **Free Roam:** Other players' cars now really show their tyres (they could still appear as bare rims).
+- **Phones:** Lighter on memory, so the browser closes the game less often; a game left in the background goes offline after a minute and comes back when you return.
+- **Game:** Fixed freezes when leaving a race, the garage or Free Roam, and a rare freeze while the picture was being drawn.
+- **Free Roam:** Shared weather and time of day: dawn, dusk or midnight, clear, cloudy or rain, changing every 24 minutes and the same for everyone in the city (shows on your next load).
+- **Free Roam:** The street race offer is now a small green hint by the minimap (and a green Flash button on touch), not a big box.
+- **Keyboard:** A tap of an arrow in the garage and menus moves one item; hold it to scroll.
+
+## 2026-11-15 (4f7687e)
+
+- **Free Roam:** Other players' cars no longer jump or smoke their tyres when you get close.
+- **Free Roam:** Race invites, the group race offer and the "waiting" message are now small hints instead of big boxes.
+- **Free Roam:** Name tags over other players' cars are smaller by default (Settings, Name tag size, to make them bigger).
+- **Music:** New players no longer get a short freeze when the music changes track.
+- **Free Roam:** About twice as many race start points on each city's map.
+- **Free Roam:** Race offers and invites are tiny now; received invites wait in a small inbox you can open.
+- **Free Roam:** The full map's player list folds into a small button; race names show when you point at a race on the map.

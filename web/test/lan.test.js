@@ -19,6 +19,7 @@ class FakeWS {
 }
 const g = globalThis;
 g.window = g;
+g.addEventListener = () => {};   // lan.js listens for input (AFK kick)
 g.location = { protocol: 'https:', host: 'mc3.example' };
 g.WebSocket = FakeWS;
 g.setTimeout = (f, ms) => { timers.push({ f, ms, at: now + ms, iv: false }); return timers.length; };
@@ -153,4 +154,18 @@ assert.strictEqual(link.state, 'offline');
 const m = socks.length;
 run(60000);
 assert.strictEqual(socks.length, m, 'no retry after close()');
+
+// low-memory profile (afkHiddenMs): 60 s with the tab hidden = AFK, the tab shown again clears it
+let vis = null;
+g.document = { hidden: false, addEventListener: (t, f) => { if (t == 'visibilitychange') vis = f; } };
+const l2 = mc3Lan('Bo');
+l2.afkHiddenMs = 60000; l2.career = true;
+g.document.hidden = true;
+run(30000);
+assert.ok(!l2.afk, 'hidden 30 s: still here');
+run(32000);
+assert.ok(l2.afk && l2.afkHidden, 'hidden 60 s: AFK');
+g.document.hidden = false; vis();
+assert.ok(!l2.afk, 'shown again: back');
+l2.close();
 console.log('lan reconnect: ok');

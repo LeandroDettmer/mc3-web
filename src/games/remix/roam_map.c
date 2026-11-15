@@ -202,6 +202,46 @@ static uint32_t rmap_car_mat(uint32_t map, uint32_t buf)
     return mat;
 }
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+/* Read by the page (web/pre.js, the race names on hover/tap over the full map): seq +1 each frame the full map
+ * draws the start points, n, then per icon its centre on the picture (u, v: 0..1 of the HUD's 720x480, NDC of the
+ * game's own transform) and its two prompt lines ("Sprint · Downtown\nEasy · 7 opponents").  The centre: the icon
+ * is a quad of corners (+-1, 0, +-1) about its matrix's origin (sub_000BBA40), drawn with the composite
+ * world * view * projection the game keeps transposed for the vertex shader at 0x5598E0 (sub_000E32A0 ->
+ * sub_002D2F60 / sub_002D3040, c4..c7), so the origin's clip position is that matrix's 4th column. */
+#define RMAP_ICON_MAX   64
+#define RMAP_WVP_VA     0x005598E0u
+static struct {
+    volatile int32_t seq;
+    int32_t n;
+    struct { float u, v; char text[80]; } row[RMAP_ICON_MAX];
+} s_rmap_icons;
+_Static_assert(sizeof s_rmap_icons.row[0] == 88, "web/pre.js reads 88-byte rows");
+EMSCRIPTEN_KEEPALIVE uintptr_t roam_mapicons_box(void) { return (uintptr_t)&s_rmap_icons; }
+
+/* Right after the full map drew race r's icon. */
+static void rmap_icon_pos(const roam_race *r)
+{
+    float x = MEMF(RMAP_WVP_VA + 0x0Cu), y = MEMF(RMAP_WVP_VA + 0x1Cu), w = MEMF(RMAP_WVP_VA + 0x3Cu), u, v;
+    if (s_rmap_icons.n >= RMAP_ICON_MAX || !(w > 1e-6f))
+        return;
+    u = (x / w + 1.0f) * 0.5f;
+    v = (1.0f - y / w) * 0.5f;
+    if (!(u > -0.02f && u < 1.02f && v > -0.02f && v < 1.02f))
+        return;                                 /* off the picture (or not that matrix) */
+    s_rmap_icons.row[s_rmap_icons.n].u = u;
+    s_rmap_icons.row[s_rmap_icons.n].v = v;
+    rra_text(s_rmap_icons.row[s_rmap_icons.n].text, sizeof s_rmap_icons.row[0].text, r, 0);
+    {                                           /* the first two lines only */
+        char *e = strchr(s_rmap_icons.row[s_rmap_icons.n].text, '\n');
+        if (e && (e = strchr(e + 1, '\n')) != NULL)
+            *e = 0;
+    }
+    s_rmap_icons.n++;
+}
+#endif
+
 /* After sub_000BF850 (map), before the far players: the city's race start points. */
 static void rmap_races(uint32_t map, uint32_t top)
 {
@@ -245,6 +285,10 @@ static void rmap_races(uint32_t map, uint32_t top)
                 nd[j] = d;
             }
         }
+#ifdef __EMSCRIPTEN__
+    if (!mini)
+        s_rmap_icons.n = 0;
+#endif
     for (k = 0; k < 0x50u; k += 4)
         MEM32(item + k) = 0;
     MEMF(item + 0x44u) = 1.0f;                  /* cos of the heading (sin at +0x40 stays 0) */
@@ -259,7 +303,15 @@ static void rmap_races(uint32_t map, uint32_t top)
         args[0] = item; args[1] = mat; args[2] = tex; args[3] = col; args[4] = rmap_f2u(s);
         roam_call(sub_000BDBE0, map, buf, 5, args);
         drawn++;
+#ifdef __EMSCRIPTEN__
+        if (!mini)
+            rmap_icon_pos(r);
+#endif
     }
+#ifdef __EMSCRIPTEN__
+    if (!mini)
+        s_rmap_icons.seq++;
+#endif
     if (!said && drawn) {
         said = 1;
         fprintf(stderr, "[roam] map: %d race start point(s) drawn (%s, city %u)\n", drawn,

@@ -242,7 +242,7 @@
       if (m.kind == 'offer' && v < link.vip && d && typeof d.sdp == 'string') {
         // free roam: only while on, and within roamMax (a full page leaves the offerer on the switch)
         // or one closed here as a TURN channel beyond the cap, until its backoff ends
-        if (T.roam && (!rtc.roamP2P || refused || (bad[v] && Date.now() < bad[v].until) || (!p && Object.keys(fr.peers).length >= rtc.roamMax))) return;
+        if (T.roam && (!rtc.roamP2P || refused || link.afk || (bad[v] && Date.now() < bad[v].until) || (!p && Object.keys(fr.peers).length >= rtc.roamMax))) return;
         p = make(v, T);
         if (T.roam) touch(v);
         remote(p, 'offer', d.sdp).then(function () { return p.pc.createAnswer(); })
@@ -324,7 +324,8 @@
     }
     // Once a second: idle channels go, the busiest new destinations get an offer, a stats line each minute on change.
     function tick() {
-      var now = Date.now(), on = rtc.roamP2P && !refused && link.state == 'online' && link.vip > 0;
+      // AFK (web/lan.js link.afk: idle, or hidden in the low-memory profile): every free-roam channel closes, none opens
+      var now = Date.now(), on = rtc.roamP2P && !refused && !link.afk && link.state == 'online' && link.vip > 0;
       iceFetch();
       Object.keys(fr.peers).forEach(function (k) {
         var a = act[k], p = fr.peers[k];
@@ -338,7 +339,7 @@
           return;
         }
         drop(+k, fr);
-        if (p.open) say('[rtc] free roam ' + vs(+k) + ': channel closed (' + (on ? 'idle' : 'P2P off or offline') + ')');
+        if (p.open) say('[rtc] free roam ' + vs(+k) + ': channel closed (' + (on ? 'idle' : link.afk ? 'away (AFK)' : 'P2P off or offline') + ')');
       });
       Object.keys(act).forEach(function (k) { if (now - act[k].at > 3 * ROAM.idleMs && !fr.peers[k]) delete act[k]; });
       Object.keys(bad).forEach(function (k) { if (now - bad[k].until > ROAM.backoffMaxMs) delete bad[k]; });

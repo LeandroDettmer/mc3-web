@@ -141,7 +141,8 @@ docs/web/PLAYING.md.
   servers) take the CPU and GPU from the owner's game.
 - nfsu2-web code reused (MIT) carries a credit to th0mk in the file header
   and in NOTICE.md.
-- CHANGELOG.md is player-facing: one short line per player-visible change; no
+- CHANGELOG.md is player-facing: one short line per player-visible change that a player
+  would care about (owner, 2026-11-14: no server, cost, P2P/IP or wording-only page lines); no
   logs, addresses, env names or internals.
 - Several agents share one tree and one build folder: small commits of
   your own hunks only (`git add -p` is unavailable to agents: stage whole
@@ -208,6 +209,16 @@ generated files when the lift inputs did not change.
   300, swizzles BGRA on the CPU, maps buffers to BufferSubData, drops depth
   clamp / border clamp / program binaries. LOD bias is lost; the vertex
   shader needs ~330 uniform vectors (RECOMP_GL_PERDRAW=0 if a GPU gives 256).
+  WebGL on Apple (2026-11-14, fix untested on a Mac): ANGLE's Metal back end
+  (Safari, Chrome) turns a glBufferSubData into a buffer the uncommitted
+  command buffer read into a new buffer of the whole size + a GPU copy
+  (BufferMtl.mm); our vertex buffer is ring 16 + pool 48 MB, updated per
+  draw: an Intel Mac's Safari 27.2 took 7-30 s a frame at the profile screen
+  (bg_savegame, ~1100 draws; Windows Intel 50-180 ms), then lost the context
+  (logs 2WAAGQ, FWGBQJ; M2 Chrome, Intel Firefox froze there 2026-11-13).
+  RECOMP_GL_ORPHAN=1 (page: Mac/iPhone/iPad UA): pool off, each draw's data
+  from 0, every flush a glBufferData of [0, dhi) ('[GL] each draw's data in
+  new buffer storage').
 - **Audio:** SPSC float ring (48 kHz stereo) in wasm memory read by an
   AudioWorklet (web/audio.js, apu_web.c); the AudioContext starts on the
   Play click. SDL audio is not used on the web (it crashed from a worker).
@@ -239,15 +250,27 @@ generated files when the lift inputs did not change.
   sends the log, tag hitch) split it next time), the streamed sound banks
   (audio/XStreams/*.xwb, 486 MiB, mx.xwb first: a track change fetched on
   demand stalled the game), resources/ smallest first (642 MiB: car builds
-  .xbpf, hudmap), banks.dat; nothing more since 2026-11-14 (eb0fc32, R2
+  .xbpf, hudmap), banks.dat; since 2026-11-14 evening also assets_x.dat, _3, _1 (557 MiB, read while driving: on-demand disc waits per log rose ~60% without them; a fill run is one request per 16 MiB); nothing more since 2026-11-14 (eb0fc32, R2
   Class B reads ~3.4 M/day over the free 10 M a month): flash/, the rest of
   assets_x* and the career movies come on use only, and the page's "Download
   the whole game now" button (disc_cache.js predownload worker, code kept) is
   gone (budget 4608 MiB and the browser's estimate); 15 s after boot, one block at a time, only after 300 ms
   without a game read on the network; '[WEB] prefetch: ...' lines. A game
   read that continues its file into a new block starts the next 2 blocks
-  (readahead, '[WEB] readahead: ...' once per file). Music track changes
-  (2026-11-11, untested in a browser): every disc read waits under the guest
+  (readahead, '[WEB] readahead: ...' once per file); since 2026-11-14
+  (untested in a browser; R2 bills requests) its own missing block and those
+  go in one Range request (fetchRun: the stream hands each block over as it
+  comes, the read's own first), a run past the window made 3 blocks long, so
+  a file read straight through is one request per 3 MiB, not per 1 MiB;
+  '[WEB] disc: N requests for M blocks' once a session. 2026-11-14 (untested
+  in a browser): assets_x.dat_2 reads ahead on every read like the .xwb (a
+  car build jumps to a car's first entry, a 4 KB read, then reads ~2-4 MB on:
+  cold logs); a game miss no longer drops a background run within 4 blocks
+  (BG_FINISH) of its end. Pre-warming a car's blocks before its build (the
+  build holds the guest lock) is not done: it needs the pack's packed name
+  table ('Dave': 6-bit names with prefix references, TOC in block 0) to map a
+  model to its entries. Music track changes
+  (2026-11-11, untested in a browser; since 2026-11-15 the heads go 3 requests at a time, HEAD_LANES, to land within a new player's boot): every disc read waits under the guest
   lock; a change reads a random entry of mx.xwb (135, shuffled) from its
   start in 352 KB packets, and players' logs showed 0.5-2.5 s freezes per
   change on a cold cache (one at the start, one when a packet crossed into
@@ -260,10 +283,30 @@ generated files when the lift inputs did not change.
   kept in memory (pinned, ~206 MiB JS, only where deviceMemory >= 8:
   Safari has none, its Macs pinned and were killed until 2026-11-12; '[WEB]
   prefetch: no disc cache: the music's track starts ... kept in memory').
+  New players still froze at track changes (owner, fresh incognito
+  2026-11-15; fix untested in a browser): the heads waited the fill's 15 s,
+  then went one request at a time (94 requests for 206 blocks of the
+  364 MiB bank), and when the incognito quota ran out later in the fill
+  the cache turned off, OPFS was no longer read, and pinHeads fetched all
+  206 MiB again while the game read every city block on the network. Now
+  the heads start at the first disc file (idle() still gives way to the
+  game; the rest of the fill keeps its 15 s, the low-memory profile its
+  gate), and as the cache turns off the heads the music's cache file
+  already holds go to memory first (keepHeads, '[WEB] prefetch: disc
+  cache off: N of 206 MiB of the music's track starts kept in memory
+  from it').
   Emscripten's own WASMFS fetch
   backend left stale data across chunks, hence our backend.
 - **Input:** SDL keyboard/Gamepad on the GL thread; a key tap is held at
   least 120 ms (a down+up in one rAF pump was lost by the menus).
+  Menu key repeat (2026-11-14, untested in a browser; sdl_keyboard.c
+  dir_held): the Remix's lists (mcUiGroup, sub_0034B870 / sub_0034BD50)
+  step again whenever a slide ends with the direction still held, so a
+  normal 80-200 ms tap moved two garage items. Not driving
+  (xbox_keyboard_driving says so), the arrows and I J K L reach the pad as
+  a pulse at the press (70 ms and at least 2 pad reads, so slow menus see it), then nothing until held 350 ms, then held.
+  Driving and native builds unchanged. Keyboard left/right feed the left
+  stick X only (no d-pad, no trigger): one source.
   Gamepads (2026-11-14, issue #6, untested in a browser): SDL2's
   Emscripten driver gives every pad its one "default" mapping (the
   standard layout) and ignores Gamepad.mapping, so a pad the browser does
@@ -309,10 +352,18 @@ generated files when the lift inputs did not change.
   Module.mc3Pool || 40. Low-memory profile (index.html lowMem: a TV user
   agent, a phone or tablet (iOS/iPadOS, Android phones, MC3Touch.isPhone)
   or deviceMemory <= 2; MC3_LOWMEM=1/0 forces): memory from 512 MB,
-  12 pool workers (more made on demand and kept; WebKit too since
+  8 pool workers (12 until 2026-11-14; more made on demand; WebKit too since
   2026-11-12, every iPhone ran 40 before, each a JS heap; '[WEB] workers: N'
-  logs each new peak), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
-  MC3_DISC_MEM_MB 16 (disc LRU, default 48), MC3_PREFETCH=0, no 60 fps, light
+  logs each new peak; since 2026-11-14 a worker whose thread ended is
+  terminated while more than 16 exist, pre.js, not a hard cap: a refused
+  pthread_create breaks the game), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
+  MC3_DISC_MEM_MB 8 (disc LRU, default 48; 16 until 2026-11-14), hidden 60 s
+  = AFK (lan.afkHiddenMs, below; city socket and P2P channels closed), WebGL
+  without asking for a WebGPU adapter where deviceMemory <= 2 (desktops too),
+  background fill and learned fill from 60 s after the first frame (2026-11-14,
+  untested in a browser: 146 previous-crash logs, wasm 202-286 MB of 1 GB, so
+  process kills: Android 15-165 s after Play, 'workers: 22' in 27, iOS hidden
+  or in a busy Free Roam), MC3_PREFETCH=cars (since 2026-11-14 the background fill takes assets_x.dat_2, 233 MiB once, and the music track starts, ~206 MiB, nothing else; on every profile a file whose reads kept the game waiting 2 s in all is then fetched whole in the background, learned fill, not movies, <= 400 MiB a file, 1 GiB a session, "[WEB] prefetch: <file> kept the game waiting ..."): phones read each new car model on demand, ~1.4 s a block from R2 under the guest lock, 3.6-6.9 s frozen per new car; was 0), no 60 fps, light
   filtering. Loading overlay (2026-11-13, untested in a browser; index.html bootStart/bootWhat, #boot-load,
   page-only, no wasm access): from Play to the first frame (mc3Frames > 0, polled 250 ms) a box over the
   picture: the .wasm download MB (bytes counted through a TransformStream into compileStreaming;
@@ -338,7 +389,11 @@ generated files when the lift inputs did not change.
   too old' box. Crash tracing (2026-11-10, untested in a browser): every
   failure box, page error after boot (no box, 3 a session), freeze (15 s
   without a new frame, tab visible) and killed tab (log tail + heartbeat
-  in localStorage every 5 s, cleared on pagehide, sent on the next visit)
+  in localStorage every 5 s, cleared on pagehide, sent on the next visit;
+  2026-11-14: the heartbeat also keeps a 'heartbeat: N s since Play, tab
+  ..., JS heap U MB of L MB (Chrome), workers N (R running), wasm M MB'
+  line, put under the previous-crash header: the tail's own header is up to
+  15 s older)
   goes to config.json logUrl as POST ?tag=fatal|error|freeze|
   previous-crash, headed by build, UA, GPU, memory, online state, times
   (previous-crash also lists the last memory/failure/watchdog/roam lines
@@ -357,7 +412,7 @@ generated files when the lift inputs did not change.
   the log Worker (.deploy/worker.js, local) keys it logs/<day>-<tag>-
   <code>.txt and takes 10 an hour per address.
   New version (2026-11-12, untested in a browser): .deploy/stage.sh stamps config.json "version" (short hash of ../mc3-web-main HEAD); the page
-  (index.html versionCheck) re-reads it every 5 min while the tab is visible (2026-11-13: from config versionUrl, a copy in R2 that `.deploy/upload.sh version` puts up after the Hosting deploy; config.json if it fails) (and on turning visible, at most once per 5 min; ~130 players at 60 s was ~150 MB/day of Hosting transfer) and shows every player a dismissable notice. Only RELOAD=1 at stage also
+  (index.html versionCheck) re-reads it every 5 min while the tab is visible (2026-11-13: from config versionUrl, a copy in R2 that `.deploy/upload.sh version` puts up after the Hosting deploy; config.json if it fails) (and on turning visible, at most once per 5 min; ~130 players at 60 s was ~150 MB/day of Hosting transfer) and showed every player a dismissable notice (gone since 2026-11-15, owner: a normal release shows nothing; pages loaded before it still show it unless that release skips `upload.sh version`). Only RELOAD=1 at stage also
   writes "reload" = that version, and then online players (lan.roaming or a room) get a 60 s reload box; career online and offline get the notice only.
   No version (web_serve.py) = off. Pages loaded before this shipped have no poll.
   Versioned module (2026-11-12): the page fetches <app>.js, then <app>.wasm, both from config moduleUrl
@@ -445,7 +500,7 @@ generated files when the lift inputs did not change.
   by the game's HELLO room, closed by its BYE) carrying that city's hub, relay
   frames and roam signals; the Switch keeps lobby, races, players list (city
   reports) and its own hub as fallback; '[net] free roam: own socket to city N
-  open'; a lost link (switch or city socket not open for 3 s after a HELLO) shows a notice over the picture (lan.js roamDown, pre.js; reload button after 30 s; '[net] free roam: link lost'). AFK kick (2026-11-14, untested in a browser; page only, no Worker change): Free Roam / Online career, not in a race room, with no keydown/pointerdown/touchstart/gamepad change for 180 s (a hidden tab too; ?MC3_AFK_S=N, 0 off) -> lan.afk: city socket closed without retry, every free-roam frame, signal and P2P send dropped (the hubs drop us by their stale timer), pre.js's notice says 'Disconnected for inactivity' instead of roamDown's; any input clears it and the game's next HELLO reopens the city; '[net] afk: kicked after N s idle' / '[net] afk: back'. Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
+  open'; a lost link (switch or city socket not open for 3 s after a HELLO) shows a notice over the picture (lan.js roamDown, pre.js; reload button after 30 s; '[net] free roam: link lost'). AFK kick (2026-11-14, untested in a browser; page only, no Worker change): Free Roam / Online career, not in a race room, with no keydown/pointerdown/touchstart/gamepad change for 180 s (a hidden tab too; ?MC3_AFK_S=N, 0 off), or, in the low-memory profile (index.html lan.afkHiddenMs, 2026-11-14), 60 s with the tab hidden (shown again clears it; '[net] afk: kicked after 60 s with the tab hidden ...') -> lan.afk (rtc.js then closes every free-roam channel and takes no offer): city socket closed without retry, every free-roam frame, signal and P2P send dropped (the hubs drop us by their stale timer), pre.js's notice says 'Disconnected for inactivity' instead of roamDown's; any input clears it and the game's next HELLO reopens the city; '[net] afk: kicked after N s idle' / '[net] afk: back'. Load per city object ~3 msgs/s per player (HELLO + 2 SNAP) + relayed
   pairs without a P2P channel (the larger share while K > roamMax).
   City object overload (2026-11-13, fix untested live, Worker not deployed):
   at the evening peak (~65 online, ~26 in San Diego's object) the object took
@@ -575,7 +630,9 @@ generated files when the lift inputs did not change.
   full map draws, roam_bigmap_box (seq, city) tells web/pre.js, which
   lists the Free Roam players from the switch's players push on the
   picture's right edge (same city first; none on web/server, which has no
-  push). Open: names on the full map.
+  push). Folded (2026-11-15, untested in a browser): one chip (people + count, a flag while our race
+  has standings) on the right edge; a tap opens the players, progress and race panels under it (localStorage
+  mc3.mapPanels). Open: names on the full map.
   Race start points (2026-11-09, untested in game; roam_races.{c,h},
   roam_map.c): the cities' event lists are loaded at boot (sub_0026F910,
   tune/race/<city>.loc + .locinf) into the city table [0x557EE4]: +0x14
@@ -590,14 +647,17 @@ generated files when the lift inputs did not change.
   (race type 0, not our AI race: in a race they sat over the game's own
   checkpoints). Each city's list is cut at load (rr_curate, ~70 in San
   Diego): variants of one course (same kind, starts within 50 m) become
-  the medium/normal one, every track and frenzy stays, then at most 28 a
-  city at least 150 m apart; only those get the prompt. roam_races_nearest() is
+  the medium/normal one, every track and frenzy stays, then at most 56 a
+  city at least 80 m apart (28 and 150 m until 2026-11-15); only those get the prompt. Names on the full map (2026-11-15, untested in game): after each icon
+  roam_map.c reads its centre from the game's composite W*V*P (0x5598E0, transposed, 4th column; sub_000E32A0 ->
+  sub_002D3040) into roam_mapicons_box (u, v of 720x480 + the prompt's two lines); pre.js labels the icon under
+  the mouse or a tap (4 s), in the HUD's middle 16:9. roam_races_nearest() is
   the API for starting races from the map. '[ROAM] races: ...' at first
   use; MC3_ROAM_RACES=0 off, =2 logs each race.
   AI race from a start point (feature 3, 2026-11-09, untested in game;
   src/games/remix/roam_race_ai.c, docs/roam-races.md): within 30 m of a
   start point, slower than 8 m/s, the page shows "Race: <name> ... press
-  White (Q)" (roam_prompt_box, web/pre.js); White fills [0x53F2E4] (copy
+  White (Q)" (browser, 2026-11-14, untested: a small green pill 'Q <race name>', text '<name>', none above 12 m/s; roam_prompt_box, web/pre.js); White fills [0x53F2E4] (copy
   sub_00268E50, SetEvent sub_0026B8E0(city, event), 1 player) and sends
   Request(8) + Request(6), roam status RC_ST_EVENT (peers hide our car).
   roam_build adds no slots to a load with race type != 0, so the race ends
@@ -632,8 +692,10 @@ generated files when the lift inputs did not change.
   src/games/remix/roam_challenge.c, docs/roam-races.md F2): up to 8 racers
   (2026-11-12, untested in game; was a 1v1 headlight flash, flash back to
   accept): driving under 12 m/s within 40 m (height 10 m) of 1+ driving
-  players, the prompt box offers 'Street race? N nearby players will be
-  invited'; White (Q, touch 'Flash'; still also the game's headlight toggle)
+  players, the idle offer (2026-11-14, browser, untested: no box, a small green
+  pill 'Q Race N' by the minimap + the touch Flash button green; text '\x02Race N' in
+  roam_prompt_box, web/pre.js) lets White invite; native keeps the box 'Street race? N nearby players
+  will be invited'; White (Q, touch 'Flash'; still also the game's headlight toggle)
   sends INVITE to the up to 7 nearest every 0.3 s for 15 s (was 10 until
   2026-11-12); each invitee
   sees '<host> invites you to a race (N players)' and joins with White (under
@@ -703,7 +765,10 @@ generated files when the lift inputs did not change.
   in the cruise (sub_000C2CE0 is race-type gated), so ours draw next + after
   in the map tune's colours. Page marker roam_cp_box only as fallback.
   Prompt box (web/pre.js): left, above the minimap; '\x01' first = big and
-  centred (countdown, GO, 2 s of result). Messages: roam core GAME record
+  centred (countdown, GO, 2 s of result). '' = small green pill by the minimap + green touch Flash (idle street offer: 'Race N'; group offer at a start point: '<race> · N'; AI race: '<race>'); '' = compact card, 1-2 small lines (browser, 2026-11-14, untested; native keeps the old long texts): invite received '<host> · Race (N)' + '[Q] join · [E] decline · S s', host 'Group/Street race j/n · S s · [Q] start', joiner 'Joined · <host> · Race (N) · waiting'; green Flash while a card has [Q]. Page only (2026-11-15, untested in a browser): the pill is an icon chip (flag + Q),
+  its name on hover/tap; an invite is one line, flag + '<host> +N' (others racing) + a green Q (act 5, join) and a red E
+  (4, decline) keycap button (shorter since 2026-11-15, owner); cards one line with the quit button inline; invites go into an inbox (envelope + badge left of the box,
+  5 min, 8 max; Accept only on the one offered now). Messages: roam core GAME record
   (type 10, core 17, peer to peer, the hubs untouched; challenge v5 since
   2026-11-12: INVITE/JOIN/NO/GO/PROG, v4 and v5 drop each other's).
   '[CHALLENGE]' lines; MC3_ROAM_CHALLENGE=0 off, =2 no HUD/audio calls,
@@ -717,7 +782,20 @@ generated files when the lift inputs did not change.
   pose blend (tau 100 ms) trailed a moving peer by ~speed x 0.085 s (1.7 m
   at 20 m/s) and the lag vanished in the level: the car leapt forward at
   20 m and fell back at 30 m. roam_pool_frame now blends an unmoved car
-  from its position advanced by vel x dt (c->setp). MC3_ROAM_CARS=N remote cars at most, slots
+  from its position advanced by vel x dt (c->setp). Hop and tyre smoke
+  near (2026-11-15, owner; cause not proven, fix untested in game): out of
+  the level the body is never integrated, so its force/torque accumulators
+  ([ics+0xA4]/+0xB0, cleared only by the integrator sub_00343910) and the
+  wheels' state (vehWheel vtable 0x44EBF4, list [car+0x1C] count +0x18;
+  +0x58.. +0x184 zeroed only by its reset sub_000A5E50) stay stale until the
+  first step in the level. roam_rc_phys now settles a car each time it comes
+  in (standalone at 20 m, a slot unparked): wheel reset (radius/width/ride
+  height kept), the vehicle's 0x54-byte records cleared (sub_0021E8B0, as the
+  vehicle reset sub_000FFC50 does), accumulators 0, SetAngVel 0 (we send
+  w = 0); velocity is the peer's already. '[ROAM] cars: car X into the
+  physics level settled: it had force F, torque T, angular speed A, wheel
+  state up to W' (20 a session) shows what was stale. Every host.
+  MC3_ROAM_CARS=N remote cars at most, slots
   included (page 'Players shown'; auto 32 at RECOMP_RAM_MB=128, 12 at
   64 MB; 7 = slots only); also the K asked of the hub, 32 at least
   (roam_set_k; hub default_k 32 for a HELLO asking none, mc3-server
@@ -732,7 +810,14 @@ generated files when the lift inputs did not change.
   its car, any, then the longest-unseen held one, slots first on a tie;
   none: a new standalone car), one queue after the physics step (one
   build/rebuild per 0.25 s, held while a state request is queued or a
-  page-in runs), one look check (car list, no bike mid-cruise), one
+  page-in runs), one look check (car list, no bike mid-cruise; browser,
+  2026-11-14, fix untested in game: no standalone bike at a load either --
+  22 Free Roam freeze logs, main on Sleep(1) in the rider's wait
+  sub_00117E20 (until its resource [rider+0xCC] is in and the streams are
+  idle; stack 117F2A 119490 10056E 331125 35DCFB 0FEF8A 2BE0E8), 17 on the
+  first cruise frames, 18 after a load that built a peer's bike standalone
+  (~1 such load in 4); the peer gets our car as stand-in, slots unchanged;
+  '[ROAM] cars: N players on a motorbike in a stand-in car at load'), one
   capacity check (2026-11-12, untested in game: the game's car cache
   [0x50A08C] has 16 entries and gives every car its own (key 0 is never
   shared, sub_00105B80); full, the builder built on resource 0: ICALL 0 at
@@ -745,7 +830,20 @@ generated files when the lift inputs did not change.
   cost(old car) >= keep + cost(new): keep 3 MB main heap, 2 MB cars heap;
   cost measured per model on each build, an unmeasured model the largest
   measured, at least 1000 KB; the load's slot count uses it too), one park
-  (hidden, out of the physics level, 30 km off). Nearest gets a car: while
+  (hidden, out of the physics level, 30 km off). Tyres (2026-11-14, fix
+  untested in game): roam_tyres sizes a remote car's tyres once per vehicle
+  address; a rebuild often reuses the deleted car's address, so rebuilt cars
+  stayed bare rims (8,855 of 25,510 rebuilds in two days of logs); every
+  build now clears the entry's tyre state ('[ROAM] tyres: ... sized' after
+  each '[ROAM] look: ... rebuilt'). Still bare with a 'sized' line after
+  every build (2026-11-15, owner's log; fix untested in game): sub_00121970
+  sizes only the tyre tunes ([sim+0x54]/+0x58 +4 radius, +8 width); the
+  drawn wheels [veh+8]+0xD8..0xE4 (+0x100 radius, +0x104 width) get them
+  only from sub_00105450(veh) (wheel step 0x00100738, reset sub_000FFC50),
+  never reached by a remote car. roam_tyres now calls it after the sizing
+  ('... wheel was R0, now R') and sizes a done car again when its front-left
+  wheel's radius leaves the tune's (once a second at most, '... sized
+  again (N)'). Every host. Nearest gets a car: while
   no car can be built (count or heap), the nearest driving peer without one
   takes the farthest holder's (away = farthest) once 50 m nearer for 3 s;
   '[ROAM] nearest: ...'. Failures (2026-11-12, untested in game): a
@@ -791,6 +889,9 @@ generated files when the lift inputs did not change.
   Car radius (2026-11-12, untested in game): a peer gets a car only
   within 250 m of ours (2026-11-12: was 300; the game fades its traffic at 250 m, 0x4AFD18) (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
   a group race) and gives it back (parked, reused) after 3 s beyond 350 m;
+  since 2026-11-14 (untested in game) the car stays held for its peer
+  (roam_rc.far, scored as held: newcomers take free cars first), so a peer
+  coming back within 250 m gets its own car with no rebuild;
   beyond the radius a carless driving peer is a bright blip, not dimmed;
   the load's cars (roam_build, roam_pool_load) ignore it (our position may
   be stale then), the net loop parks them; '[ROAM] radius: N peers in R m,
@@ -930,7 +1031,26 @@ generated files when the lift inputs did not change.
   16 a row, index.html FLAG_CODES' order, Module.mc3Flags) before the name.
   No flag: an older build or 'No flag'; far players (FAR list) and the
   page's players list have none.
-  Open: hub-distributed world settings, names over cars, ghost mode for
+  Shared world (2026-11-14, untested in a browser; recomp_manual.c fr_world,
+  browser only): time of day and weather of the Online cruise come from the
+  wall clock, no server. Setup +4 time: 0 dawn, 1 midnight, 2 dusk; +8
+  weather: 0 clear, 1 cloudy (label Fog), 2 rainy (Rain; Snow in city 2)
+  (resource names 0x4B3714 / 0x4B3720). Arcade's options screen (0x1A,
+  cyclers sub_00165D00/D40) adds -1 = Any = the event's own: SetEvent
+  sub_0026B8E0 takes them from the event's bytes +0xD/+0xC (.locinf; event
+  -1: midnight, clear), so Free Roam was always San Diego's cruise event's.
+  Load only: the world takes city_time_weather resources by name at the load
+  (fog sub_00032D80 from [0x53F2E0], glows sub_00093720); no mid-cruise
+  setter found. At every state pass (sub_00020EC0, before the game's) the
+  next setup [0x53F2E4], when it is Free Roam's cruise (s_online, type 0) or
+  the Online career's (type 1, game mode 2), not the garage or a network
+  game, gets the slot's values (state 2's enter loads it inside the pass):
+  first load, garage round trip, AI race way back. 24-min UTC slots (unix s
+  / 1440), time dawn -> dusk -> midnight for every city, weather per slot and
+  city (hash) clear 4/8, cloudy 2/8, rainy 2/8; a slot change shows at the
+  next load. '[ONLINE] world: slot N, time X, weather Y (shared by clock;
+  ...)'. MC3_FR_WEATHER=0 off, =fixed:<time>,<weather> (0-2 or the names).
+  Open: names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
   (nfsu2-web uses a grid), KIND_BUNDLE.
 
@@ -945,6 +1065,9 @@ no volatile, nfsu2-web's `g_guest` alias trick (needs a regen); (3) log
 spam proxied from workers to the page: RECOMP_QUIET=1 on the web, page log
 batched per frame. Not yet tried: -O3/-msimd128/no memory growth,
 nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
+2026-11-14: RECOMP_KERNEL_FAST is read once (was a getenv per kernel call)
+and the per-take guest-lock stats (gil_stats.c, a mutex per hand-off) run
+only with MC3_PERF, their only reader.
 
 ### WebGPU renderer and frame rate (2026-11-08)
 
@@ -981,6 +1104,19 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   the next are consumed without drawing (game runs on, picture holds, input
   still read) until a frame completes ('[WGPU] GPU answered after ...'); at
   30 s '[WGPU] GPU stopped responding' -> box, restart on WebGL.
+  Pipeline bursts (2026-11-14, untested in a browser; ~604 of 1061 player
+  logs had 'slow frame N ms, N pipelines made', iPhone 9.5 s a log, iPad
+  28 s): web/wgpu.js keeps at most 3 createRenderPipelineAsync unresolved
+  (the prewarm's rest queued in JS, started as one resolves); a SET_PIPE of
+  a pipeline not made yet, in a pass into a presented surface, makes the
+  first 2 a frame at once and beyond that (or one already compiling) starts
+  it asynchronously and skips its draws until it resolves (brief pop-in;
+  never compiled twice); other passes (render to texture) still make it at
+  once. The slow-frame line adds ', N pipelines skipped, M queued'. Also:
+  texels go into an upload buffer of their own (wgpu_tex.c, <= 32 MB,
+  emptied each submit), not the frame arena (they crossed to the GPU twice);
+  the arena is no longer zeroed; GPU timestamps only with RECOMP_WGPU_STATS=1
+  or MC3_PERF (RECOMP_WGPU_GPUTIME=1/0 forces).
 - **Widescreen (Hor+)**: RECOMP_ASPECT=auto|16:9|21:9|32:9 (page 'Screen
   shape'; Auto follows the canvas through a ResizeObserver ->
   nv2a_wgpu_aspect_box). Surfaces drawn 720 wide (the back buffer's pitch
@@ -1025,7 +1161,9 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   schedule restarts at once (no burst of owed vblanks). audio.js suspends
   the AudioContext (the APU waits on a full queue) and resumes on visible
   (index.html's unlock kick skips hidden); wasmfs_fetch.js idle() holds the
-  background fill. Stays alive: the roam core's own net thread (rc_tick on
+  background fill; since 2026-11-14 it also empties its memory LRU, drops
+  background runs and does no readahead while hidden ('[WEB] disc: tab
+  hidden: ...'). Stays alive: the roam core's own net thread (rc_tick on
   its clock: snapshots, keepalive), the sockets, net.js's TX pump (a bell
   rung during a drain loops by microtask now, not setTimeout 0: a hidden
   tab clamps that to 1 s, and Chrome's intensive throttling, possible once
@@ -1033,6 +1171,12 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   (touch.js). Peers see our car crawl. A System Link race also slows for
   the hidden player. The render thread still draws the 4 fps (dropping
   frames would miss one-time render-to-texture work done while hidden).
+- **Page-side cost** (2026-11-14, untested in a browser): the crash tail keeps its
+  "lines of note" as lines arrive (index.html logPush, tailLast) and writes the ~200 KB at most every 15 s
+  (forced on tab hidden); the overlays in pre.js read the canvas rects from Module.mc3Pic (cached 250 ms) and
+  write styles only on change (no forced layout per rAF); the players push (lan.js link.watchPlayers) is
+  subscribed only on the page, in the main menu and while the full map is open (Module.mc3BigMapOpen), checked
+  by the 2 s whereNow() interval.
 - **Builds**: tools/build_web.sh uses ccache when installed (WSL:
   ~/.cache/ccache-mc3, CCACHE_BASEDIR = repo, so build folders share it;
   CCACHE=0 off). Builds on /mnt/e are slow; one relift per round.
@@ -1152,7 +1296,15 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   runs DirectSound's own 500 ms stop timeout (sub_003C6B43) first for such
   a voice ('[XACT] stream voice ...'); sub_00405DDF's logs what still holds
   a bank after 3 s ('[XACT] wave bank ... release: still in use ...').
-  MC3_XACT_STOP_FIX=0 off.
+  Still froze (2026-11-15 logs 97B74F, K3ZNMC, N3WAMB): the tracks were in
+  state 7 (stopping; sub_00405CC1 skips 7/8) and their voices 0x010B --
+  playing, no stop asked -- front end trapped, so they never played out.
+  Now (browser, fix untested in a browser) at that 3 s mark, with the front
+  end trapped, each voice with (flags & 3) == 3 on a state 7/8 track of the
+  bank is stopped as DirectSound's device-wide stop does (sub_003C41CE:
+  sub_003C78AA(0), flags & 0x3111 | 0x8000 + voice-off) and confirmed at
+  once (sub_003C6A5A); '[XACT] wave bank ... stopped N playing voice(s)
+  ...', once per wait. MC3_XACT_STOP_FIX=0 off (all of it).
 - Rendering found and fixed 2026-10-17: vertex programs read the viewport
   scale/offset as constants c[-38]/c[-37] (NV2A mirrors the registers there:
   cars were invisible); a narrower clip into the back buffer (race minimap,
@@ -1246,6 +1398,20 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   vblank count +0x1C0, last target +0x1C8. `MC3_FLIP_TRACE=1` logs the
   pushbuffer callback (sub_003E52D0; param & 0x1F = command, 1 = flip,
   (param >> 5) & 7 = interval); `MC3_FLIP_PACE=0` / `MC3_TRAP_HOOK=0` undo.
+  Remix: device 0x004249A8 (= push-buffer state 0x422D80 + 0x1C28, as in
+  DUB), PGRAPH handler sub_0041B7C0, callback sub_0041B550 (command 5 =
+  KeSetEvent(device + 0x1A4)). D3D NOP-trap wait (browser, 2026-11-14/15,
+  8 freeze logs, fix untested in a browser): sub_004165A0, the GPU >= 0x2000
+  bytes short of its fence, clears that event (0x424B4C = state + 0x1DCC,
+  SignalState +0x1DD0), patches WAIT_FOR_IDLE + NOP(5) into the fence's
+  hole, kicks and sleeps on it with no timeout (0x4166FF); the logs had the
+  executor idle, ring empty, the event never set (cause not proven: GET
+  follows the walk). Hitch logs show the same wait ending when the executor
+  was only behind. Now the vblank handler override (sub_0041B250, D3D's
+  DPC) sets the event through the kernel's KeSetEvent (import 0x4477CC)
+  when a thread is in sub_004165A0, the event is clear and DMA_GET == PUT
+  has held 500 ms ('[D3D] NOP trap wait: ...'); harmless when nobody waits
+  (the event is cleared before each use). MC3_NOP_WAIT_FIX=0 off.
 
 - Career loading-screen hang (found 2026-10-21, fix under test): the main
   thread spun in D3D's fence wait (sub_003DF4D0, loop at 0x003DF607) while
@@ -1319,7 +1485,7 @@ nfsu2-web's lift options (FLAGABI, X87OPT, hot-callee inlining).
   resources/) + mods/<id>/mod.json {id, name, author, credit, description,
   version, kind car|textures}; mods/index.json {"mods": [ids]} lists them
   for the page's Mods tab (name, by/credit, description, size from
-  <disc>.manifest, On/Off kept in localStorage mc3.mods, default On), which
+  <disc>.manifest, On/Off kept in localStorage mc3.mods, default Off since 2026-11-15), which
   passes MC3_MODS=<id>,<id> (index order; '' = none). mods_init scans only
   those packs; a name two packs give comes from the later one ('[MOD]
   <name>: pack B over pack A'; two car packs therefore do not merge their
