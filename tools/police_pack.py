@@ -40,7 +40,9 @@ FAR_MIN, FAR_AIM, FAR_MAX, SPREAD = 300.0, 450.0, 800.0, 250.0   # m: police sta
 POSDIR = r'(?:PlayerPosDir|PosDir)[ \t]+' + r'[ \t]+'.join([r'(-?[\d.]+)'] * 6)
 
 MOD = {"id": "police", "name": "Police", "author": "mc3-web", "credit": "",
-       "description": "Police cars patrol Free Roam and chase you when you speed or crash",
+       "description": "Police cars patrol Free Roam and chase you when you speed or crash. "
+                      "Drive a police car yourself and ram another player 9 times to bust them: "
+                      "they pay a $50,000 fine and you get it (both players need this mod)",
        "version": "1.0", "kind": "gameplay"}
 
 

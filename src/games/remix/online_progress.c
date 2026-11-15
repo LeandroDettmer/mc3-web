@@ -229,6 +229,7 @@ EMSCRIPTEN_KEEPALIVE uintptr_t roam_progress_box(void)
 #endif
 
 static const char *police_note(void);           /* police.c: BUSTED and the fine */
+static const char *ppl_note(void);              /* police_players.c: hits and busts between players */
 
 /* The line for an empty prompt: the AI race's prize, back in the cruise. */
 __attribute__((unused)) static const char *op_note(void)   /* browser only (rra_prompt) */
@@ -238,6 +239,8 @@ __attribute__((unused)) static const char *op_note(void)   /* browser only (rra_
     double now;
     if (*police_note())
         return police_note();
+    if (*ppl_note())
+        return ppl_note();
     if (!s_op_note || !s_online || !online_ram(setup) || MEM32(setup + 0x18u) != 0)
         return "";
     now = roam_now();

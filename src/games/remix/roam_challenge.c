@@ -906,6 +906,7 @@ static int rch_racer_of(uint32_t id)            /* the slot of the racer with ro
     return -1;
 }
 
+static void ppl_rx(uint32_t from, const uint8_t *b, int n);    /* police_players.c */
 static void rch_recv(const float me[3], double now, uint32_t esp)
 {
     uint8_t b[ROAM_MSG_MAX];
@@ -913,6 +914,10 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
     const roam_peer *pp;
     int n, op, k, i, ok;
     while ((n = roam_recv_msg(&from, b, sizeof b)) > 0) {
+        if (n >= 8 && b[0] == 'P') {            /* the police pack's player busts (police_players.c) */
+            ppl_rx(from, b, n);
+            continue;
+        }
         if (n < 8 || b[0] != 'C' || b[1] != 5)  /* v5: invites of up to RCH_RACERS; v4 builds' messages are dropped */
             continue;
         op = b[2];

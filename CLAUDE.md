@@ -1562,6 +1562,23 @@ only with MC3_PERF, their only reader.
   profile saved, prompt box 'BUSTED', the cars after us back to patrol. The
   pack is served everywhere its .rac is read (a career/Arcade cruise of the
   same event too). '[POLICE] ...'.
+  Players in police cars (2026-11-15, untested in game; police_players.c,
+  pack on for both): our car's CarType name with '_cop' (setup entry 0's
+  CarCfg: impalass_cop_s/a/d_96, d_tokyo_cop_01, the bike kwz_cop_98; they
+  are in vehicle.lst and garage.xbck's list, so Online's all-cars unlock
+  should offer them, not checked in game). Only the police side counts: a hit
+  = our ground dv/dt > 25 m/s^2 with a driving player (status roam, no race
+  bits, not in a police car) within 6 m (its drawn car, else its peer
+  position), nearest first, 1 per s; 60 s without one restarts the count; 9
+  -> BUST. Messages 'P' v1 (roam GAME record beside the challenge's 'C';
+  rch_recv hands them to ppl_rx, so none while MC3_ROAM_CHALLENGE=0): op,
+  arg, id u32, amount u32; HIT (arg hits), BUST (bust id, fine 50,000, every
+  0.3 s for 5 s), PAID (arg 0 paid / 1 no mod / 2 busy / 3 cool-down / 4 not
+  a police car; amount paid). The player pays min(money, fine) once per bust
+  id, the police player gets that amount once; both save the profile; 60 s
+  cool-down per player both sides; notes in the prompt box (op_note).
+  '[POLICE] player: ...'. Open: a police player who hits an AI police car is
+  chased like anyone.
 - Saves (2026-10-22): a profile is UDATA/54540079/<12 hex>/<name>.mc3
   (99,162 bytes) + SaveMeta.xbx (UTF-16 "Name=<name>"). The .mc3 starts
   with a format stamp (Xbox 0x02F59447) and ends with HMAC-SHA1 of the

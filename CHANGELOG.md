@@ -145,3 +145,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Mods:** New Mods tab on the start page. First mod: Police (off by default), police cars in Free Roam that chase you.
 - **Mods:** Police now chase you only after you hit a police car; you can get busted or escape.
 - **Mods:** Police start far from you across the city; a bust costs $50,000 and ends the chase.
+- **Mods:** Police: drive a police car in Free Roam and ram another player 9 times to bust them; they pay a $50,000 fine to you.

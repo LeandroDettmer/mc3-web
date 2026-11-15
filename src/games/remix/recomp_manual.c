@@ -1872,9 +1872,11 @@ static void roam_player(uint32_t p);            /* free roam (O3), roam_game.c *
 static void rra_player(uint32_t p);             /* free roam: AI race prompt, start, pose back (roam_race_ai.c) */
 static int rch_player(uint32_t p);              /* free roam: street challenge; 1 owns prompt + White (roam_challenge.c) */
 static void police_frame(uint32_t p);           /* mod pack police: our car only, arrest -> fine (police.c) */
+static void ppl_frame(uint32_t p);              /* mod pack police: a player in a police car busts players (police_players.c) */
 void sub_002C1520(void)
 {
     police_frame(g_ecx);
+    ppl_frame(g_ecx);
     if (!rch_player(g_ecx))
         rra_player(g_ecx);
     roam_player(g_ecx);
@@ -4539,6 +4541,7 @@ static void online_strings(void)
 #include "roam_tags.c"                          /* free roam: players' names over their cars (page overlay) */
 #include "roam_challenge.c"                     /* free roam: 1v1 street challenge in the cruise (feature 2) */
 #include "police.c"                             /* mod pack police: police cars in Free Roam, a fine for an arrest */
+#include "police_players.c"                     /* mod pack police: players in police cars bust players (9 hits) */
 
 /* A car's "needs a reset" flag ([ecx+0xC] bit 0, ecx = [[veh+8]+0xC]; a
  * leaf, thiscall, ret). The vehicle update (vtable 0x454F40 +8,
