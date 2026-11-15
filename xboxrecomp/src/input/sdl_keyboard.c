@@ -62,6 +62,18 @@ static volatile Uint32 s_press_at[SDL_NUM_SCANCODES];   /* SDL_GetTicks() | 1 */
 #define KEY_SAME_PUMP_MS 3
 #define KEY_SEEN_MS 50
 static volatile Uint32 s_hold_ms[SDL_NUM_SCANCODES];
+
+/* Even 50 ms was too long: a human tap is 80-200 ms and a list's slide is
+ * shorter, so left/right in the garage still moved two items (2026-11-14,
+ * b33e71f). In menus (dir_held) the arrows and I J K L reach the pad as a
+ * key repeat: a DIR_PULSE_MS pulse at the press (about two game frames,
+ * however short or long the tap), then nothing until the key has been held
+ * DIR_REPEAT_MS, then held (the lists scroll at their own pace). s_dir_at
+ * is the up-to-down moment only: the browser's auto-repeat keydowns do not
+ * restart it. */
+#define DIR_PULSE_MS 70
+#define DIR_REPEAT_MS 350
+static volatile Uint32 s_dir_at[SDL_NUM_SCANCODES];    /* SDL_GetTicks() | 1 */
 #endif
 
 void xbox_sdl_keyboard_event(int scancode, int down)
@@ -69,6 +81,8 @@ void xbox_sdl_keyboard_event(int scancode, int down)
     if (scancode < 0 || scancode >= SDL_NUM_SCANCODES)
         return;
 #ifdef __EMSCRIPTEN__
+    if (down && !s_down[scancode])
+        s_dir_at[scancode] = SDL_GetTicks() | 1;
     if (down)
         s_hold_ms[scancode] = KEY_MIN_HOLD_MS;
     else if (s_down[scancode] && SDL_GetTicks() - s_press_at[scancode] >= KEY_SAME_PUMP_MS)
@@ -83,6 +97,9 @@ void xbox_sdl_keyboard_reset(void)
 {
     memset((void *)s_down, 0, sizeof s_down);
     memset((void *)s_press_at, 0, sizeof s_press_at);
+#ifdef __EMSCRIPTEN__
+    memset((void *)s_dir_at, 0, sizeof s_dir_at);
+#endif
 }
 
 static int held(int scancode)
@@ -165,12 +182,31 @@ static int keyboard_menu(void)
            && !xbox_keyboard_driving();
 }
 
+/* A direction key (arrows, I J K L); menu = keyboard_menu(). Driving, and
+ * every native build, keep held(). */
+#ifdef __EMSCRIPTEN__
+static int dir_held(int scancode, int menu)
+{
+    Uint32 t = s_dir_at[scancode], el;
+    if (!menu)
+        return held(scancode);
+    if (!t)
+        return 0;
+    el = SDL_GetTicks() - t;
+    return el < DIR_PULSE_MS || (el >= DIR_REPEAT_MS && s_down[scancode]);
+}
+#else
+#define dir_held(scancode, menu) held(scancode)
+#endif
+
+static SHORT axis_of(int neg_held, int pos_held)
+{
+    return (SHORT)((pos_held ? 32767 : 0) - (neg_held ? 32767 : 0));
+}
+
 static SHORT axis(int negative, int positive)
 {
-    int v = 0;
-    if (held(negative)) v -= 32767;
-    if (held(positive)) v += 32767;
-    return (SHORT)v;
+    return axis_of(held(negative), held(positive));
 }
 
 /* One axis from two key pairs (numpad or letters), clamped to the stick. */
@@ -187,11 +223,13 @@ void xbox_sdl_keyboard_state(XBOX_INPUT_STATE *s)
     WORD b = 0;
     BYTE *an = s->Gamepad.bAnalogButtons;
     SHORT x;
+    int menu = keyboard_menu();
+    (void)menu;   /* native: dir_held is held */
 
-    if (held(SDL_SCANCODE_I))         b |= XBOX_GAMEPAD_DPAD_UP;
-    if (held(SDL_SCANCODE_K))         b |= XBOX_GAMEPAD_DPAD_DOWN;
-    if (held(SDL_SCANCODE_J))         b |= XBOX_GAMEPAD_DPAD_LEFT;
-    if (held(SDL_SCANCODE_L))         b |= XBOX_GAMEPAD_DPAD_RIGHT;
+    if (dir_held(SDL_SCANCODE_I, menu)) b |= XBOX_GAMEPAD_DPAD_UP;
+    if (dir_held(SDL_SCANCODE_K, menu)) b |= XBOX_GAMEPAD_DPAD_DOWN;
+    if (dir_held(SDL_SCANCODE_J, menu)) b |= XBOX_GAMEPAD_DPAD_LEFT;
+    if (dir_held(SDL_SCANCODE_L, menu)) b |= XBOX_GAMEPAD_DPAD_RIGHT;
     if (held(SDL_SCANCODE_RETURN) || held(SDL_SCANCODE_KP_ENTER))
                                         b |= XBOX_GAMEPAD_START;
     if (held(SDL_SCANCODE_BACKSPACE) || held(SDL_SCANCODE_TAB))
@@ -210,13 +248,15 @@ void xbox_sdl_keyboard_state(XBOX_INPUT_STATE *s)
         an[XBOX_BUTTON_BLACK] = 255;
     /* In menus (a title with a driving hook, not driving) up/down are the
      * stick alone: menus that read triggers too (garage) took two steps. */
-    if (!keyboard_menu()) {
+    if (!menu) {
         if (held(SDL_SCANCODE_DOWN)) an[XBOX_BUTTON_LTRIGGER] = 255;
         if (held(SDL_SCANCODE_UP))   an[XBOX_BUTTON_RTRIGGER] = 255;
     }
 
-    if ((x = axis(SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT)) != 0) s->Gamepad.sThumbLX = x;
-    if (keyboard_stick_y() && (x = axis(SDL_SCANCODE_DOWN, SDL_SCANCODE_UP)) != 0)
+    if ((x = axis_of(dir_held(SDL_SCANCODE_LEFT, menu), dir_held(SDL_SCANCODE_RIGHT, menu))) != 0)
+        s->Gamepad.sThumbLX = x;
+    if (keyboard_stick_y()
+        && (x = axis_of(dir_held(SDL_SCANCODE_DOWN, menu), dir_held(SDL_SCANCODE_UP, menu))) != 0)
         s->Gamepad.sThumbLY = x;
     if ((x = axis2(SDL_SCANCODE_KP_4, SDL_SCANCODE_KP_6, SDL_SCANCODE_F, SDL_SCANCODE_H)) != 0)
         s->Gamepad.sThumbRX = x;
