@@ -106,7 +106,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Another player's car no longer jumps forward or back when you get close to it.
 - **Free Roam:** Fixed a freeze in a full city, when many players come and go around you.
 
-## 2026-11-14 (943ed94)
+## 2026-11-14 (304bf1b)
 
 - **Page:** New start page with a side menu and tidy settings; Donate and Ko-fi buttons under Play.
 - **Free Roam:** Other players' cars no longer show up with bare rims.
@@ -122,3 +122,6 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Mac:** Fixed the game freezing at the profile screen on some Macs.
 - **Graphics:** Fewer freezes when new scenery or cars first appear (shaders now build in the background).
 - **Free Roam:** A player who drives away and comes back keeps their car instead of reloading it.
+- **Free Roam:** Other players' cars now really show their tyres (they could still appear as bare rims).
+- **Phones:** Lighter on memory, so the browser closes the game less often; a game left in the background goes offline after a minute and comes back when you return.
+- **Game:** Fixed freezes when leaving a race, the garage or Free Roam, and a rare freeze while the picture was being drawn.
