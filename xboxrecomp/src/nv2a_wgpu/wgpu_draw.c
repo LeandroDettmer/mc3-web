@@ -381,7 +381,11 @@ static int wide_2d(const Nv2aRawBatch *b, float pw, float ph)
 /* HUD twin (wgpu_surf.c): is b a 2D draw that needs nothing of the scene --
  * pre-transformed, neither depth nor stencil tested -- and which title
  * pixels may it touch (its vertices' box within the surface clip; positions
- * not floats: the whole clip)? */
+ * not floats: the whole clip)? Transformed draws count too inside a clip at
+ * most half the surface wide, untested or depth ALWAYS: MC3's minimap draws
+ * its streets as geometry under its own camera, clipped to its box (128 wide
+ * at x 47), which at the scene's size came out aliased and then stretched;
+ * the box is then the clip. */
 static int hud_box(const Nv2aRawBatch *b, float box[4])
 {
     const uint32_t *r = b->regs;
@@ -393,7 +397,16 @@ static int hud_box(const Nv2aRawBatch *b, float box[4])
     float v[2];
     uint32_t i;
 
-    if (b->xform != 0 || (b->zeta_va && (r[0x30C / 4] || r[0x32C / 4])))
+    if (b->xform != 0) {
+        uint32_t bpp = b->surface.bytes_per_pixel ? b->surface.bytes_per_pixel : 4;
+        float sw = (float)(b->surface.pitch ? b->surface.pitch / bpp : b->surface.width);
+        if (cx1 <= cx0 || cy1 <= cy0 || (cx1 - cx0) * 2.0f > sw
+            || (b->zeta_va && (r[0x32C / 4] || (r[0x30C / 4] && r[0x354 / 4] != 0x207))))
+            return 0;
+        box[0] = cx0; box[1] = cy0; box[2] = cx1; box[3] = cy1;
+        return 1;
+    }
+    if (b->zeta_va && (r[0x30C / 4] || r[0x32C / 4]))
         return 0;
     if (cx1 <= cx0 || cy1 <= cy0) {             /* no clip set: no bound from it */
         cx0 = cy0 = -INFINITY;

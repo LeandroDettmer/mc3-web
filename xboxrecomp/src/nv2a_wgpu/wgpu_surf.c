@@ -630,8 +630,9 @@ static WsSurf *ws_bind(const Nv2aSurface *sf, uint32_t zeta_va, WsDepth **dout, 
         if (!hud)
             s->n3++;
     }
-    /* HUD twin: a 2D draw once half the previous frame's scene is in. */
-    hi = hud && s->n3 * 2 >= s->n3_prev && (s->hmode || ws_go_hi(s));
+    /* HUD twin: a 2D draw once half the previous frame's scene is in; a clear
+     * (draw 0, counts nothing) only into a twin already in use. */
+    hi = hud && (draw ? s->n3 * 2 >= s->n3_prev && (s->hmode || ws_go_hi(s)) : s->hmode);
     if (hi) {
         float x0 = hud[0] > 0.0f ? hud[0] : 0.0f, y0 = hud[1] > 0.0f ? hud[1] : 0.0f;
         float x1 = hud[2] < (float)s->w ? hud[2] : (float)s->w;
@@ -666,13 +667,22 @@ void wsurf_clear(const Nv2aSurface *sf, uint32_t zeta_va, uint32_t flags,
                  uint32_t argb, uint32_t zs, const WsClearRegs *r)
 {
     WsDepth *d;
-    WsSurf *s = ws_bind(sf, zeta_va, &d, 0, NULL);
-    uint32_t x0 = 0, y0 = 0, x1, y1, mask, z;
+    WsSurf *s;
+    uint32_t x0 = 0, y0 = 0, x1, y1, mask, z, tw, th;
+    uint32_t ax = sf->aa_sx ? sf->aa_sx : 1, ay = sf->aa_sy ? sf->aa_sy : 1;
     int partial = 0, color, depth, stencil;
-    float rgba[4], zf;
+    float rgba[4], zf, box[4];
 
+    /* A colour-only clear of a rectangle stays on the HUD twin when 2D draws
+     * already go there (MC3's minimap clears its alpha, 0x80, before its map):
+     * going back to the scene's size for it would blur the HUD drawn so far. */
+    box[0] = (float)((r->rect_h & 0xFFFF) * ax); box[2] = (float)(((r->rect_h >> 16) + 1) * ax);
+    box[1] = (float)((r->rect_v & 0xFFFF) * ay); box[3] = (float)(((r->rect_v >> 16) + 1) * ay);
+    s = ws_bind(sf, zeta_va, &d, 0, r->have && !(flags & 3) && (flags & 0xF0) ? box : NULL);
     if (!s)
         return;
+    tw = s_pass.hi ? s->hpw : s->pw;            /* the attachment */
+    th = s_pass.hi ? s->hph : s->ph;
     x1 = s->w; y1 = s->h;
     if (r->have) {
         /* The clear rectangle is in logical pixels, like SURFACE_CLIP; the
@@ -702,10 +712,10 @@ void wsurf_clear(const Nv2aSurface *sf, uint32_t zeta_va, uint32_t flags,
         WgClearRect *c;
         wsurf_pass_begin();
         c = (WgClearRect *)wg_emit(WG_OP_CLEAR_RECT, sizeof *c);
-        c->x = wsurf_x(x0, s->w, s->pw, s->kw);
-        c->y = ws_to(y0, s->ph, s->h);
-        c->width = wsurf_x(x1, s->w, s->pw, s->kw) - c->x;
-        c->height = ws_to(y1, s->ph, s->h) - c->y;
+        c->x = wsurf_x(x0, s->w, tw, s->kw);
+        c->y = ws_to(y0, th, s->h);
+        c->width = wsurf_x(x1, s->w, tw, s->kw) - c->x;
+        c->height = ws_to(y1, th, s->h) - c->y;
         c->flags = (color ? WG_CR_COLOR : 0) | (depth ? WG_CR_DEPTH : 0)
                    | (stencil ? WG_CR_STENCIL : 0) | (mask << WG_CR_MASK_SHIFT);
         memcpy(c->color, rgba, sizeof c->color);
@@ -714,8 +724,9 @@ void wsurf_clear(const Nv2aSurface *sf, uint32_t zeta_va, uint32_t flags,
         return;
     }
     if (s_pass.open) {                          /* drawn into: clear in a new pass */
+        int hi = s_pass.hi;
         ws_pass_close();
-        ws_target(s, d, 0);
+        ws_target(s, d, hi);
     }
     if (color) {
         s_pass.color_load = WG_LOAD_CLEAR;
