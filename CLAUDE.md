@@ -2002,6 +2002,20 @@ only with MC3_PERF, their only reader.
   override before the menu is built. Sign-in texts (Who_Signed_In, Not
   Signed In, Sign-In Failed) show the page's nick (MC3_PLAYER_NAME, ASCII,
   cut to each text's length; empty -> "Player").
+  Tune Your Vehicle in Free Roam (2026-11-16, untested in game; browser,
+  src/games/remix/online_tune.c, recomp_lookup_manual, no relift): the pause
+  menu's items (sub_0018D610) add CM_TuningOptions (screen 0x3A, mcMenuIGTune
+  0x4638B8) only with state != 7/3, race flow phase [[0x557EEC]+4] == 5, local
+  players [[0x53F2E0]+0x4C] == 1, a garage car (0x53F2FC == 0) and page byte
+  [[[[0x50F148]+0xC]+0xC]+0xE9] == 0; Free Roam drives in phase 6 with 1 + slots
+  players and usually a showroom car. In the Online Free Roam cruise (race type
+  0) those four are set for the build and put back. Its Exit (sub_0018FBF0)
+  copies the tuned CarCfg over garage car [0x53F80D] (sub_00271E20) and sets the
+  dirty byte 0x557648: Online the slot written is the pick's (0x53F2FE) and the
+  Online profile is saved (online_garage_left); a showroom car's garage slot is
+  put back (tune kept until Free Roam is entered again); the dirty byte put back;
+  roam_send_cfg once (peers rebuild our car once). Never the career's save (the
+  blob is the Online one). '[ONLINE] tune: ...'.
 
 ### First lift (2026-10-14)
 
