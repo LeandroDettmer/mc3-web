@@ -539,11 +539,8 @@
       </div>
       <div class="online-now" id="online-now" hidden><div class="on-body" role="status"></div><button type="button" class="btn on-view" aria-haspopup="dialog" aria-controls="players-dlg" hidden>View players</button></div>
     </div>
-    <div id="cache" hidden>
-      <p class="hint" id="cache-status" role="status" style="margin-top:16px"></p>
-      <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-clear">Clear game data</button></div>
-    </div>
     <ul class="checks" id="checks" aria-label="What the game needs"></ul>
+    <div class="pane" id="play-feats" style="margin-top:20px"></div>
   </section>
 
   <section role="tabpanel" data-pane="settings" hidden>
@@ -672,6 +669,11 @@
     <h3 style="margin-top:24px">Snapshots</h3>
     <ul class="profiles" id="snaps" aria-label="Save snapshots"></ul>
     <p class="hint" style="margin-top:8px">Every 2 days, when it starts, the game copies all your saves (profiles and the online profile) into a dated snapshot in this browser; snapshots over 7 days old are removed, the newest always kept. <b>Restore</b> puts a snapshot's saves back (before Play) and keeps the current ones as a snapshot first.</p>
+    <h3 style="margin-top:24px">Game data</h3>
+    <div id="cache" hidden>
+      <p class="hint" id="cache-status" role="status" style="margin-top:8px"></p>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cache-clear">Clear game data</button></div>
+    </div>
   </section>
 
   <section role="tabpanel" data-pane="mods" hidden>
@@ -721,6 +723,11 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 17a8 8 0 1 1 16 0"/><path d="M12 17l4-6"/><path d="M7 13l1 .6M17 13l-1 .6M12 9v1"/></svg>
           <h3>Drift for Cash</h3>
           <p>Hang the tail out, chain the drifts, stack the multiplier. Online wins and drift points pay real prizes and unlock more.</p>
+        </li>
+        <li class="feat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.4-6.4"/><path d="M21 12a9 9 0 0 1-15.4 6.4"/><path d="M18 2v4h-4M6 22v-4h4"/><circle cx="12" cy="12" r="2.5"/></svg>
+          <h3>Your Drift, Your Camera</h3>
+          <p>Pick a drift style or tune your own and save it. Drag on the picture to swing the camera all the way around your car.</p>
         </li>
         <li class="feat">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 20V11a6 6 0 0 1 12 0v9l-2-1.5-2 1.5-2-1.5-2 1.5-2-1.5z"/><circle cx="10" cy="11" r="1"/><circle cx="14" cy="11" r="1"/></svg>
@@ -1850,6 +1857,7 @@
     const ul = $('checks');
     ul.textContent = '';
     for (const [ok, what, text] of checks) {
+      if (ok && ok !== 'warn') continue;   // Play lists only what is wrong or worth a note; the game's features fill the rest
       const li = document.createElement('li'), m = document.createElement('span'), w = document.createElement('b'), t = document.createElement('span');
       const warn = ok === 'warn';
       li.className = warn ? 'warn' : ok ? 'ok' : 'no';
@@ -2816,6 +2824,8 @@
   renderKeys($('keys'));
   renderKeys($('keys-ingame'));
   renderKeys($('keys-ig-input'));   // the in-game Settings' Controls tab lists them too (owner: easier to find)
+  // Play shows the game's features (About > Features, copied) where the all-OK checks were (owner, 2026-11-16)
+  $('play-feats').append(...[...document.querySelectorAll('[data-pane=features] > .feat-lede, [data-pane=features] > .feat-grid')].map(n => n.cloneNode(true)));
   $('raw').value = store.get('raw', '');
   $('raw').oninput = () => { store.set('raw', $('raw').value); preview(); };
   $('reset').onclick = () => {
