@@ -1,6 +1,9 @@
 # Cloud saves (keyphrase): implementation plan
 
-Status: plan only (2026-11-16). Nothing here is built or deployed.
+Status (2026-11-16): the client is built (phases 2-4: `web/cloud.js`, the
+Saves tab block, the C signal; `tools/test_cloud_saves.mjs`), untested in a
+browser; the server (phase 1, inside the disc Worker) is written separately.
+Nothing is deployed. Client changes from this plan are marked "(as built)".
 
 Goal: a player's saves follow them to any browser by a keyphrase only they
 have. Adapted from nfsu2-web's "Passphrase saves" (th0mk, MIT;
@@ -141,9 +144,9 @@ is COEP require-corp, and a cors-mode fetch needs no CORP header.
 
 ## 2. Client crypto and keyphrase (vault.ts:1-103, ported to plain JS)
 
-The page is plain JS with no bundler, so this goes in a new pre-js file,
-`web/cloud.js`, plus `web/cloud-words.js`. Both load from index.html like
-`lan.js`.
+The page is plain JS with no bundler, so this goes in a new page script,
+`web/cloud.js` (as built: the word list inside it, one file to stage), loaded
+from index.html like `lan.js`. Requests go to `config.json savesUrl` + `/v`.
 
 - **Keyphrase:** `mc3-` followed by 8 words from EFF short list 1 (1296
   words; nfsu2's `vault-words.ts` copied with credit), about 2^83. The words
@@ -155,12 +158,14 @@ The page is plain JS with no bundler, so this goes in a new pre-js file,
   key; bytes 32-63 are the token (base64url, 43 characters) (vault.ts:83-88).
   The AAD is the same string.
 - **Box:** a version byte (1), a 12-byte IV, then the ciphertext and tag
-  (vault.ts:90-103). The plaintext is a stored zip, deflated through
-  `CompressionStream('deflate-raw')`. The zip writer reuses index.html's
-  `zipStore` (index.html:2193). The page needs an unzip of its own: a small
-  stored-only reader.
-- The zip comment carries the GUARDED marker (vault.ts:155-161), so a future
-  page can tell boxes sent by pages that honour the "fewer profiles" rule.
+  (vault.ts:90-103). The plaintext, deflated through
+  `CompressionStream('deflate-raw')`, is (as built, not a zip: no zip reader
+  needed, and only the page reads it) a u32 LE header length, a JSON header
+  `{ "v": 1, "guarded": 1, "files": [[path, size], ...] }`, then the files'
+  bytes in that order. A header `v` above 1 or a box byte above 1 is "reload
+  the page", never damaged, never sent over by itself.
+- `guarded: 1` is nfsu2's GUARDED marker (vault.ts:155-161): the box comes
+  from a page that honours the "fewer profiles" rule.
 
 ## 3. What goes in the box
 
@@ -353,6 +358,21 @@ Bodies of existing overrides only, so `make web` is enough.
 - **Page writes.** Import, online import, snapshot restore and the cloud take
   itself call `cloud.intended()` and then `push()`. A restore the player did
   on purpose is no 'fewer' (vault.ts:424-428).
+- **As built (owner: no spam, the client is the polite side).** Every
+  automatic send (save signal, page write, page open) waits 5 s after the
+  last signal and at most one automatic try runs every 5 minutes
+  (`PUSH_GAP`); unchanged files (hash = link.hash) are never sent. While the
+  5 minutes run, the next box is sealed ahead (`ready`) so pagehide can send
+  it with keepalive (60 KB at most; else the next page open sends it). A
+  failure backs automatic tries off 1 min doubling to 1 h; a 429/503
+  Retry-After (1 min at least) holds manual tries too; no retry loop. An
+  automatic pull runs at most once a minute (page open, then Play within it
+  asks nothing). Page writes call `intended()` and the debounced send, not
+  an immediate push; the page's Delete calls `removed()`.
+- **As built, against "Server as built" below:** requests carry
+  `credentials: 'include'` (the disc Worker's gate, as disc_cache.js); a
+  successful write also restarts the 5 minutes, so an automatic send never
+  meets the server's 60 s write limit.
 
 ## 6. UI: the Saves tab (index.html:669-684)
 

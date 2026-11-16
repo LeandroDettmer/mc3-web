@@ -36,7 +36,18 @@ with xboxrecomp; modelled on nfsu2-sw).
   date does not count for the 2 days). '[SAVE] snapshot ...'; MC3_SNAP_TEST=1
   takes one each boot. The Saves tab lists, downloads and restores them
   (before Play; the current saves go into a snapshot first). The game only
-  copies; a save is rewritten only by the player's Restore. Garage, car list or CarCfg changes (the car-mods project,
+  copies; a save is rewritten only by the player's Restore. Cloud saves
+  (2026-11-16, client only, untested in a browser; web/cloud.js after
+  nfsu2-web's vault, docs/cloud-saves-plan.md, tools/test_cloud_saves.mjs):
+  with config.json savesUrl (server in the disc Worker, its /v) the Saves tab
+  keeps career folders + online/profile.bin sealed under a keyphrase; every
+  take snapshots the saves first and only overlays (never deletes); taken by
+  itself only before Play, local unchanged, theirs not older/bare/thin, every
+  file passing its checks and no newer profile.bin, else the player picks;
+  sends debounced (one automatic try per 5 min, unchanged never sent,
+  backoff, Retry-After; pagehide keepalive <= 60 KB). The game signals each
+  good save (web_fs.c mc3_saves_box, '[SAVE] saves changed (seq N)'; no
+  format change). '[cloud] ...' page log lines. Garage, car list or CarCfg changes (the car-mods project,
   mc3-web-carmod, included) must keep old saves loading. Any change that
   touches a save, its format or its folders gets a migration note in its
   commit and here. Cache code (disc_cache.js, the `cache` folder) touches

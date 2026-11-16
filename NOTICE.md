@@ -81,7 +81,10 @@ These terms apply to Leandro Dettmer's code in this repository.
   stick where the thumb lands, sliding between pedals, the Wake Lock, phone detection and defaults, the device
   checks' memory and WebGPU notes). The players' country flags follow its Your flag: the flag in the roam core's
   HELLO (its core 13 layout), and `web/flags.png`, made by `tools/flags_sheet.mjs` (its `flagSheet`) from its
-  `runtime/flags.dat`. nfsu2-web is itself
+  `runtime/flags.dat`. Cloud saves (`web/cloud.js`, `tools/test_cloud_saves.mjs`) are ported from its passphrase
+  saves (`vault.ts`, `vault-words.ts`, `test/vault.test.mjs`): the keyphrase, its PBKDF2 key and token, the AES-GCM
+  box and the sync rules; its word list is EFF's short wordlist 1 by Joseph Bonneau and the EFF (CC BY 3.0 US,
+  <https://www.eff.org/dice>). nfsu2-web is itself
   based on NFSU2Recomp by Talha Müderrisoğlu (MIT).
 
 - **flag-icons** by Panayiotis Lipiridis (lipis/flag-icons 7.6.0), MIT ([LICENSES/flag-icons.txt](LICENSES/flag-icons.txt)).

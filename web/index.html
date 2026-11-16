@@ -40,6 +40,7 @@
 <script src="lan.js"></script>
 <script src="rtc.js"></script>
 <script src="touch.js"></script>
+<script src="cloud.js"></script>   <!-- cloud saves (keyphrase): window.MC3Cloud; missing = no Cloud saves block -->
 <title>mcdub3.xyz</title>
 <style>
   /* the start page (2026-11-14): a dark full-bleed page, a big italic condensed menu on the left (the picked item on a
@@ -142,6 +143,10 @@
   #released::before { content: "\00b7  "; }
   #changelog-dlg h3 { margin: 24px 0 8px; color: var(--gold); font-style: italic; }
   dialog#changelog-dlg { width: min(640px, calc(100% - 32px)); }
+  dialog#cloud-dlg { width: min(560px, calc(100% - 32px)); }
+  .cloud-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+  @media (max-width: 480px) { .cloud-sides { grid-template-columns: 1fr; } }
+  #cloud-key { word-break: break-all; }
   #changelog-dlg li { line-height: 1.45; }
   #changelog-dlg li strong { font-style: italic; }
   #changelog-dlg details { margin-top: 10px; }
@@ -679,6 +684,36 @@
     <ul class="profiles" id="profiles" aria-label="Profiles in this browser"></ul>
     <p class="msg" id="saves-msg" role="status"></p>
     <p class="hint" style="margin-top:12px">Saved in this browser's private storage (OPFS), under <code>UDATA/54540079/</code>; the game keeps the last two copies of each one and puts the newest good one back if a save is ever cut short. <b>Export all saves</b> downloads every profile, the online profile and those copies as one <code>.zip</code>: keep it somewhere safe. Download saves a profile (the Remix's is <code>.mc3Remix</code>, the DUB Edition's <code>.mc3</code>). Import takes one downloaded from this site (another browser or device) or, for the DUB Edition, from an Xbox, and signs it for the port; a file of the other game is refused; memory-unit images (<code>.gsx</code>) come later, until then <code>make import-save FILE=…</code>. PS2 profiles can't be used.</p>
+    <div id="cloud" hidden>
+      <h3 style="margin-top:24px">Cloud saves</h3>
+      <div id="cloud-off">
+        <p class="hint">Keep your saves under a keyphrase, then load them in any other browser or device with it. Only the career profiles and the online profile go up, sealed in this browser: the server cannot read them. Settings stay on each device.</p>
+        <div class="row" style="margin-top:8px"><button type="button" class="btn" id="cloud-create">Create keyphrase</button></div>
+        <form class="row" id="cloud-load" style="margin-top:8px">
+          <input type="text" id="cloud-phrase" placeholder="mc3-word-word-…" aria-label="Your keyphrase" autocomplete="off" spellcheck="false">
+          <button type="submit" class="btn">Load</button>
+        </form>
+      </div>
+      <div id="cloud-on" hidden>
+        <div class="row" style="margin-top:8px">
+          <code id="cloud-key"></code>
+          <button type="button" class="btn" id="cloud-show">Show</button>
+          <button type="button" class="btn" id="cloud-copy">Copy</button>
+          <button type="button" class="btn" id="cloud-dl">Download</button>
+        </div>
+        <p class="hint" id="cloud-status" role="status" style="margin-top:8px"></p>
+        <div class="row" style="margin-top:8px">
+          <button type="button" class="btn" id="cloud-choose" hidden>Choose…</button>
+          <button type="button" class="btn" id="cloud-sync">Sync now</button>
+          <button type="button" class="btn" id="cloud-resend" hidden>Send again</button>
+          <button type="button" class="btn" id="cloud-back" hidden>Go back a day</button>
+          <button type="button" class="btn" id="cloud-unlink">Stop syncing here</button>
+          <button type="button" class="btn danger" id="cloud-delete">Delete from the server</button>
+        </div>
+        <p class="hint" style="margin-top:8px">Anyone with this keyphrase can load and replace these saves: keep it private, and keep a copy (the page cannot recover it). While you play, saves go up at most every 5 minutes, and when the page closes; another browser's newer saves come in when the page opens and at Play. Before saves come in, the ones here are kept as a snapshot; a sync never deletes a profile here.</p>
+      </div>
+      <p class="msg" id="cloud-msg" role="status"></p>
+    </div>
     <h3 style="margin-top:24px">Snapshots</h3>
     <ul class="profiles" id="snaps" aria-label="Save snapshots"></ul>
     <p class="hint" style="margin-top:8px">Every 2 days, when it starts, the game copies all your saves (profiles and the online profile) into a dated snapshot in this browser; snapshots over 7 days old are removed, the newest always kept. <b>Restore</b> puts a snapshot's saves back (before Play) and keeps the current ones as a snapshot first.</p>
@@ -814,6 +849,21 @@
   <div class="dlg-head"><strong id="players-title">Players online</strong><button type="button" class="btn" id="players-close">Close</button></div>
   <p class="hint" id="players-sum"></p>
   <div id="players-list"></div>
+</dialog>
+<dialog id="cloud-dlg" aria-labelledby="cloud-dlg-title">   <!-- outside .app and the stage, as players-dlg: at Play too -->
+  <div class="dlg-head"><strong id="cloud-dlg-title">Cloud saves: which to keep?</strong></div>
+  <p id="cloud-why"></p>
+  <div class="cloud-sides">
+    <div><b>This browser</b><p class="hint" id="cloud-here"></p></div>
+    <div><b>The cloud</b><p class="hint" id="cloud-there"></p></div>
+  </div>
+  <p class="hint" id="cloud-what">Keep this browser's: these saves replace the cloud's (the server keeps its copy of an earlier day). Use the cloud's: this browser's saves are kept as a snapshot first, then the cloud's come in; profiles only here stay.</p>
+  <div class="row">
+    <button type="button" class="btn" id="cloud-mine">Keep this browser's</button>
+    <button type="button" class="btn" id="cloud-theirs">Use the cloud's</button>
+    <button type="button" class="btn" id="cloud-later">Decide later</button>
+  </div>
+  <p class="msg" id="cloud-dlg-msg" role="status"></p>
 </dialog>
 
 <div class="stage" id="stage" hidden>
@@ -2117,7 +2167,7 @@
       del.setAttribute('aria-label', 'Delete ' + r.name);
       del.onclick = async () => {
         if (!confirm(`Delete the profile “${r.name}” from this browser? Download it first to keep a copy. This cannot be undone.`)) return;
-        try { await dir.removeEntry(r.folder, { recursive: true }); savesMsg(`Deleted ${r.name}.`); }
+        try { await dir.removeEntry(r.folder, { recursive: true }); savesMsg(`Deleted ${r.name}.`); if (cloud?.link) { cloud.removed(); cloud.saved(); } }
         catch (e) { savesMsg('Could not delete: ' + e.message, true); }
         listSaves();
       };
@@ -2187,6 +2237,7 @@
       await writeBytes(d, n, bytes);
       await keepCopy(bak, n, bytes);
     }
+    cloudChanged();
     return true;
   }
   // Every save file in one .zip (stored, no compression; UTF-8 names): the profiles, the online profile, the backups.
@@ -2238,30 +2289,40 @@
     }
     await writeBytes(t, 'snapshot.txt', new TextEncoder().encode(`files ${files.length}\n`));
   }
+  /** The saves as they are now (now: already read) into a dated snapshot of today; false: there are none. */
+  async function snapNow(now) {
+    now = now || await snapCurrent();
+    if (!now.length) return false;
+    const sr = await snapRoot(), t = new Date();
+    const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    let name = day;
+    for (let k = 2; await sr.getDirectoryHandle(name).then(() => true, () => false); k++) name = `${day}-${k}`;
+    await writeTree(sr, name, now);
+    return true;
+  }
+  /** Files [{ name, data }] written at their paths under UDATA/ and online/; nothing else touched, nothing deleted. */
+  async function overlaySaves(files) {
+    const root = await navigator.storage.getDirectory();
+    for (const f of files) {
+      const parts = f.name.split('/'), n = parts.pop();
+      if (!['UDATA', 'online'].includes(parts[0])) continue;
+      let d = root;
+      for (const p of parts) d = await d.getDirectoryHandle(p, { create: true });
+      // as an import: the old file and the restored one become the rotating copies, so the boot check keeps it
+      const bak = parts[0] === 'UDATA' ? await backupDir(...parts) : d, old = await readBytes(d, n);
+      if (old?.length) await keepCopy(bak, n, old);
+      await writeBytes(d, n, f.data);
+      await keepCopy(bak, n, f.data);
+    }
+  }
   async function restoreSnap(label, files) {
     if (playing) { savesMsg('A snapshot can only be restored before Play: reload the page, then restore it.', true); return; }
     if (!confirm(`Put back the saves of the snapshot from ${label}? Your current saves are kept first as a new snapshot. Profiles that are not in the snapshot stay as they are.`)) return;
     try {
-      const now = await snapCurrent(), sr = await snapRoot(), t = new Date();
-      if (now.length) {
-        const day = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
-        let name = day;
-        for (let k = 2; await sr.getDirectoryHandle(name).then(() => true, () => false); k++) name = `${day}-${k}`;
-        await writeTree(sr, name, now);
-      }
-      const root = await navigator.storage.getDirectory();
-      for (const f of files) {
-        const parts = f.name.split('/'), n = parts.pop();
-        if (!['UDATA', 'online'].includes(parts[0])) continue;
-        let d = root;
-        for (const p of parts) d = await d.getDirectoryHandle(p, { create: true });
-        // as an import: the old file and the restored one become the rotating copies, so the boot check keeps it
-        const bak = parts[0] === 'UDATA' ? await backupDir(...parts) : d, old = await readBytes(d, n);
-        if (old?.length) await keepCopy(bak, n, old);
-        await writeBytes(d, n, f.data);
-        await keepCopy(bak, n, f.data);
-      }
-      savesMsg(`Restored the snapshot from ${label}.${now.length ? ' The saves it replaced are kept as a snapshot of today.' : ''}`);
+      const had = await snapNow();
+      await overlaySaves(files);
+      savesMsg(`Restored the snapshot from ${label}.${had ? ' The saves it replaced are kept as a snapshot of today.' : ''}`);
+      cloudChanged();
     } catch (e) { savesMsg('Could not restore: ' + (e.message || e), true); }
     listSaves(); listSnaps();
   }
@@ -2381,9 +2442,184 @@
       const w = await fh.createWritable();
       await w.write(data); await w.close();
       oprofMsg('Imported: it counts from the next Free Roam. The one it replaced is kept as a backup copy.');
+      cloudChanged();
     } catch (e) { oprofMsg('Could not write the profile: ' + (e.message || e), true); }
     oprofShow();
   }
+
+  // --- cloud saves under a keyphrase (web/cloud.js, docs/cloud-saves-plan.md; 2026-11-16, untested in a browser).
+  // config.json savesUrl (requests go to savesUrl + '/v'); none, cloud.js not staged, no OPFS or a server that does not
+  // answer 401 there: no block and nothing changes. The link (phrase, version, hash) is localStorage mc3.cloud.
+  let cloud = null, cloudSeq = 0, cloudPrePlay = false, cloudKeyUntil = 0, cloudDlgFor = null;
+  const cloudMsg = (t, bad) => { $('cloud-msg').textContent = t; $('cloud-msg').classList.toggle('bad', !!bad); };
+  const CLOUD_WHY = {
+    both: 'The saves here and the cloud\'s both changed since they last synced.',
+    load: 'This browser already has saves of its own.',
+    older: 'The cloud\'s saves are older than the ones this browser last synced (the server went back).',
+    bare: 'The cloud\'s saves have no profile, and this browser has some.',
+    thin: 'The cloud\'s saves lack a profile this browser has.',
+    newer: 'The cloud\'s saves were made by a newer version of the game: reload the page to get it, then choose.',
+    bad: 'Some of the cloud\'s files fail their checks: Use the cloud\'s takes only the good ones.',
+    empty: 'This browser has no profile any more, while the cloud has some.',
+    fewer: 'This browser has fewer good profiles than when it last synced (one deleted or damaged).',
+  };
+  /** A page write (import, restore): the player meant it, so fewer profiles then is no loss; sent within 5 minutes. */
+  function cloudChanged() { if (cloud?.link) { cloud.intended(); cloud.saved(); } }
+  async function cloudDir(parts) {          // an OPFS folder by path, null: none (nothing made)
+    let d = await navigator.storage.getDirectory();
+    try { for (const p of parts) d = await d.getDirectoryHandle(p); return d; } catch { return null; }
+  }
+  // The saves here, every read error thrown (a file the game holds open: the next try), and each career file's newest
+  // rotating copy, which web_fs.c's career_good judges it against.
+  async function cloudRead() {
+    const raw = [], u = await cloudDir(['UDATA']), o = await cloudDir(['online']), refs = {};
+    if (u) await readTree(u, 'UDATA/', raw);
+    if (o) {
+      let fh = null;
+      try { fh = await o.getFileHandle('profile.bin'); } catch (e) { if (e.name !== 'NotFoundError') throw e; }
+      if (fh) { const f = await fh.getFile(); raw.push({ name: 'online/profile.bin', data: new Uint8Array(await f.arrayBuffer()), time: new Date(f.lastModified) }); }
+    }
+    const files = raw.filter(f => MC3Cloud.keeps(f.name)).map(f => ({ path: f.name, data: f.data, mtime: f.time?.getTime() }));
+    for (const f of files) {
+      if (!f.path.startsWith('UDATA/')) continue;
+      const parts = f.path.split('/'), n = parts.pop(), d = await cloudDir(['backup', ...parts]);
+      const r = d && (await readBytes(d, n + '.bak1') || await readBytes(d, n + '.bak2'));
+      if (r) refs[f.path] = r;
+    }
+    return { files, refs };
+  }
+  // Plan 4.3: a snapshot of the saves here first (it failing, nothing is written), then each file overlaid
+  async function cloudApply(files) {
+    const now = (await cloudRead()).files.map(f => ({ name: f.path, data: f.data }));
+    await snapNow(now);
+    await overlaySaves(files.map(f => ({ name: f.path, data: f.data })));
+    listSaves(); listSnaps(); oprofShow();
+  }
+  function cloudSide(s, other) {
+    if (!s) return 'Not known (the server did not answer).';
+    const names = s.profiles ? (s.profiles.length ? s.profiles.join(', ') : 'no career profile') : 'profiles not known';
+    const on = s.online ? `; online profile $${s.online.money.toLocaleString('en-US')}, ${s.online.cars} cars` : '';
+    const when = s.saved ? ` · saved ${new Date(s.saved).toLocaleString()}${other?.saved && s.saved > other.saved ? ' (newer)' : ''}` : '';
+    return names + on + when;
+  }
+  function cloudSides() {
+    const st = cloud.state;
+    if (st.s !== 'conflict') return;
+    $('cloud-why').textContent = CLOUD_WHY[st.why] || '';
+    $('cloud-here').textContent = cloudSide(st.here, st.cloud);
+    $('cloud-there').textContent = cloudSide(st.cloud, st.here);
+    const newer = st.why === 'newer';
+    $('cloud-mine').hidden = $('cloud-theirs').hidden = $('cloud-what').hidden = newer;
+    $('cloud-theirs').disabled = playing && !cloudPrePlay;
+    $('cloud-dlg-msg').textContent = $('cloud-theirs').disabled ? 'Use the cloud\'s works before Play: reload the page to pick it.' : '';
+  }
+  /** The conflict dialog; resolves when it closes (a choice made, or Decide later). */
+  function cloudAsk() {
+    const dlg = $('cloud-dlg');
+    cloudSides();
+    if (!dlg.open) dlg.showModal();
+    return new Promise(r => dlg.addEventListener('close', r, { once: true }));
+  }
+  async function cloudPick(job) {
+    $('cloud-mine').disabled = $('cloud-theirs').disabled = true;
+    await job();
+    $('cloud-mine').disabled = false;
+    if (cloud.state.s === 'error') { cloudSides(); $('cloud-dlg-msg').textContent = 'Error: ' + cloud.state.msg; $('cloud-theirs').disabled = false; return; }
+    $('cloud-dlg').close();
+  }
+  function cloudShow() {
+    if (!cloud) return;
+    const st = cloud.state, l = cloud.link;
+    $('cloud-off').hidden = !!l;
+    $('cloud-on').hidden = !l;
+    if (!l) {
+      if (st.s === 'working') cloudMsg(st.what + '…');
+      else if (st.s === 'error') cloudMsg('Error: ' + st.msg, true);
+      else if (st.s === 'other') cloudMsg('Cloud saves are handled by another tab of this page.');
+    } else {
+      $('cloud-key').textContent = Date.now() < cloudKeyUntil ? l.phrase : l.phrase.slice(0, 3) + '-••••••••';
+      $('cloud-status').textContent = st.s === 'working' ? st.what + '…'
+        : st.s === 'error' ? 'Error: ' + st.msg + '. The next save, Play or Sync now tries again.'
+        : st.s === 'gone' ? 'Not on the server any more (deleted in another browser, or two years unused). Send again puts the saves here under this keyphrase.'
+        : st.s === 'other' ? 'Synced by another tab of this page.'
+        : st.s === 'conflict' ? (CLOUD_WHY[st.why] || '') + ' Nothing syncs until you choose.'
+        : l.saved ? `Synced ${new Date(l.saved).toLocaleString()}.${cloud.dirty ? ' The latest changes go up within 5 minutes.' : ''}` : 'Linked.';
+      $('cloud-choose').hidden = st.s !== 'conflict';
+      $('cloud-resend').hidden = st.s !== 'gone';
+      $('cloud-sync').hidden = st.s === 'gone' || st.s === 'conflict';
+      $('cloud-back').hidden = !l.earlier || st.s === 'conflict';
+    }
+    // a new conflict on the start page opens the dialog once; in a game it waits for the Saves tab or the next Play
+    if (st.s === 'conflict' && cloudDlgFor !== st && (!playing || cloudPrePlay)) { cloudDlgFor = st; cloudAsk(); }
+    if ($('cloud-dlg').open) cloudSides();
+  }
+  async function cloudInit() {
+    if (!cfg?.savesUrl || !window.MC3Cloud || !opfs) return;
+    const url = String(cfg.savesUrl).replace(/\/+$/, '') + '/v';
+    const c = new MC3Cloud.Sync({
+      url, read: cloudRead, apply: cloudApply,
+      load: () => store.get('cloud', null), save: l => store.set('cloud', l),
+      log: out, playing: () => playing && !cloudPrePlay,
+      setTimer: (fn, ms) => setTimeout(fn, ms), clearTimer: id => clearTimeout(id),
+    });
+    if (!c.link && !await MC3Cloud.available(url)) return;   // a server without cloud saves (yet): no block
+    cloud = c;
+    cloud.onChange = cloudShow;
+    $('cloud').hidden = false;
+    await cloud.lock();
+    cloudShow();
+    if (cloud.link) { await cloud.pull({ auto: true }); await cloud.push({ auto: true }); }
+  }
+  // At Play, before the game reads its saves: another browser's newer ones come in (4 s at most), a conflict asks
+  async function cloudBeforePlay() {
+    if (!cloud?.link) return;
+    cloudPrePlay = true;
+    try {
+      await Promise.race([cloud.pull({ auto: true, timeoutMs: 4000 }), new Promise(r => setTimeout(r, 4500))]);
+      if (cloud.state.s === 'conflict') await cloudAsk();
+    } finally { cloudPrePlay = false; }
+  }
+  // The game bumps mc3_saves_box after each good save (src/web_fs.c; web/pre.js Module.mc3SavesSeq): debounced send
+  setInterval(() => {
+    if (!cloud || !playing) return;
+    const s = window.Module?.mc3SavesSeq?.();
+    if (s !== undefined && s !== cloudSeq) { cloudSeq = s; cloud.saved(); }
+  }, 2000);
+  addEventListener('pagehide', () => cloud?.flush());
+  $('cloud-create').onclick = async () => {
+    cloudMsg('');
+    const p = await cloud.create();
+    if (!p) return;
+    cloudKeyUntil = Date.now() + 60e3; cloudShow(); setTimeout(cloudShow, 60e3 + 100);
+    cloudMsg('Keyphrase made and your saves sent. Write it down or download it now: it is the only way to load these saves in another browser, and this page cannot recover it.');
+  };
+  $('cloud-load').onsubmit = async e => {
+    e.preventDefault();
+    cloudMsg('');
+    const r = await cloud.load($('cloud-phrase').value);
+    if (r.bad) { cloudMsg(r.bad, true); return; }
+    $('cloud-phrase').value = '';
+    cloudMsg(cloud.state.s === 'conflict' ? '' : 'Linked: the saves under this keyphrase are in this browser now.');
+    listSaves(); listSnaps();
+  };
+  $('cloud-show').onclick = () => { cloudKeyUntil = Date.now() + 30e3; cloudShow(); setTimeout(cloudShow, 30e3 + 100); };
+  $('cloud-copy').onclick = () => navigator.clipboard.writeText(cloud.link.phrase)
+    .then(() => cloudMsg('Keyphrase copied.'), () => cloudMsg('Could not copy: use Show and write it down.', true));
+  $('cloud-dl').onclick = () => saveFile(new Blob([`Midnight Club 3 (mc3-web) cloud saves keyphrase:\n\n${cloud.link.phrase}\n\nAnyone with it can load and replace these saves: keep it private.\n`], { type: 'text/plain' }), 'mc3-keyphrase.txt');
+  $('cloud-sync').onclick = async () => { cloudMsg(''); await cloud.pull({}); await cloud.push({}); };
+  $('cloud-resend').onclick = () => cloud.resend();
+  $('cloud-choose').onclick = () => cloudAsk();
+  $('cloud-back').onclick = async () => {
+    if (playing) { cloudMsg('Go back a day works before Play: reload the page first.', true); return; }
+    if (!confirm('Put back the cloud\'s copy of an earlier day? The saves here are kept as a snapshot first, then that copy becomes the cloud\'s current one.')) return;
+    await cloud.goBack();
+    listSaves(); listSnaps();
+  };
+  $('cloud-unlink').onclick = () => confirm('Stop syncing in this browser? Your saves stay here and on the server; the keyphrase loads them again.') && cloud.forget();
+  $('cloud-delete').onclick = () => confirm('Delete these saves from the server, both its versions? The saves in this browser stay. This cannot be undone.') && cloud.remove();
+  $('cloud-mine').onclick = () => cloudPick(() => cloud.keepMine());
+  $('cloud-theirs').onclick = () => cloudPick(() => cloud.takeTheirs());
+  $('cloud-later').onclick = () => $('cloud-dlg').close();
 
   // --- play
   // Every game thread's print lands here: the panel is redrawn at most once a
@@ -2833,6 +3069,7 @@
       $('stage').hidden = false;
       MC3Touch.enterGame($('stage'));
     }
+    await cloudBeforePlay();             // after the click's own work (sound, full screen), before the game reads saves
     env.RECOMP_GPU = await gpuChoice(env);
     // WebGL in the game's worker, or through the page thread where a worker has none (glWorkerProbe), or where a
     // start failed in the worker before (store glProxy); RECOMP_GL_PROXY=1 / =0 forces (=0 also forgets the failure)
@@ -3656,7 +3893,7 @@
   addEventListener('error', e => out('[page] ' + e.message));
   initTabs();
   preview();
-  loadConfig().then(() => { sendPreviousCrash(); lanUp(); showOnline(); if (nickDefault($('name').value.trim())) askNick(); return Promise.all([findDiscs(), findBuilds()]); }).then(pickInit)
+  loadConfig().then(() => { sendPreviousCrash(); lanUp(); showOnline(); cloudInit().catch(e => out('[cloud] ' + (e.message || e))); if (nickDefault($('name').value.trim())) askNick(); return Promise.all([findDiscs(), findBuilds()]); }).then(pickInit)
     .then(() => {   // a restart (restartGame): Play once the disc and build checks enable it
       if (!restart) return;
       const t0 = Date.now(), go = () => !$('play').disabled ? play() : Date.now() - t0 < 60000 && setTimeout(go, 250);
