@@ -548,3 +548,34 @@ go in parallel.
 - O4: 7 days, the current pruning (no C change).
 - O5: overlay-only. A take never deletes a local profile; a profile deleted in one browser may come back from another.
 - O1, O6, O7: open (plan tier, caps after phase 0, Online money in the box).
+
+### Server as built (2026-11-16, not deployed)
+
+Inside the disc Worker (owner-only `.deploy/worker.js`, tests `.deploy/saves.test.mjs`, deploy notes
+`.deploy/SAVES-DEPLOY.md`). Where it differs from sections 1.1-1.4, this wins:
+
+- **URL.** `savesUrl` (config.json) = the disc base the page already uses + `/saves`, so the routes are
+  `GET|HEAD|PUT|DELETE <savesUrl>/v` (`?earlier` as 1.3). The disc Worker's gate comes first: with its access key
+  the base carries `/k/<key>`; with Cloudflare Access the request needs the Access cookie (`credentials: 'include'`).
+  A request whose `Origin` is not one of the site's own gets 403.
+- **Storage.** The disc bucket `mc3`, keys `saves/k/<64 hex>` (head as 1.2, "MCV1"); no second bucket, no new
+  binding. The current rev, saved time and earlier time are also in the object's customMetadata, so a 304 is
+  answered from `head()`.
+- **Ledger.** An R2 object `saves/ledger.json` updated by compare-and-swap, not a Durable Object; a daily cron
+  (04:17 UTC) recounts it. Caps: 2000 new keyphrases a day (503 + Retry-After 3600), 40,000 keyphrases and 3 GiB in
+  all (507), 256 MB a day of new and grown bytes (503); a new keyphrase counts at least 64 KB, a save asks the
+  ledger only when it grows its object past max(old size, 64 KB).
+- **Per address** (CF-Connecting-IP, in-memory per Worker isolate, like the log limit; not the Rate Limiting
+  binding): reads 60/min, writes (PUT, DELETE) 30/min, misses 30/h checked before the read, new keyphrases 20/day.
+  429 with Retry-After.
+- **New answers.** 429 when a keyphrase was written less than 60 s ago (Retry-After = seconds left; the If-Match
+  check comes first, so a stale rev still gets 412). 400 when the body is not a box: shorter than 30 bytes or a
+  first byte other than 1. A new box version therefore needs the Worker's `SAVES.boxVersion` raised first.
+- **Headers.** `ETag "<16 hex>"`, `X-Vault-Saved`, `X-Vault-Earlier` (ms), `Retry-After`, all exposed to the page
+  (Access-Control-Expose-Headers); preflight allows `Authorization, If-Match, If-None-Match, Content-Type`, max-age
+  7200. `Cache-Control: no-store`.
+- **Phase 0.** Compare-and-swap passed under local workerd (`wrangler dev --local`: 8 racing creates, both
+  `etagDoesNotMatch: '*'` and `If-None-Match: *` forms, and 8 racing If-Match puts: one winner each, a stale etag
+  refused, 3 rounds). On the real bucket it is still to run: `.deploy/saves-cas-proof.mjs` (S3 API, owner's keys)
+  before the deploy. `MAX_BOX` stays 512 KB until the owner's folder is measured.
+- Not built: the KEPT flag and `kept/` (1.2, 1.4).
