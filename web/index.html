@@ -2389,7 +2389,7 @@
   // frame, and only while it is shown (a DOM append and a layout read per
   // line cost the page's main thread in log bursts).
   const log = $('log'), MAX_LINES = 4000;
-  let logText = [], logDirty = false, failBox = null, logN = 0;   // logN: lines ever logged (keepTail writes on change)
+  let logText = [], logDirty = false, failBox = null, logN = 0, icallN = 0;   // logN: lines ever logged (keepTail writes on change); icallN: wild-call lines
   let roamT = -1e9;   // performance.now() of the last Free Roam status line (watchFrames' hitch)
   // Log lines that mean the game cannot go on: the box below says so over the picture.
   const FATAL = [
@@ -2455,6 +2455,9 @@
     if (logRep) { logPush(logRepLine()); logRep = 0; }
     logPush(text);
     if (/^\s*\[roam\] status /.test(text)) roamT = performance.now();
+    // a run of wild calls (game state corrupted) often leaves the game drawing, so no freeze or box sent anything
+    // (owner's Free Roam crash 2026-11-16): the 50th ICALL failure sends the log once
+    if (/^\[ICALL\] (target .* is not code|Failed to resolve)/.test(text) && ++icallN === 50) logQuiet('error', 'game code fault: 50 wild calls (ICALL), first ' + (lastLine(/^\[ICALL\]/) || ''));
     // Loading overlay, disc part: a game read that waited (wasmfs_fetch.js, a line a second at most) names the file.
     // Page-only: the worker's own counters are not read, so no wasm rebuild.
     const dw = bootOn && /^\[WEB\] disc wait: (\S+) @(\d+) /.exec(text);
