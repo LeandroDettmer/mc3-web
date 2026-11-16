@@ -126,6 +126,17 @@ Nothing here has been sent yet.
    GP acks on hardware whatever the FE does). Fix: ack the doorbells in the
    trapped wait too.
 
+5j. **Overlapped reads complete synchronously** (`kernel/kernel_bridge.c`
+   bridge_NtReadFile; browser build only so far, `kernel/kernel_async_read.c`).
+   XACT streams wave banks with ReadFile + OVERLAPPED and polls
+   GetOverlappedResult(bWait = FALSE) from XACTEngineDoWork; the bridge read
+   the data before returning, on the main thread, so any slow storage froze
+   the game for the read's length (MC3 Remix: each music track change on a
+   cold network-backed disc). Fix: queue such a read to a worker thread,
+   return STATUS_PENDING, complete the status block and event later; waits
+   on the file handle and NtClose wait for its queued reads. Limited to
+   .xwb files for now. Any XDK title using XACT streaming on slow storage.
+
 ## Issues to report (no patch from us yet)
 
 | # | Problem | Goes to | Evidence / our workaround |

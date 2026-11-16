@@ -297,7 +297,31 @@ generated files when the lift inputs did not change.
   gate), and as the cache turns off the heads the music's cache file
   already holds go to memory first (keepHeads, '[WEB] prefetch: disc
   cache off: N of 206 MiB of the music's track starts kept in memory
-  from it').
+  from it'). Still froze after e4127c9 (owner, fresh incognito,
+  2026-11-16; fix untested in a browser): the cause is not the cache but
+  that the read blocks at all. XACT opens the bank with
+  FILE_FLAG_OVERLAPPED (xactSound::PlayStream sub_0033AA10, CreateFile
+  0x60000000), reads through its I/O table (0x410FB4: ReadFile 0x1751A,
+  GetOverlappedResult 0x131CC) with an OVERLAPPED every time (read helper
+  sub_00407B0A; callers 0x408012, 0x408088, 0x40820C, 0x408234,
+  0x40B37B) and polls GetOverlappedResult(bWait = FALSE) in DoWork
+  (0x0040828E); the bridge read the data before returning, on the main
+  thread. Now (browser only, xboxrecomp kernel_async_read.c) an
+  overlapped read of a .xwb file returns STATUS_PENDING and one worker
+  thread reads it (pread), then writes the status block and sets the
+  event; a wait on the file handle and NtClose wait for its queued reads;
+  a status block on the caller's stack (a synchronous ReadFile) or an
+  APC routine keeps the old path. A cold track change no longer stops
+  the game: its sound starts when the data is in (~0.3-2.5 s late on a
+  cold network read). Every streamed bank (engine, ambience) too; no R2
+  change. '[IO] mx.xwb: reads in the background ...' once per bank,
+  '[IO] background read <bank> @off N KB took N ms (the game went on
+  meanwhile)' (first 40 over 250 ms); '[WEB] disc wait: .../mx.xwb'
+  lines still come (the disc thread waited) but no '[WEB] hitch' with
+  them. RECOMP_ASYNC_READ=0 off. Open: the game's next-track choice is
+  not steered (music player: playlist tune/audio/playlist, loader near
+  sub_0005F550; stream play message 0x2002 posted by sub_001C0C90 from
+  sub_0021B940/sub_0021B9B0).
   R2 reads (2026-11-15, untested in a browser; bucket that day 1.35 M
   GetObject, 5.7 TB: mx.xwb 575k, assets_x.dat 176k, decal_g/decal.xbpf
   ~38k each at ~12 MiB): (1) where the fill takes the whole music bank (not
