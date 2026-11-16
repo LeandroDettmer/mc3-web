@@ -242,6 +242,64 @@ void recomp_trace_esp(const char *name, const char *tag)
  * kernel_bridge.c and nv2a_pb_replay.c already do. */
 extern ptrdiff_t g_xbox_mem_offset;
 
+#ifdef __EMSCRIPTEN__
+#include <string.h>
+/* Browser: an MSVC CRT runtime error (R6025 pure virtual call, ...) is
+ * printed here before the CRT's exit (doexit) runs the atexit list and the
+ * game goes on with wild calls (2026-11-15 logs KJVRM2, 6K8ZYU, K237RW).
+ * Logged at the print, before any of that: the return addresses on the guest
+ * stack (innermost first, each with its call's form: [reg+N] = a virtual
+ * call's vtable offset), and the callee-saved registers with the vtable they
+ * point at, to name the object whose pure method was called. */
+static int crt_va_ok(uint32_t va)
+{
+    return va >= 0x10000u && va < 0x04000000u;
+}
+
+static void crt_error_where(const char *msg)
+{
+    static int told;
+    uint32_t regs[3] = { g_esi, g_edi, g_ebx }, a, v, found = 0;
+    static const char rn[3][4] = { "esi", "edi", "ebx" };
+    int i;
+
+    if (told++ >= 4)
+        return;
+    fprintf(stderr, "[GUEST] runtime error %.5s: guest esp 0x%08X;", msg, g_esp);
+    for (i = 0; i < 3; i++) {
+        fprintf(stderr, " %s 0x%08X", rn[i], regs[i]);
+        if (crt_va_ok(regs[i]) && !(regs[i] & 3)) {
+            v = *(const uint32_t *)XBOX_GUEST_ADDR(regs[i]);
+            if (v >= g_xbox_code_lo && v < g_xbox_code_hi)
+                fprintf(stderr, " (vtable 0x%08X)", v);
+        }
+    }
+    fprintf(stderr, "; calls");
+    for (a = g_esp & ~3u; crt_va_ok(g_esp) && a < g_esp + 0x2000u && found < 24; a += 4) {
+        const uint8_t *c;
+        v = *(const uint32_t *)XBOX_GUEST_ADDR(a);
+        if (v < g_xbox_code_lo + 6u || v >= g_xbox_code_hi)
+            continue;
+        c = (const uint8_t *)XBOX_GUEST_ADDR(v);
+        if (c[-5] == 0xE8)
+            fprintf(stderr, " %06X", v);
+        else if (c[-3] == 0xFF && (c[-2] & 0xF8) == 0x50)          /* call [reg+disp8] */
+            fprintf(stderr, " %06X([r+0x%X])", v, c[-1]);
+        else if (c[-2] == 0xFF && (c[-1] & 0xF8) == 0x10)          /* call [reg] */
+            fprintf(stderr, " %06X([r])", v);
+        else if (c[-6] == 0xFF && (c[-5] & 0xF8) == 0x90)          /* call [reg+disp32] */
+            fprintf(stderr, " %06X([r+0x%X])", v, *(const uint32_t *)(c - 4));
+        else if ((c[-2] == 0xFF && (c[-1] & 0x38) == 0x10) || (c[-3] == 0xFF && (c[-2] & 0x38) == 0x10) ||
+                 (c[-6] == 0xFF && (c[-5] & 0x38) == 0x10))
+            fprintf(stderr, " %06X(ind)", v);
+        else
+            continue;
+        found++;
+    }
+    fprintf(stderr, "\n");
+}
+#endif
+
 void recomp_debug_service(uint32_t service, uint32_t arg_va)
 {
     uint16_t length;
@@ -265,5 +323,9 @@ void recomp_debug_service(uint32_t service, uint32_t arg_va)
     fprintf(stderr, "[GUEST] %.*s", (int)length, (const char *)XBOX_GUEST_ADDR(buffer_va));
     if (length && ((const char *)XBOX_GUEST_ADDR(buffer_va))[length - 1] != '\n')
         fputc('\n', stderr);
+#ifdef __EMSCRIPTEN__
+    if (length >= 5 && !memcmp((const void *)XBOX_GUEST_ADDR(buffer_va), "R60", 3))
+        crt_error_where((const char *)XBOX_GUEST_ADDR(buffer_va));
+#endif
     fflush(stderr);
 }
