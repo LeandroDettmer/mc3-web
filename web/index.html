@@ -256,6 +256,13 @@
   .keys li { display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
   .keys li.grp { display: block; font-weight: 600; border-bottom-width: 2px; padding-top: 14px; }
   .keys .caps { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+  .keys .kb { display: inline-flex; gap: 4px; padding: 2px; border: 1px dashed transparent; border-radius: var(--r);
+              background: none; color: inherit; font: inherit; }
+  .keys button.kb { cursor: pointer; }
+  .keys button.kb:hover, .keys button.kb:focus-visible { border-color: var(--accent); outline: none; }
+  .keys .kb.wait { padding: 0 8px; border-color: var(--accent); color: var(--accent-hi); font-size: 14px; line-height: 22px; }
+  .keys-foot { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-top: 12px; }
+  .keys-foot .msg { margin: 0; }
 
   /* saves */
   .profiles { list-style: none; padding: 0; display: grid; gap: 8px; }
@@ -583,8 +590,9 @@
       <button type="button" class="tab" role="tab" data-tab="pad">Controller</button>
     </div>
     <div class="pane" role="tabpanel" data-pane="keyboard">
-      <p class="hint" style="margin:8px 0">The keyboard is pad 1 (Settings, Keyboard to turn it off). Click the game first so it gets the keys.</p>
+      <p class="hint" style="margin:8px 0">The keyboard is pad 1 (Settings, Keyboard to turn it off). Click the game first so it gets the keys. Click a key below to change it, then press the new one (saved in this browser; the game takes it at once).</p>
       <ul class="keys" id="keys"></ul>
+      <div class="keys-foot"><button type="button" class="btn keys-reset">Reset keys to defaults</button><p class="msg keys-msg" role="status"></p></div>
     </div>
     <div class="pane prose" role="tabpanel" data-pane="pad" hidden>
       <p style="margin-top:8px">Xbox, PlayStation and other controllers work through the browser's Gamepad API, as pads 1 to 4 in the order they are connected; one plugged in later is picked up within a second. Press a button on it once the game is running so the browser shows it to the page.</p>
@@ -852,6 +860,7 @@
           <button type="button" class="btn sw" id="touch-btn" aria-pressed="false" aria-label="On-screen controller" hidden></button></div>
         <div id="ig-controls"></div>
         <ul class="keys" id="keys-ig-input" aria-label="Keys by action"></ul>
+        <div class="keys-foot"><button type="button" class="btn keys-reset">Reset keys to defaults</button><p class="msg keys-msg" role="status"></p></div>
       </div>
       <div role="tabpanel" data-pane="ig-info">
         <div class="set"><div><span class="set-label">Keys</span><p class="hint one">Every key by in-game action, over the picture.</p></div>
@@ -1353,33 +1362,147 @@
   }
 
   // --- controls
+  // Keys per pad input (2026-11-16, untested in a browser): the player may change any input's keys (Controls, Keyboard
+  // and the in-game Controls tab: click the keys, press one; Esc cancels). Kept in localStorage mc3.keymap {input:
+  // [KeyboardEvent.code]}, only the inputs changed; a key moves from the input that had it (said so). The game gets
+  // [scancode pressed, scancode of the input's first default key] pairs (web/pre.js mc3SetKeyMap -> xboxrecomp
+  // sdl_keyboard.c xbox_keymap_box), live; nothing saved = no table, the default keys as before.
+  const BINDS = {   // input: [name, default codes]; the first is the key sdl_keyboard.c reads for it
+    left: ['Steer left', ['ArrowLeft']], right: ['Steer right', ['ArrowRight']],
+    up: ['Gas / menu up', ['ArrowUp']], down: ['Brake / menu down', ['ArrowDown']],
+    a: ['A', ['KeyA', 'Space']], b: ['B', ['KeyB']], x: ['X', ['KeyX']], y: ['Y', ['KeyY']],
+    white: ['White', ['KeyQ', 'ShiftLeft', 'ShiftRight']], black: ['Black', ['KeyE', 'ControlLeft', 'ControlRight']],
+    start: ['Start', ['Enter', 'NumpadEnter']], back: ['Back', ['Backspace', 'Tab']],
+    dup: ['D-pad up', ['KeyI']], ddown: ['D-pad down', ['KeyK']], dleft: ['D-pad left', ['KeyJ']], dright: ['D-pad right', ['KeyL']],
+    l3: ['Left stick click', ['KeyZ']], r3: ['Right stick click', ['KeyC']],
+    rup: ['Right stick up', ['KeyT', 'Numpad8']], rdown: ['Right stick down', ['KeyG', 'Numpad2']],
+    rleft: ['Right stick left', ['KeyF', 'Numpad4']], rright: ['Right stick right', ['KeyH', 'Numpad6']],
+  };
+  // KeyboardEvent.code -> SDL scancode (USB HID usage, as SDL's Emscripten_MapScanCode). Not offered: Escape (cancels),
+  // F11/F12 (full screen, developer tools), Meta/OS keys, Num Lock.
+  const SCAN = (() => {
+    const m = { Enter: 40, Backspace: 42, Tab: 43, Space: 44, Minus: 45, Equal: 46, BracketLeft: 47, BracketRight: 48, Backslash: 49,
+      Semicolon: 51, Quote: 52, Backquote: 53, Comma: 54, Period: 55, Slash: 56, CapsLock: 57, Insert: 73, Home: 74, PageUp: 75,
+      Delete: 76, End: 77, PageDown: 78, ArrowRight: 79, ArrowLeft: 80, ArrowDown: 81, ArrowUp: 82, NumpadDivide: 84,
+      NumpadMultiply: 85, NumpadSubtract: 86, NumpadAdd: 87, NumpadEnter: 88, Numpad0: 98, NumpadDecimal: 99, IntlBackslash: 100,
+      ControlLeft: 224, ShiftLeft: 225, AltLeft: 226, ControlRight: 228, ShiftRight: 229, AltRight: 230, Digit0: 39 };
+    for (let i = 0; i < 26; i++) m['Key' + String.fromCharCode(65 + i)] = 4 + i;
+    for (let i = 1; i <= 9; i++) { m['Digit' + i] = 29 + i; m['Numpad' + i] = 88 + i; }
+    for (let i = 1; i <= 10; i++) m['F' + i] = 57 + i;
+    return m;
+  })();
+  const KEY_NAMES = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', NumpadEnter: 'Num Enter', Backquote: '`',
+    Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']', Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',',
+    Period: '.', Slash: '/', IntlBackslash: '\\ (ISO)', NumpadDivide: 'Num /', NumpadMultiply: 'Num *', NumpadSubtract: 'Num -',
+    NumpadAdd: 'Num +', NumpadDecimal: 'Num .', PageUp: 'Page Up', PageDown: 'Page Down', CapsLock: 'Caps Lock' };
+  // Labels for an input's keys: a left/right pair (Shift, Ctrl, Alt) shows once, a lone one with its side
+  const keyLabels = codes => {
+    const out = [];
+    for (const c of codes) {
+      const p = c.match(/^(Shift|Control|Alt)(Left|Right)$/);
+      const l = p ? (codes.includes(p[1] + (p[2] === 'Left' ? 'Right' : 'Left')) ? '' : p[2] + ' ') + (p[1] === 'Control' ? 'Ctrl' : p[1])
+        : KEY_NAMES[c] || c.replace(/^Key|^Digit/, '').replace(/^Numpad(\d)$/, 'Num $1');
+      if (!out.includes(l)) out.push(l);
+    }
+    return out;
+  };
+  const keymapSaved = () => { const m = store.get('keymap', {}); return m && typeof m === 'object' && !Array.isArray(m) ? m : {}; };
+  const bindKeys = (id, saved = keymapSaved()) => Array.isArray(saved[id]) ? saved[id].filter(c => SCAN[c]) : BINDS[id][1];
+  const keyExtra = new Set();   // rebound keys the browser would act on (the GAME_KEYS check below)
+  function keymapSync() {
+    const saved = keymapSaved(), own = Object.keys(saved).some(id => BINDS[id]), pairs = [];
+    keyExtra.clear();
+    if (own) for (const id in BINDS) for (const c of bindKeys(id, saved)) {
+      pairs.push([SCAN[c], SCAN[BINDS[id][1][0]]]);
+      if (!/^(Key|Digit)/.test(c)) keyExtra.add(c);
+    }
+    window.Module?.mc3SetKeyMap?.(own ? pairs : null);
+    return own;
+  }
+  let keyWait = null;   // the input waiting for its new key
+  const keyMsg = (t, bad) => { for (const p of document.querySelectorAll('.keys-msg')) { p.textContent = t; p.classList.toggle('bad', !!bad); } };
+  function keyAssign(id, code) {
+    const saved = keymapSaved(), name = keyLabels([code])[0], notes = [];
+    for (const o in BINDS) {
+      const ks = bindKeys(o, saved);
+      if (o === id || !ks.includes(code)) continue;
+      saved[o] = ks.filter(c => c !== code);
+      notes.push(`${name} was ${BINDS[o][0]}'s key: moved here` + (saved[o].length ? '.' : `; ${BINDS[o][0]} has no key now.`));
+    }
+    saved[id] = [code];
+    for (const o in saved)   // an input back on its default keys needs no entry: nothing left = no table, as before
+      if (!BINDS[o] || (saved[o].length === BINDS[o][1].length && saved[o].every((c, i) => c === BINDS[o][1][i]))) delete saved[o];
+    store.set('keymap', saved);
+    keymapSync(); renderAllKeys();
+    keyMsg(`${BINDS[id][0]}: ${name}. ${notes.join(' ')}`, notes.length > 0);
+  }
+  function keyWaitStart(id) {
+    keyWait = keyWait === id ? null : id;
+    renderAllKeys();
+    keyMsg(keyWait ? `Press the new key for ${BINDS[id][0]} (Esc cancels).` : '');
+  }
+  // While waiting, the next key is ours: not the game's (SDL listens on the window, after this) nor the page's
+  addEventListener('keydown', e => {
+    if (!keyWait) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    if (e.repeat) return;
+    if (e.code === 'Escape') { keyWait = null; renderAllKeys(); keyMsg(''); return; }
+    if (!SCAN[e.code]) { keyMsg(`${e.key && e.key.length === 1 ? e.key.toUpperCase() : e.key || e.code} cannot be used: press another key (Esc cancels).`, true); return; }
+    const id = keyWait;
+    keyWait = null;
+    keyAssign(id, e.code);
+  }, true);
   const KEYS = [
     // '#' rows are group headings. Actions from the Xbox default controls (gamerstemple.com/vg/games11/001312/001312g102.asp).
+    // Lower-case entries are BINDS inputs (their keys, changeable), others shown as they are.
     ['#Driving', []],
-    ['Steer (left stick)', ['←', '→']], ['Gas (right trigger; menus: up)', ['↑']], ['Brake, reverse (left trigger; menus: down)', ['↓']],
-    ['Handbrake (A)', ['Space', 'A']], ['Nitrous, slipstream turbo (X)', ['X']],
-    ['Two-wheel driving, air control (B + steer)', ['B']], ['Special maneuver, power-up (left stick click)', ['Z']],
-    ['Hydraulics on/off (d-pad down)', ['K']],
+    ['Steer (left stick)', ['left', 'right']], ['Gas (right trigger; menus: up)', ['up']], ['Brake, reverse (left trigger; menus: down)', ['down']],
+    ['Handbrake (A)', ['a']], ['Nitrous, slipstream turbo (X)', ['x']],
+    ['Two-wheel driving, air control (B + steer)', ['b']], ['Special maneuver, power-up (left stick click)', ['l3']],
+    ['Hydraulics on/off (d-pad down)', ['ddown']],
     ['#Camera', []],
-    ['Look back (Y)', ['Y']], ['Change camera (Black)', ['E', 'Ctrl']],
-    ['Orbit camera (Y + d-pad left/right)', ['Y', 'J', 'L']], ['Look around the car (drag on the picture; wheel: nearer/farther)', ['Mouse drag', 'Wheel']], ['Camera, while paused (right stick)', ['T', 'F', 'G', 'H']],
-    ['Same, numpad', ['Num 8', 'Num 4', 'Num 2', 'Num 6']],
+    ['Look back (Y)', ['y']], ['Change camera (Black)', ['black']],
+    ['Orbit camera (Y + d-pad left/right)', ['y', 'dleft', 'dright']], ['Look around the car (drag on the picture; wheel: nearer/farther)', ['Mouse drag', 'Wheel']],
+    ['Camera, while paused (right stick up, left, down, right)', ['rup', 'rleft', 'rdown', 'rright']],
     ['#Radio & map', []],
-    ['Map (d-pad up)', ['I']], ['Change music (d-pad left/right)', ['J', 'L']], ['Navigation system (Back)', ['Backspace', 'Tab']],
-    ['Flash headlights (White)', ['Q', 'Shift']],
+    ['Map (d-pad up)', ['dup']], ['Change music (d-pad left/right)', ['dleft', 'dright']], ['Navigation system (Back)', ['back']],
+    ['Flash headlights (White)', ['white']],
     ['#Menus', []],
-    ['Pause menu (Start)', ['Enter']], ['Accept race (White)', ['Q', 'Shift']], ['Navigate', ['↑', '↓', '←', '→']],
-    ['Select (A)', ['A', 'Space']], ['Right stick click (no known use)', ['C']],
+    ['Pause menu (Start)', ['start']], ['Accept race (White)', ['white']], ['Navigate', ['up', 'down', 'left', 'right']],
+    ['Select (A)', ['a']], ['Right stick click (no known use)', ['r3']],
   ];
-  function renderKeys(ul) {
+  function renderKeys(ul, edit) {
+    ul.textContent = '';
+    const saved = keymapSaved();
     for (const [what, caps] of KEYS) {
       const li = document.createElement('li'), s = document.createElement('span'), c = document.createElement('span');
       if (what[0] === '#') { li.className = 'grp'; li.textContent = what.slice(1); ul.append(li); continue; }
       s.textContent = what; c.className = 'caps';
-      for (const k of caps) { const kb = document.createElement('kbd'); kb.textContent = k; c.append(kb); }
+      for (const k of caps) {
+        const kb = t => { const e = document.createElement('kbd'); e.textContent = t; return e; };
+        if (!BINDS[k]) { c.append(kb(k)); continue; }
+        const g = document.createElement(edit ? 'button' : 'span'), ks = keyLabels(bindKeys(k, saved));
+        g.className = 'kb';
+        if (edit) { g.type = 'button'; g.title = 'Change the key for ' + BINDS[k][0]; g.onclick = () => keyWaitStart(k); }
+        if (edit && keyWait === k) { g.classList.add('wait'); g.textContent = 'Press a key…'; }
+        else g.append(...(ks.length ? ks.map(kb) : [kb('none')]));
+        c.append(g);
+      }
       li.append(s, c); ul.append(li);
     }
   }
+  function renderAllKeys() {
+    renderKeys($('keys'), true);
+    renderKeys($('keys-ingame'));
+    renderKeys($('keys-ig-input'), true);   // the in-game Settings' Controls tab lists them too (owner: easier to find)
+    const own = Object.keys(keymapSaved()).some(id => BINDS[id]);
+    for (const b of document.querySelectorAll('.keys-reset')) b.disabled = !own;
+  }
+  for (const b of document.querySelectorAll('.keys-reset'))
+    b.onclick = () => {
+      try { localStorage.removeItem('mc3.keymap'); } catch {}
+      keyWait = null; keymapSync(); renderAllKeys(); keyMsg('Default keys back.');
+    };
 
   // --- tabs (arrow keys move between them)
   function initTabs() {
@@ -2716,6 +2839,7 @@
       onRuntimeInitialized: () => {
         booted = true; tRuntime = performance.now();
         window.applyPad?.();
+        keymapSync();
         runStatus(`${GAME_NAMES[g]}: running. Click the picture for the keys; Keys lists them.${gpuNote}`);
         // No picture 90 s after the runtime is up (not after Play: a slow link's module and disc download is not a hang);
         // the log's last lines say why (a TV has no console to look at)
@@ -2826,9 +2950,8 @@
   renderSettings();
   measureRefresh();
   document.addEventListener('visibilitychange', measureRefresh);
-  renderKeys($('keys'));
-  renderKeys($('keys-ingame'));
-  renderKeys($('keys-ig-input'));   // the in-game Settings' Controls tab lists them too (owner: easier to find)
+  keymapSync();
+  renderAllKeys();
   // Play shows the game's features (About > Features, copied) where the all-OK checks were (owner, 2026-11-16)
   $('play-feats').append(...[...document.querySelectorAll('[data-pane=features] > .feat-lede, [data-pane=features] > .feat-grid')].map(n => n.cloneNode(true)));
   $('raw').value = store.get('raw', '');
@@ -3373,7 +3496,7 @@
   // focus to Quit, where Enter or Space then pressed it. Inside an open dialog they are the page's (focus order, selects).
   const GAME_KEYS = new Set(['Tab', 'Enter', 'Space', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
   for (const t of ['keydown', 'keyup'])
-    addEventListener(t, e => { if (playing && GAME_KEYS.has(e.code) && !e.target.closest?.('#races-panel, #players-dlg, #settings-dlg, #fb-dlg, #drift-dlg')) e.preventDefault(); }, true);
+    addEventListener(t, e => { if (playing && (GAME_KEYS.has(e.code) || keyExtra.has(e.code)) && !e.target.closest?.('#races-panel, #players-dlg, #settings-dlg, #fb-dlg, #drift-dlg')) e.preventDefault(); }, true);
   document.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || playing || e.repeat) return;
     if (e.target.closest('input, select, textarea, button, a, summary')) return;

@@ -382,6 +382,18 @@ generated files when the lift inputs did not change.
   it under pad 1's GUID and reopens it. '[WEB] gamepad: <id>, mapping
   <m>, N buttons, M axes, as ...' (page) and '[WEB] gamepad: pad 1 (...)
   uses ...' (runtime).
+  Keyboard keys of the player's own (2026-11-16, untested in a browser;
+  player suggestion): Controls, Keyboard and the in-game Controls tab show
+  each action's keys as buttons (index.html BINDS: 22 pad inputs, KEYS rows
+  name them); click, press a key (Esc cancels), localStorage mc3.keymap
+  {input: [KeyboardEvent.code]} for the inputs changed only; a key another
+  input had moves (the message says so, and when that input is left with
+  none); 'Reset keys to defaults'. pre.js mc3SetKeyMap -> sdl_keyboard.c
+  xbox_keymap_box { seq, on, u16 map[512] }: map[scancode pressed] = the
+  scancode of the input's first default key, so the pulse/driving logic
+  stays keyed on the default layout; nothing saved = on 0, keys as before;
+  each change releases every key. Rebound non-letter keys join GAME_KEYS'
+  preventDefault (keyExtra). Not offered: Esc, F11/F12, Meta, Num Lock.
   Touch controls (2026-11-09, untested on a phone; web/touch.js, after
   nfsu2-web's): a virtual pad the page writes into xbox_touch_pad_box
   (input/touch_pad_web.c, 14 int32 words via Module.mc3TouchPad), merged

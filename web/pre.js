@@ -444,6 +444,27 @@ Module['mc3SaveResult'] = function (n) {
   Module['mc3SetPadMap'] = function (m) { want = String(m || ''); if (!timer) put(); };
 })();
 
+// The player's keyboard keys (sdl_keyboard.c xbox_keymap_box { int seq, on; u16 map[512] }): pairs [scancode pressed,
+// default scancode it stands for], null = the default keys. Map and on first, then seq (the game lets every key go).
+(function () {
+  var want = null, sent, timer = 0;
+  function put() {
+    timer = 0;
+    try {
+      if (!runtimeInitialized || typeof _xbox_keymap_box != 'function') { timer = setTimeout(put, 1000); return; }
+      var key = JSON.stringify(want);
+      if (key === sent) return;
+      var b = _xbox_keymap_box(), i32 = new Int32Array(HEAPU8.buffer), u16 = new Uint16Array(HEAPU8.buffer, b + 8, 512), i;
+      u16.fill(0);
+      for (i = 0; want && i < want.length; i++) if (want[i][0] > 0 && want[i][0] < 512) u16[want[i][0]] = want[i][1];
+      Atomics.store(i32, (b >>> 2) + 1, want ? 1 : 0);
+      Atomics.add(i32, b >>> 2, 1);
+      sent = key;
+    } catch (e) { timer = setTimeout(put, 1000); }
+  }
+  Module['mc3SetKeyMap'] = function (pairs) { want = pairs || null; if (!timer) put(); };
+})();
+
 // A player's country flag as a small picture (flags.png from tools/flags_sheet.mjs: 48x36 flags, 16 a row, in the
 // order of Module.mc3Flags, the page's FLAG_CODES); em-sized, so it follows the text's size. Unknown code: null.
 Module['mc3FlagEl'] = function (code) {
