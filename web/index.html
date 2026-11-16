@@ -145,6 +145,9 @@
   dialog#changelog-dlg { width: min(640px, calc(100% - 32px)); }
   dialog#cloud-dlg { width: min(560px, calc(100% - 32px)); }
   .cloud-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0; }
+  .cloud-card { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r); }
+  .cloud-card p { white-space: pre-line; flex: 1; margin: 0; }
+  .cloud-card.pick { border-color: var(--gold); }
   @media (max-width: 480px) { .cloud-sides { grid-template-columns: 1fr; } }
   #cloud-key { word-break: break-all; }
   #changelog-dlg li { line-height: 1.45; }
@@ -851,17 +854,18 @@
   <div id="players-list"></div>
 </dialog>
 <dialog id="cloud-dlg" aria-labelledby="cloud-dlg-title">   <!-- outside .app and the stage, as players-dlg: at Play too -->
-  <div class="dlg-head"><strong id="cloud-dlg-title">Cloud saves: which to keep?</strong></div>
+  <div class="dlg-head"><strong id="cloud-dlg-title">Which saves do you want to play with?</strong></div>
   <p id="cloud-why"></p>
   <div class="cloud-sides">
-    <div><b>This browser</b><p class="hint" id="cloud-here"></p></div>
-    <div><b>The cloud</b><p class="hint" id="cloud-there"></p></div>
+    <div class="cloud-card"><b>&#128241; This device</b><p class="hint" id="cloud-here"></p>
+      <button type="button" class="btn" id="cloud-mine">Play with this device's</button></div>
+    <div class="cloud-card"><b>&#9729; Cloud</b><small class="hint">your other device</small><p class="hint" id="cloud-there"></p>
+      <button type="button" class="btn" id="cloud-theirs">Play with the cloud's</button></div>
   </div>
-  <p class="hint" id="cloud-what">Keep this browser's: these saves replace the cloud's (the server keeps its copy of an earlier day). Use the cloud's: this browser's saves are kept as a snapshot first, then the cloud's come in; profiles only here stay.</p>
+  <p class="hint" id="cloud-what">Nothing is lost: the saves you don't pick stay as a backup (this device's in Saves, Snapshots; the cloud's for a day on the server).</p>
   <div class="row">
-    <button type="button" class="btn" id="cloud-mine">Keep this browser's</button>
-    <button type="button" class="btn" id="cloud-theirs">Use the cloud's</button>
-    <button type="button" class="btn" id="cloud-later">Decide later</button>
+    <button type="button" class="btn" id="cloud-later">Not now</button>
+    <span class="hint">Keeps this device's saves and pauses syncing; asked again at the next Play.</span>
   </div>
   <p class="msg" id="cloud-dlg-msg" role="status"></p>
 </dialog>
@@ -2453,8 +2457,8 @@
   let cloud = null, cloudSeq = 0, cloudPrePlay = false, cloudKeyUntil = 0, cloudDlgFor = null;
   const cloudMsg = (t, bad) => { $('cloud-msg').textContent = t; $('cloud-msg').classList.toggle('bad', !!bad); };
   const CLOUD_WHY = {
-    both: 'The saves here and the cloud\'s both changed since they last synced.',
-    load: 'This browser already has saves of its own.',
+    both: 'You played on this device and on another one since they last synced, so the two saves differ.',
+    load: 'This device already had its own saves when you linked it. To continue the game from your other device, play with the cloud\'s.',
     older: 'The cloud\'s saves are older than the ones this browser last synced (the server went back).',
     bare: 'The cloud\'s saves have no profile, and this browser has some.',
     thin: 'The cloud\'s saves lack a profile this browser has.',
@@ -2495,12 +2499,15 @@
     await overlaySaves(files.map(f => ({ name: f.path, data: f.data })));
     listSaves(); listSnaps(); oprofShow();
   }
+  // one side of the conflict, a line each: when, career profiles, Online money and cars (plain words, owner 2026-11-16)
   function cloudSide(s, other) {
-    if (!s) return 'Not known (the server did not answer).';
-    const names = s.profiles ? (s.profiles.length ? s.profiles.join(', ') : 'no career profile') : 'profiles not known';
-    const on = s.online ? `; online profile $${s.online.money.toLocaleString('en-US')}, ${s.online.cars} cars` : '';
-    const when = s.saved ? ` · saved ${new Date(s.saved).toLocaleString()}${other?.saved && s.saved > other.saved ? ' (newer)' : ''}` : '';
-    return names + on + when;
+    if (!s) return 'Could not be read (the server did not answer).';
+    const ago = t => { const m = Math.round((Date.now() - t) / 6e4); return m < 1 ? 'just now' : m < 60 ? m + ' min ago' : m < 1440 ? Math.round(m / 60) + ' h ago' : Math.round(m / 1440) + ' days ago'; };
+    const lines = [];
+    if (s.saved) lines.push(`Last saved ${ago(s.saved)}${other?.saved && s.saved > other.saved ? ' · newest' : ''}`);
+    lines.push(s.profiles ? (s.profiles.length ? 'Career: ' + s.profiles.join(', ') : 'No career profile') : 'Career: not known');
+    if (s.online) lines.push(`Online: $${s.online.money.toLocaleString('en-US')}, ${s.online.cars} cars`);
+    return lines.join('\n');
   }
   function cloudSides() {
     const st = cloud.state;
@@ -2508,6 +2515,10 @@
     $('cloud-why').textContent = CLOUD_WHY[st.why] || '';
     $('cloud-here').textContent = cloudSide(st.here, st.cloud);
     $('cloud-there').textContent = cloudSide(st.cloud, st.here);
+    // the newer side is outlined: the likely pick
+    const hs = st.here?.saved || 0, cs = st.cloud?.saved || 0;
+    $('cloud-here').parentElement.classList.toggle('pick', hs > cs);
+    $('cloud-there').parentElement.classList.toggle('pick', cs > hs);
     const newer = st.why === 'newer';
     $('cloud-mine').hidden = $('cloud-theirs').hidden = $('cloud-what').hidden = newer;
     $('cloud-theirs').disabled = playing && !cloudPrePlay;
