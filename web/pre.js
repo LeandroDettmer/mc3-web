@@ -242,6 +242,8 @@ Module['mc3TouchPad'] = function (words) {
 // Hor+ (WebGPU) on Auto (RECOMP_ASPECT unset or "auto"): the game canvas' shape as the page shows it, following
 // resizes and full screen, for xboxrecomp/src/nv2a_wgpu/wgpu_surf.c (nv2a_wgpu_aspect_box: width / height x
 // 10000; the renderer takes it at a frame's end). Written once a size has held for 250 ms. Main thread only.
+// Word 1: the height in device pixels the picture is shown at (object-fit: contain), for the HUD drawn at the
+// canvas' size (wgpu_surf.c "HUD at the canvas' size"; RECOMP_WGPU_HUD_NATIVE=0 off).
 (function () {
   if (typeof document != 'object' || typeof ResizeObserver != 'function') return;
   var a = (Module['mc3Env'] || {}).RECOMP_ASPECT, canvas = Module['canvas'], val = 0, timer = 0, fixed = 0;
@@ -256,7 +258,12 @@ Module['mc3TouchPad'] = function (words) {
     // runtime not up yet (HEAPU8 exists before the exports do): try again, or a canvas that never resizes
     // after the first observation (a phone's full screen) would stay 16:9; on WebGL the box is ignored
     if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _nv2a_wgpu_aspect_box != 'function') { timer = setTimeout(put, 250); return; }
-    Atomics.store(new Int32Array(HEAPU8.buffer), _nv2a_wgpu_aspect_box() >>> 2, fixed || val);
+    var box = new Int32Array(HEAPU8.buffer), at = _nv2a_wgpu_aspect_box() >>> 2;
+    Atomics.store(box, at, fixed || val);
+    // shown height: a fixed shape wider than the box is letterboxed
+    var w = canvas.clientWidth, h = canvas.clientHeight, r = (fixed || val) / 10000;
+    var px = w && h && r > 0 ? Math.round(Math.min(h, w / r) * (window.devicePixelRatio || 1)) : 0;
+    Atomics.store(box, at + 1, px);
   }
   function later() { clearTimeout(timer); timer = setTimeout(put, 250); }
   new ResizeObserver(function () {

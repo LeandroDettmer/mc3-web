@@ -39,6 +39,10 @@ uint32_t nv2a_wgpu_frame_count(void);
  * or not this renderer. The title's camera culls that much wider. */
 float    nv2a_wgpu_wide(void);
 uint64_t nv2a_wgpu_texture_bytes(void);
+/* Hi-res texture replacements (wgpu_tex.c): the folder holding textures/
+ * <key>.png (a mods pack; first call wins). Any thread, before or after
+ * the renderer starts; WebGPU only. */
+void     nv2a_wgpu_hires_dir(const char *dir);
 void     nv2a_wgpu_prof_stats(double secs, char *out, size_t n);
 void     nv2a_wgpu_queue_stats(double secs, int *gl_idle_pct, int *exec_wait_pct);
 

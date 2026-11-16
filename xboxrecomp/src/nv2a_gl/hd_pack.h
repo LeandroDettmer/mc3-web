@@ -2,9 +2,12 @@
 #ifndef NV2A_GL_HD_PACK_H
 #define NV2A_GL_HD_PACK_H
 
+#include <stddef.h>
 #include <stdint.h>
 
+void           hd_pack_set_dir(const char *dir);   /* before hd_pack_init: instead of RECOMP_GL_HD_DIR */
 int            hd_pack_init(void);       /* 1 when replacing or dumping */
+size_t         hd_pack_count(void);      /* replacements found */
 int            hd_pack_has(uint64_t h);
 unsigned char *hd_pack_load(uint64_t h, int *w, int *hgt);   /* RGBA8 */
 void           hd_pack_free(unsigned char *px);
@@ -18,6 +21,8 @@ void           hd_pack_dump(uint64_t h, const uint32_t *argb, int w, int hgt);
 typedef struct HdTex {
     uint64_t       key;
     int            w, h, levels, alpha;     /* alpha: DXT5, else DXT1 */
+    int            index_map;               /* a grey PNG: level 0 only, one u8 a texel, not DXT
+                                               (nv2a_wgpu/wgpu_hires.h index key) */
     int            lw[HD_MAX_LEVELS], lh[HD_MAX_LEVELS];
     unsigned char *data[HD_MAX_LEVELS];
     uint32_t       bytes[HD_MAX_LEVELS];

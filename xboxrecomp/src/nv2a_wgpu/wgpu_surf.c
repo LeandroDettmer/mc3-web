@@ -49,6 +49,24 @@
  * z = depth * 0xFFFFFF, stencil 0), again only after the depth was bound
  * since. RECOMP_GL_DEPTH_TEX=0 off; RECOMP_GL_SHARED_Z=0 (one depth per
  * colour surface, nv2a_gl's old way) turns it off too.
+ *
+ * HUD at the canvas' size (2026-11-16, untested in a browser;
+ * RECOMP_WGPU_HUD_NATIVE=0 off): the scene stays at RECOMP_GL_SCALE, but a
+ * shown frame (a back buffer presented in the last 4 frames) gets a twin
+ * texture at the canvas' height in device pixels (the page writes it, word 1
+ * of nv2a_wgpu_aspect_box), and its 2D draws go there: pre-transformed draws
+ * (wgpu_draw.c) that test neither depth nor stencil -- HUD, menus, Flash, the
+ * full-screen post passes. The first such draw upscales the frame into the
+ * twin (BLIT, linear); later ones draw there; a draw that needs the scene
+ * (anything else: 3D, depth-tested glow sprites), a clear or a blit of that
+ * surface first puts the rectangle the 2D draws touched back (BLIT down), and
+ * the next 2D draw upscales again. Only after half the previous frame's scene
+ * draws of that surface (so sprites mid-scene stay at the scene's size); a
+ * menu (no scene draws) switches at once. Sampled while the twin holds the
+ * picture, a surface gives the twin (same logical size). The present shows
+ * the twin, the canvas takes that height. The twin's depth (same format, so
+ * the same pipelines) is never tested: 2D draws there have the test off.
+ * '[WGPU] HUD at canvas size WxH' at the first switch and each new size.
  */
 #include "nv2a_wgpu.h"
 #include "wgpu_int.h"
@@ -70,11 +88,18 @@ typedef struct {
     int      fresh;                     /* storage not yet cleared */
     float    kw;                        /* Hor+ widening (ws_wide), 1: none */
     uint32_t sgen;                      /* s_scale_gen it was made at */
+    uint32_t hid, hpw, hph;             /* HUD twin at the canvas' size, 0: none */
+    uint32_t hshadow, hshadow_seq;      /* its copy for draws sampling it (as shadow) */
+    int      hmode;                     /* 1: the twin holds the picture */
+    uint32_t hx0, hy0, hx1, hy1;        /* title pixels 2D draws touched in the twin since */
+    uint32_t shown;                     /* wg_frame + 1 of its last present, 0: never */
+    uint32_t hframe;                    /* wg_frame of its last switch to the twin */
+    uint32_t n3, n3_prev, n3_frame;     /* scene draws this frame, in its previous one; frame */
 } WsSurf;
 
 typedef struct {
     uint32_t va, pw, ph, id, used;
-    int      fresh;
+    int      fresh, hi;                 /* hi: a HUD twin's (never tested, never sampled) */
     uint32_t lw, lh, ax, ay;            /* the last colour surface bound with it: title px, aa */
     uint32_t wseq, cseq, cfmt;          /* bound at / converted at, cfmt WG_ZC_* + 1 */
     uint32_t rgba;                      /* its colour copy (ZCONV), 0: none yet */
@@ -100,6 +125,7 @@ static struct {
     WsDepth *d;
     uint32_t color, depth;              /* texture ids; color 0: none */
     int      open;                      /* BEGIN_PASS emitted, END_PASS not yet */
+    int      hi;                        /* color is s's HUD twin */
     uint32_t color_load, depth_load, stencil_load;
     float    clear_color[4], clear_depth;
     uint32_t clear_stencil;
@@ -148,17 +174,18 @@ static void ws_pass_close(void)
     memset(&s_pass, 0, sizeof s_pass);      /* loads WG_LOAD_LOAD, target none */
 }
 
-static void ws_target(WsSurf *s, WsDepth *d)
+static void ws_target(WsSurf *s, WsDepth *d, int hi)
 {
-    uint32_t z = d ? d->id : 0;
-    if (s_pass.color == s->id && s_pass.depth == z)
+    uint32_t z = d ? d->id : 0, c = hi ? s->hid : s->id;
+    if (s_pass.color == c && s_pass.depth == z)
         return;
     ws_pass_close();
     s_pass.s = s;
     s_pass.d = d;
-    s_pass.color = s->id;
+    s_pass.color = c;
     s_pass.depth = z;
-    if (s->fresh) {
+    s_pass.hi = hi;
+    if (!hi && s->fresh) {
         s_pass.color_load = WG_LOAD_CLEAR;
         s_pass.clear_color[3] = 1.0f;       /* black, opaque */
         s->fresh = 0;
@@ -175,7 +202,7 @@ static void ws_target(WsSurf *s, WsDepth *d)
 static void ws_settle(WsSurf *s)
 {
     if (s->fresh)
-        ws_target(s, NULL);
+        ws_target(s, NULL, 0);
     ws_pass_close();
 }
 
@@ -220,9 +247,11 @@ uint32_t wsurf_x(uint32_t x, uint32_t real, uint32_t stored, float k)
  * Any thread. */
 static volatile double s_wide = -1.0;
 static int s_aspect_auto;
-static volatile uint32_t s_page_aspect;
+/* [0] the canvas' shape (above); [1] the height in device pixels it is
+ * shown at (web/pre.js; 0 = not known): the HUD twin's height. */
+static volatile uint32_t s_page_aspect[2];
 
-EMSCRIPTEN_KEEPALIVE uintptr_t nv2a_wgpu_aspect_box(void) { return (uintptr_t)&s_page_aspect; }
+EMSCRIPTEN_KEEPALIVE uintptr_t nv2a_wgpu_aspect_box(void) { return (uintptr_t)s_page_aspect; }
 /* The in-game Settings' live words (wgpu_int.h WG_LIVE_*), same pattern. */
 static volatile int32_t s_live[WG_LIVE_N];
 EMSCRIPTEN_KEEPALIVE uintptr_t nv2a_wgpu_live_box(void) { return (uintptr_t)s_live; }
@@ -264,7 +293,7 @@ static double ws_wide(void)
 static void ws_aspect_poll(void)
 {
     static uint32_t seen;
-    uint32_t v = __atomic_load_n(&s_page_aspect, __ATOMIC_RELAXED);
+    uint32_t v = __atomic_load_n(&s_page_aspect[0], __ATOMIC_RELAXED);
     double k;
 
     ws_wide();
@@ -299,7 +328,7 @@ float nv2a_wgpu_wide(void)
     if (!nv2a_wgpu_active())
         return 1.0f;
     k = ws_wide();
-    v = __atomic_load_n(&s_page_aspect, __ATOMIC_RELAXED);
+    v = __atomic_load_n(&s_page_aspect[0], __ATOMIC_RELAXED);
     if (v && (p = ws_k_of(v / 10000.0)) > k)
         k = p;
     return (float)k;
@@ -377,7 +406,9 @@ static WsSurf *ws_surf_get(uint32_t va, uint32_t w, uint32_t h, uint32_t aa_sx, 
     if (s == s_last)
         s_last = NULL;                          /* its picture goes with it */
     ws_forget(s->id);
+    ws_forget(s->hid);
     wg_tex_free(s->shadow);                     /* never an attachment */
+    wg_tex_free(s->hshadow);
     memset(s, 0, sizeof *s);
     s->va = va; s->w = w; s->h = h; s->used = wg_frame;
     s->aa_sx = aa_sx; s->aa_sy = aa_sy;
@@ -403,13 +434,14 @@ static WsSurf *ws_surf_get(uint32_t va, uint32_t w, uint32_t h, uint32_t aa_sx, 
     return s;
 }
 
-static WsDepth *ws_depth_get(uint32_t va, uint32_t pw, uint32_t ph)
+static WsDepth *ws_depth_get(uint32_t va, uint32_t pw, uint32_t ph, int hi)
 {
     WsDepth *d, *victim = NULL;
     int i;
 
     for (i = 0; i < WS_MAX_DEPTH; i++) {
-        if (s_depth[i].id && s_depth[i].va == va && s_depth[i].pw == pw && s_depth[i].ph == ph) {
+        if (s_depth[i].id && s_depth[i].va == va && s_depth[i].pw == pw && s_depth[i].ph == ph
+            && s_depth[i].hi == hi) {
             s_depth[i].used = wg_frame;
             return &s_depth[i];
         }
@@ -420,21 +452,146 @@ static WsDepth *ws_depth_get(uint32_t va, uint32_t pw, uint32_t ph)
     ws_forget(d->id);
     wg_tex_free(d->rgba);                       /* never an attachment of a game pass */
     memset(d, 0, sizeof *d);
-    d->va = va; d->pw = pw; d->ph = ph; d->used = wg_frame;
+    d->va = va; d->pw = pw; d->ph = ph; d->used = wg_frame; d->hi = hi;
     d->id = wg_tex_create(WG_FMT_DEPTH24PLUS_STENCIL8, pw, ph,
                           WG_TU_RENDER_ATTACHMENT | WG_TU_TEXTURE_BINDING);
     d->fresh = 1;
     return d;
 }
 
-/* surf_bind: the surface (and zeta) sf draws into becomes the target. */
-static WsSurf *ws_bind(const Nv2aSurface *sf, uint32_t zeta_va, WsDepth **dout)
+/* ── HUD at the canvas' size (see the top) ────────────────────────── */
+
+static int ws_hud_on(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *e = getenv("RECOMP_WGPU_HUD_NATIVE");
+        on = !(e && *e == '0');
+        if (!on)
+            fprintf(stderr, "  [WGPU] HUD at the scene's size (RECOMP_WGPU_HUD_NATIVE=0)\n");
+    }
+    return on;
+}
+
+/* The canvas' shown height in device pixels (the page's), at most 2160 and
+ * the device's texture limit; 0: off or not known. */
+static uint32_t ws_hud_h(void)
+{
+    uint32_t v = __atomic_load_n(&s_page_aspect[1], __ATOMIC_RELAXED);
+    uint32_t maxs = wg_ctl.max_tex_2d ? wg_ctl.max_tex_2d : 8192;
+    if (!v || !ws_hud_on())
+        return 0;
+    if (v > 2160) v = 2160;
+    return v > maxs ? maxs : v;
+}
+
+/* A frame shown lately (double or triple buffered: any of its back buffers),
+ * whose stored height is well under the canvas': its twin's size. */
+static int ws_hud_size(const WsSurf *s, uint32_t *w, uint32_t *h)
+{
+    uint32_t ch = ws_hud_h(), maxs = wg_ctl.max_tex_2d ? wg_ctl.max_tex_2d : 8192;
+    double f;
+    if (!ch || !s->shown || wg_frame - (s->shown - 1) > 4 || s->aa_sx > 1 || s->aa_sy > 1
+        || s->w <= 640 || s->h < 400 || s->h > 576)
+        return 0;
+    f = (double)ch / s->ph;
+    if (f < 1.2)
+        return 0;                               /* the scene's own size is about as fine */
+    if (s->pw * f > maxs)
+        f = (double)maxs / s->pw;
+    *w = (uint32_t)(s->pw * f + 0.5);
+    *h = (uint32_t)(s->ph * f + 0.5);
+    return 1;
+}
+
+/* Title rectangle x0..x1 of a w-wide surface as stored px0..px1 (Hor+ too). */
+static void ws_hud_rect(const WsSurf *s, uint32_t stw, uint32_t sth, uint32_t r[4])
+{
+    r[0] = wsurf_x(s->hx0, s->w, stw, s->kw);
+    r[1] = ws_to(s->hy0, sth, s->h);
+    r[2] = wsurf_x(s->hx1, s->w, stw, s->kw);
+    r[3] = ws_to(s->hy1, sth, s->h);
+}
+
+static void ws_blit_rect(uint32_t src, const uint32_t sr[4], uint32_t dst, const uint32_t dr[4])
+{
+    WgBlit *b = (WgBlit *)wg_emit(WG_OP_BLIT, sizeof *b);
+    b->src = src; b->dst = dst;
+    b->sx = sr[0]; b->sy = sr[1]; b->sw = sr[2] - sr[0]; b->sh = sr[3] - sr[1];
+    b->dx = dr[0]; b->dy = dr[1]; b->dw = dr[2] - dr[0]; b->dh = dr[3] - dr[1];
+    b->filter = WG_FILTER_LINEAR;
+}
+
+/* The frame into its twin (made or remade at the canvas' size): 2D draws go
+ * there from now. 0: no twin for s. Ends any pass. */
+static int ws_go_hi(WsSurf *s)
+{
+    static uint32_t told_w, told_h;
+    uint32_t w, h, sr[4], dr[4];
+    if (!ws_hud_size(s, &w, &h))
+        return 0;
+    ws_settle(s);                               /* its pending clears land first */
+    if (s->hid && (s->hpw != w || s->hph != h)) {
+        wg_tex_free(s->hid);
+        wg_tex_free(s->hshadow);
+        s->hid = s->hshadow = 0;
+    }
+    if (!s->hid) {
+        s->hid = wg_tex_create(WG_FMT_BGRA8UNORM, w, h,
+                               WG_TU_RENDER_ATTACHMENT | WG_TU_TEXTURE_BINDING
+                               | WG_TU_COPY_SRC | WG_TU_COPY_DST);
+        s->hpw = w;
+        s->hph = h;
+        if (w != told_w || h != told_h) {
+            told_w = w;
+            told_h = h;
+            fprintf(stderr, "  [WGPU] HUD at canvas size %ux%u (scene %ux%u; RECOMP_WGPU_HUD_NATIVE=0 off)\n",
+                    w, h, s->pw, s->ph);
+        }
+    }
+    sr[0] = sr[1] = 0; sr[2] = s->pw; sr[3] = s->ph;
+    dr[0] = dr[1] = 0; dr[2] = w; dr[3] = h;
+    ws_blit_rect(s->id, sr, s->hid, dr);
+    s->hmode = 1;
+    s->hframe = wg_frame;
+    s->hx0 = s->hy0 = UINT32_MAX;
+    s->hx1 = s->hy1 = 0;
+    return 1;
+}
+
+/* What the 2D draws put in the twin back into the frame (scaled down): it
+ * holds the picture again. Ends a pass on either. */
+static void ws_go_low(WsSurf *s)
+{
+    uint32_t sr[4], dr[4];
+    if (!s->hmode)
+        return;
+    s->hmode = 0;
+    if (s_pass.color && (s_pass.color == s->hid || s_pass.color == s->id))
+        ws_pass_close();
+    if (s->hx1 <= s->hx0 || s->hy1 <= s->hy0)
+        return;                                 /* nothing drawn there */
+    s->hx0 = s->hx0 > 2 ? s->hx0 - 2 : 0;      /* the filters' reach */
+    s->hy0 = s->hy0 > 2 ? s->hy0 - 2 : 0;
+    s->hx1 = s->hx1 + 2 < s->w ? s->hx1 + 2 : s->w;
+    s->hy1 = s->hy1 + 2 < s->h ? s->hy1 + 2 : s->h;
+    ws_hud_rect(s, s->hpw, s->hph, sr);
+    ws_hud_rect(s, s->pw, s->ph, dr);
+    if (sr[2] > sr[0] && sr[3] > sr[1] && dr[2] > dr[0] && dr[3] > dr[1])
+        ws_blit_rect(s->hid, sr, s->id, dr);
+}
+
+/* surf_bind: the surface (and zeta) sf draws into becomes the target.
+ * hud: NULL for a clear or a draw that needs the scene; else a 2D draw for
+ * the HUD twin, the title pixels it may touch (x0, y0, x1, y1). */
+static WsSurf *ws_bind(const Nv2aSurface *sf, uint32_t zeta_va, WsDepth **dout, int draw,
+                       const float *hud)
 {
     uint32_t bpp = sf->bytes_per_pixel ? sf->bytes_per_pixel : 4;
     uint32_t w = sf->pitch ? sf->pitch / bpp : sf->width;
     uint32_t h = sf->clip_y + sf->height;       /* the clip need not start at 0 */
     uint32_t cw, ax = sf->aa_sx ? sf->aa_sx : 1, ay = sf->aa_sy ? sf->aa_sy : 1;
-    int exact = 0;
+    int exact = 0, hi;
     WsSurf *s;
     WsDepth *d;
 
@@ -464,13 +621,43 @@ static WsSurf *ws_bind(const Nv2aSurface *sf, uint32_t zeta_va, WsDepth **dout)
         const char *e = getenv("RECOMP_GL_SHARED_Z");
         s_shared_z = !(e && e[0] == '0');
     }
+    if (draw) {                                 /* the scene's draws, per frame */
+        if (s->n3_frame != wg_frame) {
+            s->n3_prev = s->n3;
+            s->n3 = 0;
+            s->n3_frame = wg_frame;
+        }
+        if (!hud)
+            s->n3++;
+    }
+    /* HUD twin: a 2D draw once half the previous frame's scene is in; a clear
+     * (draw 0, counts nothing) only into a twin already in use. */
+    hi = hud && (draw ? s->n3 * 2 >= s->n3_prev && (s->hmode || ws_go_hi(s)) : s->hmode);
+    if (hi) {
+        float x0 = hud[0] > 0.0f ? hud[0] : 0.0f, y0 = hud[1] > 0.0f ? hud[1] : 0.0f;
+        float x1 = hud[2] < (float)s->w ? hud[2] : (float)s->w;
+        float y1 = hud[3] < (float)s->h ? hud[3] : (float)s->h;
+        if (x1 > x0 && y1 > y0) {
+            if ((uint32_t)x0 < s->hx0) s->hx0 = (uint32_t)x0;
+            if ((uint32_t)y0 < s->hy0) s->hy0 = (uint32_t)y0;
+            if ((uint32_t)ceilf(x1) > s->hx1) s->hx1 = (uint32_t)ceilf(x1);
+            if ((uint32_t)ceilf(y1) > s->hy1) s->hy1 = (uint32_t)ceilf(y1);
+        }
+    } else if (s->hmode) {
+        static int told;
+        if (draw && !hud && s->hframe == wg_frame && !told++)
+            fprintf(stderr, "  [WGPU] HUD: a scene draw after HUD draws in one frame: those go back to the"
+                    " scene's size (logged once)\n");
+        ws_go_low(s);
+    }
     /* Not shared: keyed by the colour surface, as nv2a_gl's own s->ds. */
-    d = zeta_va ? ws_depth_get(s_shared_z ? zeta_va : sf->color_va, s->pw, s->ph) : NULL;
-    if (d) {                                    /* drawn or cleared from here */
+    d = zeta_va ? ws_depth_get(s_shared_z ? zeta_va : sf->color_va, hi ? s->hpw : s->pw,
+                               hi ? s->hph : s->ph, hi) : NULL;
+    if (d && !hi) {                             /* drawn or cleared from here */
         d->lw = s->w; d->lh = s->h; d->ax = s->aa_sx; d->ay = s->aa_sy;
         d->wseq = ++s_zseq;
     }
-    ws_target(s, d);
+    ws_target(s, d, hi);
     s_last = s;
     *dout = d;
     return s;
@@ -480,13 +667,22 @@ void wsurf_clear(const Nv2aSurface *sf, uint32_t zeta_va, uint32_t flags,
                  uint32_t argb, uint32_t zs, const WsClearRegs *r)
 {
     WsDepth *d;
-    WsSurf *s = ws_bind(sf, zeta_va, &d);
-    uint32_t x0 = 0, y0 = 0, x1, y1, mask, z;
+    WsSurf *s;
+    uint32_t x0 = 0, y0 = 0, x1, y1, mask, z, tw, th;
+    uint32_t ax = sf->aa_sx ? sf->aa_sx : 1, ay = sf->aa_sy ? sf->aa_sy : 1;
     int partial = 0, color, depth, stencil;
-    float rgba[4], zf;
+    float rgba[4], zf, box[4];
 
+    /* A colour-only clear of a rectangle stays on the HUD twin when 2D draws
+     * already go there (MC3's minimap clears its alpha, 0x80, before its map):
+     * going back to the scene's size for it would blur the HUD drawn so far. */
+    box[0] = (float)((r->rect_h & 0xFFFF) * ax); box[2] = (float)(((r->rect_h >> 16) + 1) * ax);
+    box[1] = (float)((r->rect_v & 0xFFFF) * ay); box[3] = (float)(((r->rect_v >> 16) + 1) * ay);
+    s = ws_bind(sf, zeta_va, &d, 0, r->have && !(flags & 3) && (flags & 0xF0) ? box : NULL);
     if (!s)
         return;
+    tw = s_pass.hi ? s->hpw : s->pw;            /* the attachment */
+    th = s_pass.hi ? s->hph : s->ph;
     x1 = s->w; y1 = s->h;
     if (r->have) {
         /* The clear rectangle is in logical pixels, like SURFACE_CLIP; the
@@ -516,10 +712,10 @@ void wsurf_clear(const Nv2aSurface *sf, uint32_t zeta_va, uint32_t flags,
         WgClearRect *c;
         wsurf_pass_begin();
         c = (WgClearRect *)wg_emit(WG_OP_CLEAR_RECT, sizeof *c);
-        c->x = wsurf_x(x0, s->w, s->pw, s->kw);
-        c->y = ws_to(y0, s->ph, s->h);
-        c->width = wsurf_x(x1, s->w, s->pw, s->kw) - c->x;
-        c->height = ws_to(y1, s->ph, s->h) - c->y;
+        c->x = wsurf_x(x0, s->w, tw, s->kw);
+        c->y = ws_to(y0, th, s->h);
+        c->width = wsurf_x(x1, s->w, tw, s->kw) - c->x;
+        c->height = ws_to(y1, th, s->h) - c->y;
         c->flags = (color ? WG_CR_COLOR : 0) | (depth ? WG_CR_DEPTH : 0)
                    | (stencil ? WG_CR_STENCIL : 0) | (mask << WG_CR_MASK_SHIFT);
         memcpy(c->color, rgba, sizeof c->color);
@@ -528,8 +724,9 @@ void wsurf_clear(const Nv2aSurface *sf, uint32_t zeta_va, uint32_t flags,
         return;
     }
     if (s_pass.open) {                          /* drawn into: clear in a new pass */
+        int hi = s_pass.hi;
         ws_pass_close();
-        ws_target(s, d);
+        ws_target(s, d, hi);
     }
     if (color) {
         s_pass.color_load = WG_LOAD_CLEAR;
@@ -545,10 +742,10 @@ void wsurf_clear(const Nv2aSurface *sf, uint32_t zeta_va, uint32_t flags,
     }
 }
 
-void wsurf_draw(const Nv2aSurface *sf, uint32_t zeta_va)
+void wsurf_draw(const Nv2aSurface *sf, uint32_t zeta_va, const float *hud)
 {
     WsDepth *d;
-    if (ws_bind(sf, zeta_va, &d))
+    if (ws_bind(sf, zeta_va, &d, 1, hud))
         s_drew_any = 1;
 }
 
@@ -575,10 +772,11 @@ const WsTarget *wsurf_target(void)
     t.depth_tex = s_pass.depth;
     t.color_fmt = WG_FMT_BGRA8UNORM;
     t.depth_fmt = s_pass.depth ? WG_FMT_DEPTH24PLUS_STENCIL8 : WG_FMT_NONE;
-    t.w = s->pw; t.h = s->ph;                   /* the attachment */
+    t.w = s_pass.hi ? s->hpw : s->pw;           /* the attachment */
+    t.h = s_pass.hi ? s->hph : s->ph;
     t.pw = s->w; t.ph = s->h;                   /* the guest surface, title pixels */
-    t.scale_x = (float)s->pw / (float)s->w;
-    t.scale_y = (float)s->ph / (float)s->h;
+    t.scale_x = (float)t.w / (float)s->w;
+    t.scale_y = (float)t.h / (float)s->h;
     t.pass_seq = s_pass_seq;
     t.wide = s->kw;
     return &t;
@@ -586,12 +784,13 @@ const WsTarget *wsurf_target(void)
 
 /* The surface's shadow: a copy for draws sampling their own target and for
  * blits within the surface. Never an attachment. */
-static uint32_t ws_shadow(WsSurf *s)
+static uint32_t ws_shadow(WsSurf *s, int hi)
 {
-    if (!s->shadow)
-        s->shadow = wg_tex_create(WG_FMT_BGRA8UNORM, s->pw, s->ph,
-                                  WG_TU_TEXTURE_BINDING | WG_TU_COPY_SRC | WG_TU_COPY_DST);
-    return s->shadow;
+    uint32_t *sh = hi ? &s->hshadow : &s->shadow;
+    if (!*sh)
+        *sh = wg_tex_create(WG_FMT_BGRA8UNORM, hi ? s->hpw : s->pw, hi ? s->hph : s->ph,
+                            WG_TU_TEXTURE_BINDING | WG_TU_COPY_SRC | WG_TU_COPY_DST);
+    return *sh;
 }
 
 void wsurf_blit(const Nv2aBlit *bl)
@@ -601,6 +800,8 @@ void wsurf_blit(const Nv2aBlit *bl)
 
     if (!src || !dst)                           /* written by the CPU: the guest copy stands */
         return;
+    ws_go_low(src);                             /* HUD twins: the picture back in each first */
+    ws_go_low(dst);
     /* Clamp to both surfaces (title pixels). */
     sw = bl->sx < src->w ? src->w - bl->sx : 0;
     sh = bl->sy < src->h ? src->h - bl->sy : 0;
@@ -624,7 +825,7 @@ void wsurf_blit(const Nv2aBlit *bl)
     ws_settle(dst);
     sid = src->id;
     if (src == dst) {                           /* the source rectangle into the shadow first */
-        uint32_t sh = ws_shadow(src);           /* TEX_CREATE first, then the record */
+        uint32_t sh = ws_shadow(src, 0);        /* TEX_CREATE first, then the record */
         WgCopyTex *c = (WgCopyTex *)wg_emit(WG_OP_COPY_TEX, sizeof *c);
         c->src = src->id; c->dst = sh;
         c->src_x = c->dst_x = sx0; c->src_y = c->dst_y = sy0;
@@ -655,30 +856,33 @@ uint32_t wsurf_texture(uint32_t va, uint32_t *w, uint32_t *h)
     static int told;
     WsSurf *s = ws_find(va);
     uint32_t id;
+    int hi;
 
     if (!s)
         return 0;
-    id = s->id;
+    hi = s->hmode;                              /* the HUD twin holds the picture: read it */
+    id = hi ? s->hid : s->id;
     /* Sampling the pass's own attachment is a WebGPU validation error that
      * fails the whole submit: the stage reads the shadow, copied once per
      * pass segment (pending clears land first: wsurf_pass_suspend). */
     if (id == s_pass.color) {
-        if (!s_pass.open || s->shadow_seq != s_pass_seq) {
+        uint32_t *seq = hi ? &s->hshadow_seq : &s->shadow_seq;
+        if (!s_pass.open || *seq != s_pass_seq) {
             WgCopyTex *c;
             uint32_t sh;
             if (!told++)
                 fprintf(stderr, "  [WGPU] draw samples its own target %08X: copied first, once per pass\n", va);
             wsurf_pass_suspend();
-            sh = ws_shadow(s);                  /* its TEX_CREATE must precede the COPY_TEX record */
+            sh = ws_shadow(s, hi);              /* its TEX_CREATE must precede the COPY_TEX record */
             c = (WgCopyTex *)wg_emit(WG_OP_COPY_TEX, sizeof *c);
-            c->src = s->id;
+            c->src = id;
             c->dst = sh;
-            c->width = s->pw;
-            c->height = s->ph;
+            c->width = hi ? s->hpw : s->pw;
+            c->height = hi ? s->hph : s->ph;
             wsurf_pass_begin();
-            s->shadow_seq = s_pass_seq;
+            *seq = s_pass_seq;
         }
-        id = s->shadow;
+        id = hi ? s->hshadow : s->shadow;
     }
     /* The title's logical pixels (nv2a_gl rt_scale's lw, lh): the stage's
      * coordinate scale is w / lw; the stored size does not matter. */
@@ -708,8 +912,8 @@ uint32_t wsurf_depth_texture(uint32_t va, uint32_t color, uint32_t *w, uint32_t 
     }
     if (!on || s_shared_z <= 0)
         return 0;
-    for (i = 0; i < WS_MAX_DEPTH; i++)          /* the largest: the scene's */
-        if (s_depth[i].id && s_depth[i].va == va
+    for (i = 0; i < WS_MAX_DEPTH; i++)          /* the largest: the scene's (not a HUD twin's) */
+        if (s_depth[i].id && s_depth[i].va == va && !s_depth[i].hi
             && (!d || s_depth[i].pw * s_depth[i].ph > d->pw * d->ph))
             d = &s_depth[i];
     if (!d)
@@ -764,8 +968,8 @@ void wsurf_frame_end(uint32_t out_w, uint32_t out_h)
 {
     static int fill_on = -1, steady_on = -1;
     WgPresent *p;
-    WsSurf *s = s_last;
-    uint32_t vw, minh;
+    WsSurf *s = s_last, hv;
+    uint32_t vw, minh, hh;
     int ws43, held43, wide;
 
     ws_pass_close();
@@ -775,6 +979,14 @@ void wsurf_frame_end(uint32_t out_w, uint32_t out_h)
      * to black long before its first frame). The canvas keeps what it had. */
     if (!s || !s_drew_any)
         return;
+    s->shown = wg_frame + 1;
+    if (s->hmode) {                             /* its HUD twin holds the picture: shown instead */
+        hv = *s;
+        hv.id = s->hid;
+        hv.pw = s->hpw;
+        hv.ph = s->hph;
+        s = &hv;
+    }
     if (fill_on < 0) {
         const char *e = getenv("RECOMP_GL_FILL");
         fill_on = !(e && *e == '0') && xbox_video_widescreen();
@@ -802,6 +1014,8 @@ void wsurf_frame_end(uint32_t out_w, uint32_t out_h)
         s_scale_new = 0;
     }
     if (!out_h) out_h = 720;
+    if ((hh = ws_hud_h()) != 0)                 /* HUD twins: the canvas at its shown size */
+        out_h = hh;
     if (out_h < minh) out_h = minh;
 
     p = (WgPresent *)wg_emit(WG_OP_PRESENT, sizeof *p);
