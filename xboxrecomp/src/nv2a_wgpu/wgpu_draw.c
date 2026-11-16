@@ -309,15 +309,20 @@ static uint32_t k_rows(const float (*rows)[4], uint32_t n, float (*cache)[4],
     return *off;
 }
 
-/* Hor+ (nv2a_clip's edge rule): does a pre-transformed draw reach both the
- * left and the right edge of a frame pw title pixels wide (a full-screen
- * quad, fade, post pass)? Only those keep their edge vertices on the
- * widened frame's edges. Any other 2D draw is squeezed whole: the edge rule
- * left every vertex beyond the 16:9 frame unsqueezed, so sprites the title
- * projected into the side areas (light glows, flares) were thrown k times
- * further out or smeared from the middle to the edge. Position: attribute
- * 0, floats, x in title pixels. Another format, or a big draw: kept as it
- * was (full). */
+/* Hor+ (nv2a_clip's edge rule): is a pre-transformed draw a full-screen
+ * quad, fade or post pass of a frame pw title pixels wide -- every vertex on
+ * (within a pixel of) or beyond the left or right edge, both edges reached?
+ * Only those keep their edge vertices on the widened frame's edges. Any
+ * other 2D draw is squeezed whole: the edge rule left every vertex beyond
+ * the 16:9 frame unsqueezed, so sprites the title projected into the side
+ * areas (light glows, flares) were thrown k times further out or smeared
+ * from the middle to the edge. A batch whose extent alone spans the frame
+ * (HUD pieces or glow sprites near both sides in one draw) is not a
+ * full-screen draw: with extent alone it kept the edge rule, and each of
+ * its quads crossing an edge stretched from its squeezed inner corners to
+ * past the widened edge (white bands, arcs by the tachometer, shards by the
+ * speedometer). Position: attribute 0, floats, x in title pixels. Another
+ * format, or a big draw: kept as it was (full). */
 static int wide_full_2d(const Nv2aRawBatch *b, float pw)
 {
     const uint8_t *p = b->direct[0].ptr;
@@ -328,6 +333,8 @@ static int wide_full_2d(const Nv2aRawBatch *b, float pw)
         return 1;
     for (i = 0; i < n; i++, p += b->direct[0].stride) {
         memcpy(&x, p, 4);
+        if (x > 1.0f && x < pw - 1.0f)
+            return 0;                       /* a vertex inside the frame: not a full-screen draw */
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
     }
