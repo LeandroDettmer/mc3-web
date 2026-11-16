@@ -1161,7 +1161,7 @@
       const d = { RECOMP_RAM_MB: '64', MC3_ROAM_CARS: '7', MC3_DISC_MEM_MB: '8', MC3_PREFETCH: 'cars',
         RECOMP_GL_SHARPEN: '0', RECOMP_GL_FXAA: '0', MC3_MOVIE_HD: '0',
         RECOMP_GL_QUEUE_MB: '4', RECOMP_GL_RING_MB: '4', RECOMP_GL_MAX_PROG: '256', RECOMP_GL_VPOOL: '8',
-        MC3_THREAD_STACK_KB: '1024' };
+        MC3_THREAD_STACK_KB: '1024', MC3_LOWMEM: '1' };   // MC3_LOWMEM: the renderer leaves hi-res texture packs off
       for (const k in d) if (env[k] === undefined) env[k] = d[k];
     }
     for (const k of Object.keys(env)) if (k.startsWith('MC3_TOUCH') && k !== 'MC3_TOUCH_TRACE') delete env[k];   // the page's own (web/touch.js)

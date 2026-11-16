@@ -46,6 +46,12 @@
  * mods/tune/vehicle/vehicle.lst with more Vehicle blocks has the extras cut
  * ('[MOD] vehicle.lst: N cars, the last M dropped').
  *
+ * Hi-res textures (browser, 2026-11-16; untested in a browser): a pack's
+ * top-level textures/ folder (<key>.png, tools/hud_hd_pack.py) is not part
+ * of the overlay: its folder goes to the WebGPU renderer
+ * (nv2a_wgpu_hires_dir; the first such pack in MC3_MODS), which swaps those
+ * textures on the GPU. WebGL draws the stock ones.
+ *
  * Not covered: FindFiles (a folder listing of the archives does not list a
  * mod's added files). MC3_MOD_TRACE=1 logs every archive open's name. */
 
@@ -120,6 +126,15 @@ static int mods_scan(const char *id, const char *rel)
     while ((e = readdir(d)) != NULL) {
         if (e->d_name[0] == '.' || (!*rel && !strcasecmp(e->d_name, "mod.json")))
             continue;
+#ifdef __EMSCRIPTEN__
+        if (!*rel && !strcasecmp(e->d_name, "textures")) {   /* hi-res textures: the renderer's */
+            extern void nv2a_wgpu_hires_dir(const char *dir);
+            snprintf(path, sizeof path, "%s/%s", s_mods_dir, id);
+            nv2a_wgpu_hires_dir(path);
+            fprintf(stderr, "[MOD] pack %s: hi-res textures, drawn by the WebGPU renderer only (WebGL: stock)\n", id);
+            continue;
+        }
+#endif
         snprintf(path, sizeof path, "%s/%s", dir, e->d_name);
         if (stat(path, &st))
             continue;
