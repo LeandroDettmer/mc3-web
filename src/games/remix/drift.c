@@ -42,9 +42,19 @@
  * SSSValue +0x10 / SSSThreshold +0xC, FileIO sub_002C9840, vtable 0x47681C;
  * its owner not found): SteeringLimit scales the angle after it.
  *
- * Levels: MC3_DRIFT=1 normal, =2 strong, =3 controlled; the page's live word:
- * 1 off, 2 on (the environment's level, normal if that is off), 3 strong,
- * 4 controlled. Off: every value back (if still ours).
+ * Levels: MC3_DRIFT=1 normal, =2 strong, =3 controlled, =4 custom; the page's
+ * live word: 1 off, 2 on (the environment's level, normal if that is off),
+ * 3 strong, 4 controlled, 5 custom. Off: every value back (if still ours).
+ *
+ * Custom (2026-11-16, untested in game; the page's Drift setup panel): the
+ * controlled level with the player's own values (k_ds: MC3_DRIFT_<NAME> at
+ * start, live words MC3_LIVE_DRIFT_SETUP + i: v x 1000 + 1, -1 = default,
+ * 0 = the environment's): CTL_SPEED, CTL_REAR_K, CTL_CS_MAX, the stabilizer's
+ * 2.5, CTL_OUT_DAMP and the give-back, times front SteeringLimit, front and
+ * rear Static/SlidingFric (in the same df records as the assist) and the
+ * vehInput's SteerRate (in +0x30, tune FileIO sub_002C9840; only while in's
+ * vtable is 0x47681C, else '[DRIFT] custom: steer response off ...'). The
+ * camera strength (DS_CAM) scales drift_cam's turn and distance at any level.
  *
  * Controlled (v4, 2026-11-15, untested in game): NFSU2's drift-event handling.
  * NFSU2 runs a drift routine every physics step of a drift event (PC
@@ -160,9 +170,44 @@ static const float k_ctl_stab[7][2] = {   /* NFSU2's yaw stabilizer S over the s
 static const float k_ctl_rear[10] = { 1.1f, 0.95f, 0.87f, 0.77f, 0.67f, 0.6f, 0.51f, 0.43f, 0.37f, 0.34f };
 enum { CTL_OUT, CTL_ENTER, CTL_IN, CTL_EXIT };
 
+/* Custom level and camera strength (see the header): env name, Controlled's value, the range a value is held to */
+enum { DS_STEER, DS_RESP, DS_FGRIP, DS_RGRIP, DS_SPEED, DS_REAR, DS_COUNTER, DS_STAB, DS_HOLD, DS_KEEP, DS_CAM, DS_N };
+_Static_assert(MC3_LIVE_DRIFT_SETUP + DS_N <= MC3_LIVE_N, "mc3_live_box: one word per drift setup value");
+static const struct { const char *env; float def, lo, hi; } k_ds[DS_N] = {
+    { "MC3_DRIFT_STEER",   1.00f, 0.70f, 1.50f },   /* front SteeringLimit x */
+    { "MC3_DRIFT_RESP",    1.00f, 0.50f, 2.00f },   /* vehInput SteerRate x */
+    { "MC3_DRIFT_FGRIP",   1.00f, 0.80f, 1.30f },   /* front Static/SlidingFric x */
+    { "MC3_DRIFT_RGRIP",   1.00f, 0.80f, 1.30f },   /* rear Static/SlidingFric x */
+    { "MC3_DRIFT_SPEED",   30.0f, 15.0f, 60.0f },   /* km/h: CTL_SPEED */
+    { "MC3_DRIFT_REAR",    0.85f, 0.50f, 1.00f },   /* CTL_REAR_K */
+    { "MC3_DRIFT_COUNTER", 1.45f, 1.00f, 1.80f },   /* CTL_CS_MAX */
+    { "MC3_DRIFT_STAB",    2.50f, 0.00f, 5.00f },   /* the stabilizer's factor (NFSU2 4) */
+    { "MC3_DRIFT_HOLD",    1.20f, 0.00f, 3.00f },   /* CTL_OUT_DAMP, 1/s */
+    { "MC3_DRIFT_KEEP",    0.30f, 0.00f, 0.80f },   /* give-back share */
+    { "MC3_DRIFT_CAM_K",   1.00f, 0.00f, 2.00f },   /* drift camera strength */
+};
+
+static float drift_clamp(float x, float lo, float hi);
+
+static float drift_setup(int i)
+{
+    static float env[DS_N];
+    static signed char got[DS_N];
+    int32_t w = mc3_live(MC3_LIVE_DRIFT_SETUP + i);
+    float v;
+    if (!got[i]) {
+        const char *e = getenv(k_ds[i].env);
+        env[i] = e && *e ? (float)atof(e) : k_ds[i].def;
+        got[i] = 1;
+    }
+    v = w > 0 ? (float)(w - 1) / 1000.0f : w < 0 ? k_ds[i].def : env[i];
+    return drift_clamp(v, k_ds[i].lo, k_ds[i].hi);
+}
+
 /* one tune value we scale: the game's (orig) and ours (set) */
 typedef struct { uint32_t va; float orig, set; } drift_field;
-enum { DF_RS, DF_RK, DF_FK, DF_FSTEER, DF_N };   /* rear Static/Sliding, front Sliding, front SteeringLimit */
+enum { DF_RS, DF_RK, DF_FK, DF_FSTEER, DF_FS, DF_SRATE, DF_N };   /* rear Static/Sliding, front Sliding, front
+                                                                     * SteeringLimit, front Static, vehInput SteerRate */
 static drift_field s_df[DF_N];
 
 /* the game's value: another car's tune, or one the game wrote (upgrade blend), is the new original */
@@ -199,20 +244,24 @@ static void drift_step(void)
     static float dval, side_acc;                /* controlled: NFSU2's drift value D, the learned steer side */
     static int dstate, side_said;
     static struct { float t, max, v0, g, kept, frmin; int cuts, damps; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
-    static const char *const k_name[4] = { "off", "on", "strong", "controlled" };
+    static const char *const k_name[5] = { "off", "on", "strong", "controlled", "custom" };
+    static int resp_said;
     static const char *const k_state[4] = { "out", "enter", "in", "exit" };
     const drift_tune *t;
     int32_t l = mc3_live(MC3_LIVE_DRIFT);
     uint32_t pm = MEM32(0x00558814u), p, veh, sim, tf = 0, tb = 0, car, ph, ics = 0, c, in = 0;
     float v[3], w[3], rt[3], up[3], bk[3], s = 0, beta = 0, wy = 0, thr = 0, brk = 0, hb = 0, st = 0, dt, tgt, amt;
     float vl = 0, vf = 0, grow = 0, cs = 0, ksteer;   /* grow < 0: rotating into the slide; cs: counter-steer 0..1 */
+    /* the controlled level's values; custom: the player's (k_ds) */
+    float c_speed = CTL_SPEED, c_rear = CTL_REAR_K, c_cs = CTL_CS_MAX, c_stab = 2.5f, c_hold = CTL_OUT_DAMP, keep;
+    float k_steer = 1.0f, k_resp = 1.0f, k_fg = 1.0f, k_rg = 1.0f;
     int hit = 0, frozen = 0;   /* hit: why[] says what was measured */
     int lvl, k;
     if (env < 0) {
         const char *e = getenv("MC3_DRIFT");
-        env = e && e[0] >= '1' && e[0] <= '3' ? e[0] - '0' : 0;
+        env = e && e[0] >= '1' && e[0] <= '4' ? e[0] - '0' : 0;
     }
-    lvl = l ? (l == 1 ? 0 : l == 3 ? 2 : l == 4 ? 3 : env ? env : 1) : env;
+    lvl = l ? (l == 1 ? 0 : l == 3 ? 2 : l == 4 ? 3 : l == 5 ? 4 : env ? env : 1) : env;
     if (online_ram(pm) && online_ram(p = MEM32(pm + 8u)) && online_ram(veh = MEM32(p + 0x14u)) &&
         online_ram(sim = MEM32(veh + 0x50u)) && MEM32(sim) == 0x00456550u &&
         online_ram(tf = MEM32(sim + 0x54u)) && MEM32(tf) == 0x0044D6C8u &&
@@ -235,7 +284,7 @@ static void drift_step(void)
         if (tb && s_df[DF_RK].va == tb + 0x6Cu)
             fprintf(stderr, "[DRIFT] tyres and steering back (WheelBack %08X)\n", (unsigned)tb);
         for (k = 0; k < DF_N; k++) {
-            if (!tb || s_df[k].va - (k < DF_FK ? tb : tf) >= 0x100u)
+            if (!tb || s_df[k].va - (k < DF_FK ? tb : k == DF_SRATE ? in : tf) >= 0x100u)
                 s_df[k].va = 0;
             df_back(&s_df[k]);
         }
@@ -249,7 +298,20 @@ static void drift_step(void)
             return;
         }
     }
-    t = &k_drift[lvl ? lvl - 1 : 0];
+    t = &k_drift[lvl ? (lvl > 3 ? 3 : lvl) - 1 : 0];
+    keep = t->keep;
+    if (lvl == 4) {
+        k_steer = drift_setup(DS_STEER);
+        k_resp = drift_setup(DS_RESP);
+        k_fg = drift_setup(DS_FGRIP);
+        k_rg = drift_setup(DS_RGRIP);
+        c_speed = drift_setup(DS_SPEED) / 3.6f;
+        c_rear = drift_setup(DS_REAR);
+        c_cs = drift_setup(DS_COUNTER);
+        c_stab = drift_setup(DS_STAB);
+        c_hold = drift_setup(DS_HOLD);
+        keep = drift_setup(DS_KEEP);
+    }
     dt = drift_clamp(MEMF(0x004B2D70u), 0.005f, 0.07f);
     if (in) {
         thr = drift_clamp(MEMF(in + 0x70u), 0, 1);
@@ -275,7 +337,7 @@ static void drift_step(void)
             float turn = -(cw[0] * rt[0] + cw[1] * rt[1] + cw[2] * rt[2]);   /* the heading turning toward the right row */
             grow = -(cw[0] * v[0] + cw[1] * v[1] + cw[2] * v[2]);
             /* which way the wheel turns the car, learned while gripping (no sign guessed for the steer input) */
-            if (lvl == 3 && vf < -10.0f && fabsf(vl) < 0.07f * -vf && fabsf(st) > 0.3f && hb < 0.5f && turn == turn) {
+            if (lvl >= 3 && vf < -10.0f && fabsf(vl) < 0.07f * -vf && fabsf(st) > 0.3f && hb < 0.5f && turn == turn) {
                 side_acc = drift_clamp(side_acc + st * turn * dt, -5.0f, 5.0f);
                 if (!side_said && fabsf(side_acc) >= CTL_SIDE) {
                     side_said = 1;
@@ -332,7 +394,7 @@ static void drift_step(void)
                             "hb %.2f steer %+.2f); %s\n", (double)MEMF(ics + 4u), (double)MEMF(ics + 0x10u),
                     (double)MEMF(ics + 0x28u), (double)MEMF(tf + 0x24u), (double)MEMF(tb + 0x68u),
                     (double)MEMF(tb + 0x6Cu), (double)MEMF(tb + 0x38u), (unsigned)in, (double)thr, (double)brk,
-                    (double)hb, (double)st, lvl == 3 ? "controlled" : lvl == 2 ? "strong" : "normal");
+                    (double)hb, (double)st, lvl == 4 ? "custom" : lvl == 3 ? "controlled" : lvl == 2 ? "strong" : "normal");
         }
     }
 
@@ -347,7 +409,7 @@ static void drift_step(void)
         kick_t = kick_t > dt ? kick_t - dt : 0.0f;
 
     /* rear grip factor: gripping -> drift over 0..6 deg of slip, the throttle loosens it, past beta_max it grips back */
-    if (lvl == 3) {
+    if (lvl >= 3) {
         /* controlled: NFSU2's drift value and rear grip (see the header, 1 and 3) */
         int fwd = ics && vf < -1.0f, into = fwd && grow < 0;
         float x;
@@ -362,13 +424,13 @@ static void drift_step(void)
         if (dstate == CTL_IN || dstate == CTL_EXIT)
             /* ours (owner 2026-11-16: pumping the throttle must keep the slide): sideways above the speed = IN,
              * throttle or not; NFSU2 also wants rotation into the slide or throttle x counter-steer */
-            dstate = fwd && s > CTL_SPEED && beta > CTL_SLIP ? CTL_IN : CTL_EXIT;
-        else if (fwd && s > CTL_SPEED && (hb > 0.5f || beta > CTL_SLIP || fabsf(st) > CTL_STEER || kick_t > 0))
+            dstate = fwd && s > c_speed && beta > CTL_SLIP ? CTL_IN : CTL_EXIT;
+        else if (fwd && s > c_speed && (hb > 0.5f || beta > CTL_SLIP || fabsf(st) > CTL_STEER || kick_t > 0))
             dstate = CTL_ENTER;   /* owner 2026-11-15: steering alone must throw the car (NFSU2's drift events do) */
         x = drift_clamp(dval * (beta / 57.29578f * 0.5f + cs * 1.5f + fabsf(wy) * 0.5f + fabsf(st) * 0.5f), 0, 1) * 9.0f;
         k = x < 8.0f ? (int)x : 8;
         tgt = k_ctl_rear[k] + (k_ctl_rear[k + 1] - k_ctl_rear[k]) * (x - (float)k);
-        tgt = 1.0f - (1.0f - tgt / 1.1f) * CTL_REAR_K;
+        tgt = 1.0f - (1.0f - tgt / 1.1f) * c_rear;
         /* the throw: entering with the car still straight (a steer, a lift-off or a handbrake), the rear lets go
          * at once to CTL_THROW, as On's kick; the table takes over as the slip builds */
         if (dstate == CTL_ENTER && beta < CTL_SLIP && tgt > CTL_THROW)
@@ -383,18 +445,35 @@ static void drift_step(void)
             tgt = slide + (t->catch_hi - slide) * drift_clamp((beta - t->beta_max) / 25.0f, 0, 1);
         fr += (tgt - fr) * drift_clamp(dt / 0.08f, 0, 1);
     }
-    df_set(&s_df[DF_RS], tb + 0x68u, 0.6f + 0.4f * fr);
-    df_set(&s_df[DF_RK], tb + 0x6Cu, fr);
+    df_set(&s_df[DF_RS], tb + 0x68u, (0.6f + 0.4f * fr) * k_rg);
+    df_set(&s_df[DF_RK], tb + 0x6Cu, fr * k_rg);
     amt = s > 8.0f ? 1.0f : 0.0f;
-    df_set(&s_df[DF_FK], tf + 0x6Cu, 1.0f + t->front * amt * drift_clamp(beta / 20.0f, 0, 1));
-    if (lvl == 3) {
+    df_set(&s_df[DF_FK], tf + 0x6Cu, (1.0f + t->front * amt * drift_clamp(beta / 20.0f, 0, 1)) * k_fg);
+    df_set(&s_df[DF_FS], tf + 0x68u, k_fg);
+    /* custom: steer response = the vehInput's SteerRate (+0x30), only on the class whose tune that is */
+    if (lvl == 4 && in && MEM32(in) == 0x0047681Cu) {
+        if (resp_said != 1)
+            fprintf(stderr, "[DRIFT] custom: steer response on (vehInput %08X SteerRate %.2f)\n", (unsigned)in,
+                    (double)df_orig(&s_df[DF_SRATE], in + 0x30u));
+        resp_said = 1;
+        df_set(&s_df[DF_SRATE], in + 0x30u, k_resp);
+    } else {
+        if (lvl == 4 && in && resp_said != 2) {
+            fprintf(stderr, "[DRIFT] custom: steer response off (inputs %08X vtable %08X, not 0x0047681C)\n",
+                    (unsigned)in, (unsigned)MEM32(in));
+            resp_said = 2;
+        }
+        if (in && s_df[DF_SRATE].va == in + 0x30u)
+            df_back(&s_df[DF_SRATE]);
+    }
+    if (lvl >= 3) {
         /* controlled: counter-steer assist (header, 4): full lock reaches at least the slip angle */
         float lim0 = df_orig(&s_df[DF_FSTEER], tf + 0x24u);
         ksteer = cs > 0 && lim0 > 0.05f ?
-                 1.0f + (drift_clamp(beta / 57.29578f / lim0, 1.0f, CTL_CS_MAX) - 1.0f) * dval : 1.0f;
+                 1.0f + (drift_clamp(beta / 57.29578f / lim0, 1.0f, c_cs) - 1.0f) * dval : 1.0f;
     } else
         ksteer = 1.0f + t->steer * amt * drift_clamp(beta / 30.0f, 0, 1);
-    df_set(&s_df[DF_FSTEER], tf + 0x24u, ksteer);
+    df_set(&s_df[DF_FSTEER], tf + 0x24u, ksteer * k_steer);
 
     if (ics) {
         float dw = 0, iy = MEMF(ics + 0x10u);
@@ -405,7 +484,7 @@ static void drift_step(void)
             dr.cuts++;
         }
         /* controlled: NFSU2's yaw stabilizer (header, 2): damps only the rotation into the slide, harder the wider */
-        if (lvl == 3 && dval > 0 && vf < -1.0f && grow < 0 && s > 8.0f && !hit) {
+        if (lvl >= 3 && dval > 0 && vf < -1.0f && grow < 0 && s > 8.0f && !hit) {
             float br = beta / 57.29578f, sv = 0;
             for (k = 1; k < 7; k++)
                 if (br <= k_ctl_stab[k][0]) {
@@ -413,13 +492,13 @@ static void drift_step(void)
                          (br - k_ctl_stab[k - 1][0]) / (k_ctl_stab[k][0] - k_ctl_stab[k - 1][0]);
                     break;
                 }
-            dw = -wy * drift_clamp(dval * sv * 2.5f * dt, 0, 0.5f);   /* 2.5 (NFSU2 4): less self-straightening */
+            dw = -wy * drift_clamp(dval * sv * c_stab * dt, 0, 0.5f);   /* 2.5 (NFSU2 4): less self-straightening */
             if (dw != 0)
                 dr.damps++;
-        } else if (lvl == 3 && dval > 0 && vf < -1.0f && grow > 0 && beta > 3.0f && s > 8.0f && !hit) {
+        } else if (lvl >= 3 && dval > 0 && vf < -1.0f && grow > 0 && beta > 3.0f && s > 8.0f && !hit) {
             /* ours (owner 2026-11-16: a counter-steer flipped the car at once): damp the rotation out of the slide
              * too, so a counter-steer holds or eases the angle and a flick to the other side takes its time */
-            dw = -wy * drift_clamp(dval * CTL_OUT_DAMP * dt, 0, 0.5f);
+            dw = -wy * drift_clamp(dval * c_hold * dt, 0, 0.5f);
             if (dw != 0)
                 dr.damps++;
         }
@@ -437,7 +516,7 @@ static void drift_step(void)
             float d = s - speed_prev, ns;
             if (brk < 0.3f && hb < 0.5f && !hit)
                 dr.g += d;
-            ns = s + (dr.g < 0 ? -dr.g * t->keep : 0.0f) - dr.kept;
+            ns = s + (dr.g < 0 ? -dr.g * keep : 0.0f) - dr.kept;
             if (ns > s && ns > dr.v0)
                 ns = s > dr.v0 ? s : dr.v0;
             if (ns != s && ns > 0.0f) {
@@ -467,7 +546,7 @@ static void drift_step(void)
         dr.frmin = fr < dr.frmin ? fr : dr.frmin;
     } else if (dr.t > 0) {
         char ext[96] = "";
-        if (lvl == 3)
+        if (lvl >= 3)
             snprintf(ext, sizeof ext, "; controlled: stabilizer %d frames, steer side %s, drift value %.2f (%s)",
                      dr.damps, side_said ? "learned" : "not learned yet", (double)dval, k_state[dstate]);
         if (dr.t >= 0.5f)
@@ -511,6 +590,7 @@ static void drift_cam(void)
     int32_t l = mc3_live(MC3_LIVE_DRIFT_CAM);
     int on, k, swap = 0, fk = 0;
     float v[3], bk[3], fx, fz, n, sh, beta, mt = 1.0f, kt = 0.0f, a, dt, fov = 0, dsc = 0;
+    float ck = drift_setup(DS_CAM);             /* strength: x the turn (0.35) and the distance (0.05) */
     if (env < 0) {
         const char *e = getenv("MC3_DRIFT_CAM");
         env = e && e[0] == '1';
@@ -545,7 +625,7 @@ static void drift_cam(void)
             if (fabsf(beta) <= 100.0f / 57.29578f) {   /* past it: reversing or spun, the game's own */
                 float bd = fabsf(beta) * 57.29578f;
                 swap = 1;
-                mt = 1.0f - 0.35f * drift_clamp((bd - 5.0f) / 30.0f, 0, 1);
+                mt = 1.0f - drift_clamp(0.35f * ck, 0, 0.9f) * drift_clamp((bd - 5.0f) / 30.0f, 0, 1);
                 kt = drift_clamp((bd - 10.0f) / 25.0f, 0, 1);
             }
         }
@@ -562,7 +642,7 @@ static void drift_cam(void)
             fk = 1;
             fov = MEMF(cam + 0x144u);
             dsc = MEMF(cam + 0x148u);
-            MEMF(cam + 0x148u) = dsc * (1.0f + 0.05f * kf);   /* FOV +5 deg and x1.15 until 2026-11-16 (owner: too much speed feel) */
+            MEMF(cam + 0x148u) = dsc * (1.0f + 0.05f * ck * kf);   /* FOV +5 deg and x1.15 until 2026-11-16 (owner: too much speed feel) */
         }
     }
     cam_call(13, 0x002CF760u, sub_002CF760_gen);

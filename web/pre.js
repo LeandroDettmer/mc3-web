@@ -286,12 +286,18 @@ Module['mc3TouchPad'] = function (words) {
     RECOMP_GL_MIPS: [gfx, 2, onoff],
     MC3_60FPS: [game, 0, function (v) { var n = parseInt(v, 10); return v === '1' || n === 60 ? 2 : n > 60 ? Math.min(n, 240) : 1; }],   // 1 = 30, 2 = 60, else N fps
     MC3_ROAM_CARS: [game, 1, function (v) { return parseInt(v, 10) || -1; }],   // -1 auto
-    MC3_DRIFT: [game, 2, function (v) { return v === '3' ? 4 : v === '2' ? 3 : v === '1' ? 2 : 1; }],
+    MC3_DRIFT: [game, 2, function (v) { return v === '4' ? 5 : v === '3' ? 4 : v === '2' ? 3 : v === '1' ? 2 : 1; }],
     MC3_DRIFT_CAM: [game, 5, function (v) { return v === '1' ? 2 : 1; }],
     MC3_RACE_INVITES: [game, 6, onoff],
+    MC3_FX_BLUR: [game, 18, onoff],   // recomp_manual.c fx_step: the game's motion blur, 1 off / 2 on
+    MC3_FX_GLOW: [game, 19, onoff],   // and its glow (bloom)
     MC3_CAREER_ONLINE: [game, 3, function (v) { return v === '0' ? 1 : 2; }],
     RECOMP_KEYBOARD: [function () { return typeof _xbox_keyboard_box == 'function' ? _xbox_keyboard_box() : 0; }, 0, onoff],
   };
+  // Drift setup panel (index.html): words 7.. (drift.c k_ds order), value x 1000 + 1, unset = -1 (the default)
+  ['STEER', 'RESP', 'FGRIP', 'RGRIP', 'SPEED', 'REAR', 'COUNTER', 'STAB', 'HOLD', 'KEEP', 'CAM_K'].forEach(function (n, i) {
+    BOX['MC3_DRIFT_' + n] = [game, 7 + i, function (v) { var x = parseFloat(v); return isFinite(x) && x >= 0 ? Math.round(x * 1000) + 1 : -1; }];
+  });
   var want = {}, timer = 0;
   function put() {
     timer = 0;
@@ -1194,4 +1200,17 @@ Module['mc3RaceButton'] = function (act) {
     }
     el.style.display = '';
   }, 500);
+})();
+
+// Tuning screen docked panel (2026-11-16): roam_tune_box word 0 = 1 while the game's pause-menu Tuning screen is open
+// (online_tune.c); the page (index.html driftPanel.dock) shows its Drift setup beside the menu, pointer only.
+(function () {
+  var last = 0;
+  setInterval(function () {
+    try {
+      if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_tune_box != 'function') return;
+      var o = new Int32Array(HEAPU8.buffer, _roam_tune_box(), 1)[0] ? 1 : 0;
+      if (o !== last) { last = o; if (window.mc3TuneDock) window.mc3TuneDock(!!o); }
+    } catch (e) {}
+  }, 200);
 })();

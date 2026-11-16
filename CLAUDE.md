@@ -1229,7 +1229,14 @@ only with MC3_PERF, their only reader.
   beyond the 16:9 edge unsqueezed, so sprites the game projects into the
   sides (glows, flares) were thrown out or smeared -- now only a
   pre-transformed draw spanning both edges keeps it (wgpu_draw.c
-  wide_full_2d), any other is squeezed whole.
+  wide_full_2d), any other is squeezed whole. 2026-11-16 (owner's
+  screenshots: white arc by the tachometer, cyan shards by the
+  speedometer, white bands; fix untested in game): spanning was judged
+  by the batch's extent alone, so one draw holding HUD pieces or glow
+  sprites near both sides kept the edge rule and each quad crossing an
+  edge stretched past it; now every vertex must sit on or beyond an edge
+  (a full-screen quad: MC3's post passes are single 4-vertex quads,
+  sub_00041480 via D3D Begin/End sub_00416390/sub_004163B0).
 - **Live settings** (2026-11-12, untested in a browser): the in-game
   Settings window's live rows (web/index.html LIVE, setSetting) go through
   web/pre.js Module.mc3SetLive(key, the value buildEnv would give) into
@@ -1243,8 +1250,10 @@ only with MC3_PERF, their only reader.
   MC3_ROAM_CARS (-1 auto; roam_pool_net parks the farthest holders over it
   and gives newcomers no car while it is reached; raising builds new cars
   only up to the vehicle registry sized at the cruise's load; the hub's K
-  follows); MC3_DRIFT 1/2/3 (drift_step, below); MC3_DRIFT_CAM (word 5,
-  drift_cam); xbox_keyboard_box
+  follows); MC3_DRIFT 1/2/3/4 (drift_step, below); MC3_DRIFT_CAM (word 5,
+  drift_cam); MC3_DRIFT_<NAME> (words 7-17, Drift setup panel, below);
+  MC3_FX_BLUR (word 18), MC3_FX_GLOW (word 19) 1 off / 2 on (fx_step,
+  'Motion blur' / 'Glow' rows, below "Motion blur"); xbox_keyboard_box
   (sdl_keyboard.c) RECOMP_KEYBOARD 1/2; touch
   rows page-only (touch.js setMode/setOpacity). Restart stays for
   RECOMP_GPU, RECOMP_RAM_MB, MC3_LOWMEM (renderer and memory layout are
@@ -1414,7 +1423,22 @@ only with MC3_PERF, their only reader.
   Depth only existed in GL, so the mask was garbage and races smeared at
   speed; nv2a_gl now packs GL depth into those formats
   (RECOMP_GL_DEPTH_TEX=0 to compare). A race frame is ~1800 draws: use
-  RECOMP_GL_WATCH_N=4000 for a whole one.
+  RECOMP_GL_WATCH_N=4000 for a whole one. The WebGPU renderer packs it
+  too (wgpu_surf.c wsurf_depth_texture, ZCONV). The pass (Remix,
+  2026-11-16): one object [0x4FC848] (sub_000411B0 at each level load;
+  tune/hdr mcFbGlowParams + <city>_<time>_<weather>_hdrparam%d) owns the
+  game's full-screen effects, drawn after player 0's view (sub_002BE8E0 ->
+  sub_00043520): motion blur sub_00043540 (BackBuffer texture +8 and
+  'DepthBuffer' +0x29C bound by sub_00042980; strength from the car's
+  speed and the abilities, sub_00045C80 -> sub_00044230; tunes
+  m_sstBlurAlpha/Scale, m_zoneColor, m_agroColor) while byte +0x24C, and
+  glow/bloom sub_00042380 / sub_00042F00 (byte 0x4ADAE0 picks; WorkArea1/2
+  half size) while byte +0x240; only the init writes them (1). Settings
+  'Motion blur' / 'Glow' (MC3_FX_BLUR / MC3_FX_GLOW =0, live words 18/19,
+  recomp_manual.c fx_step from the sub_0020B6F0 override, every host,
+  untested in game) clear them. Not found: a switch for the lights' own
+  flares (per-light tune sub_0009D710: flare_on, light_glow_size, ...) and
+  a reader of options.cfg's FullScreenEffects (0x557670 +0x60).
 - Picture quality (GL, 2026-10-18; ideas from nfsu2-sw's Vulkan renderer):
   square pixels in 16:9 (RECOMP_GL_SQUARE; 1280x720 at RECOMP_GL_SCALE=1.5,
   the sweet spot for a 720p screen), the title's mip levels + trilinear +
@@ -1829,8 +1853,9 @@ only with MC3_PERF, their only reader.
   change in m/s: at high rates a hit spread over frames may go unseen),
   roam_game.c's pose blend (dt floor now 1/240). Same risks as 60, N/30x.
   Drift mode (2026-11-12, v2 assist untested in game; MC3_DRIFT=1 normal,
-  =2 strong, =3 controlled, live: page "Drift mode" (and the stage bar's
-  Drift button, cycling) Off/On/Strong/Controlled = live word 1/2/3/4;
+  =2 strong, =3 controlled, =4 custom, live: page "Drift mode" (and the
+  stage bar's Drift button's panel) Off/On/Strong/Controlled/Custom = live
+  word 1/2/3/4/5;
   src/games/remix/drift.c, drift_step from the sub_0020B6F0 override):
   player 0's car only ([[0x558814]+8]+0x14 = veh). Car physics = AGE
   vehCarSim (vtable 0x44EA64; mcCarSim 0x456550, ctor sub_00121550) at
@@ -1916,6 +1941,23 @@ only with MC3_PERF, their only reader.
   projection (MC3_CAM_TRACE=1 '[CAM] projection' fov should move with k;
   else the delta goes on sub_002D4AE0's fov). '[DRIFT] camera on|off'. 2026-11-16 (owner: too
   much feel of speed): no FOV change, distance x1.05 at most.
+  Drift setup panel (2026-11-16, untested in a browser and in game; owner:
+  his own drift setup): the stage bar's Drift button opens a <dialog> in the
+  stage (index.html #drift-dlg, keys stopped like #fb-dlg) instead of
+  cycling: levels Off/On/Strong/Controlled/Custom, Custom's sliders, the
+  drift camera on/off + strength, named setups (localStorage
+  mc3.driftSetups, 12 at most). Custom = Controlled's code path (drift.c
+  lvl 4) with the player's values, each a setting MC3_DRIFT_<NAME> (env at
+  start; live word 7 + i, v x 1000 + 1, -1 = default; drift.c k_ds):
+  STEER front SteeringLimit x0.7-1.5, RESP vehInput SteerRate (in +0x30,
+  only while in's vtable is 0x47681C, unproven: '[DRIFT] custom: steer
+  response on|off') x0.5-2, FGRIP / RGRIP Static+SlidingFric x0.8-1.3 (in
+  the assist's own df records), SPEED entry/hold 15-60 km/h (30), REAR
+  CTL_REAR_K 0.5-1 (0.85), COUNTER CTL_CS_MAX 1-1.8 (1.45), STAB the
+  stabilizer 0-5 (2.5), HOLD CTL_OUT_DAMP 0-3 /s (1.2), KEEP give-back
+  0-0.8 (0.30); CAM_K camera strength 0-2 (x the turn 0.35 and distance
+  0.05, any level). On/Strong/Controlled unchanged. Local only: no save
+  file, nothing sent (peers see our pose).
   Drift scoring (2026-11-12, untested in game; src/games/remix/
   drift_score.c, fed by drift_step with Drift mode on or off): a drift =
   slip > 20 deg above 50 km/h, not in free fall, race type 0 only; points/s
@@ -2025,6 +2067,20 @@ only with MC3_PERF, their only reader.
   override before the menu is built. Sign-in texts (Who_Signed_In, Not
   Signed In, Sign-In Failed) show the page's nick (MC3_PLAYER_NAME, ASCII,
   cut to each text's length; empty -> "Player").
+  Tune Your Vehicle in Free Roam (2026-11-16, untested in game; browser,
+  src/games/remix/online_tune.c, recomp_lookup_manual, no relift): the pause
+  menu's items (sub_0018D610) add CM_TuningOptions (screen 0x3A, mcMenuIGTune
+  0x4638B8) only with state != 7/3, race flow phase [[0x557EEC]+4] == 5, local
+  players [[0x53F2E0]+0x4C] == 1, a garage car (0x53F2FC == 0) and page byte
+  [[[[0x50F148]+0xC]+0xC]+0xE9] == 0; Free Roam drives in phase 6 with 1 + slots
+  players and usually a showroom car. In the Online Free Roam cruise (race type
+  0) those four are set for the build and put back. Its Exit (sub_0018FBF0)
+  copies the tuned CarCfg over garage car [0x53F80D] (sub_00271E20) and sets the
+  dirty byte 0x557648: Online the slot written is the pick's (0x53F2FE) and the
+  Online profile is saved (online_garage_left); a showroom car's garage slot is
+  put back (tune kept until Free Roam is entered again); the dirty byte put back;
+  roam_send_cfg once (peers rebuild our car once). Never the career's save (the
+  blob is the Online one). '[ONLINE] tune: ...'.
 
 ### First lift (2026-10-14)
 
