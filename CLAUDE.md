@@ -1275,6 +1275,28 @@ only with MC3_PERF, their only reader.
   per-vertex rule (sub_000415C0's quadrants meet at the centre). Yellow
   arc from the minimap ring to the top: cause not found; Hor+ only moves
   x, the arc reaches y 0, so likely not Hor+ (check at 16:9).
+  Light wedge and glow dots (owner, 32:9, RECOMP_GL_SCALE 3, 2026-11-16;
+  fixes untested in game): (1) a pale wedge from a street lamp fanning to
+  the car, leaping as the car moved, with Glow off. The shader's per-vertex
+  rule is discontinuous at an edge: at k = 2 a vertex at title x 1 sits at
+  25% of the canvas, at x -1 at 0%; wide_2d kept it (WD_KEEP) for every
+  fixed-function draw that was not full-screen, 3D ones too (a vertex at w
+  == 1 by chance), and for big or non-float pre-transformed draws. Now only
+  fixed-function w = 1 draws whose every vertex is on/beyond an edge or at
+  the middle column (sub_000415C0's quadrants) and vertex programs keep it;
+  all else is squeezed whole. Which draw the wedge is was not proven
+  (tune/lightdata has draw_cone +0x82, draw_flare +0x83, draw_glow +0x81,
+  binder sub_00358340; drawer not found); still there ->
+  RECOMP_WGPU_VP_EDGE=0 (vertex programs squeezed whole too) splits it.
+  (2) Glow on: scattered jumping dots. The glow (sub_00042380 /
+  sub_00042F00) downsamples the back buffer into its half-size work areas
+  with sub_00041480's quad, one bilinear tap per work-area pixel: 2:1 on
+  the Xbox, 12:1 across here (4320-wide back buffer, 360-wide work area at
+  RECOMP_GL_SMALL_SCALE 1), so lights were caught or missed frame to
+  frame. wsurf_texture now reads a render target sampled into a coarser
+  pass from box-filtered halvings (wgpu_surf.c ws_reduce, BLITs once per
+  pass, each axis kept at least the target's density); '[WGPU] surface ...
+  sampled into a coarser pass ...' once; RECOMP_WGPU_RT_PREFILTER=0 off.
 - **Live settings** (2026-11-12, untested in a browser): the in-game
   Settings window's live rows (web/index.html LIVE, setSetting) go through
   web/pre.js Module.mc3SetLive(key, the value buildEnv would give) into
