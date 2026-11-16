@@ -393,7 +393,19 @@ generated files when the lift inputs did not change.
   scancode of the input's first default key, so the pulse/driving logic
   stays keyed on the default layout; nothing saved = on 0, keys as before;
   each change releases every key. Rebound non-letter keys join GAME_KEYS'
-  preventDefault (keyExtra). Not offered: Esc, F11/F12, Meta, Num Lock.
+  preventDefault (keyExtra). Not offered: Esc, F2, F11/F12, Meta, Num Lock.
+  Page HUD and controller in dialogs (2026-11-16, untested in a browser;
+  index.html hudSync / toggleSettings / padNear): in-game Settings,
+  Graphics, 'Buttons on screen' shows or hides the stage bar's Settings,
+  Drift, Orbit, Map buttons, pre.js's players chip and race invites inbox
+  (CSS by their title) live, localStorage mc3.hud. F2 or the right stick
+  click held 0.6 s opens/closes Settings (button hidden or not; desktop
+  full screen hides the bar). With Settings, the Drift panel (not
+  docked), Players or Suggest open, the pad drives the page: d-pad / left
+  stick move focus spatially (left/right step a slider or list), A
+  presses, B closes, LB/RB change the Settings section. The game still
+  reads the pad meanwhile (SDL polls getGamepads; mc3SetPad(-1) would look
+  like a pulled pad): holding it back needs a runtime word.
   Touch controls (2026-11-09, untested on a phone; web/touch.js, after
   nfsu2-web's): a virtual pad the page writes into xbox_touch_pad_box
   (input/touch_pad_web.c, 14 int32 words via Module.mc3TouchPad), merged

@@ -429,6 +429,11 @@
   .btn.sw::before { content: "Off"; }
   .btn.sw[aria-pressed=true], #drift-btn[aria-pressed=true], #orbit-btn[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: var(--gold-fill); }
   .btn.sw[aria-pressed=true]::before { content: "On"; }
+  /* Buttons on screen (hudSync): pre.js's players chip and invites inbox set display inline, so !important; the ring of a
+     control the controller moved to (padFocus): script focus shows no :focus-visible after a mouse click */
+  .stage.no-players > div[title="Players online"], .stage.no-invites > div[title="Race invites"] { display: none !important; }
+  .pad-focus { outline: 3px solid var(--gold) !important; outline-offset: 2px; }
+  #settings-dlg .ig-sub { margin: 16px 0 0; font-size: 14px; color: var(--muted); }
   .ig-tag { margin-left: 8px; font: 700 10px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
             text-shadow: none; vertical-align: 1px; white-space: nowrap; }
   .ig-tag.live { color: var(--ok); }
@@ -814,7 +819,7 @@
 <div class="stage" id="stage" hidden>
   <div class="boot-load" id="boot-load" role="status" hidden><b>Loading game…</b><span id="boot-what"></span><progress id="boot-bar" max="100" hidden></progress><small>The first start takes longer (the game's files come down once); later starts are faster.</small></div>
   <div class="stage-bar">
-    <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
+    <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings (F2, or hold the right stick click on a controller): graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
     <button type="button" class="btn" id="drift-btn" aria-pressed="false" aria-haspopup="dialog" aria-controls="drift-dlg" title="Drift setup: drift mode, your own Custom drift, drift camera. Changes live.">Drift: Off</button>
     <button type="button" class="btn" id="orbit-btn" aria-pressed="true" title="Orbit camera: while driving, drag on the picture with the mouse (or a finger) to look at your car from any side; the wheel moves the camera nearer or farther. Click to turn it on or off.">Orbit: On</button>
     <button type="button" class="btn" id="map-btn" title="Full map (d-pad up, I): press again to close it">Map</button>
@@ -849,6 +854,7 @@
         <div class="set"><div><span class="set-label">FPS counter<span class="ig-tag live">live</span></span><p class="hint one">Frames per second over the picture.</p></div>
           <button type="button" class="btn sw" id="fps-btn" aria-pressed="false" aria-label="FPS counter"></button></div>
         <div id="ig-graphics"></div>
+        <div id="ig-hud"></div>
       </div>
       <div role="tabpanel" data-pane="ig-fr">
         <div id="ig-roam"></div>
@@ -1390,7 +1396,7 @@
       ControlLeft: 224, ShiftLeft: 225, AltLeft: 226, ControlRight: 228, ShiftRight: 229, AltRight: 230, Digit0: 39 };
     for (let i = 0; i < 26; i++) m['Key' + String.fromCharCode(65 + i)] = 4 + i;
     for (let i = 1; i <= 9; i++) { m['Digit' + i] = 29 + i; m['Numpad' + i] = 88 + i; }
-    for (let i = 1; i <= 10; i++) m['F' + i] = 57 + i;
+    for (let i = 1; i <= 10; i++) if (i !== 2) m['F' + i] = 57 + i;   // F2: the page's Settings (toggleSettings)
     return m;
   })();
   const KEY_NAMES = { ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓', NumpadEnter: 'Num Enter', Backquote: '`',
@@ -1472,6 +1478,9 @@
     ['#Menus', []],
     ['Pause menu (Start)', ['start']], ['Accept race (White)', ['white']], ['Navigate', ['up', 'down', 'left', 'right']],
     ['Select (A)', ['a']], ['Right stick click (no known use)', ['r3']],
+    ['#Page', []],
+    ['Settings window, also with its button hidden (controller: hold the right stick click)', ['F2']],
+    ['Settings with a controller: move, press, close, section', ['D-pad', 'Pad A', 'Pad B', 'LB / RB']],
   ];
   function renderKeys(ul, edit) {
     ul.textContent = '';
@@ -3366,7 +3375,8 @@
     };
     poll();
   };
-  $('settings-btn').onclick = () => { renderIngame(); syncSave(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
+  const openSettings = () => { renderIngame(); syncSave(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
+  $('settings-btn').onclick = openSettings;
   syncDrift();
   syncOrbit();
   $('orbit-btn').onclick = () => setSetting('MC3_ORBIT_CAM', settings.MC3_ORBIT_CAM === '0' ? '' : '0');
@@ -3378,6 +3388,124 @@
   dlg.onclick = e => { if (e.target === dlg || e.target.closest('#keys-btn, #races-btn, #players-btn, #log-btn, #full')) dlg.close(); };   // the backdrop is the dialog itself
   dlg.onclose = () => $('canvas').focus();                // the game keeps the keys
   $('quit').onclick = () => { if (confirm('Quit the game? Anything not saved in the game is lost.')) location.reload(); };
+
+  // Buttons on screen (2026-11-16): the stage bar's buttons and pre.js's players chip / race invites inbox, each shown or
+  // hidden (localStorage mc3.hud {name: false}), live. pre.js gives those two divs no id: CSS finds them by their title.
+  const HUD = [
+    ['settings-btn', 'Settings button', 'Hidden: F2, or hold the right stick click on a controller, opens Settings.'],
+    ['drift-btn', 'Drift button', 'Opens the Drift setup panel; Drift mode stays in Controls, the panel also shows in the game\'s Tune menu.'],
+    ['orbit-btn', 'Orbit button', 'Turns the orbit camera on or off; also in Controls.'],
+    ['map-btn', 'Map button', 'The map stays on d-pad up (I).'],
+    ['no-players', 'Players chip', 'The players count on the picture\'s right edge (Free Roam map).'],
+    ['no-invites', 'Race invites inbox', 'The envelope by the minimap; invites still show while offered.'],
+  ];
+  function hudSync() {
+    const h = store.get('hud', {});
+    for (const [id] of HUD) {
+      const on = h[id] !== false;
+      if (id.startsWith('no-')) $('stage').classList.toggle(id, !on); else $(id).hidden = !on;
+      $('hud-' + id).setAttribute('aria-pressed', on);
+    }
+  }
+  $('ig-hud').append(Object.assign(document.createElement('h3'), { className: 'ig-sub', textContent: 'Buttons on screen' }),
+    ...HUD.map(([id, label, help]) => {
+      const row = document.createElement('div');
+      row.className = 'set';
+      row.innerHTML = `<div><span class="set-label">${label}<span class="ig-tag live">live</span></span><p class="hint one"></p></div>` +
+        `<button type="button" class="btn sw" id="hud-${id}" aria-label="${label}"></button>`;
+      Object.assign(row.querySelector('p'), { textContent: help, title: help });
+      row.querySelector('button').onclick = () => {
+        const h = store.get('hud', {});
+        if (h[id] === false) delete h[id]; else h[id] = false;
+        store.set('hud', h); hudSync();
+      };
+      return row;
+    }));
+  hudSync();
+
+  // Settings shortcut (2026-11-16): F2 (no game key, not offered in Keys: SCAN) or the right stick click held 0.6 s (no
+  // known game use) opens or closes Settings, its button shown or hidden (and in a desktop's full screen, which hides
+  // the bar). Not while a key is being changed (keyWait's listener comes first and takes the key).
+  const toggleSettings = () => {
+    if (dlg.open) return dlg.close();
+    if (!playing) return;
+    const dd = $('drift-dlg');
+    if (dd.open && !dd.classList.contains('docked')) dd.close();
+    openSettings();
+  };
+  addEventListener('keydown', e => {
+    if (e.code !== 'F2' || !playing) return;
+    e.preventDefault(); e.stopImmediatePropagation();     // SDL listens on the window too
+    if (!e.repeat) toggleSettings();
+  }, true);
+  // Controller on the page's dialogs (2026-11-16): with Settings, the Drift panel (not docked), Players or Suggest open,
+  // the d-pad or left stick moves the focus to the nearest control that way (left/right step a slider or a list), A
+  // presses (a list: its next choice), B closes, LB/RB change the Settings section. Layout: the standard one, or the
+  // player's own from 'Set up buttons' (mc3.padmap, b<n> entries). The game reads the pad meanwhile: SDL polls
+  // navigator.getGamepads itself, and only a runtime change could hold it back (closing the pad, mc3SetPad(-1), would
+  // look to the game like a pulled controller).
+  {
+    const STD = { a: 0, b: 1, leftshoulder: 4, rightshoulder: 5, rightstick: 11, dpup: 12, dpdown: 13, dpleft: 14, dpright: 15 };
+    const padFocus = el => {
+      if (!el) return;
+      document.querySelector('.pad-focus')?.classList.remove('pad-focus');
+      el.classList.add('pad-focus'); el.focus(); el.scrollIntoView({ block: 'nearest' });
+    };
+    addEventListener('focusout', e => e.target.classList?.remove('pad-focus'), true);
+    const padStep = (el, s) => {
+      if (el.tagName === 'SELECT') {
+        const n = el.options.length;
+        if (n) { el.selectedIndex = (el.selectedIndex + s + n) % n; el.dispatchEvent(new Event('change', { bubbles: true })); }
+      } else { if (s > 0) el.stepUp(); else el.stepDown(); el.dispatchEvent(new Event('input', { bubbles: true })); }
+    };
+    // nearest visible control whose centre lies that way, a sideways step counting twice
+    const padNear = (d, f, dir) => {
+      const els = [...d.querySelectorAll('button, select, input, textarea')].filter(e => !e.disabled && e.getClientRects().length);
+      if (!f) return els[0];
+      const r = f.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, v = dir === 'up' || dir === 'down';
+      let best = null, bs = Infinity;
+      for (const e of els) {
+        if (e === f) continue;
+        const q = e.getBoundingClientRect(), dx = q.left + q.width / 2 - cx, dy = q.top + q.height / 2 - cy;
+        const main = dir === 'up' ? -dy : dir === 'down' ? dy : dir === 'left' ? -dx : dx, s = main + 2 * Math.abs(v ? dx : dy);
+        if (main > 4 && s < bs) { bs = s; best = e; }
+      }
+      return best;
+    };
+    let was = {}, r3t = 0, dirKey = '', dirAt = 0;
+    setInterval(() => {
+      const g = playing && !padRun && padActive && navigator.getGamepads?.()[padActive.index];
+      if (!g) { was = {}; r3t = 0; dirKey = ''; return; }
+      const own = padMaps()[g.id] || '', is = {};
+      for (const n in STD) { const m = own.match(new RegExp('(?:^|,)' + n + ':b(\\d+)')); is[n] = !!g.buttons[m ? +m[1] : STD[n]]?.pressed; }
+      const prev = was, hit = n => is[n] && !prev[n], now = performance.now(), x = g.axes[0] || 0, y = g.axes[1] || 0;
+      was = is;
+      if (!is.rightstick) r3t = 0;
+      else if (!r3t) r3t = now;
+      else if (r3t > 0 && now - r3t >= 600) { r3t = -1; toggleSettings(); if (dlg.open) padFocus(document.activeElement); return; }   // -1: once a hold
+      const d = ['fb-dlg', 'players-dlg', 'drift-dlg', 'settings-dlg'].map($).find(e => e.open && !e.classList.contains('docked'));
+      if (!d) { dirKey = ''; return; }
+      const f = d.contains(document.activeElement) && document.activeElement !== d ? document.activeElement : null;
+      if (hit('b')) { d.close(); return; }
+      if (d === dlg && (hit('leftshoulder') || hit('rightshoulder'))) {
+        const tabs = [...dlg.querySelectorAll('.ig-nav [role=tab]')], i = tabs.findIndex(t => t.getAttribute('aria-selected') === 'true');
+        const t = tabs[(i + (hit('rightshoulder') ? 1 : -1) + tabs.length) % tabs.length];
+        t.click(); padFocus(t); return;
+      }
+      if (hit('a')) {
+        if (!f) padFocus(padNear(d, null));
+        else if (f.tagName === 'SELECT') padStep(f, 1);
+        else if (f.type !== 'range') f.click();
+        return;
+      }
+      const dir = is.dpup || y < -0.6 ? 'up' : is.dpdown || y > 0.6 ? 'down' : is.dpleft || x < -0.6 ? 'left' : is.dpright || x > 0.6 ? 'right' : '';
+      if (!dir) { dirKey = ''; return; }
+      if (dir === dirKey && now < dirAt) return;          // held: again after 400 ms, then every 120 ms
+      dirAt = now + (dir === dirKey ? 120 : 400); dirKey = dir;
+      if (f && (dir === 'left' || dir === 'right') && (f.tagName === 'SELECT' || f.type === 'range')) padStep(f, dir === 'right' ? 1 : -1);
+      else padFocus(padNear(d, f, dir));
+    }, 50);
+  }
   // --- who is online: pushed over the link when it changes (web/lan.js l.players, names included); without it
   // (offline, or a switch without the push: web/server) the server's GET /lan/stats (counts only), every 60 s while the start page is visible (backing off to 5 min while unchanged)
   const CITIES = ['San Diego', 'Atlanta', 'Detroit', 'Tokyo'];   // free-roam room ids 0..3 (0 = the default room)
