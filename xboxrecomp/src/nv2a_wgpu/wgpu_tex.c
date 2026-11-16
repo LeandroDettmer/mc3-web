@@ -69,6 +69,11 @@
  *     stock HUD has one level: 4x drawn small would shimmer). Off: no BC
  *     on the device, MC3_LOWMEM=1 (phones, TVs), a linear image rewritten
  *     more than twice (movies, CPU-drawn), cube maps. WebGL draws stock.
+ *     A palettised image (I8) whose colour key the pack lacks tries its
+ *     index key (wgpu_hires.h): the index map comes back undecoded, is kept
+ *     (imap_*), and each upload with a new palette (MC3's tune-coloured
+ *     speedometer) looks it up in that palette with its levels, BGRA8; the
+ *     last 16 (index key, palette) results stay on the GPU (s_tint).
  *
  * Gaps: no LOD bias (RECOMP_GL_LOD_BIAS: a WebGPU sampler has none; needs
  * textureSampleBias in the fragment shader), no border colour, no 3D
@@ -205,6 +210,8 @@ typedef struct {
     uint64_t hkey;                      /* hi-res: key of the content asked for, 0: none */
     uint32_t hid;                       /* hi-res texture on the GPU, 0: none */
     uint32_t hpend;                     /* asked of hd_pack's worker, not in yet */
+    uint32_t himap, hpal_va, hpal_n;    /* hkey is an index key: the palette to look it up in */
+    uint32_t hshared;                   /* hid belongs to s_tint (index key), not to this entry */
 } WtTex;
 
 #define WT_MAX     1024
@@ -264,7 +271,7 @@ static void bytes_add(int64_t d)
 static void entry_free(WtTex *t)
 {
     wg_tex_free(t->id);
-    if (t->hid)
+    if (t->hid && !t->hshared)
         wg_tex_free(t->hid);
     bytes_add(-(int64_t)t->bytes);
     index_del(t);
@@ -362,28 +369,32 @@ static void *arena_get(uint32_t bytes)
     return p;
 }
 
+/* The indices decode_indexed read last (unswizzled), s_ix_n of them: level 0
+ * when hires_check runs (wgpu_hires.h index key). */
+static uint8_t *s_ix;
+static size_t   s_ix_cap, s_ix_n;
+
 /* SZ_I8_A8R8G8B8: 8-bit swizzled indices into the A8R8G8B8 palette named
  * by SET_TEXTURE_PALETTE (length code in [3:2]: 256, 128, 64, 32 entries). */
 static int decode_indexed(uint32_t va, uint32_t w, uint32_t h, uint32_t *out)
 {
-    static uint8_t *idx;
-    static size_t cap;
-    uint32_t entries = 256u >> ((s_pal_reg >> 2) & 3), pal[256], k;
+    uint32_t entries = 256u >> ((s_pal_reg >> 2) & 3), pal[256];
+    s_ix_n = 0;
     if (!(s_pal_reg & ~0x3Fu) || !s_pal_va)
         return 0;
-    if ((size_t)w * h > cap) {
-        free(idx);
-        cap = (size_t)w * h;
-        idx = (uint8_t *)malloc(cap);
-        if (!idx) {
-            cap = 0;
+    if ((size_t)w * h > s_ix_cap) {
+        free(s_ix);
+        s_ix_cap = (size_t)w * h;
+        s_ix = (uint8_t *)malloc(s_ix_cap);
+        if (!s_ix) {
+            s_ix_cap = 0;
             return 0;
         }
     }
     memcpy(pal, xbox_ptr(s_pal_va), entries * 4);
-    xbox_unswizzle_rect(idx, xbox_ptr(va), w, h, 1);
-    for (k = 0; k < w * h; k++)
-        out[k] = idx[k] < entries ? pal[idx[k]] : pal[0];
+    xbox_unswizzle_rect(s_ix, xbox_ptr(va), w, h, 1);
+    wg_hires_recolour(s_ix, w * h, pal, entries, out);
+    s_ix_n = (size_t)w * h;
     return 1;
 }
 
@@ -573,18 +584,144 @@ static int hires_on(void)
     return 1;
 }
 
+/* Index maps (wgpu_hires.h index key) kept in memory once read: a palette
+ * change is then recoloured at once, without the worker. */
+typedef struct {
+    uint64_t key;
+    uint32_t w, h;
+    uint8_t *idx;
+} WtImap;
+#define WT_IMAPS 32
+static WtImap   s_imap[WT_IMAPS];
+static uint32_t s_imap_next;
+static int      s_imap_due;             /* an index map came in: textures waiting for it */
+
+static const WtImap *imap_find(uint64_t key)
+{
+    uint32_t i;
+    for (i = 0; i < WT_IMAPS; i++)
+        if (s_imap[i].idx && s_imap[i].key == key)
+            return &s_imap[i];
+    return NULL;
+}
+
+/* Takes h's level 0 (h is freed by the caller). */
+static void imap_add(HdTex *h)
+{
+    WtImap *m;
+    if (imap_find(h->key) || !h->data[0] || h->bytes[0] != (uint32_t)(h->w * h->h))
+        return;
+    m = &s_imap[s_imap_next++ % WT_IMAPS];
+    free(m->idx);
+    m->key = h->key;
+    m->w = (uint32_t)h->w;
+    m->h = (uint32_t)h->h;
+    m->idx = h->data[0];
+    h->data[0] = NULL;
+    s_imap_due = 1;
+}
+
+/* Recoloured index maps on the GPU by (index key, palette): a palette that
+ * comes back (two tints taking turns) reuses its texture. The entries own
+ * the textures (WtTex.hshared); not in RECOMP_GL_TEX_MB's budget (16 at most,
+ * ~1.4 MB each for a 128x128 image at 4x). */
+typedef struct {
+    uint64_t key;
+    uint32_t pal, id, used;
+} WtTint;
+#define WT_TINTS 16
+static WtTint s_tint[WT_TINTS];
+
+/* t's replacement from index map m and the palette t was decoded with. */
+static void imap_put(WtTex *t, const WtImap *m)
+{
+    uint32_t pal[256], n = t->hpal_n, ph = 2166136261u, lv = 0, l, lw, lh, id, i;
+    size_t need = 0, off;
+    uint32_t *chain;
+    WtTint *e = NULL;
+
+    if (!t->hpal_va || !n || n > 256)
+        return;
+    memcpy(pal, xbox_ptr(t->hpal_va), n * 4);
+    for (i = 0; i < n * 4; i++)
+        ph = (ph ^ ((const uint8_t *)pal)[i]) * 16777619u;
+    for (i = 0; i < WT_TINTS; i++) {
+        if (s_tint[i].id && s_tint[i].key == m->key && s_tint[i].pal == ph) {
+            s_tint[i].used = wg_frame;
+            t->hid = s_tint[i].id;
+            t->hshared = 1;
+            s_gen++;
+            return;
+        }
+        if (!e || (e->id && (!s_tint[i].id || s_tint[i].used < e->used)))
+            e = &s_tint[i];
+    }
+    for (lw = m->w, lh = m->h; lv < HD_MAX_LEVELS; lv++) {
+        need += (size_t)lw * lh;
+        if (lw == 1 && lh == 1) {
+            lv++;
+            break;
+        }
+        lw = lw > 1 ? lw / 2 : 1;
+        lh = lh > 1 ? lh / 2 : 1;
+    }
+    if (!(chain = (uint32_t *)malloc(need * 4)))
+        return;
+    wg_hires_recolour(m->idx, m->w * m->h, pal, n, chain);
+    for (l = 1, off = 0, lw = m->w, lh = m->h; l < lv; l++) {
+        wg_hires_mip(chain + off, lw, lh, chain + off + (size_t)lw * lh);
+        off += (size_t)lw * lh;
+        lw = lw > 1 ? lw / 2 : 1;
+        lh = lh > 1 ? lh / 2 : 1;
+    }
+    id = tex_create(WG_FMT_BGRA8UNORM, m->w, m->h, lv, 1);
+    for (l = 0, off = 0, lw = m->w, lh = m->h; l < lv; l++) {
+        void *dst = arena_get(lw * lh * 4);
+        if (!dst)
+            break;
+        memcpy(dst, chain + off, (size_t)lw * lh * 4);
+        level_upload(id, l, 0, lw, lh, dst, lw * 4, lh, lw * lh * 4);
+        off += (size_t)lw * lh;
+        lw = lw > 1 ? lw / 2 : 1;
+        lh = lh > 1 ? lh / 2 : 1;
+    }
+    free(chain);
+    if (l < lv) {
+        wg_tex_free(id);
+        return;
+    }
+    if (e->id) {                                /* the least used goes; no entry may keep its id */
+        for (i = 0; i < WT_MAX; i++)
+            if (s_tex[i].hid == e->id && s_tex[i].hshared) {
+                s_tex[i].hid = s_tex[i].hshared = 0;
+                s_tex[i].hkey = 0;
+            }
+        wg_tex_free(e->id);
+    }
+    e->key = m->key;
+    e->pal = ph;
+    e->id = id;
+    e->used = wg_frame;
+    t->hid = id;
+    t->hshared = 1;
+    s_gen++;
+    if (!s_hr_used++)
+        s_hr_first = wg_frame;
+}
+
 /* At each upload: the replacement of t's new content, asked for when the
  * pack has its key; the old one goes. dec: level 0 decoded (BGRA8) when ok. */
 static void hires_check(WtTex *t, const void *dec, int ok)
 {
     uint64_t key;
     if (t->hid) {
-        wg_tex_free(t->hid);
-        t->hid = 0;
+        if (!t->hshared)
+            wg_tex_free(t->hid);
+        t->hid = t->hshared = 0;
         s_gen++;
     }
     t->hkey = 0;
-    t->hpend = 0;
+    t->hpend = t->himap = 0;
     if (t->cube || (t->pitch && t->rewrites > 2) || !hires_on())
         return;
     if (d3d8_format_dxt_block_bytes(t->color))
@@ -593,11 +730,22 @@ static void hires_check(WtTex *t, const void *dec, int ok)
         key = wg_hires_key(dec, t->w * t->h * 4, t->w, t->h, 0);
     else
         return;
+    if (!hd_pack_has(key) && t->color == 0x0B && s_ix_n == (size_t)t->w * t->h) {
+        /* a palette the title changed (wgpu_hires.h index key): the indices alone */
+        uint64_t ik = wg_hires_key(s_ix, t->w * t->h, t->w, t->h, WG_HIRES_INDEXED);
+        if (hd_pack_has(ik)) {
+            key = ik;
+            t->himap = 1;
+            t->hpal_va = s_pal_va;
+            t->hpal_n = 256u >> ((s_pal_reg >> 2) & 3);
+        }
+    }
     if (!hd_pack_has(key))
         return;
     t->hkey = key;
     t->hpend = 1;
-    hd_pack_request(key);
+    if (!t->himap || !imap_find(key))           /* an index map in memory: upload() recolours at once */
+        hd_pack_request(key);
 }
 
 /* Once a frame (tex_seg): up to 4 finished replacements onto the GPU, one
@@ -610,6 +758,11 @@ static void hires_drain(void)
         return;
     for (n = 0; n < 4 && (h = hd_pack_poll()) != NULL; n++) {
         uint32_t i, fmt = h->alpha ? WG_FMT_BC3_RGBA_UNORM : WG_FMT_BC1_RGBA_UNORM, bsz = h->alpha ? 16 : 8;
+        if (h->index_map) {                     /* kept; recoloured below */
+            imap_add(h);
+            hd_pack_tex_free(h);
+            continue;
+        }
         for (i = 0; i < WT_MAX; i++) {
             WtTex *t = &s_tex[i];
             uint32_t id, total = 0;
@@ -641,6 +794,18 @@ static void hires_drain(void)
                 s_hr_first = wg_frame;
         }
         hd_pack_tex_free(h);
+    }
+    if (s_imap_due) {                           /* textures waiting for an index map now in */
+        uint32_t i;
+        const WtImap *m;
+        s_imap_due = 0;
+        for (i = 0; i < WT_MAX; i++) {
+            WtTex *t = &s_tex[i];
+            if (t->id && t->hpend && t->himap && (m = imap_find(t->hkey)) != NULL) {
+                t->hpend = 0;
+                imap_put(t, m);
+            }
+        }
     }
     if (s_hr_used && s_hr_first && wg_frame - s_hr_first >= 3600) {   /* ~2 min of frames after the first */
         fprintf(stderr, "  [WGPU] hi-res: %zu replacements loaded, %u used\n", hd_pack_count(), s_hr_used);
@@ -719,6 +884,13 @@ static int upload(WtTex *t)
     }
     t->written = s_part;
     account(t, total);
+    if (t->hpend && t->himap) {                 /* its index map is in memory: recoloured now */
+        const WtImap *m = imap_find(t->hkey);
+        if (m) {
+            t->hpend = 0;
+            imap_put(t, m);
+        }
+    }
     return 1;
 
 too_big:

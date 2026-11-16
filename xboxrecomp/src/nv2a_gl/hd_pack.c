@@ -147,16 +147,22 @@ int hd_pack_has(uint64_t h)
     return s_nhave && bsearch(&h, s_have, s_nhave, sizeof *s_have, cmp_u64) != NULL;
 }
 
-unsigned char *hd_pack_load(uint64_t h, int *w, int *hgt)
+/* RGBA8, and the channels the file has (*comp). */
+static unsigned char *px_load(uint64_t h, int *w, int *hgt, int *comp)
 {
     char path[600];
-    int comp = 0;
     unsigned char *px;
     snprintf(path, sizeof path, "%s/textures/%016llx.png", s_dir, (unsigned long long)h);
-    px = stbi_load(path, w, hgt, &comp, 4);
+    px = stbi_load(path, w, hgt, comp, 4);
     if (!px)
         fprintf(stderr, "  [GL] HD pack: cannot read %s (%s)\n", path, stbi_failure_reason());
     return px;
+}
+
+unsigned char *hd_pack_load(uint64_t h, int *w, int *hgt)
+{
+    int comp = 0;
+    return px_load(h, w, hgt, &comp);
 }
 
 void hd_pack_free(unsigned char *px)
@@ -260,11 +266,28 @@ static unsigned char *dxt_level(const unsigned char *px, int w, int h, int alpha
 
 static HdTex *load_compressed(uint64_t key)
 {
-    int w = 0, h = 0, i, n, opaque = 1;
-    unsigned char *px = hd_pack_load(key, &w, &h), *cur;
+    int w = 0, h = 0, i, n, opaque = 1, comp = 0;
+    unsigned char *px = px_load(key, &w, &h, &comp), *cur;
     HdTex *t;
     if (!px)
         return NULL;
+    if (comp == 1) {                    /* grey: an index map, handed over as it is */
+        if ((t = calloc(1, sizeof *t)) != NULL && (t->data[0] = malloc((size_t)w * h)) != NULL) {
+            t->key = key;
+            t->w = t->lw[0] = w;
+            t->h = t->lh[0] = h;
+            t->levels = 1;
+            t->index_map = 1;
+            t->bytes[0] = (uint32_t)((size_t)w * h);
+            for (i = 0, n = w * h; i < n; i++)
+                t->data[0][i] = px[i * 4];
+        } else {
+            free(t);
+            t = NULL;
+        }
+        hd_pack_free(px);
+        return t;
+    }
     for (i = 0, n = w * h; i < n && opaque; i++)
         if (px[i * 4 + 3] != 255)
             opaque = 0;

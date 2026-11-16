@@ -21,6 +21,8 @@ void           hd_pack_dump(uint64_t h, const uint32_t *argb, int w, int hgt);
 typedef struct HdTex {
     uint64_t       key;
     int            w, h, levels, alpha;     /* alpha: DXT5, else DXT1 */
+    int            index_map;               /* a grey PNG: level 0 only, one u8 a texel, not DXT
+                                               (nv2a_wgpu/wgpu_hires.h index key) */
     int            lw[HD_MAX_LEVELS], lh[HD_MAX_LEVELS];
     unsigned char *data[HD_MAX_LEVELS];
     uint32_t       bytes[HD_MAX_LEVELS];
