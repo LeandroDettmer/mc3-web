@@ -2,9 +2,12 @@
 #ifndef NV2A_GL_HD_PACK_H
 #define NV2A_GL_HD_PACK_H
 
+#include <stddef.h>
 #include <stdint.h>
 
+void           hd_pack_set_dir(const char *dir);   /* before hd_pack_init: instead of RECOMP_GL_HD_DIR */
 int            hd_pack_init(void);       /* 1 when replacing or dumping */
+size_t         hd_pack_count(void);      /* replacements found */
 int            hd_pack_has(uint64_t h);
 unsigned char *hd_pack_load(uint64_t h, int *w, int *hgt);   /* RGBA8 */
 void           hd_pack_free(unsigned char *px);

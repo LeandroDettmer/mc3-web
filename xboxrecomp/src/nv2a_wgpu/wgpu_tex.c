@@ -55,6 +55,21 @@
  *     anisotropic (RECOMP_GL_ANISO, 1..16, default 16); without levels,
  *     level 0 only (lodMaxClamp 0).
  *
+ *   - Hi-res replacements (browser, 2026-11-16; untested in a browser): a mods
+ *     pack with a textures/ folder (mods.c -> nv2a_wgpu_hires_dir) holds
+ *     <key>.png files, key = wgpu_hires.h's hash of level 0's content
+ *     (DXT blocks, else the decoded texels; tools/hud_hd_pack.py makes
+ *     them from the disc). At each upload a texture whose key the pack has
+ *     asks hd_pack.c's worker (PNG decode, mip chain to 1x1, DXT1/DXT5 with
+ *     stb_dxt: a quarter of RGBA8's memory); the stock texture is drawn
+ *     until hires_drain puts the result on the GPU at its own size (4x).
+ *     The title keeps the stock size: shaders sample normalized UVs, and a
+ *     linear (pitch) image's texel coordinates are normalized by tscale from
+ *     the guest size, so neither needs a change. Sampled trilinear (the
+ *     stock HUD has one level: 4x drawn small would shimmer). Off: no BC
+ *     on the device, MC3_LOWMEM=1 (phones, TVs), a linear image rewritten
+ *     more than twice (movies, CPU-drawn), cube maps. WebGL draws stock.
+ *
  * Gaps: no LOD bias (RECOMP_GL_LOD_BIAS: a WebGPU sampler has none; needs
  * textureSampleBias in the fragment shader), no border colour, no 3D
  * textures, no depth-as-colour or upscaled movie/UI copies.
@@ -63,6 +78,8 @@
 #include "wgpu_int.h"
 #include "../kernel/xbox_guest_ptr.h"
 #include "../d3d/d3d8_swizzle.h"
+#include "../nv2a_gl/hd_pack.h"
+#include "wgpu_hires.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -185,6 +202,9 @@ typedef struct {
     uint32_t written;                   /* s_part of the last upload, 0: none */
     uint32_t gen;                       /* hash found unchanged as of s_gen (texfast) */
     int      rewrites;                  /* content changes at this address */
+    uint64_t hkey;                      /* hi-res: key of the content asked for, 0: none */
+    uint32_t hid;                       /* hi-res texture on the GPU, 0: none */
+    uint32_t hpend;                     /* asked of hd_pack's worker, not in yet */
 } WtTex;
 
 #define WT_MAX     1024
@@ -244,6 +264,8 @@ static void bytes_add(int64_t d)
 static void entry_free(WtTex *t)
 {
     wg_tex_free(t->id);
+    if (t->hid)
+        wg_tex_free(t->hid);
     bytes_add(-(int64_t)t->bytes);
     index_del(t);
     memset(t, 0, sizeof *t);
@@ -276,6 +298,7 @@ static void account(WtTex *t, uint32_t bytes)
 }
 
 static void mips_poll(void);
+static void hires_drain(void);
 
 /* s_gen, moved on at a new segment (texfast): a new vertex epoch
  * (semaphore release, trap) or frame. */
@@ -284,8 +307,10 @@ static uint32_t tex_seg(void)
     static uint32_t epoch, frame;
     uint32_t ep = s_batch ? s_batch->vtx_epoch : 0;
     if (ep != epoch || wg_frame != frame) {
-        if (wg_frame != frame)
+        if (wg_frame != frame) {
             mips_poll();
+            hires_drain();
+        }
         epoch = ep;
         frame = wg_frame;
         s_gen++;
@@ -504,6 +529,125 @@ static void level_upload(uint32_t id, uint32_t mip, uint32_t layer, uint32_t w, 
     u->src_bytes = bytes;
 }
 
+/* ── Hi-res replacements (hd_pack.c's worker; key: wgpu_hires.h) ──── */
+
+static char     s_hr_dir[512];          /* the pack's folder (holds textures/) */
+static uint32_t s_hr_set;               /* s_hr_dir written (release) */
+static int      s_hr_state = -1;        /* -1 not decided, 0 off, 1 on */
+static uint32_t s_hr_used, s_hr_first;  /* replacements put on the GPU; wg_frame of the first */
+
+void nv2a_wgpu_hires_dir(const char *dir)
+{
+    if (__atomic_load_n(&s_hr_set, __ATOMIC_ACQUIRE) || !dir || !*dir)
+        return;
+    snprintf(s_hr_dir, sizeof s_hr_dir, "%s", dir);
+    __atomic_store_n(&s_hr_set, 1, __ATOMIC_RELEASE);
+}
+
+/* Decided at the first upload after a pack was named (not cached before:
+ * the mods are scanned at the main heap's creation). */
+static int hires_on(void)
+{
+    const char *e;
+    if (s_hr_state >= 0)
+        return s_hr_state;
+    if (!__atomic_load_n(&s_hr_set, __ATOMIC_ACQUIRE))
+        return 0;
+    s_hr_state = 0;
+    if ((e = getenv("MC3_LOWMEM")) && *e == '1') {
+        fprintf(stderr, "  [WGPU] hi-res: off in the low-memory profile (%s not used)\n", s_hr_dir);
+        return 0;
+    }
+    if (!(wg_ctl.features & WG_FEAT_BC)) {
+        fprintf(stderr, "  [WGPU] hi-res: off, this GPU has no texture-compression-bc (%s not used)\n", s_hr_dir);
+        return 0;
+    }
+    hd_pack_set_dir(s_hr_dir);
+    if (!hd_pack_init() || !hd_pack_count()) {
+        fprintf(stderr, "  [WGPU] hi-res: no <key>.png in %s/textures\n", s_hr_dir);
+        return 0;
+    }
+    fprintf(stderr, "  [WGPU] hi-res: %zu replacements in %s/textures (decoded on a worker, DXT on the GPU)\n",
+            hd_pack_count(), s_hr_dir);
+    s_hr_state = 1;
+    return 1;
+}
+
+/* At each upload: the replacement of t's new content, asked for when the
+ * pack has its key; the old one goes. dec: level 0 decoded (BGRA8) when ok. */
+static void hires_check(WtTex *t, const void *dec, int ok)
+{
+    uint64_t key;
+    if (t->hid) {
+        wg_tex_free(t->hid);
+        t->hid = 0;
+        s_gen++;
+    }
+    t->hkey = 0;
+    t->hpend = 0;
+    if (t->cube || (t->pitch && t->rewrites > 2) || !hires_on())
+        return;
+    if (d3d8_format_dxt_block_bytes(t->color))
+        key = wg_hires_key(xbox_ptr(t->va), dxt_bytes(t->color, t->w, t->h), t->w, t->h, t->color);
+    else if (ok && dec)
+        key = wg_hires_key(dec, t->w * t->h * 4, t->w, t->h, 0);
+    else
+        return;
+    if (!hd_pack_has(key))
+        return;
+    t->hkey = key;
+    t->hpend = 1;
+    hd_pack_request(key);
+}
+
+/* Once a frame (tex_seg): up to 4 finished replacements onto the GPU, one
+ * texture per entry waiting for that key. */
+static void hires_drain(void)
+{
+    HdTex *h;
+    int n;
+    if (s_hr_state != 1)
+        return;
+    for (n = 0; n < 4 && (h = hd_pack_poll()) != NULL; n++) {
+        uint32_t i, fmt = h->alpha ? WG_FMT_BC3_RGBA_UNORM : WG_FMT_BC1_RGBA_UNORM, bsz = h->alpha ? 16 : 8;
+        for (i = 0; i < WT_MAX; i++) {
+            WtTex *t = &s_tex[i];
+            uint32_t id, total = 0;
+            int l;
+            if (!t->id || !t->hpend || t->hkey != h->key)
+                continue;
+            t->hpend = 0;
+            if ((h->w & 3) || (h->h & 3))
+                continue;                       /* BC: level 0 in whole blocks */
+            id = tex_create(fmt, (uint32_t)h->w, (uint32_t)h->h, (uint32_t)h->levels, 1);
+            for (l = 0; l < h->levels; l++) {
+                uint32_t lw = (uint32_t)h->lw[l], lh = (uint32_t)h->lh[l];
+                void *dst = arena_get(h->bytes[l]);
+                if (!dst)
+                    break;
+                memcpy(dst, h->data[l], h->bytes[l]);
+                level_upload(id, (uint32_t)l, 0, (lw + 3) & ~3u, (lh + 3) & ~3u, dst,
+                             (lw + 3) / 4 * bsz, (lh + 3) / 4, h->bytes[l]);
+                total += h->bytes[l];
+            }
+            if (l < h->levels) {
+                wg_tex_free(id);
+                continue;
+            }
+            t->hid = id;
+            s_gen++;
+            account(t, t->bytes + total);
+            if (!s_hr_used++)
+                s_hr_first = wg_frame;
+        }
+        hd_pack_tex_free(h);
+    }
+    if (s_hr_used && s_hr_first && wg_frame - s_hr_first >= 3600) {   /* ~2 min of frames after the first */
+        fprintf(stderr, "  [WGPU] hi-res: %zu replacements loaded, %u used\n", hd_pack_count(), s_hr_used);
+        s_hr_first = 0;
+    }
+}
+
 /* Fill t's texture with the image now in guest memory: every level of
  * every face decoded into the arena and uploaded, level 0 of face 0 first
  * (it decides the format), the texture (re)created if its size, format,
@@ -540,6 +684,8 @@ static int upload(WtTex *t)
         bytes = 4;
         *(uint32_t *)dst = 0xFFFF00FFu;
     }
+    /* now: a partial flush in the loop below may reuse level 0's buffer */
+    hires_check(t, dst, ok && fmt == WG_FMT_BGRA8UNORM);
     if (!t->id || t->fmt != fmt || t->tw != tw || t->th != th || t->mips != n
         || t->faces != nf || t->written == s_part) {
         if (t->id) {
@@ -697,7 +843,8 @@ static uint32_t aniso(void)
 }
 
 /* Sampler id for the stage's ADDRESS and FILTER registers on a texture with
- * (mipped) or without levels, SAMPLER emitted the first time a value is
+ * (mipped) or without levels (2: a hi-res replacement, trilinear whatever the
+ * register says), SAMPLER emitted the first time a value is
  * met. Filters as nv2a_gl's bind_stage: SET_TEXTURE_FILTER mag [27:24]
  * (1 nearest), min [23:16] (1 nearest, 2 linear, 3..6 the mipmapped modes).
  * With levels, a mipmapped mode samples trilinearly, NEAREST_MIPMAP_* with
@@ -708,9 +855,9 @@ static uint32_t sampler_get(uint32_t addr, uint32_t filter, int mipped)
     static uint32_t keys[256], n;
     uint32_t nmin = (filter >> 16) & 0xFF;
     uint32_t mag = ((filter >> 24) & 0xF) == 1 ? WG_FILTER_NEAREST : WG_FILTER_LINEAR;
-    uint32_t mip = mipped && nmin >= 3 && nmin <= 6;
-    uint32_t min = nmin == 1 || (mip && (nmin == 3 || nmin == 5)) ? WG_FILTER_NEAREST
-                                                                  : WG_FILTER_LINEAR;
+    uint32_t mip = mipped == 2 || (mipped && nmin >= 3 && nmin <= 6);
+    uint32_t min = mipped == 2 ? WG_FILTER_LINEAR       /* hi-res: trilinear whatever the title asked */
+                 : nmin == 1 || (mip && (nmin == 3 || nmin == 5)) ? WG_FILTER_NEAREST : WG_FILTER_LINEAR;
     uint32_t an = mip && min == WG_FILTER_LINEAR && mag == WG_FILTER_LINEAR ? aniso() : 1;
     uint32_t au = addr_mode(addr & 0xF), av = addr_mode((addr >> 8) & 0xF);
     uint32_t aw = addr_mode((addr >> 16) & 0xF);
@@ -818,9 +965,9 @@ void wtex_stage(const Nv2aRawBatch *b, int i, WtStage *out)
     s_pal_va = b->pal_va[i];
     t = tex_get(va, color, w, h, pitch, (format >> 16) & 0xF, cube);
     if (t) {
-        out->tex = t->id;
+        out->tex = t->hid ? t->hid : t->id;
         out->dim = t->faces == 6 ? WG_TEXDIM_CUBE : WG_TEXDIM_2D;
-        out->smp = sampler_get(regs[base + 2], regs[base + 5], t->mips > 1);
+        out->smp = sampler_get(regs[base + 2], regs[base + 5], t->hid ? 2 : t->mips > 1);
     } else {
         out->tscale[0] = out->tscale[1] = 1.0f;
     }

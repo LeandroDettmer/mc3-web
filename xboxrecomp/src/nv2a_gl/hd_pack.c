@@ -92,8 +92,10 @@ int hd_pack_init(void)
 
     if (s_on >= 0)
         return s_on;
-    e = getenv("RECOMP_GL_HD_DIR");
-    snprintf(s_dir, sizeof s_dir, "%s", e && *e ? e : "hd");
+    if (!s_dir[0]) {
+        e = getenv("RECOMP_GL_HD_DIR");
+        snprintf(s_dir, sizeof s_dir, "%s", e && *e ? e : "hd");
+    }
     e = getenv("RECOMP_GL_TEX_DUMP");
     s_dump = e && *e == '1';
 
@@ -126,6 +128,18 @@ int hd_pack_init(void)
         fprintf(stderr, "  [GL] HD pack %s: %zu replacement textures%s\n", s_dir, s_nhave,
                 s_dump ? ", dumping every texture to dump/ (RECOMP_GL_TEX_DUMP)" : "");
     return s_on;
+}
+
+/* The WebGPU renderer's pack (a mods folder): set before hd_pack_init. */
+void hd_pack_set_dir(const char *dir)
+{
+    if (s_on < 0 && dir)
+        snprintf(s_dir, sizeof s_dir, "%s", dir);
+}
+
+size_t hd_pack_count(void)
+{
+    return s_nhave;
 }
 
 int hd_pack_has(uint64_t h)
