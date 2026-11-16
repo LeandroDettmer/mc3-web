@@ -521,6 +521,31 @@ static void roam_rc_settle(uint32_t veh, uint32_t top)
                 sqrtf(frc), sqrtf(trq), sqrtf(ang), wmax);
 }
 
+/* Ghost mode (live word MC3_LIVE_ROAM_GHOST 1 off / 2 on, else MC3_ROAM_GHOST=1; off by default; browser only):
+ * every remote car stays out of the physics level, so ours passes through it. One-sided: a peer with it off still
+ * has our car in its level. The game's removal paths still put a car back first (roam_rc_make, roam_pool_pass). */
+static int roam_ghost_on(void)
+{
+#ifdef __EMSCRIPTEN__
+    static int env = -1, was = -1;
+    int32_t l = mc3_live(MC3_LIVE_ROAM_GHOST);
+    int on;
+    if (env < 0) {
+        const char *e = getenv("MC3_ROAM_GHOST");
+        env = e && e[0] == '1';
+    }
+    on = l ? l == 2 : env;
+    if (on != was) {
+        was = on;
+        fprintf(stderr, "[ROAM] ghost mode %s: other players' cars %s the physics level\n", on ? "on" : "off",
+                on ? "out of" : "back in (within 20 m) to");
+    }
+    return on;
+#else
+    return 0;
+#endif
+}
+
 /* Entry k's car in (on 1) or out of the physics level. Never out while a
  * state request is queued: the cruise may end in that pass, and the game's
  * player delete takes the car out of the level itself (sub_000FFB40). */
@@ -1530,9 +1555,10 @@ static void roam_pool_slot(uint32_t p, int k, double now)
         return;
     }
     cc = MEM32(veh + 4u);
-    if (!c->live) {
+    if (!c->live)
         roam_set_pose(veh, m, vel);
-        roam_rc_phys(c, veh, 1);
+    roam_rc_phys(c, veh, !roam_ghost_on());     /* each frame: Ghost mode (live) takes it out, off puts it back */
+    if (!c->live) {
         roam_show(veh, 1);
         c->live = 1;
     }
@@ -1707,10 +1733,10 @@ static void roam_pool_frame(void)
         for (i = 0; i < 3; i++)
             d[i] = m[9 + i] - me[9 + i];
         dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
-        if (dist < ROAM_CAR_NEAR)
-            roam_rc_phys(c, veh, 1);
-        else if (dist > ROAM_CAR_FAR)
+        if (roam_ghost_on() || dist > ROAM_CAR_FAR)
             roam_rc_phys(c, veh, 0);
+        else if (dist < ROAM_CAR_NEAR)
+            roam_rc_phys(c, veh, 1);
     }
 }
 

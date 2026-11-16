@@ -299,6 +299,7 @@ Module['mc3TouchPad'] = function (words) {
     MC3_FX_BLUR: [game, 18, onoff],   // recomp_manual.c fx_step: the game's motion blur, 1 off / 2 on
     MC3_FX_GLOW: [game, 19, onoff],   // and its glow (bloom)
     MC3_ORBIT_CAM: [game, 20, onoff],   // orbit_cam.c: the mouse orbit camera (words 21-24: the Orbit camera block below)
+    MC3_ROAM_GHOST: [game, 26, function (v) { return v === '1' ? 2 : 1; }],   // roam_pool.c roam_ghost_on: other players' cars out of the physics level, 1 off / 2 on
     MC3_AI_DIFF: [game, 25, function (v) { return v === 'easy' ? 2 : v === 'hard' ? 3 : 1; }],   // recomp_manual.c ai_diff_call: 1 normal, 2 easy, 3 hard
     MC3_CAREER_ONLINE: [game, 3, function (v) { return v === '0' ? 1 : 2; }],
     RECOMP_KEYBOARD: [function () { return typeof _xbox_keyboard_box == 'function' ? _xbox_keyboard_box() : 0; }, 0, onoff],

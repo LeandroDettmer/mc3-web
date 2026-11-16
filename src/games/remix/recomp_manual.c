@@ -2805,11 +2805,13 @@ static void realtime_step(float real)
  * MC3_LIVE_FX_BLUR MC3_FX_BLUR, MC3_LIVE_FX_GLOW MC3_FX_GLOW 1 off / 2 on (fx_step).
  * MC3_LIVE_ORBIT MC3_ORBIT_CAM 1 off / 2 on; MC3_LIVE_ORBIT_YAW/_PITCH/_ZOOM the page's running drag/wheel totals
  * x 1000, MC3_LIVE_ORBIT_HELD 1 while dragging (orbit_cam.c, web/pre.js).
- * MC3_LIVE_AI_DIFF MC3_AI_DIFF 1 normal / 2 easy / 3 hard (ai_diff_call). */
+ * MC3_LIVE_AI_DIFF MC3_AI_DIFF 1 normal / 2 easy / 3 hard (ai_diff_call).
+ * MC3_LIVE_ROAM_GHOST MC3_ROAM_GHOST 1 off / 2 on (roam_pool.c roam_ghost_on). */
 enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_FPS_NOW, MC3_LIVE_DRIFT_CAM,
        MC3_LIVE_RACE_INVITES, MC3_LIVE_DRIFT_SETUP, MC3_LIVE_FX_BLUR = MC3_LIVE_DRIFT_SETUP + 11, MC3_LIVE_FX_GLOW,
        MC3_LIVE_ORBIT, MC3_LIVE_ORBIT_YAW, MC3_LIVE_ORBIT_PITCH, MC3_LIVE_ORBIT_ZOOM, MC3_LIVE_ORBIT_HELD,
-       MC3_LIVE_AI_DIFF, MC3_LIVE_N };
+       MC3_LIVE_AI_DIFF, MC3_LIVE_ROAM_GHOST, MC3_LIVE_N };
+_Static_assert(MC3_LIVE_ROAM_GHOST == 26, "web/pre.js BOX: MC3_ROAM_GHOST is word 26");
 #ifdef __EMSCRIPTEN__
 static int32_t s_mc3_live[MC3_LIVE_N];
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_live_box(void) { return (uintptr_t)s_mc3_live; }
