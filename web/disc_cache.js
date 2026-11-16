@@ -164,57 +164,86 @@ var MC3DiscCache = (() => {
     };
   }
 
-  /** blocks bi .. bi+n-1 of a file of `size` bytes at `url`, in one Range request; onBlock(j, bytes) as each block has
-   * come (BLOCK bytes, the file's last shorter), all of them in an array at the end. A try that gets no data for
-   * `stallMs` (no answer, or the body stops coming) is abandoned and tried again from the first block not yet in, so
-   * a stalled connection never blocks a read for long, while a slow one that keeps sending is never cut; warn(msg)
-   * logs each retry. `signal` (optional) abandons the whole fetch (AbortError); the blocks already in went to onBlock.
-   * `url` is a URL, or a signer's getter (a URL a try: a refused direct one is tried again at once, as it says). */
-  async function fetchBlocks(url, bi, n, size, { warn = () => {}, stallMs = FETCH_MS, signal, onBlock = () => {} } = {}) {
+  /** A manifest file's packed copy (tools/disc_pack.py, docs/disc-compression.md): its "z" (the stored length of each
+   * block in <path>.gzb: a gzip member, or the block raw when the length is the block's) -> the stored blocks' offsets
+   * (N+1). null without one, or where the browser has no DecompressionStream: the file is read raw, as before. */
+  function packed(f) {
+    if (!Array.isArray(f.z) || f.z.length !== blockCount(f.s) || typeof DecompressionStream != 'function') return null;
+    const off = new Float64Array(f.z.length + 1);
+    f.z.forEach((n, i) => { off[i + 1] = off[i] + n; });
+    return off;
+  }
+  /** a packed block (a gzip member) -> its `len` bytes; a bad one throws with zbad set */
+  async function gunzip(b, len) {
+    let r;
+    try { r = new Uint8Array(await new Response(new Blob([b]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer()); }
+    catch (e) { throw Object.assign(new Error(`packed block: ${e.message || e}`), { zbad: true }); }
+    if (r.length !== len) throw Object.assign(new Error(`packed block: ${r.length} of ${len} bytes`), { zbad: true });
+    return r;
+  }
+
+  /** blocks bi .. bi+n-1 of a file of `size` bytes at `url`, in one Range request; onBlock(j, bytes, wire) as each block
+   * has come (BLOCK bytes, the file's last shorter; wire: what it took on the network), all of them in an array at the
+   * end. A try that gets no data for `stallMs` (no answer, or the body stops coming) is abandoned and tried again from
+   * the first block not yet in, so a stalled connection never blocks a read for long, while a slow one that keeps
+   * sending is never cut; warn(msg) logs each retry. `signal` (optional) abandons the whole fetch (AbortError); the
+   * blocks already in went to onBlock. `url` is a URL, or a signer's getter (a URL a try: a refused direct one is tried
+   * again at once, as it says). `z` (optional, one object per file for the session) = {off: packed(f), src: the .gzb's
+   * URL or getter}: the same blocks as one range of the packed copy, each decoded as it comes (the same requests); a
+   * 404 or a block that does not decode sets z.dead, and the file is read raw from then on. */
+  async function fetchBlocks(url, bi, n, size, { warn = () => {}, stallMs = FETCH_MS, signal, onBlock = () => {}, z } = {}) {
     const out = [], end = Math.min(size, (bi + n) * BLOCK);
     let failed = null;                            // onBlock threw (no room, say): not tried again
     let prev;                                     // the last try's failure, for the getter
     for (let attempt = 1; ; attempt++) {
-      const at = (bi + out.length) * BLOCK, had = out.length;
+      const zo = z && !z.dead ? z.off : null, j0 = bi + out.length, had = out.length;
+      const at = zo ? zo[j0] : j0 * BLOCK, to = zo ? zo[bi + n] : end;   // the range; in the packed copy with zo
       const ac = new AbortController(), stop = () => ac.abort();
       signal?.addEventListener('abort', stop);
       let timer, src = { u: url, direct: false };
       const arm = () => { clearTimeout(timer); timer = setTimeout(() => ac.abort(), stallMs); };
       try {
         if (signal?.aborted) throw new DOMException('stopped', 'AbortError');
-        if (typeof url === 'function') src = await url(prev);
+        const get = zo ? z.src : url;
+        src = typeof get === 'function' ? await get(prev) : { u: get, direct: false };
         arm();
         // direct: the bucket wants no cookie (its CORS allows none)
-        const r = await fetch(src.u, { headers: { Range: `bytes=${at}-${end - 1}` }, credentials: src.direct ? 'omit' : 'include', signal: ac.signal });
+        const r = await fetch(src.u, { headers: { Range: `bytes=${at}-${to - 1}` }, credentials: src.direct ? 'omit' : 'include', signal: ac.signal });
         if (r.status !== 206 && r.status !== 200) throw Object.assign(new Error(`HTTP ${r.status}`), { status: r.status });
         arm();
         const rd = r.body.getReader();
         let pos = r.status === 200 ? 0 : at, cur = null, fill = 0;   // a server without ranges: the whole file
         try {
-          while (pos < end) {                     // read as it comes: each piece restarts the stall timer
+          while (pos < to) {                      // read as it comes: each piece restarts the stall timer
             const { done, value } = await rd.read();
             if (done) break;
             arm();
             let v = value;
             if (pos < at) { const s = Math.min(v.length, at - pos); v = v.subarray(s); pos += s; }
-            while (v.length && pos < end) {
-              const j = bi + out.length, len = blockLen(size, j);
-              cur ??= new Uint8Array(len);
-              const take = Math.min(v.length, len - fill);
+            while (v.length && pos < to) {
+              const j = bi + out.length, len = blockLen(size, j), stored = zo ? zo[j + 1] - zo[j] : len;
+              cur ??= new Uint8Array(stored);
+              const take = Math.min(v.length, stored - fill);
               cur.set(v.subarray(0, take), fill); fill += take; pos += take; v = v.subarray(take);
-              if (fill === len) {
-                out.push(cur);
-                try { onBlock(j, cur); } catch (e) { failed = e; throw e; }
+              if (fill === stored) {
+                const b = stored === len ? cur : await gunzip(cur, len);
+                out.push(b);
+                try { onBlock(j, b, stored); } catch (e) { failed = e; throw e; }
                 cur = null; fill = 0;
               }
             }
           }
         } finally { rd.cancel().catch(() => {}); }
-        if (out.length < n) throw new Error(`${pos - at} of ${end - at} bytes`);
+        if (out.length < n) throw new Error(`${pos - at} of ${to - at} bytes`);
         return out;
       } catch (e) {
         if (failed) throw failed;
         if (signal?.aborted) throw new DOMException('stopped', 'AbortError');
+        if (zo && (e.zbad || e.status === 404 || e.status === 416)) {   // no usable packed copy (a manifest ahead of the bucket, say)
+          z.dead = true; prev = undefined; attempt = 0;
+          warn(`packed copy unusable (${e.message || e}): the file is read raw from now on`);
+          continue;
+        }
         const why = ac.signal.aborted ? `no data for ${stallMs / 1000} s` : String(e.message || e);
         prev = { status: e.status, direct: src.direct, stalled: ac.signal.aborted };
         if (out.length > had) attempt = 1;        // it moved on: a fresh count of tries
@@ -225,7 +254,7 @@ var MC3DiscCache = (() => {
     }
   }
   /** block bi alone (fetchBlocks) */
-  const fetchBlock = (url, bi, size, warn, stallMs) => fetchBlocks(url, bi, 1, size, { warn, stallMs }).then(b => b[0]);
+  const fetchBlock = (url, bi, size, warn, stallMs, z) => fetchBlocks(url, bi, 1, size, { warn, stallMs, z }).then(b => b[0]);
 
   /** What of the disc the cache holds: { total, have } bytes, files [{f, k, have: map | null}]. Async reads only. */
   async function scan(disc) {
@@ -255,13 +284,15 @@ var MC3DiscCache = (() => {
   // A job is a run of at most RUN blocks a file misses, one request (fetchBlocks); `signal` stops it at once (the
   // blocks already in are kept).
   async function predownload(disc, post, signal) {
-    const s = await scan(disc), d = await dir(true), sig = signer(disc, s.files.map(x => x.f.p));
+    const s = await scan(disc), d = await dir(true), sig = signer(disc, s.files.flatMap(x => packed(x.f) ? [x.f.p, x.f.p + '.gzb'] : [x.f.p]));
     let have = s.have, shown = 0;
     const progress = now => { const t = Date.now(); if (now || t - shown >= 250) { shown = t; post({ t: 'progress', have, total: s.total }); } };
     progress(true);
     const jobs = [];
     for (const x of s.files) {
       x.left = 0;
+      const off = packed(x.f);
+      x.z = off && { off, src: sig.url(x.f.p + '.gzb') };
       for (let bi = 0; bi < blockCount(x.f.s); bi++) {
         if (x.have && x.have[bi]) continue;
         const job = jobs[jobs.length - 1];
@@ -282,7 +313,7 @@ var MC3DiscCache = (() => {
             let m = 1;
             while (j + m < bi + n && !cf.have[j + m]) m++;
             await fetchBlocks(sig.url(x.f.p), j, m, x.f.s, {
-              signal: ac.signal, warn: w => console.warn('[WEB] predownload: ' + w),
+              signal: ac.signal, z: x.z, warn: w => console.warn('[WEB] predownload: ' + w),
               onBlock: (k, b) => { if (!cf.have[k]) { put(cf, k, b); have += blockLen(x.f.s, k); progress(); } },
             });
             j += m;
@@ -318,5 +349,5 @@ var MC3DiscCache = (() => {
       ).finally(() => { busy = false; });
     };
   }
-  return { BLOCK, blockLen, discName, key, fileUrl, manifest, dir, open, close, put, signer, fetchBlock, fetchBlocks, scan, clear, enabled, setForce, use };
+  return { BLOCK, blockLen, discName, key, fileUrl, manifest, dir, open, close, put, signer, packed, fetchBlock, fetchBlocks, scan, clear, enabled, setForce, use };
 })();

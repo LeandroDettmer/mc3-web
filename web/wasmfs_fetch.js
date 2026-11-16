@@ -24,7 +24,13 @@
  * model read in free roam stalls the whole guest). In order (prefetchJobs):
  * assets_x.dat_2 (cars), the streamed sound banks (music mx.xwb first), assets_x.dat, _3, _1 (city),
  * resources/ smallest first (car builds .xbpf, hudmap; not the decal packs,
- * DECALS, 2026-11-15), banks.dat. Since
+ * DECALS, 2026-11-15), banks.dat, then the decal packs where the disc has
+ * packed copies of them (tools/disc_pack.py: ~83 MiB on the network for
+ * 596 MiB; still 596 MiB in OPFS, so running out of room there only stops
+ * the fill; never the learned fill). Packed copies: a manifest file with
+ * "z" is read from <path>.gzb, the same ranges mapped through the stored
+ * block lengths, each block decoded on this thread (disc_cache.js
+ * fetchBlocks); OPFS, memory and `pinned` keep decoded blocks. Since
  * 2026-11-14 (R2 reads cost) no more: the Flash screens, the rest of
  * assets_x* and the movies come only when the game reads them (the fill was
  * the whole disc, ~4.4 GiB a player); at most PREFETCH_BUDGET_MB still to fetch and what the browser
@@ -273,14 +279,26 @@ addToLibrary({
       const disc = url.slice(0, i), rel = url.slice(i + 2);
       const m = await (manifests[disc] ??= C.manifest(disc).then(fs => new Map(fs.map(f => [f.p, f])), () => null));
       if (m && !prefetching && E.MC3_PREFETCH !== '0') { prefetching = true; prefetch(disc, m).catch(e => err(`[WEB] prefetch stopped: ${e}`)); }
-      const sig = m && (signers[disc] ??= C.signer(disc, [...m.keys()], s => err('[WEB] ' + s)));
+      const sig = m && (signers[disc] ??= C.signer(disc, [...m.values()].flatMap(f => C.packed(f) ? [f.p, f.p + '.gzb'] : [f.p]), s => err('[WEB] ' + s)));
       let f = m && m.get(rel);
       if (!f) {
         const r = await fetch(url, { method: 'HEAD', credentials: 'include' });
         if (!r.ok) throw r.status;
         f = { p: rel, s: +r.headers.get('Content-Length') };
       }
-      return { url, src: sig && m.has(rel) ? sig.url(rel) : url, size: f.s, key: C.key(C.discName(disc), f) };
+      const key = C.key(C.discName(disc), f);
+      return { url, src: sig && m.has(rel) ? sig.url(rel) : url, size: f.s, key, z: sig && m.has(rel) ? packOf(disc, f, key) : null };
+    }
+    // A disc file's packed copy (C.packed, tools/disc_pack.py): {off, src, dead} for C.fetchBlocks, one per file for the
+    // session (a .gzb found unusable stays raw), null without one. '[WEB] disc: <file> read from its packed copy ...'.
+    const packs = new Map();
+    function packOf(disc, f, key) {
+      if (!packs.has(key)) {
+        const off = C.packed(f);
+        packs.set(key, off && { off, src: signers[disc].url(f.p + '.gzb') });
+        if (off) err(`[WEB] disc: ${f.p} read from its packed copy (${(off[off.length - 1] / BLOCK).toFixed(1)} of ${(f.s / BLOCK).toFixed(0)} MiB)`);
+      }
+      return packs.get(key);
     }
     function info(file) {
       return files[file] ??= describe(UTF8ToString(__wasmfs_fetch_get_file_url(file)))
@@ -311,10 +329,11 @@ addToLibrary({
     // An OPFS failure (a cache file's open, a block's write): logged with its call, '[WEB] opfs: <op> <file>:
     // <error>' (the first few). WebKit's UnknownError (handle limits, memory pressure), a full disk, or 8 failures
     // turn the cache off for the session: every open file is closed and reads go to the server only.
+    const fullUp = e => e?.name === 'QuotaExceededError';
     function opfsFail(e) {
       if (cacheOff) return;
       if (failures++ < 3) err(`[WEB] ${e?.message || e}`);   // C.open/C.put messages start 'opfs: <op> <file>'
-      if (e?.name !== 'UnknownError' && e?.name !== 'QuotaExceededError' && failures < 8) return;
+      if (e?.name !== 'UnknownError' && !fullUp(e) && failures < 8) return;
       cacheOff = true; cacheDir = Promise.resolve(null);
       for (const q of open.values()) q.then(cf => { keepHeads(cf); C.close(cf); });
       open.clear();
@@ -354,9 +373,11 @@ addToLibrary({
       }
       let b;
       netReads++; stopBackground(); counted(1);
-      try { b = await C.fetchBlock(fi.src, bi, fi.size, m => err(`[WEB] disc read stalled: ${fi.url} block ${bi}: ${m}`), GAME_STALL_MS); }
-      finally { netReads--; lastNet = performance.now(); }
-      st.net++; st.gameB += b.length;
+      try {
+        [b] = await C.fetchBlocks(fi.src, bi, 1, fi.size, { stallMs: GAME_STALL_MS, z: fi.z, onBlock: (j, x, wire) => { st.gameB += wire; },
+          warn: m => err(`[WEB] disc read stalled: ${fi.url} block ${bi}: ${m}`) });
+      } finally { netReads--; lastNet = performance.now(); }
+      st.net++;
       if ((cf = await cacheFile(fi))) {
         try { C.put(cf, bi, b); }
         catch (e) { opfsFail(e); }
@@ -406,15 +427,17 @@ addToLibrary({
       if (game) { netReads++; stopBackground(); counted(n); } else { bgRuns.add(run); st.bgReq++; }
       try {
         await C.fetchBlocks(fi.src, bi, n, fi.size, {
-          signal: run.ac.signal, stallMs: game ? GAME_STALL_MS : undefined,
+          signal: run.ac.signal, stallMs: game ? GAME_STALL_MS : undefined, z: fi.z,
           warn: m => err(`[WEB] ${game ? 'disc read' : 'prefetch'} stalled: ${fi.url} blocks ${bi}-${bi + n - 1}: ${m}`),
-          onBlock: (j, b) => {
+          onBlock: (j, b, wire) => {
             const w = waits[j - bi];
             run.next = j + 1;
-            if (game) st.gameB += b.length; else st.bgB += b.length;
+            if (game) st.gameB += wire; else st.bgB += wire;
             if (game) remember(w.k, b);
             if (pin) pinned.set(w.k, b);
-            else puts.push(cacheFile(fi).then(c => { if (c && !c.have[j]) C.put(c, j, b); }).catch(e => { kept ??= e; opfsFail(e); }));
+            // the decal packs come last in the fill: out of room there stops the fill, the cache stays on (fullUp)
+            else puts.push(cacheFile(fi).then(c => { if (c && !c.have[j]) C.put(c, j, b); })
+              .catch(e => { kept ??= e; if (!(fullUp(e) && !game && DECALS.test(fi.url))) opfsFail(e); }));
             drop(w); w.res(b);
           },
         });
@@ -464,6 +487,9 @@ addToLibrary({
         ...['assets_x.dat', 'assets_x.dat_3', 'assets_x.dat_1'].map(p => byPath.get(p)),
         ...dir('resources/').filter(f => !DECALS.test(f.p)),
         byPath.get('banks.dat'),
+        // the decal packs last, and only from their packed copies (~83 of 596 MiB on the network); the cache still keeps
+        // 596 MiB decoded, so where it runs out of room it runs out here (fetchRun: the fill stops, the cache stays on)
+        ...dir('resources/').filter(f => DECALS.test(f.p) && C.packed(f)),
         // 2026-11-14: no Flash screens, assets_x.dat_4/_5 or movies: the game fetches them on use
       ].filter(Boolean);
     }
@@ -479,7 +505,10 @@ addToLibrary({
     }
 
     // A disc file of the manifest, as describe() gives it.
-    const fileInfo = (disc, f) => ({ p: f.p, url: C.fileUrl(disc, f.p), src: signers[disc].url(f.p), size: f.s, key: C.key(C.discName(disc), f) });
+    const fileInfo = (disc, f) => {
+      const key = C.key(C.discName(disc), f);
+      return { p: f.p, url: C.fileUrl(disc, f.p), src: signers[disc].url(f.p), size: f.s, key, z: packOf(disc, f, key) };
+    };
     // The blocks (ascending) holding the first HEAD_BYTES of every entry of a wave bank, from its XACT table (version
     // 3, the Xbox's: segments at +8, bank data, entry metadata, seek tables, wave data; an entry's play region at +8),
     // which sits in block 0. None for anything else.
@@ -571,7 +600,7 @@ addToLibrary({
       }
       const t0 = performance.now();
       err(`[WEB] prefetch: ${mib(left)} MiB in ${jobs.length} files to fetch in the background, of ${mib(total)} MiB`
-        + ` (cars, sound banks, resources, banks.dat); budget ${PREFETCH_BUDGET_MB} MiB${room}`
+        + ` (cars, sound banks, resources, banks.dat, packed decals); budget ${PREFETCH_BUDGET_MB} MiB${room}`
         + (skipped ? `, ${mib(skipped)} MiB left out` : ''));
       if (!left) return;
       const run = (fi, list) => fill(fi, list, false, (bi, got) => {
