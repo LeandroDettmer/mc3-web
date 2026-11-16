@@ -1778,17 +1778,14 @@ only with MC3_PERF, their only reader.
   0x47681C; also SteerRate/HandbrakeRate/DriftRate). Other tune binders
   seen: sub_00124B70 (bike Lean/Wheelie/Drift/Burnout), sub_0007C350
   (traffic TireGrip), sub_001CAEF0 (AI).
-  Controlled level (2026-11-15, untested in game): a grippier row (bmax 35,
-  yaw cut 0.45) plus, while a slide runs forward (not on hit frames): yaw
-  rate capped at 1.3 rad/s and a PD hold of the signed slip toward 15 deg
-  (no throttle) .. 32 deg (full) (kp 2.5, kd 0.6, at most 1.5 rad/s^2;
-  widening only with throttle > 0.2, so lifting off lets the car out), both
-  written as one change of w and L along up like the yaw cut. The steer
-  input is never written (peers get our inputs as rc_state.ext). Sign: a
-  yaw rate w about up changes v.right at -w v.(r x u) = +h w x forward
-  speed, h = sign((r x u).back) measured each frame and printed in the slide
-  line ('controlled N frames ... (rows h +1)'). '[DRIFT] drift mode
-  controlled'.
+  Controlled level (2026-11-15, untested in game): the normal row without
+  the speed give-back (keep 0) plus a drag in the slide, 0 at 6 deg of slip
+  -> 4 m/s^2 at 30 deg and more, not while braking or on a hit frame, never
+  below 40 km/h (DRAG_FLOOR); the drag stays out of the give-back's sum.
+  The same drift as On, slower (owner 2026-11-15: the first Controlled, a
+  1.3 rad/s yaw cap + a PD angle hold on w/L, neither drifted nor threw the
+  car). The steer input is never written. Slide line '... drag N km/h ...';
+  '[DRIFT] drift mode controlled'.
   Drift camera (2026-11-15, untested in game; MC3_DRIFT_CAM=1, page
   'Drift camera' On/Off in the in-game Controls, live word 5 1 off / 2 on;
   any Drift level, off too; drift.c drift_cam from the sub_002CF760
