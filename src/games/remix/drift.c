@@ -151,7 +151,8 @@ static const drift_tune k_drift[3] = {
 #define CTL_THROW    0.55f  /* rear factor while a drift starts with the car still straight (On's kick: 0.50) */
 #define CTL_REAR_K   0.85f  /* share of NFSU2's rear grip range (R/1.1: 1 .. 0.31) used on MC3's tyres (0.70 until 2026-11-16, owner: slide more easily) */
 #define CTL_TAU      0.10f  /* s: the rear factor follows its target (a keyboard's steer is all or nothing) */
-#define CTL_CS_MAX   1.60f  /* the counter-steer assist's front SteeringLimit factor at most */
+#define CTL_CS_MAX   1.30f  /* the counter-steer assist's front SteeringLimit factor at most (1.6 until 2026-11-16) */
+#define CTL_OUT_DAMP 3.0f   /* 1/s: the yaw rate out of the slide damped this much x D (ours) */
 #define CTL_SIDE     1.0f   /* steer x yaw toward the right row (s) gripping before the steer side counts as learned */
 static const float k_ctl_stab[7][2] = {   /* NFSU2's yaw stabilizer S over the slip (rad) */
     { 0.0f, 0.0f }, { 0.2618f, 0.10f }, { 0.5236f, 0.45f }, { 0.7854f, 0.85f }, { 1.0472f, 0.95f },
@@ -364,7 +365,7 @@ static void drift_step(void)
             dstate = fwd && s > CTL_SPEED && beta > CTL_SLIP ? CTL_IN : CTL_EXIT;
         else if (fwd && s > CTL_SPEED && (hb > 0.5f || beta > CTL_SLIP || fabsf(st) > CTL_STEER || kick_t > 0))
             dstate = CTL_ENTER;   /* owner 2026-11-15: steering alone must throw the car (NFSU2's drift events do) */
-        x = drift_clamp(dval * (beta / 57.29578f * 0.5f + cs * 4.0f + fabsf(wy) * 0.5f + fabsf(st) * 0.5f), 0, 1) * 9.0f;
+        x = drift_clamp(dval * (beta / 57.29578f * 0.5f + cs * 1.5f + fabsf(wy) * 0.5f + fabsf(st) * 0.5f), 0, 1) * 9.0f;
         k = x < 8.0f ? (int)x : 8;
         tgt = k_ctl_rear[k] + (k_ctl_rear[k + 1] - k_ctl_rear[k]) * (x - (float)k);
         tgt = 1.0f - (1.0f - tgt / 1.1f) * CTL_REAR_K;
@@ -413,6 +414,12 @@ static void drift_step(void)
                     break;
                 }
             dw = -wy * drift_clamp(dval * sv * 2.5f * dt, 0, 0.5f);   /* 2.5 (NFSU2 4): less self-straightening */
+            if (dw != 0)
+                dr.damps++;
+        } else if (lvl == 3 && dval > 0 && vf < -1.0f && grow > 0 && beta > 3.0f && s > 8.0f && !hit) {
+            /* ours (owner 2026-11-16: a counter-steer flipped the car at once): damp the rotation out of the slide
+             * too, so a counter-steer holds or eases the angle and a flick to the other side takes its time */
+            dw = -wy * drift_clamp(dval * CTL_OUT_DAMP * dt, 0, 0.5f);
             if (dw != 0)
                 dr.damps++;
         }
