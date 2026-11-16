@@ -1841,7 +1841,9 @@ only with MC3_PERF, their only reader.
   '...; controlled: stabilizer N frames, steer side ..., drift value D
   (state)'; '[DRIFT] drift mode controlled'. Steering throws the car (owner: v4 did not): a drift also starts on
   |steer| > 0.7 or a lift-off kick above 30 mph, the rear at most 0.55
-  while it starts under 12 deg of slip (CTL_STEER, CTL_THROW).
+  while it starts under 12 deg of slip (CTL_STEER, CTL_THROW). 2026-11-16 (owner: throw at a lower speed, slide
+  more easily without straightening): entry/hold speed 30 km/h (was 30 mph),
+  rear range x0.85 (was 0.7), D falls 1/s (was 2), stabilizer x2.5 (was 4).
   Drift camera (2026-11-15, untested in game; MC3_DRIFT_CAM=1, page
   'Drift camera' On/Off in the in-game Controls, live word 5 1 off / 2 on;
   any Drift level, off too; drift.c drift_cam from the sub_002CF760

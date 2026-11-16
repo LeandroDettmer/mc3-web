@@ -145,11 +145,11 @@ static const drift_tune k_drift[3] = {
     { 1.00f, 0.00f, 0.00f, 0.00f, 0.00f, 90.0f, 0.00f, 0.05f, 0.00f, 0.30f },   /* 3 controlled: front, keep only */
 };
 /* Controlled only: NFSU2's drift routine (see the header) */
-#define CTL_SPEED    13.41f /* m/s (30 mph): the drift's entry and hold speed */
+#define CTL_SPEED    8.33f  /* m/s (30 km/h; 30 mph until 2026-11-16, owner: lower): the drift's entry and hold speed */
 #define CTL_SLIP     12.0f  /* deg */
 #define CTL_STEER    0.70f  /* |steer| above which steering alone starts a drift (above CTL_SPEED) */
 #define CTL_THROW    0.55f  /* rear factor while a drift starts with the car still straight (On's kick: 0.50) */
-#define CTL_REAR_K   0.70f  /* share of NFSU2's rear grip range (R/1.1: 1 .. 0.31) used on MC3's tyres */
+#define CTL_REAR_K   0.85f  /* share of NFSU2's rear grip range (R/1.1: 1 .. 0.31) used on MC3's tyres (0.70 until 2026-11-16, owner: slide more easily) */
 #define CTL_TAU      0.10f  /* s: the rear factor follows its target (a keyboard's steer is all or nothing) */
 #define CTL_CS_MAX   1.60f  /* the counter-steer assist's front SteeringLimit factor at most */
 #define CTL_SIDE     1.0f   /* steer x yaw toward the right row (s) gripping before the steer side counts as learned */
@@ -350,7 +350,7 @@ static void drift_step(void)
         /* controlled: NFSU2's drift value and rear grip (see the header, 1 and 3) */
         int fwd = ics && vf < -1.0f, into = fwd && grow < 0;
         float x;
-        dval += (dstate == CTL_ENTER || dstate == CTL_IN ? 8.0f : -2.0f) * dt;
+        dval += (dstate == CTL_ENTER || dstate == CTL_IN ? 8.0f : -1.0f) * dt;   /* out -1/s (NFSU2 -2; owner: it straightened too soon) */
         if (dval <= 0) {
             dval = 0;
             dstate = CTL_OUT;
@@ -412,7 +412,7 @@ static void drift_step(void)
                          (br - k_ctl_stab[k - 1][0]) / (k_ctl_stab[k][0] - k_ctl_stab[k - 1][0]);
                     break;
                 }
-            dw = -wy * drift_clamp(dval * sv * 4.0f * dt, 0, 0.5f);
+            dw = -wy * drift_clamp(dval * sv * 2.5f * dt, 0, 0.5f);   /* 2.5 (NFSU2 4): less self-straightening */
             if (dw != 0)
                 dr.damps++;
         }
