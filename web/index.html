@@ -355,14 +355,14 @@
   .stage-bar:hover, .stage-bar:focus-within { opacity: 1; }
   .stage-bar .btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
   .pad-sel { max-width: 220px; min-height: 32px; font-size: 14px; }
-  #settings-dlg, #players-dlg, #changelog-dlg, #fb-dlg { width: min(520px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 16px; margin: auto;
+  #settings-dlg, #players-dlg, #changelog-dlg, #fb-dlg, #drift-dlg { width: min(520px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 16px; margin: auto;
                   background: var(--frame); color: inherit; border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--r); touch-action: pan-y; }
-  #settings-dlg::backdrop, #players-dlg::backdrop, #changelog-dlg::backdrop, #fb-dlg::backdrop { background: rgba(0, 0, 0, .6); }
-  #settings-dlg .dlg-head, #players-dlg .dlg-head, #changelog-dlg .dlg-head, #fb-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -16px -16px 12px;
+  #settings-dlg::backdrop, #players-dlg::backdrop, #changelog-dlg::backdrop, #fb-dlg::backdrop, #drift-dlg::backdrop { background: rgba(0, 0, 0, .6); }
+  #settings-dlg .dlg-head, #players-dlg .dlg-head, #changelog-dlg .dlg-head, #fb-dlg .dlg-head, #drift-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -16px -16px 12px;
                             padding: 8px 16px; background: linear-gradient(90deg, var(--red-lo) 40%, transparent), var(--grid);
                             border-bottom: 2px solid var(--silver); }
-  #settings-dlg .dlg-head strong, #players-dlg .dlg-head strong, #changelog-dlg .dlg-head strong, #fb-dlg .dlg-head strong { font-size: 18px; }
-  #settings-dlg .btn, #players-dlg .btn, #changelog-dlg .btn, #fb-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
+  #settings-dlg .dlg-head strong, #players-dlg .dlg-head strong, #changelog-dlg .dlg-head strong, #fb-dlg .dlg-head strong, #drift-dlg .dlg-head strong { font-size: 18px; }
+  #settings-dlg .btn, #players-dlg .btn, #changelog-dlg .btn, #fb-dlg .btn, #drift-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
   #fb-dlg form { display: grid; gap: 10px; }
   #fb-dlg textarea { min-height: 140px; font-size: 16px; }   /* 16px: iOS does not zoom the page on focus */
   #fb-dlg select { min-height: 40px; font-size: 16px; }
@@ -370,6 +370,17 @@
   #fb-dlg .fb-row .btn { flex: none; }
   #fb-dlg .fb-count { margin-left: auto; }
   #fb-dlg .fb-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+  /* Drift setup (the stage bar's Drift button): level buttons, one slider a row, saved setups */
+  #drift-dlg { width: min(560px, calc(100% - 16px)); max-height: calc(100dvh - 16px); }
+  #drift-dlg .ds-modes { display: flex; flex-wrap: wrap; gap: 6px; }
+  #drift-dlg .ds-modes .btn { flex: 1 1 5rem; }
+  #drift-dlg .ds-modes .btn[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: var(--gold-fill); }
+  #drift-dlg .ds-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 12px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  #drift-dlg .ds-row output { color: var(--gold); font-variant-numeric: tabular-nums; }
+  #drift-dlg .ds-row input[type=range] { grid-column: 1 / -1; width: 100%; min-height: 32px; margin: 0; }
+  #drift-dlg h3 { margin: 14px 0 2px; font-size: 15px; }
+  #drift-dlg .ds-save { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  #drift-dlg .ds-save select, #drift-dlg .ds-save input { flex: 1 1 8rem; min-height: 40px; font-size: 16px; min-width: 0; }
   /* in-game Settings (2026-11-12): title bar, the sections' nav (left; on top when narrow), one pane that scrolls,
      a footer with Restart and Close. The dialog has a fixed height so it does not jump between sections. */
   #settings-dlg { width: min(760px, calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)));
@@ -774,7 +785,7 @@
   <div class="boot-load" id="boot-load" role="status" hidden><b>Loading game…</b><span id="boot-what"></span><progress id="boot-bar" max="100" hidden></progress><small>The first start takes longer (the game's files come down once); later starts are faster.</small></div>
   <div class="stage-bar">
     <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
-    <button type="button" class="btn" id="drift-btn" aria-pressed="false" title="Drift mode (Settings, Controls): looser rear tyres on your car. Changes live.">Drift: Off</button>
+    <button type="button" class="btn" id="drift-btn" aria-pressed="false" aria-haspopup="dialog" aria-controls="drift-dlg" title="Drift setup: drift mode, your own Custom drift, drift camera. Changes live.">Drift: Off</button>
     <button type="button" class="btn" id="map-btn" title="Full map (d-pad up, I): press again to close it">Map</button>
   </div>
   <!-- in-game Settings (2026-11-12): sections in a nav (initTabs; the last one picked is kept), one pane scrolls,
@@ -835,6 +846,32 @@
       <button type="button" class="btn" id="ig-restart" title="Reload the game with the intro skipped (back to Free Roam where you were)">Restart</button>
       <button type="button" class="btn" id="settings-close">Close</button>
     </div>
+  </dialog>
+  <!-- Drift setup (2026-11-16): the stage bar's Drift button. The level (MC3_DRIFT) and Custom's values (MC3_DRIFT_<NAME>,
+       src/games/remix/drift.c k_ds) are settings like the rest (live, kept in mc3.settings); saved setups in
+       mc3.driftSetups. Inside the stage, so it shows in full screen; keys stay the page's (fb-dlg's way). -->
+  <dialog id="drift-dlg" aria-labelledby="drift-title">
+    <div class="dlg-head"><strong id="drift-title">Drift setup</strong><button type="button" class="btn" id="drift-close">Close</button></div>
+    <div class="ds-modes" role="group" aria-label="Drift mode" id="ds-modes"></div>
+    <p class="hint" id="ds-help"></p>
+    <h3>Custom</h3>
+    <p class="hint">Starts from Controlled. Moving a slider switches to Custom.</p>
+    <div id="ds-rows"></div>
+    <h3>Camera</h3>
+    <div class="ds-row"><span>Drift camera</span><button type="button" class="btn sw" id="ds-cam" aria-pressed="false" aria-label="Drift camera"></button></div>
+    <div id="ds-cam-rows"></div>
+    <h3>Saved setups</h3>
+    <div class="ds-save">
+      <select id="ds-slot" aria-label="Saved setups"></select>
+      <button type="button" class="btn" id="ds-load">Load</button>
+      <button type="button" class="btn" id="ds-del">Delete</button>
+    </div>
+    <div class="ds-save">
+      <input id="ds-name" type="text" maxlength="24" placeholder="My drift" aria-label="Setup name" autocomplete="off">
+      <button type="button" class="btn" id="ds-store">Save</button>
+      <button type="button" class="btn" id="ds-reset">Defaults</button>
+    </div>
+    <p class="hint" id="ds-msg" role="status">Your car only, on this device. Changes apply at once, also while driving.</p>
   </dialog>
   <canvas id="canvas" tabindex="0" aria-label="Game" oncontextmenu="event.preventDefault()"></canvas>
   <pre id="fps" hidden></pre>
@@ -914,8 +951,8 @@
     { key: 'MC3_REALTIME', label: 'Real-time races', help: 'Below 30 fps a race advances by the time passed, so it keeps its pace on a slow machine.', opts: ONOFF() },
     { key: 'MC3_TRAFFIC_WHEEL_DIST', label: 'Traffic detail distance', help: 'How far traffic cars keep their wheels and shadow (the original 75 m makes wheels pop in close).',
       opts: [['', '150 m (default)'], ['75', '75 m (original)'], ['300', '300 m']] },
-    { key: 'MC3_DRIFT', label: 'Drift mode', help: 'A drift assist on your own car: tap the handbrake (or lift off the throttle with the wheel turned) and the back steps out; the throttle holds the angle, counter-steer catches it, it does not spin out and keeps its speed. Strong: easier, wider angles. Controlled: handles like Underground 2\'s drift events: the car pivots easily, counter-steer holds the angle instead of snapping straight, the drift rarely spins and keeps most of its speed; lift off and straighten to grip again. Every car, Free Roam, races and career. Changes live.',
-      opts: [['', 'Off (default)'], ['1', 'On'], ['2', 'Strong'], ['3', 'Controlled']] },
+    { key: 'MC3_DRIFT', label: 'Drift mode', help: 'A drift assist on your own car: tap the handbrake (or lift off the throttle with the wheel turned) and the back steps out; the throttle holds the angle, counter-steer catches it, it does not spin out and keeps its speed. Strong: easier, wider angles. Controlled: handles like Underground 2\'s drift events: the car pivots easily, counter-steer holds the angle instead of snapping straight, the drift rarely spins and keeps most of its speed; lift off and straighten to grip again. Custom: Controlled with your own values (set in game: the Drift button). Every car, Free Roam, races and career. Changes live.',
+      opts: [['', 'Off (default)'], ['1', 'On'], ['2', 'Strong'], ['3', 'Controlled'], ['4', 'Custom']] },
     { key: 'MC3_DRIFT_CAM', label: 'Drift camera', help: 'In a slide the chase camera stays closer behind your car instead of swinging along the slide, and widens a little. Works with Drift mode on or off. Changes live.', opts: ONOFF('Off') },
     { group: 'Online' },
     { key: 'MC3_ROAM_CARS', label: 'Players shown', help: 'Most other players\' cars shown in free roam, nearest first. Auto: 32 with Game memory 128 MB, 12 with 64 MB. Cars are only built while the game\'s memory has room; farther players are left out. Changes live: lower hides the farthest; higher adds cars up to what the cruise loaded with, the rest at the next cruise.',
@@ -1055,7 +1092,8 @@
   // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
   // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
   const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
-    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']);
+    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD',
+    ...['STEER', 'RESP', 'FGRIP', 'RGRIP', 'SPEED', 'REAR', 'COUNTER', 'STAB', 'HOLD', 'KEEP', 'CAM_K'].map(n => 'MC3_DRIFT_' + n)]);   // the Drift setup panel
   const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
   const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
@@ -1079,7 +1117,7 @@
     if (key === 'MC3_NAMETAGS') window.Module?.mc3SetNameTags?.(value !== '0');   // web/pre.js, live
     if (key === 'MC3_NAMETAG_SIZE') window.Module?.mc3SetNameTagSize?.(Number(value) || 50);   // web/pre.js, live
     if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
-    if (key === 'MC3_DRIFT') syncDrift();
+    if (key.startsWith('MC3_DRIFT')) syncDrift();
     if (live(key) && window.Module?.mc3SetLive) Module.mc3SetLive(key, buildEnv(null)[key]);   // the value a start would get
     if (key.startsWith('MC3_TOUCH') && touch) {   // web/touch.js, live
       const { mode, opacity } = touchOpts();
@@ -1089,11 +1127,106 @@
     preview();
   }
 
-  // Drift button (stage bar): shows MC3_DRIFT; setSetting calls it, so the button and the Settings row agree
+  // Drift button (stage bar): shows MC3_DRIFT and opens the Drift setup panel; setSetting calls it, so the button, the
+  // panel and the Settings row agree
+  const DRIFT_LEVELS = [['', 'Off'], ['1', 'On'], ['2', 'Strong'], ['3', 'Controlled'], ['4', 'Custom']], DRIFT_NAMES = Object.fromEntries(DRIFT_LEVELS);
   function syncDrift() {
-    const on = !!settings.MC3_DRIFT;
-    $('drift-btn').setAttribute('aria-pressed', on);
-    $('drift-btn').textContent = settings.MC3_DRIFT === '3' ? 'Drift: Controlled' : settings.MC3_DRIFT === '2' ? 'Drift: Strong' : on ? 'Drift: On' : 'Drift: Off';
+    const d = settings.MC3_DRIFT || '';
+    $('drift-btn').setAttribute('aria-pressed', !!d);
+    $('drift-btn').textContent = 'Drift: ' + (DRIFT_NAMES[d] || 'On');
+    driftPanel?.sync();
+  }
+  // Drift setup panel (2026-11-16): the levels, Custom's values (drift.c k_ds: same ranges and defaults; a value at its
+  // default is no setting), the drift camera, named setups in localStorage (mc3.driftSetups, at most 12).
+  var driftPanel = null;   // var: syncDrift may run before this line
+  {
+    const d = $('drift-dlg'), pct = v => Math.round(v * 100) + '%';
+    const DS = [   // name, label, min, max, step, default (Controlled's), shown as
+      ['STEER', 'Steering lock', 0.7, 1.5, 0.05, 1, pct],
+      ['RESP', 'Steer response', 0.5, 2, 0.05, 1, pct],
+      ['FGRIP', 'Front grip', 0.8, 1.3, 0.02, 1, pct],
+      ['RGRIP', 'Rear grip', 0.8, 1.3, 0.02, 1, pct],
+      ['SPEED', 'Drift entry speed', 15, 60, 1, 30, v => v + ' km/h'],
+      ['REAR', 'Rear looseness in a drift', 0.5, 1, 0.05, 0.85, pct],
+      ['COUNTER', 'Counter-steer assist', 1, 1.8, 0.05, 1.45, v => v <= 1 ? 'Off' : pct((v - 1) / 0.45)],
+      ['STAB', 'Self-straightening', 0, 5, 0.1, 2.5, v => pct(v / 2.5)],
+      ['HOLD', 'Out-of-slide damping', 0, 3, 0.1, 1.2, v => pct(v / 1.2)],
+      ['KEEP', 'Speed kept in a slide', 0, 0.8, 0.05, 0.3, pct],
+      ['CAM_K', 'Drift camera strength', 0, 2, 0.1, 1, pct],
+    ];
+    const HELP = { '': 'The car as the game made it.', 1: 'Tap the handbrake or lift off with the wheel turned: the back steps out; the throttle holds the angle.',
+      2: 'On, easier and wider angles.', 3: 'Like Underground 2\'s drift events: the car pivots easily, counter-steer holds the angle.',
+      4: 'Controlled with the values below.' };
+    const key = n => 'MC3_DRIFT_' + n;
+    const val = r => { const v = parseFloat(settings[key(r[0])]); return isFinite(v) ? Math.min(r[3], Math.max(r[2], v)) : r[5]; };
+    const say = t => { $('ds-msg').textContent = t; };
+    const inputs = {};
+    const setVal = (r, v) => setSetting(key(r[0]), Math.abs(v - r[5]) < 1e-6 ? '' : String(v));
+    for (const r of DS) {
+      const row = document.createElement('label'), name = document.createElement('span'), out = document.createElement('output'), inp = document.createElement('input');
+      row.className = 'ds-row'; name.textContent = r[1];
+      Object.assign(inp, { type: 'range', min: r[2], max: r[3], step: r[4] });
+      inp.oninput = () => {
+        const v = Number(inp.value);
+        if (r[0] !== 'CAM_K' && settings.MC3_DRIFT !== '4') setSetting('MC3_DRIFT', '4');
+        setVal(r, v); out.textContent = r[6](v);
+      };
+      inputs[r[0]] = [inp, out];
+      row.append(name, out, inp);
+      (r[0] === 'CAM_K' ? $('ds-cam-rows') : $('ds-rows')).append(row);
+    }
+    for (const [v, n] of DRIFT_LEVELS) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn'; b.dataset.v = v; b.textContent = n;
+      b.onclick = () => setSetting('MC3_DRIFT', v);
+      $('ds-modes').append(b);
+    }
+    const slots = () => { const o = store.get('driftSetups', {}); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; };
+    function syncSlots(pick) {
+      const names = Object.keys(slots());
+      $('ds-slot').replaceChildren(...(names.length ? names : ['']).map(n => new Option(n || 'None saved yet', n)));
+      if (pick) $('ds-slot').value = pick;
+      $('ds-load').disabled = $('ds-del').disabled = !names.length;
+    }
+    $('ds-slot').onchange = () => { $('ds-name').value = $('ds-slot').value; };
+    $('ds-load').onclick = () => {
+      const n = $('ds-slot').value, s = slots()[n];
+      if (!s) return;
+      for (const r of DS) setSetting(key(r[0]), s[r[0]] != null && isFinite(parseFloat(s[r[0]])) ? String(s[r[0]]) : '');
+      setSetting('MC3_DRIFT', '4');
+      $('ds-name').value = n; say('Loaded “' + n + '”.');
+    };
+    $('ds-store').onclick = () => {
+      const n = $('ds-name').value.trim() || 'My drift', all = slots();
+      if (!(n in all) && Object.keys(all).length >= 12) return say('12 setups at most: delete one first.');
+      all[n] = Object.fromEntries(DS.filter(r => key(r[0]) in settings).map(r => [r[0], settings[key(r[0])]]));
+      store.set('driftSetups', all); syncSlots(n); $('ds-name').value = n; say('Saved “' + n + '”.');
+    };
+    $('ds-del').onclick = () => {
+      const n = $('ds-slot').value, all = slots();
+      if (!(n in all)) return;
+      delete all[n]; store.set('driftSetups', all); syncSlots(); say('Deleted “' + n + '”.');
+    };
+    $('ds-reset').onclick = () => { for (const r of DS) setSetting(key(r[0]), ''); say('Custom is back to Controlled\'s values.'); };
+    $('ds-cam').onclick = () => setSetting('MC3_DRIFT_CAM', settings.MC3_DRIFT_CAM === '1' ? '' : '1');
+    $('drift-close').onclick = () => d.close();
+    d.onclick = e => { if (e.target === d) d.close(); };   // the backdrop is the dialog itself
+    d.addEventListener('close', () => { if (playing) $('canvas').focus(); });
+    // the panel's keys are the page's (arrows move a slider): they must not reach the game (SDL listens on window)
+    for (const k of ['keydown', 'keyup', 'keypress']) d.addEventListener(k, e => e.stopPropagation());
+    driftPanel = {
+      sync() {
+        const m = settings.MC3_DRIFT || '';
+        for (const b of $('ds-modes').children) b.setAttribute('aria-pressed', b.dataset.v === m);
+        $('ds-help').textContent = HELP[m] || HELP[1];
+        for (const r of DS) { const [inp, out] = inputs[r[0]], v = val(r); inp.value = v; out.textContent = r[6](v); }
+        $('ds-cam').setAttribute('aria-pressed', settings.MC3_DRIFT_CAM === '1');
+      },
+      open() {
+        this.sync(); syncSlots(); say('Your car only, on this device. Changes apply at once, also while driving.');
+        d.showModal(); $('ds-modes').querySelector('[aria-pressed=true]')?.focus();
+      },
+    };
   }
 
   // Advanced box: KEY=VALUE lines
@@ -3064,8 +3197,7 @@
   };
   $('settings-btn').onclick = () => { renderIngame(); syncSave(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
   syncDrift();
-  // cycles Off -> On -> Strong -> Controlled -> Off
-  $('drift-btn').onclick = () => { setSetting('MC3_DRIFT', { '': '1', '1': '2', '2': '3' }[settings.MC3_DRIFT || ''] || ''); $('canvas').focus(); };
+  $('drift-btn').onclick = () => driftPanel.open();
   $('map-btn').onclick = () => { touch?.tapMap(); $('canvas').focus(); };
   $('ig-restart').onclick = () => { if (confirm('Restart the game? Anything not saved in the game is lost.')) restartGame({ resume: true }); };
   $('settings-close').onclick = () => dlg.close();
@@ -3192,7 +3324,7 @@
   // focus to Quit, where Enter or Space then pressed it. Inside an open dialog they are the page's (focus order, selects).
   const GAME_KEYS = new Set(['Tab', 'Enter', 'Space', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
   for (const t of ['keydown', 'keyup'])
-    addEventListener(t, e => { if (playing && GAME_KEYS.has(e.code) && !e.target.closest?.('#races-panel, #players-dlg, #settings-dlg, #fb-dlg')) e.preventDefault(); }, true);
+    addEventListener(t, e => { if (playing && GAME_KEYS.has(e.code) && !e.target.closest?.('#races-panel, #players-dlg, #settings-dlg, #fb-dlg, #drift-dlg')) e.preventDefault(); }, true);
   document.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || playing || e.repeat) return;
     if (e.target.closest('input, select, textarea, button, a, summary')) return;
