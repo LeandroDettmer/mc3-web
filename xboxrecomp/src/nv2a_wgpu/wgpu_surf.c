@@ -493,13 +493,23 @@ static uint32_t ws_hud_h(void)
  * whose stored height is well under the canvas': its twin's size. */
 static int ws_hud_size(const WsSurf *s, uint32_t *w, uint32_t *h)
 {
+    static double fmin = -1.0;
     uint32_t ch = ws_hud_h(), maxs = wg_ctl.max_tex_2d ? wg_ctl.max_tex_2d : 8192;
     double f;
+    if (fmin < 0.0) {
+        /* RECOMP_WGPU_HUD_MIN (diagnostic, default 1.2): canvas height / stored
+         * height from which the twin is used; 0.5 puts it on at any
+         * Resolution (a light wedge seen at 3x but not at 1x, 2026-11-16). */
+        const char *e = getenv("RECOMP_WGPU_HUD_MIN");
+        fmin = e && atof(e) > 0.0 ? atof(e) : 1.2;
+        if (fmin != 1.2)
+            fprintf(stderr, "  [WGPU] HUD twin from canvas/scene height %g (RECOMP_WGPU_HUD_MIN)\n", fmin);
+    }
     if (!ch || !s->shown || wg_frame - (s->shown - 1) > 4 || s->aa_sx > 1 || s->aa_sy > 1
         || s->w <= 640 || s->h < 400 || s->h > 576)
         return 0;
     f = (double)ch / s->ph;
-    if (f < 1.2)
+    if (f < fmin)
         return 0;                               /* the scene's own size is about as fine */
     if (s->pw * f > maxs)
         f = (double)maxs / s->pw;
@@ -987,10 +997,18 @@ uint32_t wsurf_depth_texture(uint32_t va, uint32_t color, uint32_t *w, uint32_t 
     }
     if (!on || s_shared_z <= 0)
         return 0;
-    for (i = 0; i < WS_MAX_DEPTH; i++)          /* the largest: the scene's (not a HUD twin's) */
-        if (s_depth[i].id && s_depth[i].va == va && !s_depth[i].hi
-            && (!d || s_depth[i].pw * s_depth[i].ph > d->pw * d->ph))
-            d = &s_depth[i];
+    /* The largest: the scene's (not a HUD twin's), among those bound in the
+     * last 2 frames first: after a live RECOMP_GL_SCALE change the old
+     * size's buffer lingers, and when it was the larger (3x -> 1x) its
+     * frozen depth was read for good. */
+    for (i = 0; i < WS_MAX_DEPTH; i++) {
+        WsDepth *c = &s_depth[i];
+        int r = wg_frame - c->used <= 2;
+        if (c->id && c->va == va && !c->hi
+            && (!d || r > (wg_frame - d->used <= 2)
+                || (r == (wg_frame - d->used <= 2) && c->pw * c->ph > d->pw * d->ph)))
+            d = c;
+    }
     if (!d)
         return 0;
     if (!d->rgba || d->cseq != d->wseq || d->cfmt != flags + 1) {
