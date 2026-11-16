@@ -2381,9 +2381,12 @@
     if (!a) return 'webgl';
     gpuInfo = 'WebGPU adapter ' + ([i.vendor, i.architecture, i.device, i.description].filter(Boolean).join(' ') || '(no info)');
     if (env.RECOMP_GPU === 'webgpu') { store.set('gpuWebgl', ''); return 'webgpu'; }
-    const was = store.get('gpuWebgl', ''), weak = /^(arm |qualcomm adreno-[1-6])/.test(`${i.vendor} ${i.architecture}`);
+    // An adapter that names nothing (vendor, architecture, device, description all empty) counts as weak too:
+    // log 6CQWU4 (2026-11-15) stalled on WebGPU with '(no info)'
+    const was = store.get('gpuWebgl', ''), noInfo = ![i.vendor, i.architecture, i.device, i.description].some(Boolean),
+      weak = noInfo || /^(arm |qualcomm adreno-[1-6])/.test(`${i.vendor} ${i.architecture}`);
     if (!was && !weak) return 'webgpu';
-    gpuNote = ` Drawing with WebGL: ${was ? was + ' on this device before' : 'WebGPU froze the game on this kind of GPU'} (Settings, Renderer: WebGPU tries it).`;
+    gpuNote = ` Drawing with WebGL: ${was ? was + ' on this device before' : noInfo ? 'this GPU gives WebGPU no name, and such a one froze the game' : 'WebGPU froze the game on this kind of GPU'} (Settings, Renderer: WebGPU tries it).`;
     out('[WEB] graphics:' + gpuNote);
     return 'webgl';
   }
