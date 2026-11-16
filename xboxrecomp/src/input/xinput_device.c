@@ -345,9 +345,18 @@ static void web_pad_layout(void)
                 ? SDL_JoystickName(SDL_GameControllerGetJoystick(g_pads[0])) : "?",
             map[0] ? "the player's own button layout" : "the standard layout");
 }
+
+/* The page's dialogs (settings, drift setup, players) take the pad for their own
+ * navigation: while the word is 1 every real pad reads as untouched (no buttons,
+ * sticks centred, triggers 0); the keyboard and touch pad are not affected.
+ * web/pre.js Module.mc3PadMute. */
+static volatile int g_web_pad_mute;
+EMSCRIPTEN_KEEPALIVE int *xbox_web_pad_mute_box(void) { return (int *)&g_web_pad_mute; }
+#define web_pad_muted() (__atomic_load_n(&g_web_pad_mute, __ATOMIC_RELAXED) != 0)
 #else
 #define web_allowed(i) 1
 #define web_pad_allowed(c) 1
+#define web_pad_muted() 0
 #endif
 
 /* Open the attached game controllers into free ports, closing any that
@@ -506,6 +515,9 @@ DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState)
     memset(pState, 0, sizeof(XBOX_INPUT_STATE));
     pState->dwPacketNumber = ++g_packet[dwPort];
 
+    if (web_pad_muted())
+        goto merged;                                 /* neutral pad; keyboard/touch below */
+
     WORD btn = 0;
     if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_UP))    btn |= XBOX_GAMEPAD_DPAD_UP;
     if (SDL_GameControllerGetButton(c, SDL_CONTROLLER_BUTTON_DPAD_DOWN))  btn |= XBOX_GAMEPAD_DPAD_DOWN;
@@ -545,6 +557,7 @@ DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState)
     pState->Gamepad.sThumbRY =
         (SHORT)(-1 - SDL_GameControllerGetAxis(c, SDL_CONTROLLER_AXIS_RIGHTY));
 
+merged:
 #if !defined(__SWITCH__)
     if (dwPort == 0 && xbox_sdl_keyboard_enabled())
         xbox_sdl_keyboard_state(pState);            /* on top of the pad */
