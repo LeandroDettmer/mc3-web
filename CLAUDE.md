@@ -1317,6 +1317,20 @@ only with MC3_PERF, their only reader.
   pass from box-filtered halvings (wgpu_surf.c ws_reduce, BLITs once per
   pass, each axis kept at least the target's density); '[WGPU] surface ...
   sampled into a coarser pass ...' once; RECOMP_WGPU_RT_PREFILTER=0 off.
+  (3) Wedge still live after a12eefd (owner, 32:9, canvas 2410x1254,
+  2026-11-16; cause not proven): gone at Resolution 1x, back at 3x, live.
+  Not a vertex near/behind the eye: the WGSL clip math is in title pixels
+  (surf = 2 / title size, aa = AA factor), so a 3D draw lands the same at
+  every Resolution (only the 1/16-pixel snap offset moves); w < 0 is
+  clipped by the GPU (screen x w); one real but rare slip: |w| < 1e-6
+  takes +1e-6 whatever w's sign (not fixed). What switches between 1x and
+  3x there: the HUD twin (on while canvas height >= 1.2 x stored: 1x 480
+  on, 2x 960 on, 2.5x 1200 and 3x 1440 off). RECOMP_WGPU_HUD_MIN=0.5
+  (diagnostic) puts the twin on at 3x; RECOMP_WGPU_HUD_NATIVE=0 off at
+  1x. Also fixed: the depth read as colour (motion blur mask) took the
+  largest depth buffer of that address, so after a live 3x -> 1x the old
+  3x one stayed picked, frozen; now those bound in the last 2 frames first.
+  A live Resolution change is no clean A/B for the blur: reload with the URL.
 - **Live settings** (2026-11-12, untested in a browser): the in-game
   Settings window's live rows (web/index.html LIVE, setSetting) go through
   web/pre.js Module.mc3SetLive(key, the value buildEnv would give) into
