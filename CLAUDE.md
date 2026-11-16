@@ -318,7 +318,24 @@ generated files when the lift inputs did not change.
   (O OPFS, P pinned, W network, J of them in a run; M more from memory);
   network R requests, X MiB (game ..., background ...); cache at start F
   files, U MiB of storage used' once a session: 0 files = a new player or a
-  lost cache.
+  lost cache. (5) Packed copies (2026-11-15, untested in a browser;
+  docs/disc-compression.md phase 1): `py tools/disc_pack.py game-remix-usa`
+  writes game-remix-usa.gzb/ (<path>.gzb: each 1 MiB block a gzip member,
+  raw when it saves < 3%; index.json with size, mtime and "z", the stored
+  lengths) for assets_x.dat_2 (233 -> 112 MiB), decal.xbpf (262 -> 67),
+  decal_g.xbpf (334 -> 16), rim.xbpf (21 -> 5). disc_manifest (web_serve.py,
+  so :3000 and upload.sh) gives a file whose size and mtime still match its
+  "z"; the page then reads <path>.gzb with the same Range runs, offsets from
+  the lengths (disc_cache.js fetchBlocks, DecompressionStream on the disc
+  thread; a 404 or a bad block reads that file raw for the session, 'packed
+  copy unusable'); OPFS, memory and pinned keep decoded blocks; '[WEB] disc:
+  <file> read from its packed copy (S of N MiB)'; the session line's MiB are
+  network bytes. No "z" (old manifest, mc3-server, no DecompressionStream):
+  raw as before. The decal packs are back in the fill, last, only when
+  packed (still 596 MiB in OPFS: out of room there stops the fill and keeps
+  the cache on), never in the learned fill. upload.sh disc uploads the .gzb
+  before the manifest. tools/test_disc_gzb.mjs checks the client's cut and
+  decode (node, mocked fetch).
   Emscripten's own WASMFS fetch
   backend left stale data across chunks, hence our backend.
 - **Input:** SDL keyboard/Gamepad on the GL thread; a key tap is held at
