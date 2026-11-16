@@ -1844,6 +1844,8 @@ only with MC3_PERF, their only reader.
   while it starts under 12 deg of slip (CTL_STEER, CTL_THROW). 2026-11-16 (owner: throw at a lower speed, slide
   more easily without straightening): entry/hold speed 30 km/h (was 30 mph),
   rear range x0.85 (was 0.7), D falls 1/s (was 2), stabilizer x2.5 (was 4).
+  The slide stays IN while the slip is over 12 deg above 30 km/h, throttle or
+  not (owner: pumping the throttle must keep it sliding).
   Drift camera (2026-11-15, untested in game; MC3_DRIFT_CAM=1, page
   'Drift camera' On/Off in the in-game Controls, live word 5 1 off / 2 on;
   any Drift level, off too; drift.c drift_cam from the sub_002CF760

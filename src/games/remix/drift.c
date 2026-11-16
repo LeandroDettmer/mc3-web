@@ -359,9 +359,9 @@ static void drift_step(void)
             dstate = CTL_IN;
         }
         if (dstate == CTL_IN || dstate == CTL_EXIT)
-            dstate = (into && s > CTL_SPEED && beta > CTL_SLIP && cs <= 0) ||
-                     (fwd && s > CTL_SPEED && thr * cs * beta > CTL_SLIP) ? CTL_IN :
-                     fwd && thr * beta > CTL_SLIP ? CTL_ENTER : CTL_EXIT;
+            /* ours (owner 2026-11-16: pumping the throttle must keep the slide): sideways above the speed = IN,
+             * throttle or not; NFSU2 also wants rotation into the slide or throttle x counter-steer */
+            dstate = fwd && s > CTL_SPEED && beta > CTL_SLIP ? CTL_IN : CTL_EXIT;
         else if (fwd && s > CTL_SPEED && (hb > 0.5f || beta > CTL_SLIP || fabsf(st) > CTL_STEER || kick_t > 0))
             dstate = CTL_ENTER;   /* owner 2026-11-15: steering alone must throw the car (NFSU2's drift events do) */
         x = drift_clamp(dval * (beta / 57.29578f * 0.5f + cs * 4.0f + fabsf(wy) * 0.5f + fabsf(st) * 0.5f), 0, 1) * 9.0f;
