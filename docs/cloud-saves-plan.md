@@ -539,3 +539,12 @@ go in parallel.
   `profile.bin`. There is no server-side check, so a player can edit their
   own box exactly as they can edit OPFS today. Confirm that this is fine,
   since there are no leaderboards.
+
+### Owner's answers (2026-11-16)
+
+- O2: inside the disc Worker (`disc.mcdub3.xyz`), not a host of its own. So a saves deploy is a disc Worker deploy:
+  run it at a quiet hour and check disc reads after it (the disc Worker serves the module and the disc).
+- O3: no. Only the career folders and `online/profile.bin` travel; nick, flag and TDATA stay on the device.
+- O4: 7 days, the current pruning (no C change).
+- O5: overlay-only. A take never deletes a local profile; a profile deleted in one browser may come back from another.
+- O1, O6, O7: open (plan tier, caps after phase 0, Online money in the box).
