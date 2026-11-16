@@ -148,7 +148,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Mods:** Ten speedometer designs by almightypear in the Mods tab: turn one on to change the in-game speedometer.
 - **Mods:** BMW M3 E30 car in the Mods tab: turn it on and buy it in the Online showroom. Players without it see a Mercedes SL55.
 
-## 2026-11-16 (3e47e74)
+## 2026-11-16 (e1ab37a)
 
 - **Graphics:** Sharper HUD: the speedometer, minimap and other on-screen displays are now drawn at your screen's resolution.
 - **Mods:** New HD HUD mod in the Mods tab: the HUD, race maps and menu art upscaled 4x (WebGPU only; best with a higher Resolution).
@@ -164,6 +164,9 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Page:** The Play tab shows what the game has to offer, and the in-game Settings list every key under Controls.
 - **Controls:** Change any keyboard key: click an action under Controls, press the new key; Reset brings the defaults back.
 - **Races:** New AI difficulty setting (Easy, Normal, Hard): Easy makes the AI racers slower, Hard faster.
+- **Controls:** Settings work with a controller (d-pad, A, B, LB/RB), and open with F2 or by holding the right stick click; the game ignores the controller while they are open.
+- **Page:** Hide the buttons over the picture you do not want (Settings, Graphics, Buttons on screen).
+- **Graphics:** Widescreen fixes: no more light beams stretched across the screen or flickering dots with Glow on.
 - **Page:** New Suggest button (start page and in-game Settings) to send us ideas and improvements.
 - **Free Roam:** Fixed a crash when a player joined with a car the game did not know.
 - **Phones:** Fewer very slow frames on Android phones with Mali graphics and on devices whose graphics card gives no name.
