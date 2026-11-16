@@ -562,8 +562,7 @@ static void drift_cam(void)
             fk = 1;
             fov = MEMF(cam + 0x144u);
             dsc = MEMF(cam + 0x148u);
-            MEMF(cam + 0x144u) = fov + 5.0f * kf;
-            MEMF(cam + 0x148u) = dsc * (1.0f + 0.15f * kf);
+            MEMF(cam + 0x148u) = dsc * (1.0f + 0.05f * kf);   /* FOV +5 deg and x1.15 until 2026-11-16 (owner: too much speed feel) */
         }
     }
     cam_call(13, 0x002CF760u, sub_002CF760_gen);

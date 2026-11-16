@@ -1863,7 +1863,8 @@ only with MC3_PERF, their only reader.
   0..1 from 10 to 35 deg; m and k follow over 0.25 s of the frame time
   0x4B2D70; all put back after the update. Unproven: that +0x84 reaches the
   projection (MC3_CAM_TRACE=1 '[CAM] projection' fov should move with k;
-  else the delta goes on sub_002D4AE0's fov). '[DRIFT] camera on|off'.
+  else the delta goes on sub_002D4AE0's fov). '[DRIFT] camera on|off'. 2026-11-16 (owner: too
+  much feel of speed): no FOV change, distance x1.05 at most.
   Drift scoring (2026-11-12, untested in game; src/games/remix/
   drift_score.c, fed by drift_step with Drift mode on or off): a drift =
   slip > 20 deg above 50 km/h, not in free fall, race type 0 only; points/s
