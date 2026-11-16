@@ -106,8 +106,9 @@ static const char s_prelude[] =
      * middle 1/k, but a 2D vertex (pre-transformed, or w = 1) within a pixel
      * of the frame's left or right edge, or beyond it, stays where it is.
      * D.aa.w < 0: squeeze every vertex (a clip narrower than the frame, or
-     * a pre-transformed draw that does not span the frame: wgpu_draw.c
-     * wide_full_2d). */
+     * a pre-transformed draw that is not full-screen); D.aa.w = 0 on a
+     * widened target: a full-screen 2D quad, unsqueezed (wgpu_draw.c
+     * wide_2d). */
     "fn nv2a_clip(r: u32, s: vec3f, w: f32) -> vec4f {\n"
     "  let surf = D[r].surf;\n"
     "  let z = s.z * surf.z;\n"

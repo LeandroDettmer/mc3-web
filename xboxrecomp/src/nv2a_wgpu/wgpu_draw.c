@@ -309,36 +309,73 @@ static uint32_t k_rows(const float (*rows)[4], uint32_t n, float (*cache)[4],
     return *off;
 }
 
-/* Hor+ (nv2a_clip's edge rule): is a pre-transformed draw a full-screen
- * quad, fade or post pass of a frame pw title pixels wide -- every vertex on
- * (within a pixel of) or beyond the left or right edge, both edges reached?
- * Only those keep their edge vertices on the widened frame's edges. Any
- * other 2D draw is squeezed whole: the edge rule left every vertex beyond
- * the 16:9 frame unsqueezed, so sprites the title projected into the side
- * areas (light glows, flares) were thrown k times further out or smeared
- * from the middle to the edge. A batch whose extent alone spans the frame
- * (HUD pieces or glow sprites near both sides in one draw) is not a
- * full-screen draw: with extent alone it kept the edge rule, and each of
- * its quads crossing an edge stretched from its squeezed inner corners to
- * past the widened edge (white bands, arcs by the tachometer, shards by the
- * speedometer). Position: attribute 0, floats, x in title pixels. Another
- * format, or a big draw: kept as it was (full). */
-static int wide_full_2d(const Nv2aRawBatch *b, float pw)
+/* Hor+ (nv2a_clip's edge rule) for a 2D draw into a frame pw x ph title
+ * pixels. Screen positions as the vertex shader makes them (attribute 0,
+ * floats): pre-transformed, or fixed-function (composite, divide, viewport
+ * offset, logical -> real pixels) with w = 1 at every vertex -- D3D's
+ * immediate mode under an orthographic projection, as MC3's post passes
+ * (sub_000415C0, the motion blur sub_00043540: quads in -1..1).
+ *   WD_FULL: a full-screen quad, fade or post pass, drawn unsqueezed over
+ *     the widened frame, so the widened back buffer it samples lines up:
+ *     every vertex on (within a pixel of) or beyond the left or right edge,
+ *     both reached; or one quad (4 vertices) whose corners all sit within
+ *     pw/8 of an edge, spanning both sides and half the height -- the
+ *     motion blur's zoomed-out copies (corners pulled toward the blur
+ *     centre, sub_00043540's loop at 0x00043A50). Squeezed, those laid the
+ *     whole widened scene k times narrower over the middle: a faint copy of
+ *     the car beside it (2026-11-16).
+ *   WD_SQUEEZE (pre-transformed only): any other draw, squeezed whole. The
+ *     edge rule left every vertex beyond the 16:9 frame unsqueezed, so
+ *     sprites the title projected into the side areas (light glows, flares)
+ *     were thrown k times further out or smeared from the middle to the
+ *     edge, and a batch of HUD pieces near both sides stretched each quad
+ *     crossing an edge (white bands, shards by the speedometer).
+ *   WD_KEEP: the shader's per-vertex rule: a fixed-function draw that is not
+ *     full-screen (sub_000415C0's four quadrants meet at the centre: their
+ *     edge corners must stay on the edges), a vertex program, w != 1,
+ *     another position format, or a big draw. */
+enum { WD_KEEP, WD_SQUEEZE, WD_FULL };
+static int wide_2d(const Nv2aRawBatch *b, float pw, float ph)
 {
     const uint8_t *p = b->direct[0].ptr;
-    uint32_t i, n = b->vertex_count;
-    float x0 = INFINITY, x1 = -INFINITY, x;
+    uint32_t i, j, n = b->vertex_count, sz = b->direct[0].size;
+    float x0 = INFINITY, x1 = -INFINITY, y0 = INFINITY, y1 = -INFINITY;
+    float m8 = pw * 0.125f, sx = b->aa_sx > 0 ? b->aa_sx : 1.0f, sy = b->aa_sy > 0 ? b->aa_sy : 1.0f;
+    int on_edges = 1, near_edges = 1, other = b->xform == 0 ? WD_SQUEEZE : WD_KEEP;
 
-    if (!(b->attr_present & b->attr_direct & 1u) || !p || b->direct[0].type != 2 || n > 4096)
-        return 1;
+    if (b->xform > 1 || !(b->attr_present & b->attr_direct & 1u) || !p
+        || b->direct[0].type != 2 || sz < 2 || sz > 4 || n > 4096)
+        return WD_KEEP;
     for (i = 0; i < n; i++, p += b->direct[0].stride) {
-        memcpy(&x, p, 4);
+        float v[4] = { 0.0f, 0.0f, 0.0f, 1.0f }, x, y;
+        memcpy(v, p, (size_t)sz * 4);
+        if (b->xform == 1) {
+            const float *m = b->composite;
+            float c[4];
+            for (j = 0; j < 4; j++)
+                c[j] = m[4 * j] * v[0] + m[4 * j + 1] * v[1] + m[4 * j + 2] * v[2] + m[4 * j + 3] * v[3];
+            if (fabsf(c[3] - 1.0f) > 1e-5f)
+                return WD_KEEP;             /* 3D */
+            x = (c[0] + b->vp_offset[0]) * sx;
+            y = (c[1] + b->vp_offset[1]) * sy;
+        } else {
+            x = v[0];
+            y = v[1];
+        }
         if (x > 1.0f && x < pw - 1.0f)
-            return 0;                       /* a vertex inside the frame: not a full-screen draw */
+            on_edges = 0;                   /* a vertex inside the frame */
+        if (x > m8 && x < pw - m8)
+            near_edges = 0;
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
+        if (y < y0) y0 = y;
+        if (y > y1) y1 = y;
     }
-    return x0 <= 1.0f && x1 >= pw - 1.0f;
+    if (on_edges && x0 <= 1.0f && x1 >= pw - 1.0f)
+        return WD_FULL;
+    if (near_edges && n == 4 && x0 <= m8 && x1 >= pw - m8 && y1 - y0 >= ph * 0.5f)
+        return WD_FULL;
+    return other;
 }
 
 static uint32_t elem_bytes(uint32_t type, uint32_t size)
@@ -563,8 +600,13 @@ void wdraw_batch(const Nv2aRawBatch *b)
         uint32_t cw = (r[0x200 / 4] >> 16) * (b->aa_sx > 0 ? (uint32_t)b->aa_sx : 1u);
         if (d.rec.aa[3] > 0.0f && cw && cw < (uint32_t)pw)
             d.rec.aa[3] = -d.rec.aa[3];
-        else if (d.rec.aa[3] > 0.0f && b->xform == 0 && !wide_full_2d(b, pw))
-            d.rec.aa[3] = -d.rec.aa[3];
+        else if (d.rec.aa[3] > 0.0f) {
+            int m = wide_2d(b, pw, ph);
+            if (m == WD_FULL)
+                d.rec.aa[3] = 0.0f;         /* unsqueezed over the widened frame */
+            else if (m == WD_SQUEEZE)
+                d.rec.aa[3] = -d.rec.aa[3];
+        }
     }
     memcpy(d.rec.vpoff, b->vp_offset, sizeof d.rec.vpoff);
     nv2a_ffp_fog_uniforms(r, mv, d.rec.fogplane, d.rec.fog0, d.rec.fog1);
