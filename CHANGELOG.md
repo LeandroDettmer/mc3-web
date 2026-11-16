@@ -148,8 +148,10 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Mods:** Ten speedometer designs by almightypear in the Mods tab: turn one on to change the in-game speedometer.
 - **Mods:** BMW M3 E30 car in the Mods tab: turn it on and buy it in the Online showroom. Players without it see a Mercedes SL55.
 
-## 2026-11-16 (5222bae)
+## 2026-11-16 (3c5f82d)
 
+- **Graphics:** Sharper HUD: the speedometer, minimap and other on-screen displays are now drawn at your screen's resolution.
+- **Mods:** New HD HUD mod in the Mods tab: the HUD, race maps and menu art upscaled 4x (WebGPU only; best with a higher Resolution).
 - **Drift:** New Controlled drift mode, NFSU2 style: steering throws the car sideways, it keeps sliding when you pump the throttle, and counter-steer holds the drift.
 - **Drift:** Optional drift camera (Settings): the camera turns into the slide so you see the car sideways.
 - **Page:** New Suggest button (start page and in-game Settings) to send us ideas and improvements.
