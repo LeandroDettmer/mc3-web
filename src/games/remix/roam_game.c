@@ -386,6 +386,19 @@ static void roam_send_cfg(uint32_t cfg)
                 fprintf(stderr, "[roam] MC3_ROAM_TEST_CAR=%s: not in the car list, ours sent\n", t);
         }
     }
+#ifdef __EMSCRIPTEN__
+    /* Never a car the list does not know: a 'blank' CarCfg went out at a
+     * Free Roam load (log ZRER6N, 2026-11-15) and every peer would try it. */
+    if (roam_car_index(roam_cfg_name(blob)) < 0) {
+        static uint8_t told[ROAM_CFG_SIZE];
+        if (memcmp(blob, told, ROAM_CFG_SIZE)) {
+            memcpy(told, blob, ROAM_CFG_SIZE);
+            fprintf(stderr, "[roam] cfg not sent: '%.24s' is no car in the list\n",
+                    roam_cfg_name(blob) ? roam_cfg_name(blob) : "(no car name)");
+        }
+        return;
+    }
+#endif
     if (memcmp(blob, sent, ROAM_CFG_SIZE)) {
         memcpy(sent, blob, ROAM_CFG_SIZE);
         name = roam_cfg_name(blob);
