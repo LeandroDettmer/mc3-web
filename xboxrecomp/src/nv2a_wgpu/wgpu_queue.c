@@ -503,6 +503,9 @@ static const Nv2aBackend s_backend = {
 static uint32_t s_draws;                /* this frame's draws */
 static uint64_t s_busy_ns;              /* this frame's list building */
 static uint64_t s_turn_end;
+static uint64_t s_turn_start;           /* this turn's start (s_turn_end older: in a turn) */
+static const char *volatile s_where = "not started";   /* where the render thread is, for the watchdog */
+static int s_watch;                     /* wq_watch_thread runs the watchdog */
 static uint64_t s_frame_ns;             /* the last frame's end, for the watchdog */
 static int s_stats = -1;
 
@@ -534,24 +537,35 @@ static void wq_watchdog(int st)
 {
     static const char *dev[] = { "none", "pending", "ready", "failed", "lost" };
     static uint64_t stalled_at, next_s = 5;
-    uint64_t now = wq_now_ns(), gap;
+    uint64_t now = wq_now_ns(), gap, frame_ns = __atomic_load_n(&s_frame_ns, __ATOMIC_SEQ_CST);
+    uint64_t ts = __atomic_load_n(&s_turn_start, __ATOMIC_SEQ_CST), te = __atomic_load_n(&s_turn_end, __ATOMIC_SEQ_CST);
     uint32_t tid, esp;
     int is_main;
+    char rt[160];
 
-    if (!s_frame_ns)                        /* before the first frame: boot, not a hang */
+    if (!frame_ns)                          /* before the first frame: boot, not a hang */
         return;
-    if (stalled_at && s_frame_ns != stalled_at) {
+    if (stalled_at && frame_ns != stalled_at) {
         fprintf(stderr, "[WGPU] watchdog: frames again after %.1f s (frame %u)\n",
-                (double)(s_frame_ns - stalled_at) / 1e9, wg_frame);
+                (double)(frame_ns - stalled_at) / 1e9, wg_frame);
         stalled_at = 0;
         next_s = 5;
     }
-    if (now < s_frame_ns)                   /* a frame landed after `now` was read: the gap would wrap */
+    if (now < frame_ns)                     /* a frame landed after `now` was read: the gap would wrap */
         return;
-    gap = (now - s_frame_ns) / 1000000000ull;
+    gap = (now - frame_ns) / 1000000000ull;
     if (gap < next_s)
         return;
-    stalled_at = s_frame_ns;
+    stalled_at = frame_ns;
+    /* The render thread itself (this check runs on a thread of its own,
+     * wq_watch_thread: 2026-11-15, Apple WebGPU freezes left no line at all
+     * when the render thread stopped turning) */
+    if (ts > te && now > ts)
+        snprintf(rt, sizeof rt, "in one turn for %.1f s, at %s", (double)(now - ts) / 1e9, s_where);
+    else if (te && now > te)
+        snprintf(rt, sizeof rt, "between turns for %.1f s (last at %s)", (double)(now - te) / 1e9, s_where);
+    else
+        snprintf(rt, sizeof rt, "turning");
     next_s *= 2;
     char lock[256] = "free";
     if (xbox_gil_sample(&tid, &esp, &is_main)) {
@@ -576,13 +590,13 @@ static void wq_watchdog(int st)
         }
     }
     fprintf(stderr, "[WGPU] watchdog: no frame for %u s (frame %u; ring %u bytes, %d flip(s) queued, "
-            "executor %s; GPU %d of %u frames in flight; device %s; guest lock %s)\n",
+            "executor %s; GPU %d of %u frames in flight; device %s; render thread %s; guest lock %s)\n",
             (unsigned)gap, wg_frame, (unsigned)(__atomic_load_n(&s_q_head, __ATOMIC_SEQ_CST) - s_q_tail),
             __atomic_load_n(&s_q_flips, __ATOMIC_SEQ_CST),
             __atomic_load_n(&s_q_producer_waits, __ATOMIC_SEQ_CST) ? "waiting for ring space" : "running",
             __atomic_load_n(&wg_ctl.frames_submitted, __ATOMIC_SEQ_CST)
                 - __atomic_load_n(&wg_ctl.frames_done, __ATOMIC_SEQ_CST),
-            wg_ctl.max_in_flight, st >= 0 && st <= 4 ? dev[st] : "?", lock);
+            wg_ctl.max_in_flight, st >= 0 && st <= 4 ? dev[st] : "?", rt, lock);
     /* And every guest thread's kernel call: which wait, on what, from where
      * (2026-11-11: a freeze after a music track change with the lock free
      * named no thread). */
@@ -653,7 +667,9 @@ static void wq_submit(uint32_t flags, uint32_t translate_us)
     wg_arena_take(&f.arena_ptr, &f.arena_bytes);
     f.translate_us = translate_us;
     f.draws = s_list_draws;
+    s_where = "wgpu.js frame (wgpu_js_frame)";
     wgpu_js_frame(&f);
+    s_where = "after wgpu.js frame";
     s_list_len = s_list_count = s_list_draws = 0;
     wtex_frame_end();
 }
@@ -674,17 +690,21 @@ static void wq_end_frame(void)
     int w = 0, h = 0;
     SDL_Event e;
 
+    s_where = "frame end: canvas size";
     emscripten_get_canvas_element_size("#canvas", &w, &h);
+    s_where = "frame end: surfaces (wsurf_frame_end)";
     wsurf_frame_end(w > 0 ? (uint32_t)w : 0, h > 0 ? (uint32_t)h : 0);
     wq_submit(0, (uint32_t)(s_busy_ns / 1000));
     wg_frame++;
-    s_frame_ns = wq_now_ns();
+    __atomic_store_n(&s_frame_ns, wq_now_ns(), __ATOMIC_SEQ_CST);
+    s_where = "frame end: pipeline list (wpipe_frame_end)";
     wpipe_frame_end();                  /* pipeline list: prewarm step, save */
     if (s_stats)
         wq_stats();
     s_draws = 0;
     s_busy_ns = 0;
     /* Input: the canvas is this thread's, as on the GL thread (gl_flip). */
+    s_where = "frame end: input (SDL_PollEvent)";
     while (SDL_PollEvent(&e))
         xbox_sdl_keyboard_handle(&e);
 }
@@ -708,6 +728,7 @@ static int wq_run(int live)
             s_busy_ns += tw - t0;
             if (dry++ >= 4)                 /* ~8 ms for the rest of the frame, then a turn */
                 return 0;
+            s_where = "waiting for records";
             pthread_mutex_lock(&s_q_lock);
             __atomic_store_n(&s_q_consumer_waits, 1, __ATOMIC_SEQ_CST);
             if (__atomic_load_n(&s_q_head, __ATOMIC_SEQ_CST) == s_q_tail)
@@ -718,6 +739,7 @@ static int wq_run(int live)
             __atomic_add_fetch(&s_q_idle_ns, t0 - tw, __ATOMIC_RELAXED);
             continue;
         }
+        s_where = "applying records";
         rec = s_q + s_q_tail % WQ_BYTES;
         h = (const WQHdr *)rec;
         flip = h->type == WQ_FLIP;
@@ -773,13 +795,16 @@ static int wq_run(int live)
                     if (bb.attr_direct & (1u << a))
                         bb.direct[a].ptr = rec + (uintptr_t)bb.direct[a].ptr;
                 bb.indices = (const uint32_t *)(rec + (uintptr_t)bb.indices);
+                s_where = "draw (wdraw_batch)";
                 wdraw_batch(&bb);
             }
             s_draws++;
         } else if (live && h->type == WQ_BLIT) {
+            s_where = "blit (wsurf_blit)";
             wsurf_blit((const Nv2aBlit *)(h + 1));
         } else if (live && h->type == WQ_CLEAR) {
             const WQClear *c = (const WQClear *)(h + 1);
+            s_where = "clear (wsurf_clear)";
             wsurf_clear(&c->s, c->zeta_va, c->flags, c->argb, c->zs, &c->r);
         } else if (live && flip) {
             s_busy_ns += wq_now_ns() - t0;
@@ -808,6 +833,7 @@ static void wq_drop_turn(void)
     uint64_t now = wq_now_ns();
     SDL_Event e;
 
+    s_where = "dropping frames (GPU stall)";
     if (fl < (int32_t)wg_ctl.max_in_flight && !s_in_frame) {
         fprintf(stderr, "[WGPU] GPU answered after %.1f s: %u frame(s) dropped, drawing again\n",
                 (double)(now - s_gpu_wait) / 1e9, s_dropped);
@@ -839,6 +865,8 @@ static void wq_turn(void)
     uint64_t t = wq_now_ns();
     int st = __atomic_load_n(&wg_ctl.dev_state, __ATOMIC_SEQ_CST);
 
+    __atomic_store_n(&s_turn_start, t, __ATOMIC_SEQ_CST);
+    s_where = "turn start";
     if (s_turn_end)                         /* between turns: idle too */
         __atomic_add_fetch(&s_q_idle_ns, t - s_turn_end, __ATOMIC_RELAXED);
     if (st == WG_DEV_READY) {
@@ -860,8 +888,25 @@ static void wq_turn(void)
         }
         wq_run(0);
     }                                       /* NONE/PENDING: the device is on its way */
-    wq_watchdog(st);
-    s_turn_end = wq_now_ns();
+    if (!s_watch)                           /* no watchdog thread: checked here, as before */
+        wq_watchdog(st);
+    s_where = "turn end (the thread's event loop)";
+    __atomic_store_n(&s_turn_end, wq_now_ns(), __ATOMIC_SEQ_CST);
+}
+
+/* The watchdog on a thread of its own, every 0.5 s: a render thread that
+ * stops turning (stuck in a JS call, its event loop never coming back)
+ * can no longer hide the stall (2026-11-15: Apple WebGPU freezes, logs
+ * 4KCN74 F3N7A4 XSHRHE T9QVHS XRT2UV, no watchdog line). */
+static void *wq_watch_thread(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        struct timespec ts = { 0, 500000000L };
+        nanosleep(&ts, NULL);
+        wq_watchdog(__atomic_load_n(&wg_ctl.dev_state, __ATOMIC_SEQ_CST));
+    }
+    return NULL;
 }
 
 static void *wq_thread(void *arg)
@@ -909,6 +954,17 @@ void nv2a_wgpu_install(void)
         return;
     }
     pthread_detach(t);
+    {
+        pthread_attr_t wa;
+        pthread_attr_init(&wa);
+        pthread_attr_setstacksize(&wa, 64u << 10);
+        if (pthread_create(&t, &wa, wq_watch_thread, NULL) == 0) {
+            pthread_detach(t);
+            s_watch = 1;
+        } else
+            fprintf(stderr, "  [WGPU] no watchdog thread: checked from the render thread\n");
+        pthread_attr_destroy(&wa);
+    }
     s_active = 1;
     nv2a_backend_register(&s_backend);
     fprintf(stderr, "  [WGPU] NV2A WebGPU renderer registered (RECOMP_GPU=webgpu), %d frame(s) queued at most\n",
