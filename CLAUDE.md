@@ -1229,7 +1229,14 @@ only with MC3_PERF, their only reader.
   beyond the 16:9 edge unsqueezed, so sprites the game projects into the
   sides (glows, flares) were thrown out or smeared -- now only a
   pre-transformed draw spanning both edges keeps it (wgpu_draw.c
-  wide_full_2d), any other is squeezed whole.
+  wide_full_2d), any other is squeezed whole. 2026-11-16 (owner's
+  screenshots: white arc by the tachometer, cyan shards by the
+  speedometer, white bands; fix untested in game): spanning was judged
+  by the batch's extent alone, so one draw holding HUD pieces or glow
+  sprites near both sides kept the edge rule and each quad crossing an
+  edge stretched past it; now every vertex must sit on or beyond an edge
+  (a full-screen quad: MC3's post passes are single 4-vertex quads,
+  sub_00041480 via D3D Begin/End sub_00416390/sub_004163B0).
 - **Live settings** (2026-11-12, untested in a browser): the in-game
   Settings window's live rows (web/index.html LIVE, setSetting) go through
   web/pre.js Module.mc3SetLive(key, the value buildEnv would give) into
@@ -1244,7 +1251,9 @@ only with MC3_PERF, their only reader.
   and gives newcomers no car while it is reached; raising builds new cars
   only up to the vehicle registry sized at the cruise's load; the hub's K
   follows); MC3_DRIFT 1/2/3/4 (drift_step, below); MC3_DRIFT_CAM (word 5,
-  drift_cam); MC3_DRIFT_<NAME> (words 7-17, Drift setup panel, below); xbox_keyboard_box
+  drift_cam); MC3_DRIFT_<NAME> (words 7-17, Drift setup panel, below);
+  MC3_FX_BLUR (word 18), MC3_FX_GLOW (word 19) 1 off / 2 on (fx_step,
+  'Motion blur' / 'Glow' rows, below "Motion blur"); xbox_keyboard_box
   (sdl_keyboard.c) RECOMP_KEYBOARD 1/2; touch
   rows page-only (touch.js setMode/setOpacity). Restart stays for
   RECOMP_GPU, RECOMP_RAM_MB, MC3_LOWMEM (renderer and memory layout are
@@ -1414,7 +1423,22 @@ only with MC3_PERF, their only reader.
   Depth only existed in GL, so the mask was garbage and races smeared at
   speed; nv2a_gl now packs GL depth into those formats
   (RECOMP_GL_DEPTH_TEX=0 to compare). A race frame is ~1800 draws: use
-  RECOMP_GL_WATCH_N=4000 for a whole one.
+  RECOMP_GL_WATCH_N=4000 for a whole one. The WebGPU renderer packs it
+  too (wgpu_surf.c wsurf_depth_texture, ZCONV). The pass (Remix,
+  2026-11-16): one object [0x4FC848] (sub_000411B0 at each level load;
+  tune/hdr mcFbGlowParams + <city>_<time>_<weather>_hdrparam%d) owns the
+  game's full-screen effects, drawn after player 0's view (sub_002BE8E0 ->
+  sub_00043520): motion blur sub_00043540 (BackBuffer texture +8 and
+  'DepthBuffer' +0x29C bound by sub_00042980; strength from the car's
+  speed and the abilities, sub_00045C80 -> sub_00044230; tunes
+  m_sstBlurAlpha/Scale, m_zoneColor, m_agroColor) while byte +0x24C, and
+  glow/bloom sub_00042380 / sub_00042F00 (byte 0x4ADAE0 picks; WorkArea1/2
+  half size) while byte +0x240; only the init writes them (1). Settings
+  'Motion blur' / 'Glow' (MC3_FX_BLUR / MC3_FX_GLOW =0, live words 18/19,
+  recomp_manual.c fx_step from the sub_0020B6F0 override, every host,
+  untested in game) clear them. Not found: a switch for the lights' own
+  flares (per-light tune sub_0009D710: flare_on, light_glow_size, ...) and
+  a reader of options.cfg's FullScreenEffects (0x557670 +0x60).
 - Picture quality (GL, 2026-10-18; ideas from nfsu2-sw's Vulkan renderer):
   square pixels in 16:9 (RECOMP_GL_SQUARE; 1280x720 at RECOMP_GL_SCALE=1.5,
   the sweet spot for a 720p screen), the title's mip levels + trilinear +

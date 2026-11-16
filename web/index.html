@@ -948,6 +948,8 @@
     { key: 'RECOMP_GL_MIPS', label: 'Mipmaps', help: "The game's own mip levels with trilinear filtering. Changes live with WebGPU (textures load again).", opts: ONOFF() },
     { key: 'RECOMP_GL_ANISO', label: 'Anisotropic filtering', help: 'Sharper textures at a slant. Changes live with WebGPU.',
       opts: [['', 'Off (default)'], ['16', '16×'], ['8', '8×'], ['4', '4×'], ['2', '2×']] },
+    { key: 'MC3_FX_BLUR', label: 'Motion blur', help: 'The game\'s own blur in races and free roam: grows with speed, and tints the screen during special abilities. Off: a sharp picture, no smear when turning. Changes live.', opts: ONOFF() },
+    { key: 'MC3_FX_GLOW', label: 'Glow', help: 'The game\'s own glow around bright lights and sky (bloom). Changes live.', opts: ONOFF() },
     { key: 'RECOMP_GL_LOD_BIAS', label: 'Texture detail bias', help: 'Lower is sharper, with more shimmer.',
       opts: [['', '0 (default)'], ['-0.25', '-0.25'], ['-0.5', '-0.5'], ['-1', '-1']] },
     { group: 'Movies' },
@@ -1102,12 +1104,12 @@
   // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
   // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
   const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
-    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD',
+    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_FX_BLUR', 'MC3_FX_GLOW', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD',
     ...['STEER', 'RESP', 'FGRIP', 'RGRIP', 'SPEED', 'REAR', 'COUNTER', 'STAB', 'HOLD', 'KEEP', 'CAM_K'].map(n => 'MC3_DRIFT_' + n)]);   // the Drift setup panel
   const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
   const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
-    ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
+    ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'MC3_FX_BLUR', 'MC3_FX_GLOW', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
     ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_RAM_MB']],
     ['ig-controls', ['MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
   ];

@@ -2795,9 +2795,11 @@ static void realtime_step(float real)
  * the rate a race or cruise steps at now, 0 outside them.
  * MC3_LIVE_DRIFT_CAM MC3_DRIFT_CAM 1 off / 2 on (drift.c drift_cam).
  * MC3_LIVE_RACE_INVITES MC3_RACE_INVITES 1 off / 2 on (roam_challenge.c rch_recv).
- * MC3_LIVE_DRIFT_SETUP + 0..10: the Drift setup panel's values, v x 1000 + 1, -1 default (drift.c k_ds). */
+ * MC3_LIVE_DRIFT_SETUP + 0..10: the Drift setup panel's values, v x 1000 + 1, -1 default (drift.c k_ds).
+ * MC3_LIVE_FX_BLUR MC3_FX_BLUR, MC3_LIVE_FX_GLOW MC3_FX_GLOW 1 off / 2 on (fx_step). */
 enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_FPS_NOW, MC3_LIVE_DRIFT_CAM,
-       MC3_LIVE_RACE_INVITES, MC3_LIVE_DRIFT_SETUP, MC3_LIVE_N = MC3_LIVE_DRIFT_SETUP + 11 };
+       MC3_LIVE_RACE_INVITES, MC3_LIVE_DRIFT_SETUP, MC3_LIVE_FX_BLUR = MC3_LIVE_DRIFT_SETUP + 11, MC3_LIVE_FX_GLOW,
+       MC3_LIVE_N };
 #ifdef __EMSCRIPTEN__
 static int32_t s_mc3_live[MC3_LIVE_N];
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_live_box(void) { return (uintptr_t)s_mc3_live; }
@@ -2885,6 +2887,57 @@ static void traffic_lod_step(void)
     MEMF(0x004AFD1Cu) = dist;
 }
 
+/* ── The game's own post effects: Settings 'Motion blur' and 'Glow' ──
+ *
+ * One object, [0x4FC848] (made by sub_000411B0 at each level load, tune
+ * tune/hdr mcFbGlowParams + %s_%s_%s_hdrparam%d), owns MC3's full-screen
+ * passes, drawn after player 0's view (sub_002BE8E0 -> sub_00043520):
+ *  - motion blur, sub_00043540 (per frame from sub_00045C80 -> sub_00044230):
+ *    the BackBuffer texture (+8) and the depth buffer as a colour texture
+ *    (+0x29C 'DepthBuffer', bound by sub_00042980) -- the depth-weighted
+ *    blur CLAUDE.md's "Motion blur" fix is about; its strength follows the
+ *    car's speed and the special abilities (m_sstBlurAlpha/Scale,
+ *    m_zoneColor, m_agroColor, sub_000459C0). Runs while byte +0x24C != 0.
+ *  - glow (bloom), sub_00042380 / sub_00042F00 (byte 0x4ADAE0 picks):
+ *    the frame downsampled into WorkArea1/2 (+0xC/+0x10, half size),
+ *    blurred and added back. Runs while byte +0x240 != 0.
+ * Only sub_000411B0 writes those bytes (1), so 0 is the game's own off
+ * switch. MC3_FX_BLUR=0 / MC3_FX_GLOW=0 at start, live words
+ * MC3_LIVE_FX_BLUR / MC3_LIVE_FX_GLOW (1 off, 2 on). Written every frame
+ * here (a new level makes a new object, at 1); turned on again only if we
+ * turned it off. The userdata options.cfg "FullScreenEffects:" (options
+ * object 0x557670 +0x60, sub_0026F940) has no reader in the lifted code. */
+static void fx_step(void)
+{
+    static int env_blur = -1, env_glow = -1, off_blur, off_glow, told_blur = -1, told_glow = -1;
+    uint32_t fb = MEM32(0x004FC848u);
+    int32_t lb = mc3_live(MC3_LIVE_FX_BLUR), lg = mc3_live(MC3_LIVE_FX_GLOW);
+    int blur, glow;
+    if (env_blur < 0) {
+        const char *e = getenv("MC3_FX_BLUR");
+        env_blur = !(e && e[0] == '0');
+        e = getenv("MC3_FX_GLOW");
+        env_glow = !(e && e[0] == '0');
+    }
+    blur = lb == 0 ? env_blur : lb == 2;
+    glow = lg == 0 ? env_glow : lg == 2;
+    if (blur != told_blur || glow != told_glow) {
+        if (told_blur >= 0 || !blur || !glow)
+            fprintf(stderr, "[FX] motion blur %s, glow %s (MC3_FX_BLUR, MC3_FX_GLOW%s)\n", blur ? "on" : "off",
+                    glow ? "on" : "off", lb || lg ? ", in-game Settings" : "");
+        told_blur = blur;
+        told_glow = glow;
+    }
+    if (!fb)
+        return;
+    if (!blur || off_blur)
+        MEM8(fb + 0x24Cu) = (uint8_t)blur;
+    if (!glow || off_glow)
+        MEM8(fb + 0x240u) = (uint8_t)glow;
+    off_blur = !blur;
+    off_glow = !glow;
+}
+
 static void online_strings(void);               /* Online (O1), at the end of this file */
 extern void sub_0020B6F0_gen(void);
 void sub_0020B6F0(void)
@@ -2910,6 +2963,7 @@ void sub_0020B6F0(void)
     fps_step();
     drift_step();
     traffic_lod_step();
+    fx_step();
     mods_late();
     online_strings();
     roam_room();
