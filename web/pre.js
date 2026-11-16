@@ -1199,3 +1199,16 @@ Module['mc3RaceButton'] = function (act) {
     el.style.display = '';
   }, 500);
 })();
+
+// Tuning screen docked panel (2026-11-16): roam_tune_box word 0 = 1 while the game's pause-menu Tuning screen is open
+// (online_tune.c); the page (index.html driftPanel.dock) shows its Drift setup beside the menu, pointer only.
+(function () {
+  var last = 0;
+  setInterval(function () {
+    try {
+      if (typeof HEAPU8 == 'undefined' || !HEAPU8 || typeof _roam_tune_box != 'function') return;
+      var o = new Int32Array(HEAPU8.buffer, _roam_tune_box(), 1)[0] ? 1 : 0;
+      if (o !== last) { last = o; if (window.mc3TuneDock) window.mc3TuneDock(!!o); }
+    } catch (e) {}
+  }, 200);
+})();
