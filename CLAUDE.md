@@ -2157,6 +2157,28 @@ only with MC3_PERF, their only reader.
   put back (tune kept until Free Roam is entered again); the dirty byte put back;
   roam_send_cfg once (peers rebuild our car once). Never the career's save (the
   blob is the Online one). '[ONLINE] tune: ...'.
+  AI difficulty (2026-11-16, untested in game; recomp_manual.c ai_diff_call,
+  every host, recomp_lookup_manual, no relift): page 'AI difficulty'
+  Normal/Easy/Hard (MC3_AI_DIFF=easy|hard, live word 25 1/2/3; in-game
+  Controls). Race AI strength: each AI brain's update sub_001EB540 (slot +0xC
+  of every brain vtable: 0x46BDF8 base, 0x46BC48 racer (slot sub_001E52A0 calls
+  it directly), 0x46C490 (+0x10 sub_001F75B0 too), 0x46C528/5A0/638/6B8, police
+  0x46BFF8; brains made by sub_001ED2F0, pool entry +0x5C brain, +0x68 kind)
+  sets brain +0x28 = throttle cap: 1 under MinSpeed +0x74, else ThrottleLimit
+  +0x24 blended to MinThrottle +0x80 ahead (MinDist +0x78..MaxDist +0x7C) or
+  BehindMaxThrottle +0x8C behind (+0x84..+0x88), distance +0x20; then if the
+  debug float [0x4B3580] (-1 on the disc, read only at 0x001EB87C) > 0, cap =
+  clamp(cap x it x 2, 0.2, 1). sub_001EDF00 -> sub_001ED9C0 copies +0x28 to the
+  AI car controller +0x114 each frame. Values: .rac Opponent (record 0x88 B in
+  race [+0x2C]: +0xC ThrottleLimit, +0x14 RubberBand MinDist.. +0x34; reader
+  sub_001D3AE0) or tune/progress/definitions.rubberbanding sets by CareerOrder
+  (reader sub_0028F6B0, picked by sub_0028EBC0) scaled by the race type's
+  tune/progress/*.mediator (vt 0x46BB08, sub_001E3A00 at race start; career:
+  dynamicdifficulty.progress, retries). Easy/Hard set [0x4B3580] = f/2 (0.8 /
+  1.25) around a non-police brain's update, old value back after; Normal
+  touches nothing; network races (setup +0x108) skipped. Ramming not covered:
+  Personality RamsPlayer/FishtailPlayer/BlockPlayer -> record +0x50/+0x51/+0x52
+  (sub_001CB040), reader not found. '[AI] difficulty ...' on each change.
 
 ### First lift (2026-10-14)
 

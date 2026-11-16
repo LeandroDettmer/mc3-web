@@ -2032,10 +2032,13 @@ static void online_tune_tick(void);
 static void online_tune_dtor(void);
 #endif
 static recomp_func_t police_lookup(uint32_t va); /* police.c: a police car's suspects, our car only */
+static recomp_func_t ai_diff_lookup(uint32_t va); /* AI difficulty (MC3_AI_DIFF), below fx_step */
 recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
 {
     recomp_func_t pol = police_lookup(xbox_va);
     if (pol)
+        return pol;
+    if ((pol = ai_diff_lookup(xbox_va)))
         return pol;
     /*
      * TODO: Add your overrides here. Examples:
@@ -2798,11 +2801,12 @@ static void realtime_step(float real)
  * MC3_LIVE_DRIFT_SETUP + 0..10: the Drift setup panel's values, v x 1000 + 1, -1 default (drift.c k_ds).
  * MC3_LIVE_FX_BLUR MC3_FX_BLUR, MC3_LIVE_FX_GLOW MC3_FX_GLOW 1 off / 2 on (fx_step).
  * MC3_LIVE_ORBIT MC3_ORBIT_CAM 1 off / 2 on; MC3_LIVE_ORBIT_YAW/_PITCH/_ZOOM the page's running drag/wheel totals
- * x 1000, MC3_LIVE_ORBIT_HELD 1 while dragging (orbit_cam.c, web/pre.js). */
+ * x 1000, MC3_LIVE_ORBIT_HELD 1 while dragging (orbit_cam.c, web/pre.js).
+ * MC3_LIVE_AI_DIFF MC3_AI_DIFF 1 normal / 2 easy / 3 hard (ai_diff_call). */
 enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_FPS_NOW, MC3_LIVE_DRIFT_CAM,
        MC3_LIVE_RACE_INVITES, MC3_LIVE_DRIFT_SETUP, MC3_LIVE_FX_BLUR = MC3_LIVE_DRIFT_SETUP + 11, MC3_LIVE_FX_GLOW,
        MC3_LIVE_ORBIT, MC3_LIVE_ORBIT_YAW, MC3_LIVE_ORBIT_PITCH, MC3_LIVE_ORBIT_ZOOM, MC3_LIVE_ORBIT_HELD,
-       MC3_LIVE_N };
+       MC3_LIVE_AI_DIFF, MC3_LIVE_N };
 #ifdef __EMSCRIPTEN__
 static int32_t s_mc3_live[MC3_LIVE_N];
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_live_box(void) { return (uintptr_t)s_mc3_live; }
@@ -2939,6 +2943,69 @@ static void fx_step(void)
         MEM8(fb + 0x240u) = (uint8_t)glow;
     off_blur = !blur;
     off_glow = !glow;
+}
+
+/* AI difficulty (MC3_AI_DIFF=easy|hard, live word MC3_LIVE_AI_DIFF; 2026-11-16, untested in game). Each AI driver's
+ * update (sub_001EB540, vtable slot +0xC of every AI brain: race opponents vt 0x46BDF8 / 0x46BC48 (its slot
+ * sub_001E52A0 calls it directly) / 0x46C490 (slot +0x10 sub_001F75B0 calls it too) / 0x46C528..0x46C6B8, police
+ * 0x46BFF8) sets brain +0x28, the throttle cap the AI car may use: 1 under the rubber band's MinSpeed brain +0x74,
+ * else between ThrottleLimit +0x24 and MinThrottle +0x80 (ahead of the player, MinDist +0x78 .. MaxDist +0x7C) or
+ * BehindMaxThrottle +0x8C (behind, BehindMinDist +0x84 .. BehindMaxDist +0x88), distance +0x20; values per race from
+ * the .rac (record 0x88 B: +0xC ThrottleLimit, +0x14.. RubberBand) or tune/progress/definitions.rubberbanding + the
+ * race type's .mediator (sub_001E3A00). Then, if the float [0x4B3580] > 0 (a debug knob, -1 on the disc, read only at
+ * 0x001EB87C), cap = clamp(cap x [0x4B3580] x 2, 0.2, 1). The pool entry's apply step (sub_001EDF00 ->
+ * sub_001ED9C0) copies +0x28 into the AI car controller ([[entry+0x20]+4]+0x114) every frame. So: while a non-police
+ * brain's update runs we set [0x4B3580] = f / 2 and put the old value back: Easy f 0.8 (top speed, acceleration and
+ * catch-up throttle 80%), Hard f 1.25 (the rubber band's slow-downs mostly lifted; never over 1). Normal touches
+ * nothing. Not in a network race (setup [[0x53F2E0]+0x108]): every machine there must drive the same AI. Not found:
+ * a switch for ramming (record +0x50 RamsPlayer, +0x51 FishtailPlayer, +0x52 BlockPlayer from the .rac's Personality,
+ * sub_001CB040; their reader is unknown). Reached only through the brains' vtables: recomp_lookup_manual, no relift. */
+#define AI_DIFF_SCALE_VA    0x004B3580u
+void sub_001EB540(void);
+void sub_001E52A0(void);
+void sub_001F75B0(void);
+
+static float ai_diff_factor(void)
+{
+    static int env = -1, told = -1;
+    int32_t l = mc3_live(MC3_LIVE_AI_DIFF);
+    int lvl;                                    /* 0 normal, 1 easy, 2 hard */
+    if (env < 0) {
+        const char *e = getenv("MC3_AI_DIFF");
+        env = !e ? 0 : !strcasecmp(e, "easy") ? 1 : !strcasecmp(e, "hard") ? 2 : 0;
+    }
+    lvl = l == 2 ? 1 : l == 3 ? 2 : l == 1 ? 0 : env;
+    if (lvl != told) {
+        if (told >= 0 || lvl)
+            fprintf(stderr, "[AI] difficulty %s: AI racers' throttle cap x%.2f (MC3_AI_DIFF%s)\n",
+                    lvl == 1 ? "easy" : lvl == 2 ? "hard" : "normal", lvl == 1 ? 0.8 : lvl == 2 ? 1.25 : 1.0,
+                    l ? ", in-game Settings" : "");
+        told = lvl;
+    }
+    return lvl == 1 ? 0.8f : lvl == 2 ? 1.25f : 1.0f;
+}
+
+static void ai_diff_call(void (*fn)(void))
+{
+    uint32_t setup = MEM32(0x0053F2E0u);
+    float f = ai_diff_factor(), keep;
+    if (f == 1.0f || MEM32(g_ecx) == 0x0046BFF8u || (setup && MEM8(setup + 0x108u))) {
+        fn();
+        return;
+    }
+    keep = MEMF(AI_DIFF_SCALE_VA);
+    MEMF(AI_DIFF_SCALE_VA) = 0.5f * f;
+    fn();
+    MEMF(AI_DIFF_SCALE_VA) = keep;
+}
+static void ai_diff_brain(void) { ai_diff_call(sub_001EB540); }
+static void ai_diff_racer(void) { ai_diff_call(sub_001E52A0); }
+static void ai_diff_other(void) { ai_diff_call(sub_001F75B0); }
+
+static recomp_func_t ai_diff_lookup(uint32_t va)
+{
+    return va == 0x001EB540u ? ai_diff_brain : va == 0x001E52A0u ? ai_diff_racer
+         : va == 0x001F75B0u ? ai_diff_other : NULL;
 }
 
 static void online_strings(void);               /* Online (O1), at the end of this file */

@@ -983,6 +983,8 @@
     { group: 'Game' },
     { key: 'RECOMP_LANGUAGE', label: 'Language', help: 'Text and speech where the disc has them (European discs: all five). “Press Start” stays English.',
       opts: [['', 'English (default)'], ['fr', 'Français'], ['de', 'Deutsch'], ['es', 'Español'], ['it', 'Italiano']] },
+    { key: 'MC3_AI_DIFF', label: 'AI difficulty', help: 'How hard the computer racers push, in career, Arcade and Free Roam races (not police, not online races). Easy: they accelerate slower, reach a lower top speed and catch up less. Hard: they hold back less when ahead of you. Normal: the game as it is. Changes live.',
+      opts: [['', 'Normal (default)'], ['easy', 'Easy'], ['hard', 'Hard']] },
     { key: 'MC3_REALTIME', label: 'Real-time races', help: 'Below 30 fps a race advances by the time passed, so it keeps its pace on a slow machine.', opts: ONOFF() },
     { key: 'MC3_TRAFFIC_WHEEL_DIST', label: 'Traffic detail distance', help: 'How far traffic cars keep their wheels and shadow (the original 75 m makes wheels pop in close).',
       opts: [['', '150 m (default)'], ['75', '75 m (original)'], ['300', '300 m']] },
@@ -1128,14 +1130,14 @@
   // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
   // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
   const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
-    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_ORBIT_CAM', 'MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_FX_BLUR', 'MC3_FX_GLOW', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD',
+    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_ORBIT_CAM', 'MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_FX_BLUR', 'MC3_FX_GLOW', 'MC3_AI_DIFF', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD',
     ...['STEER', 'RESP', 'FGRIP', 'RGRIP', 'SPEED', 'REAR', 'COUNTER', 'STAB', 'HOLD', 'KEEP', 'CAM_K'].map(n => 'MC3_DRIFT_' + n)]);   // the Drift setup panel
   const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
   const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
     ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'MC3_FX_BLUR', 'MC3_FX_GLOW', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
     ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_RAM_MB']],
-    ['ig-controls', ['MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_ORBIT_CAM', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
+    ['ig-controls', ['MC3_AI_DIFF', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_ORBIT_CAM', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
   ];
   function renderIngame() {
     for (const [id, keys] of INGAME)
