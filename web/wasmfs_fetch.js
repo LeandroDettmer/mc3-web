@@ -23,7 +23,8 @@
  * block fetched on demand stalls the game thread that asked, and a car
  * model read in free roam stalls the whole guest). In order (prefetchJobs):
  * assets_x.dat_2 (cars), the streamed sound banks (music mx.xwb first), assets_x.dat, _3, _1 (city),
- * resources/ smallest first (car builds .xbpf, hudmap), banks.dat. Since
+ * resources/ smallest first (car builds .xbpf, hudmap; not the decal packs,
+ * DECALS, 2026-11-15), banks.dat. Since
  * 2026-11-14 (R2 reads cost) no more: the Flash screens, the rest of
  * assets_x* and the movies come only when the game reads them (the fill was
  * the whole disc, ~4.4 GiB a player); at most PREFETCH_BUDGET_MB still to fetch and what the browser
@@ -45,7 +46,13 @@
  * shuffled) from its start, 352 KB packets: on a cold cache each change froze
  * the game 0.5-2.5 s (players' logs). Before anything else the fill fetches
  * the blocks holding the first HEAD_BYTES of every entry (its XACT table, in
- * block 0; ~206 MiB). Where the cache was meant to be on but OPFS refused it
+ * block 0; ~206 MiB). Since 2026-11-15 (R2 bills requests; untested in a
+ * browser): where the fill takes the whole bank anyway (not MC3_PREFETCH=cars)
+ * it fetches the whole bank first, one request per PREFETCH_RUN blocks (~24 for
+ * 364 MiB; the track starts alone were ~94, then ~94 more for the blocks between
+ * them), so a new player's track starts are all in ~1.8x later; the track
+ * starts alone (low-memory profile, pinned) take the block between two starts
+ * one block apart too (bridged: 58 requests for 244 MiB). Where the cache was meant to be on but OPFS refused it
  * or ran out of room (a Chrome incognito tab: estimate() reports ~10 GiB, the
  * real quota is far smaller), those blocks are kept in memory for the session
  * instead (`pinned`, never evicted; those the cache file already held are
@@ -61,7 +68,11 @@
  * the background into memory and OPFS, and the game's later read of one joins
  * its fetch (inflight) or finds it in memory. A run that reaches past the
  * window is made RA_RUN blocks long, so a file read straight through costs one
- * request per RA_RUN blocks, not one per block (R2 bills requests, 2026-11-14).
+ * request per RA_RUN blocks, not one per block (R2 bills requests, 2026-11-14);
+ * the city packs a boot reads nearly whole (assets_x.dat, _3, _1) one per
+ * BOOT_RUN (16) blocks (2026-11-15). '[WEB] disc: session ...' once, 2 min
+ * after the first frame: where the game's blocks came from, the network's
+ * requests and MiB, what the cache held at start.
  * A streamed sound bank (.xwb) does so on every read, a jump to a new track
  * included, so the packet that crosses into the next block finds it; so does
  * the car pack assets_x.dat_2 (2026-11-14, untested in a browser: a car is a
@@ -139,11 +150,45 @@ addToLibrary({
       if (odBlk >= 128 && odBlk - n < 128)
         err(`[WEB] disc: ${odReq} requests for ${odBlk} blocks read on demand (misses + readahead, runs up to ${RA_RUN})`);
     }
+    // Where the game's block reads were served from (memory LRU, pinned, OPFS, the network: alone or in a run) and what
+    // the network carried: '[WEB] disc: session ...' once, SESSION_MS after the first frame, with what the cache held
+    // at start (2026-11-15: 0 files = a new player or a lost cache; files but a low cache share = a cache that does not
+    // keep, e.g. a quota, incognito).
+    const st = { mem: 0, pin: 0, opfs: 0, net: 0, join: 0, gameB: 0, bgB: 0, bgReq: 0 }, SESSION_MS = 120000;
+    const session = () => {   // started once frames() and sleep() exist (below)
+      const atStart = (async () => {
+        try {
+          const d = await cacheFolder();
+          if (!d) return 'no disc cache';
+          let n = 0;
+          for await (const k of d.keys()) if (k.endsWith('.have')) n++;
+          const e = await navigator.storage.estimate().catch(() => null);
+          return `cache at start ${n} files` + (e ? `, ${(e.usage / BLOCK).toFixed(0)} MiB of storage used` : '');
+        } catch (e) { return `cache at start unknown (${e})`; }
+      })();
+      (async () => {
+        while (!frames()) await sleep(1000);
+        await sleep(SESSION_MS);
+        const net = st.net + st.join, cached = st.opfs + st.pin, all = cached + net, mib = n => (n / BLOCK).toFixed(0);
+        err(`[WEB] disc: session ${SESSION_MS / 1000} s after the first frame: ${all ? Math.round(cached * 100 / all) : 0}%`
+          + ` of the game's new block reads from the cache (${st.opfs} OPFS, ${st.pin} pinned, ${net} network, ${st.join}`
+          + ` of them in a run; ${st.mem} more from memory); network ${odReq + st.bgReq} requests, ${mib(st.gameB + st.bgB)}`
+          + ` MiB (game ${odReq} / ${mib(st.gameB)} MiB, background ${st.bgReq} / ${mib(st.bgB)} MiB); ${await atStart}`);
+      })().catch(e => err(`[WEB] disc: session line failed: ${e}`));
+    };
     // the music bank, and how much of each track's start is fetched first: two of the Remix's 352 KB stream packets
     const MUSIC = BANKS[0], HEAD_BYTES = 0xB0000, STREAM = /\.xwb$/i;
     // the car models' pack: a car build jumps to a car's first entry (a 4 KB read) and reads ~2-4 MB on from it
     // (cold logs 2026-11-14), all under the guest lock: readahead on every read, the jump included
     const CARS = /\/assets_x\.dat_2$/i;
+    // the city packs a boot reads nearly whole (assets_x.dat ~300 MB, _3, _1): a straight read's run is BOOT_RUN blocks,
+    // not RA_RUN (2026-11-15, R2 bills requests; the fill fetches them whole anyway), while the memory LRU holds it
+    // three times over (the low-memory profile's 8 MB: RA_RUN as before)
+    const CITY = /\/assets_x\.dat(_[13])?$/i, BOOT_RUN = Math.max(RA_RUN, Math.min(PREFETCH_RUN, (MEM_BYTES / BLOCK / 3) | 0));
+    // the car decal packs (262 + 334 MiB, 596 of resources/' 642): the game reads a car's decals, 34-130 KB at a time,
+    // so they come on use only, never in the fill or the learned fill (2026-11-15: ~38k requests of ~12 MiB a day each,
+    // and where the cache ran out of room it ran out in them, cache off, fetched again the next visit)
+    const DECALS = /resources\/vehicle\/decal(_g)?\.xbpf$/i;
     let netReads = 0, lastNet = 0, prefetching = false;   // the game's own reads on the network, when the last ended
     // the page's tab is hidden (web/pre.js -> xbox_page_hidden_box): the background fill waits
     const hidden = () => typeof _xbox_page_hidden_box == 'function'
@@ -168,6 +213,7 @@ addToLibrary({
       return (w ? Atomics.load(u, w >>> 2) : 0) + (g ? Atomics.load(u, g >>> 2) : 0);
     };
     const sleep = ms => new Promise(r => setTimeout(r, ms));
+    session();
     // When background fetching may begin (see the header): once, shared by the fill and the learned fill
     let gate = null;
     const fillGate = () => gate ??= (async () => {
@@ -198,7 +244,7 @@ addToLibrary({
     const LEARN_MS = 2000, LEARN_MAX = 400 * BLOCK, LEARN_BUDGET = 1024 * BLOCK, learnMs = new Map();
     let learnChain = Promise.resolve(), learnBytes = 0;
     function learn(fi, ms) {
-      if (E.MC3_PREFETCH === '0' || !fi.key || fi.size > LEARN_MAX || /\/video\//i.test(fi.url)) return;
+      if (E.MC3_PREFETCH === '0' || !fi.key || fi.size > LEARN_MAX || /\/video\//i.test(fi.url) || DECALS.test(fi.url)) return;
       const t = (learnMs.get(fi.key) ?? 0) + ms;
       learnMs.set(fi.key, t);
       if (t < LEARN_MS || t - ms >= LEARN_MS || learnBytes + fi.size > LEARN_BUDGET) return;   // once, on crossing
@@ -303,13 +349,14 @@ addToLibrary({
       if (cf && cf.have[bi]) {
         try {
           const b = new Uint8Array(len);
-          if (cf.h.read(b, { at: bi * BLOCK }) === len) return b;
+          if (cf.h.read(b, { at: bi * BLOCK }) === len) { st.opfs++; return b; }
         } catch { /* closed meanwhile: from the server */ }
       }
       let b;
       netReads++; stopBackground(); counted(1);
       try { b = await C.fetchBlock(fi.src, bi, fi.size, m => err(`[WEB] disc read stalled: ${fi.url} block ${bi}: ${m}`), GAME_STALL_MS); }
       finally { netReads--; lastNet = performance.now(); }
+      st.net++; st.gameB += b.length;
       if ((cf = await cacheFile(fi))) {
         try { C.put(cf, bi, b); }
         catch (e) { opfsFail(e); }
@@ -319,10 +366,11 @@ addToLibrary({
     function block(fi, bi) {
       const k = fi.key + '#' + bi;
       const b = mem.get(k);
-      if (b) { mem.delete(k); mem.set(k, b); return b; }
+      if (b) { mem.delete(k); mem.set(k, b); st.mem++; return b; }
       const pb = pinned.get(k);
-      if (pb) return pb;
+      if (pb) { st.pin++; return pb; }
       let p = inflight.get(k);
+      if (p) st.join++;
       if (p && p.run) {                           // a block of a run (fetchRun): if the run drops it, this read fetches it
         if (!p.run.game && bi > p.run.next + 1) p.run.ac.abort();   // far down a background run: not worth the wait
         return p.catch(() => block(fi, bi));
@@ -355,7 +403,7 @@ addToLibrary({
       }
       const drop = w => { if (inflight.get(w.k) === w.p) inflight.delete(w.k); };
       let kept = null;
-      if (game) { netReads++; stopBackground(); counted(n); } else bgRuns.add(run);
+      if (game) { netReads++; stopBackground(); counted(n); } else { bgRuns.add(run); st.bgReq++; }
       try {
         await C.fetchBlocks(fi.src, bi, n, fi.size, {
           signal: run.ac.signal, stallMs: game ? GAME_STALL_MS : undefined,
@@ -363,6 +411,7 @@ addToLibrary({
           onBlock: (j, b) => {
             const w = waits[j - bi];
             run.next = j + 1;
+            if (game) st.gameB += b.length; else st.bgB += b.length;
             if (game) remember(w.k, b);
             if (pin) pinned.set(w.k, b);
             else puts.push(cacheFile(fi).then(c => { if (c && !c.have[j]) C.put(c, j, b); }).catch(e => { kept ??= e; opfsFail(e); }));
@@ -413,7 +462,7 @@ addToLibrary({
         // the city packs the game reads while driving (on demand: ~60% more disc waits a log after they left the fill,
         // 2026-11-14); a fill run is one request per 16 MiB, cheaper in R2 reads than the game's 1-3 MiB misses
         ...['assets_x.dat', 'assets_x.dat_3', 'assets_x.dat_1'].map(p => byPath.get(p)),
-        ...dir('resources/'),
+        ...dir('resources/').filter(f => !DECALS.test(f.p)),
         byPath.get('banks.dat'),
         // 2026-11-14: no Flash screens, assets_x.dat_4/_5 or movies: the game fetches them on use
       ].filter(Boolean);
@@ -451,6 +500,9 @@ addToLibrary({
     // one at a time, ~94 requests took 1-2 min, past a new player's boot and first track changes (2026-11-15).
     // True when every slice was.
     const HEAD_LANES = 3;
+    // Track starts one block apart go with the block between (58 requests for 244 MiB of mx.xwb instead of 94 for 206:
+    // its 135 entries average 2.7 MiB, so most starts are 1-2 blocks apart; 2026-11-15, R2 bills requests)
+    const bridged = list => list.flatMap((j, i) => i && j - list[i - 1] === 2 ? [j - 1, j] : [j]);
     async function lanes(list, f) {
       const k = Math.ceil(list.length / HEAD_LANES), parts = [];
       for (let i = 0; i < list.length; i += k) parts.push(list.slice(i, i + k));
@@ -484,7 +536,7 @@ addToLibrary({
       if (!(await cacheOn) || !(navigator.deviceMemory >= 8)) return;
       const f = [...m.values()].find(f => f.p.toLowerCase() === MUSIC);
       if (!f) return;
-      const fi = fileInfo(disc, f), list = await headBlocks(fi);
+      const fi = fileInfo(disc, f), list = bridged(await headBlocks(fi));
       err(`[WEB] prefetch: no disc cache: the music's track starts (${list.length} MiB) kept in memory instead`);
       const t0 = performance.now();
       await lanes(list, l => fill(fi, l, true));
@@ -528,11 +580,12 @@ addToLibrary({
         if (pct > shown && done < left) { shown = pct; err(`[WEB] prefetch: ${pct * 10}% (${mib(done)} of ${mib(left)} MiB), ${fi.p}`); }
       });
       const music = jobs.find(fi => fi.p.toLowerCase() === MUSIC);
-      if (music) {                                // the music's track starts before anything else
-        const list = await headBlocks(music);
+      if (music) {                                // the music before anything else (see the header)
+        const list = await headBlocks(music), whole = E.MC3_PREFETCH !== 'cars';
         heads = { key: music.key, size: music.size, list };
-        if (!(await lanes(list, l => run(music, l)))) return pinHeads(disc, m);
-        err(`[WEB] prefetch: music track starts kept (${list.length} MiB) after ${((performance.now() - t0) / 1000).toFixed(0)} s`);
+        const todo = whole ? Array.from({ length: Math.ceil(music.size / BLOCK) }, (_, j) => j) : bridged(list);
+        if (!(await lanes(todo, l => run(music, l)))) return pinHeads(disc, m);
+        err(`[WEB] prefetch: music ${whole ? 'bank' : 'track starts'} kept (${todo.length} MiB) after ${((performance.now() - t0) / 1000).toFixed(0)} s`);
       }
       await gated;
       for (const fi of jobs)
@@ -561,7 +614,7 @@ addToLibrary({
           let j = lo;
           while (j <= hi && mem.has(fi.key + '#' + j)) j++;
           if (j <= hi) {
-            j = await fetchRuns(fi, lo, hi, ahead ? 1 : 2, ahead ? RA_RUN : 0);
+            j = await fetchRuns(fi, lo, hi, ahead ? 1 : 2, ahead ? (CITY.test(fi.url) ? BOOT_RUN : RA_RUN) : 0);
             if (ahead && j >= 0 && !fi.ra) { fi.ra = true; err(`[WEB] readahead: ${fi.url} from block ${j}`); }
           }
         }

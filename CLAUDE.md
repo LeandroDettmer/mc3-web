@@ -298,6 +298,27 @@ generated files when the lift inputs did not change.
   already holds go to memory first (keepHeads, '[WEB] prefetch: disc
   cache off: N of 206 MiB of the music's track starts kept in memory
   from it').
+  R2 reads (2026-11-15, untested in a browser; bucket that day 1.35 M
+  GetObject, 5.7 TB: mx.xwb 575k, assets_x.dat 176k, decal_g/decal.xbpf
+  ~38k each at ~12 MiB): (1) where the fill takes the whole music bank (not
+  MC3_PREFETCH=cars) it fetches it whole first, one request per 16 MiB
+  (~24 for 364 MiB; the track starts were ~94 requests, then ~94 more for
+  the blocks between them); a new player's track starts are all in ~1.8x
+  later, so a track change in the first minutes of a cold start may still
+  wait. The track starts alone (low-memory profile, pinned) take the block
+  between two starts one block apart (58 requests for 244 MiB, not 94 for
+  206). (2) resources/vehicle/decal.xbpf + decal_g.xbpf (262 + 334 MiB, 596
+  of resources/' 642) left the fill and the learned fill: the game reads a
+  car's decals 34-130 KB at a time, and a cache that ran out of room ran
+  out in them (QuotaExceededError at decal blocks, cache off, the next visit
+  again); now read on use (readahead when straight). (3) assets_x.dat, _3,
+  _1: a straight read's run is 16 blocks (BOOT_RUN; 3 in the low-memory
+  profile, whose 8 MB LRU could not hold it). (4) '[WEB] disc: session 120
+  s after the first frame: N% of the game's new block reads from the cache
+  (O OPFS, P pinned, W network, J of them in a run; M more from memory);
+  network R requests, X MiB (game ..., background ...); cache at start F
+  files, U MiB of storage used' once a session: 0 files = a new player or a
+  lost cache.
   Emscripten's own WASMFS fetch
   backend left stale data across chunks, hence our backend.
 - **Input:** SDL keyboard/Gamepad on the GL thread; a key tap is held at
