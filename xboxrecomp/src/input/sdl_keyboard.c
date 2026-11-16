@@ -81,6 +81,47 @@ static volatile Uint32 s_dir_at[SDL_NUM_SCANCODES];    /* SDL_GetTicks() | 1 */
 #define DIR_PULSE_READS 2
 static volatile Uint32 s_reads;                        /* pad-state merges so far */
 static volatile Uint32 s_dir_rd[SDL_NUM_SCANCODES];    /* s_reads at the press */
+
+/* The player's own keys (2026-11-16, untested in a browser): the page's
+ * Controls, Keyboard rows record a key per pad input (localStorage
+ * mc3.keymap) and web/pre.js mc3SetKeyMap writes a table here: map[key the
+ * player pressed] = the default key of the input it now drives (0 = none),
+ * so everything below (taps, menu pulse, driving) stays keyed on the
+ * default layout. on = 0: no table, keys as above. The page writes map and
+ * on, then bumps seq; a new seq releases every key. One input can have
+ * several keys (A and Space): its default key is let go only when the last
+ * of them is. */
+static struct {
+    volatile int seq, on;
+    volatile unsigned short map[SDL_NUM_SCANCODES];
+} s_km;
+static int s_km_seen;
+static unsigned char s_phys[SDL_NUM_SCANCODES];        /* keys down as pressed */
+#endif
+
+void xbox_sdl_keyboard_reset(void);
+
+#ifdef __EMSCRIPTEN__
+/* The default key for a pressed one, or -1 to drop the event. */
+static int keymap_apply(int scancode, int down)
+{
+    int seq = __atomic_load_n(&s_km.seq, __ATOMIC_ACQUIRE), to, i;
+    if (seq != s_km_seen) {
+        s_km_seen = seq;
+        xbox_sdl_keyboard_reset();
+    }
+    if (!__atomic_load_n(&s_km.on, __ATOMIC_RELAXED))
+        return scancode;
+    s_phys[scancode] = down ? 1 : 0;
+    to = s_km.map[scancode];
+    if (!to || to >= SDL_NUM_SCANCODES)
+        return -1;
+    if (!down)
+        for (i = 0; i < SDL_NUM_SCANCODES; i++)
+            if (s_phys[i] && s_km.map[i] == to)
+                return -1;                              /* another key of that input still held */
+    return to;
+}
 #endif
 
 void xbox_sdl_keyboard_event(int scancode, int down)
@@ -88,6 +129,8 @@ void xbox_sdl_keyboard_event(int scancode, int down)
     if (scancode < 0 || scancode >= SDL_NUM_SCANCODES)
         return;
 #ifdef __EMSCRIPTEN__
+    if ((scancode = keymap_apply(scancode, down)) < 0)
+        return;
     if (down && !s_down[scancode]) {
         s_dir_rd[scancode] = s_reads;
         s_dir_at[scancode] = SDL_GetTicks() | 1;
@@ -108,6 +151,7 @@ void xbox_sdl_keyboard_reset(void)
     memset((void *)s_press_at, 0, sizeof s_press_at);
 #ifdef __EMSCRIPTEN__
     memset((void *)s_dir_at, 0, sizeof s_dir_at);
+    memset(s_phys, 0, sizeof s_phys);
 #endif
 }
 
@@ -149,6 +193,8 @@ void xbox_sdl_keyboard_handle(const SDL_Event *e)
  * as at start, 1 off, 2 on. Read at every poll. */
 static volatile int s_kb_live;
 EMSCRIPTEN_KEEPALIVE int *xbox_keyboard_box(void) { return (int *)&s_kb_live; }
+/* The player's keys (s_km above): { int seq, on; u16 map[SDL_NUM_SCANCODES] }. */
+EMSCRIPTEN_KEEPALIVE void *xbox_keymap_box(void) { return (void *)&s_km; }
 #endif
 
 int xbox_sdl_keyboard_enabled(void)
