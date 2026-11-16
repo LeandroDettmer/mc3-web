@@ -838,6 +838,7 @@
         <div class="set"><div><span class="set-label">On-screen controller<span class="ig-tag live">live</span></span><p class="hint one">Shows or hides the touch controls now (Touch controls below sets when).</p></div>
           <button type="button" class="btn sw" id="touch-btn" aria-pressed="false" aria-label="On-screen controller" hidden></button></div>
         <div id="ig-controls"></div>
+        <ul class="keys" id="keys-ig-input" aria-label="Keys by action"></ul>
       </div>
       <div role="tabpanel" data-pane="ig-info">
         <div class="set"><div><span class="set-label">Keys</span><p class="hint one">Every key by in-game action, over the picture.</p></div>
@@ -2805,6 +2806,7 @@
   document.addEventListener('visibilitychange', measureRefresh);
   renderKeys($('keys'));
   renderKeys($('keys-ingame'));
+  renderKeys($('keys-ig-input'));   // the in-game Settings' Controls tab lists them too (owner: easier to find)
   $('raw').value = store.get('raw', '');
   $('raw').oninput = () => { store.set('raw', $('raw').value); preview(); };
   $('reset').onclick = () => {
