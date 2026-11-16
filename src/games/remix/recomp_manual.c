@@ -2026,6 +2026,8 @@ void sub_000EC910(void) { cam_call(53, 0x000EC910u, sub_000EC910_gen); }
  */
 #ifdef __EMSCRIPTEN__
 static void roam_shader_check(void);            /* roam_pool.c */
+static void online_tune_menu(void);             /* online_tune.c */
+static void online_tune_exit(void);
 #endif
 static recomp_func_t police_lookup(uint32_t va); /* police.c: a police car's suspects, our car only */
 recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
@@ -2046,6 +2048,10 @@ recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
 #ifdef __EMSCRIPTEN__
     if (xbox_va == 0x000E9D00u)                 /* a model's shader group check (roam_pool.c roam_shader_check) */
         return roam_shader_check;
+    if (xbox_va == 0x0018D610u)                 /* the pause menu's items: Tune Your Vehicle in Free Roam (online_tune.c) */
+        return online_tune_menu;
+    if (xbox_va == 0x0018FBF0u)                 /* the tune menu's Exit: Online garage/profile, peers (online_tune.c) */
+        return online_tune_exit;
 #endif
     return mods_net_lookup(xbox_va);            /* System Link car records (mods_net.c) */
 }
@@ -4570,6 +4576,7 @@ static void online_strings(void)
 #include "online_progress.c"                    /* Online: race prizes, wins unlock abilities and reward paints */
 #include "drift_score.c"                        /* drift points (drift.c feeds them), Online: $10,000 per 10,000 */
 #include "roam_cars.c"                          /* MC3_ROAM_CARS: room for standalone remote cars */
+#include "online_tune.c"                        /* Free Roam: the pause menu's Tune Your Vehicle, Online garage */
 #include "roam_pool.c"                          /* free roam: the remote cars pool (who drives which car, builds) */
 #include "roam_races.c"                         /* free roam: the cities' race start points (roam_races.h) */
 #include "roam_race_ai.c"                       /* free roam: an AI race from a start point, then back (feature 3) */
