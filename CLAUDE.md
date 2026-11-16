@@ -1159,7 +1159,8 @@ only with MC3_PERF, their only reader.
   MC3_ROAM_CARS (-1 auto; roam_pool_net parks the farthest holders over it
   and gives newcomers no car while it is reached; raising builds new cars
   only up to the vehicle registry sized at the cruise's load; the hub's K
-  follows); MC3_DRIFT 1/2 (drift_step, below); xbox_keyboard_box
+  follows); MC3_DRIFT 1/2/3 (drift_step, below); MC3_DRIFT_CAM (word 5,
+  drift_cam); xbox_keyboard_box
   (sdl_keyboard.c) RECOMP_KEYBOARD 1/2; touch
   rows page-only (touch.js setMode/setOpacity). Restart stays for
   RECOMP_GPU, RECOMP_RAM_MB, MC3_LOWMEM (renderer and memory layout are
@@ -1721,7 +1722,8 @@ only with MC3_PERF, their only reader.
   change in m/s: at high rates a hit spread over frames may go unseen),
   roam_game.c's pose blend (dt floor now 1/240). Same risks as 60, N/30x.
   Drift mode (2026-11-12, v2 assist untested in game; MC3_DRIFT=1 normal,
-  =2 strong, live: page "Drift mode" Off/On/Strong = live word 1/2/3;
+  =2 strong, =3 controlled, live: page "Drift mode" (and the stage bar's
+  Drift button, cycling) Off/On/Strong/Controlled = live word 1/2/3/4;
   src/games/remix/drift.c, drift_step from the sub_0020B6F0 override):
   player 0's car only ([[0x558814]+8]+0x14 = veh). Car physics = AGE
   vehCarSim (vtable 0x44EA64; mcCarSim 0x456550, ctor sub_00121550) at
@@ -1757,6 +1759,32 @@ only with MC3_PERF, their only reader.
   0x47681C; also SteerRate/HandbrakeRate/DriftRate). Other tune binders
   seen: sub_00124B70 (bike Lean/Wheelie/Drift/Burnout), sub_0007C350
   (traffic TireGrip), sub_001CAEF0 (AI).
+  Controlled level (2026-11-15, untested in game): a grippier row (bmax 35,
+  yaw cut 0.45) plus, while a slide runs forward (not on hit frames): yaw
+  rate capped at 1.3 rad/s and a PD hold of the signed slip toward 15 deg
+  (no throttle) .. 32 deg (full) (kp 2.5, kd 0.6, at most 1.5 rad/s^2;
+  widening only with throttle > 0.2, so lifting off lets the car out), both
+  written as one change of w and L along up like the yaw cut. The steer
+  input is never written (peers get our inputs as rc_state.ext). Sign: a
+  yaw rate w about up changes v.right at -w v.(r x u) = +h w x forward
+  speed, h = sign((r x u).back) measured each frame and printed in the slide
+  line ('controlled N frames ... (rows h +1)'). '[DRIFT] drift mode
+  controlled'.
+  Drift camera (2026-11-15, untested in game; MC3_DRIFT_CAM=1, page
+  'Drift camera' On/Off in the in-game Controls, live word 5 1 off / 2 on;
+  any Drift level, off too; drift.c drift_cam from the sub_002CF760
+  override): the race chase camera (vtable 0x476BEC, its update slot 10
+  sub_002CF760) already sits behind the body's velocity (sub_00355650,
+  0x003557F3: -normalize(ics+0x44) when on the ground above 10 m/s, else
+  the back row), so a slide shows the car side on. For player 0's car (cam
+  +0x130 = veh), not paused or in state 3, the update now reads a velocity
+  turned from the heading by m x slip (m 1 -> 0.65 from 5 to 35 deg, same
+  horizontal speed and vertical part; reversing or past 100 deg the game's),
+  FOV offset +0x144 + 5 deg x k, distance scale +0x148 x (1 + 0.15 k), k
+  0..1 from 10 to 35 deg; m and k follow over 0.25 s of the frame time
+  0x4B2D70; all put back after the update. Unproven: that +0x84 reaches the
+  projection (MC3_CAM_TRACE=1 '[CAM] projection' fov should move with k;
+  else the delta goes on sub_002D4AE0's fov). '[DRIFT] camera on|off'.
   Drift scoring (2026-11-12, untested in game; src/games/remix/
   drift_score.c, fed by drift_step with Drift mode on or off): a drift =
   slip > 20 deg above 50 km/h, not in free fall, race type 0 only; points/s
