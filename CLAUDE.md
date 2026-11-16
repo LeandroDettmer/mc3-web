@@ -1823,7 +1823,22 @@ only with MC3_PERF, their only reader.
   The same drift as On, slower (owner 2026-11-15: the first Controlled, a
   1.3 rad/s yaw cap + a PD angle hold on w/L, neither drifted nor threw the
   car). The steer input is never written. Slide line '... drag N km/h ...';
-  '[DRIFT] drift mode controlled'.
+  '[DRIFT] drift mode controlled'. v3 (2026-11-15, untested in game; after
+  NFSU2's drift events, whose handling is a yaw assist + rear grip every
+  step, 0x5AC260; ideas only). Owner on v2: the throttle threw the car
+  sideways (rear grip - 0.10 x throttle, front +15%), mid-drift it
+  straightened by itself (grip back to 0.92 in 0.08 s once slip < 6 deg),
+  the handbrake sometimes threw it (0.50 at once). Now (Controlled only, On
+  and Strong unchanged): rear grip follows its target with exp time
+  constants 0.25 s loosening / 0.5 s gripping (CTL_TAU_IN/OUT, frame time
+  0x4B2D70), kick 0.62 ramped in, throttle grips the rear a little (thr
+  -0.05), front +5%, catch 0.97; a slide > 12 deg or a kick is held (rear
+  loose at any slip, so a transition through 0 flows on) until 0.4 s
+  straight (< 5 deg) or lifted (< 10 deg) with the wheel within 0.35 of
+  centre, under 8 m/s, or braking; the slip angle grows at most 50 deg/s
+  (CTL_BRATE): the yaw rate is damped by the excess (smoothed 0.05 s,
+  <= 1/4 of it a frame). '[DRIFT] controlled: slide let go (<why>) after N
+  s ...', slide line '... slip-rate damp N frames ..., still held'.
   Drift camera (2026-11-15, untested in game; MC3_DRIFT_CAM=1, page
   'Drift camera' On/Off in the in-game Controls, live word 5 1 off / 2 on;
   any Drift level, off too; drift.c drift_cam from the sub_002CF760

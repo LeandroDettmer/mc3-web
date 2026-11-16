@@ -44,13 +44,28 @@
  *
  * Levels: MC3_DRIFT=1 normal, =2 strong, =3 controlled; the page's live word:
  * 1 off, 2 on (the environment's level, normal if that is off), 3 strong,
- * 4 controlled. Controlled (2026-11-15, untested in game) is the normal
- * level's grip and steering without the speed give-back, plus a drag in the
- * slide (drag m/s^2 at 30 deg of slip and more, not under DRAG_FLOOR, not
- * while braking): the same drift, slower (owner: the first Controlled, a
- * yaw-rate cap + an angle hold, neither drifted nor threw the car; 'on' is
- * right but too fast). The steer input is never written (peers get our
- * inputs). Off: every value back (if still ours). The drift camera (drift_cam, at the end) is its own switch, any
+ * 4 controlled. Controlled (2026-11-15, v3, untested in game) is modelled
+ * on NFSU2's drift events (their handling runs a yaw assist + a rear grip
+ * factor every physics step, nfsu2-web runtime/oracle.c 0x5AC260; ideas
+ * only, no code): easy to start, the angle held and smooth, never thrown.
+ * Owner on v2 (the normal row, no give-back, a drag): the throttle sent the
+ * car sideways very fast (the rear grip fell 0.10 x throttle and the front
+ * bit 15% harder), mid-drift it straightened by itself (the grip went back to
+ * 0.92 within 0.08 s as soon as the slip fell under 6 deg, and 1.05 past
+ * 40 deg), and the handbrake sometimes threw it (grip 0.50 at once). v3:
+ * the rear grip follows its target over CTL_TAU_IN loosening / CTL_TAU_OUT
+ * gripping (exp of the frame time: 30/60/144 fps alike); the handbrake kick
+ * is 0.62 and ramps in; the throttle grips the rear a little (thr < 0), the
+ * front's bite +5%; a slide wider than CTL_HOLD_IN or a kick is held: the
+ * rear stays loose whatever the slip (so a transition through 0 deg flows
+ * into the other side) until the car is straight with the wheel near centre,
+ * or the throttle is lifted with the slip under 10 deg and the wheel near
+ * centre, for CTL_CALM s; or under 8 m/s, or braking; the slip angle grows
+ * at most CTL_BRATE deg/s: past it the yaw rate is damped by the excess
+ * (a quarter of it at most a frame), so neither the throttle nor the
+ * handbrake swings the car out fast; the speed as v2 (no give-back, the
+ * drag: m/s^2 at 30 deg of slip and more, not under DRAG_FLOOR, not while
+ * braking). The steer input is never written (peers get our inputs). Off: every value back (if still ours). The drift camera (drift_cam, at the end) is its own switch, any
  * level. '[DRIFT]' lines: on/off, the car's layout once
  * per car, one line per drift of 0.5 s or more. Drift scoring (drift_score.c)
  * gets this frame's slip angle, speed and hit test with the mode on or off.
@@ -90,8 +105,15 @@ static const drift_tune k_drift[3] = {
     /* base   kick   slide  thr    catch  bmax   steer  front  yaw    keep   drag */
     { 0.92f, 0.50f, 0.62f, 0.10f, 1.05f, 40.0f, 0.60f, 0.15f, 0.25f, 0.50f, 0.0f },   /* 1 normal */
     { 0.85f, 0.42f, 0.52f, 0.12f, 1.00f, 50.0f, 1.00f, 0.20f, 0.35f, 0.70f, 0.0f },   /* 2 strong */
-    { 0.92f, 0.50f, 0.62f, 0.10f, 1.05f, 40.0f, 0.60f, 0.15f, 0.25f, 0.00f, 4.0f },   /* 3 controlled: normal, slower */
+    { 0.92f, 0.62f, 0.66f, -0.05f, 0.97f, 40.0f, 0.60f, 0.05f, 0.25f, 0.00f, 4.0f },  /* 3 controlled (below) */
 };
+/* Controlled only (see the header): the rear grip's time constants, the held slide's entry and exit, the slip
+ * angle's growth limit */
+#define CTL_TAU_IN   0.25f  /* s: the rear lets go this smoothly (a handbrake tap ramps, no throw) */
+#define CTL_TAU_OUT  0.50f  /* s: ... and grips back */
+#define CTL_HOLD_IN  12.0f  /* deg: a slide this wide (or a kick) is held */
+#define CTL_CALM     0.40f  /* s straight (or lifted and straightened) before a held slide lets go */
+#define CTL_BRATE    50.0f  /* deg/s: the slip angle grows no faster than this; the yaw rate is damped by the excess */
 
 /* one tune value we scale: the game's (orig) and ours (set) */
 typedef struct { uint32_t va; float orig, set; } drift_field;
@@ -124,7 +146,9 @@ static void drift_step(void)
     static float v_last[3], dv_prev[3], dn_prev, dt_prev, wy_prev;
     static char why[200];
     static float fr = 1.0f, kick_t, lift_t, thr_prev, beta_prev, speed_prev, speed_prev2;
-    static struct { float t, max, v0, g, kept, frmin, drag; int cuts; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
+    static float brate, held_t, calm_t;         /* controlled: the slip angle's growth (deg/s, smoothed), the held slide */
+    static int held;
+    static struct { float t, max, v0, g, kept, frmin, drag; int cuts, damps; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
     static const char *const k_name[4] = { "off", "on", "strong", "controlled" };
     const drift_tune *t;
     int32_t l = mc3_live(MC3_LIVE_DRIFT);
@@ -165,6 +189,7 @@ static void drift_step(void)
         }
         fr = 1.0f;
         kick_t = lift_t = 0;
+        held = 0;
         dr.t = 0;
         if (!tb) {
             drift_score(0, 0, 0, 0, 0, NULL, 0);
@@ -252,8 +277,35 @@ static void drift_step(void)
         kick_t = kick_t > dt ? kick_t - dt : 0.0f;
 
     /* rear grip factor: gripping -> drift over 0..6 deg of slip, the throttle loosens it, past beta_max it grips back */
-    {
+    if (lvl == 3) {
+        /* controlled: a held slide keeps the rear loose whatever the slip; smooth in and out (see the header) */
+        float slide = t->slide - t->thr * thr, a;
+        const char *go = NULL;
+        if (!held && s > 8.0f && (kick_t > 0 || beta > CTL_HOLD_IN)) {
+            held = 1;
+            held_t = calm_t = 0;
+        } else if (held) {
+            int calm = fabsf(st) < 0.35f && (beta < 5.0f || (thr < 0.2f && beta < 10.0f));
+            calm_t = calm && kick_t <= 0 ? calm_t + dt : 0.0f;
+            held_t += dt;
+            go = s < 8.0f ? "under 8 m/s" : brk > 0.5f ? "braking" : calm_t >= CTL_CALM ?
+                 (beta < 5.0f ? "straight" : "lifted and straightened") : NULL;
+            if (go) {
+                fprintf(stderr, "[DRIFT] controlled: slide let go (%s) after %.1f s, slip %.0f deg, %.0f km/h\n", go,
+                        (double)held_t, (double)beta, (double)(s * 3.6f));
+                held = 0;
+            }
+        }
+        tgt = held ? slide : t->base;
+        if (kick_t > 0 && tgt > t->kick)
+            tgt = t->kick;
+        if (held && beta > t->beta_max)
+            tgt = slide + (t->catch_hi - slide) * drift_clamp((beta - t->beta_max) / 25.0f, 0, 1);
+        a = 1.0f - expf(-dt / (tgt < fr ? CTL_TAU_IN : CTL_TAU_OUT));
+        fr += (tgt - fr) * a;
+    } else {
         float slide = t->slide - t->thr * thr;
+        held = 0;
         tgt = t->base + (slide - t->base) * drift_clamp(beta / 6.0f, 0, 1);
         if (kick_t > 0 && tgt > t->kick)
             tgt = t->kick;
@@ -274,6 +326,18 @@ static void drift_step(void)
             float cut = drift_clamp(t->yaw_cut * drift_clamp((beta - t->beta_max) / 20.0f, 0, 1) * dt * 30.0f, 0, 0.6f);
             dw = -cut * wy;
             dr.cuts++;
+        }
+        /* controlled: the slip angle grows no faster than CTL_BRATE; the yaw rate is damped by the excess, a quarter
+         * of it at most a frame (throttle and handbrake swing the car out at that pace, not faster) */
+        if (!frozen) {
+            float raw = (beta - beta_prev) / dt;
+            brate += (raw - brate) * (1.0f - expf(-dt / 0.05f));
+        }
+        if (lvl == 3 && s > 8.0f && beta > 6.0f && brate > CTL_BRATE && !hit) {
+            float mag = (brate - CTL_BRATE) / 57.29578f * (1.0f - expf(-dt / 0.1f)), cap = 0.25f * fabsf(wy + dw);
+            mag = mag > cap ? cap : mag;
+            dw += wy + dw > 0 ? -mag : mag;
+            dr.damps++;
         }
         if (dw != 0) {
             for (k = 0; k < 3; k++) {
@@ -318,6 +382,7 @@ static void drift_step(void)
             dr.max = 0;
             dr.kept = 0;
             dr.cuts = 0;
+            dr.damps = 0;
             dr.drag = 0;
             dr.frmin = fr;
         }
@@ -327,10 +392,11 @@ static void drift_step(void)
     } else if (dr.t > 0) {
         if (dr.t >= 0.5f)
             fprintf(stderr, "[DRIFT] slide: start %.0f km/h, end %.0f km/h, give-back %.1f km/h; %.1f s, max %.0f deg, "
-                            "rear grip min x%.2f, yaw cut %d frames, drag %.1f km/h, yaw rate %+.2f rad/s at "
-                            "the end\n",
+                            "rear grip min x%.2f, yaw cut %d frames, slip-rate damp %d frames, drag %.1f km/h, yaw "
+                            "rate %+.2f rad/s at the end%s\n",
                     (double)(dr.v0 * 3.6f), (double)(speed_prev * 3.6f), (double)(dr.kept * 3.6f), (double)dr.t,
-                    (double)dr.max, (double)dr.frmin, dr.cuts, (double)(dr.drag * 3.6f), (double)wy);
+                    (double)dr.max, (double)dr.frmin, dr.cuts, dr.damps, (double)(dr.drag * 3.6f), (double)wy,
+                    held ? ", still held" : "");
         dr.t = 0;
     }
 score:
