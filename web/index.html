@@ -420,7 +420,7 @@
   .hint.one.open, .set:focus-within .hint.one { white-space: normal; overflow-wrap: anywhere; }
   .btn.sw { min-width: 5.5rem; }
   .btn.sw::before { content: "Off"; }
-  .btn.sw[aria-pressed=true], #drift-btn[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: var(--gold-fill); }
+  .btn.sw[aria-pressed=true], #drift-btn[aria-pressed=true], #orbit-btn[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: var(--gold-fill); }
   .btn.sw[aria-pressed=true]::before { content: "On"; }
   .ig-tag { margin-left: 8px; font: 700 10px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
             text-shadow: none; vertical-align: 1px; white-space: nowrap; }
@@ -796,6 +796,7 @@
   <div class="stage-bar">
     <button type="button" class="btn" id="settings-btn" aria-haspopup="dialog" title="Settings: graphics, Free Roam, controls, keys, log, quit">&#9881; Settings</button>
     <button type="button" class="btn" id="drift-btn" aria-pressed="false" aria-haspopup="dialog" aria-controls="drift-dlg" title="Drift setup: drift mode, your own Custom drift, drift camera. Changes live.">Drift: Off</button>
+    <button type="button" class="btn" id="orbit-btn" aria-pressed="true" title="Orbit camera: while driving, drag on the picture with the mouse (or a finger) to look at your car from any side; the wheel moves the camera nearer or farther. Click to turn it on or off.">Orbit: On</button>
     <button type="button" class="btn" id="map-btn" title="Full map (d-pad up, I): press again to close it">Map</button>
   </div>
   <!-- in-game Settings (2026-11-12): sections in a nav (initTabs; the last one picked is kept), one pane scrolls,
@@ -1132,6 +1133,7 @@
     if (key === 'MC3_NAMETAG_SIZE') window.Module?.mc3SetNameTagSize?.(Number(value) || 50);   // web/pre.js, live
     if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
     if (key.startsWith('MC3_DRIFT')) syncDrift();
+    if (key === 'MC3_ORBIT_CAM') syncOrbit();
     if (live(key) && window.Module?.mc3SetLive) Module.mc3SetLive(key, buildEnv(null)[key]);   // the value a start would get
     if (key.startsWith('MC3_TOUCH') && touch) {   // web/touch.js, live
       const { mode, opacity } = touchOpts();
@@ -1144,6 +1146,12 @@
   // Drift button (stage bar): shows MC3_DRIFT and opens the Drift setup panel; setSetting calls it, so the button, the
   // panel and the Settings row agree
   const DRIFT_LEVELS = [['', 'Off'], ['1', 'On'], ['2', 'Strong'], ['3', 'Controlled'], ['4', 'Custom']], DRIFT_NAMES = Object.fromEntries(DRIFT_LEVELS);
+  // Orbit button (stage bar): shows and toggles MC3_ORBIT_CAM, so players see the mouse orbit camera exists
+  function syncOrbit() {
+    const on = settings.MC3_ORBIT_CAM !== '0';
+    $('orbit-btn').setAttribute('aria-pressed', on);
+    $('orbit-btn').textContent = 'Orbit: ' + (on ? 'On' : 'Off');
+  }
   function syncDrift() {
     const d = settings.MC3_DRIFT || '';
     $('drift-btn').setAttribute('aria-pressed', !!d);
@@ -3220,6 +3228,8 @@
   };
   $('settings-btn').onclick = () => { renderIngame(); syncSave(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
   syncDrift();
+  syncOrbit();
+  $('orbit-btn').onclick = () => setSetting('MC3_ORBIT_CAM', settings.MC3_ORBIT_CAM === '0' ? '' : '0');
   $('drift-btn').onclick = () => driftPanel.open();
   window.mc3TuneDock = on => driftPanel.dock(on);   // web/pre.js: the game's Tuning screen opened / closed
   $('map-btn').onclick = () => { touch?.tapMap(); $('canvas').focus(); };
