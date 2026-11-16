@@ -2028,6 +2028,8 @@ void sub_000EC910(void) { cam_call(53, 0x000EC910u, sub_000EC910_gen); }
 static void roam_shader_check(void);            /* roam_pool.c */
 static void online_tune_menu(void);             /* online_tune.c */
 static void online_tune_exit(void);
+static void online_tune_tick(void);
+static void online_tune_dtor(void);
 #endif
 static recomp_func_t police_lookup(uint32_t va); /* police.c: a police car's suspects, our car only */
 recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
@@ -2052,6 +2054,10 @@ recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
         return online_tune_menu;
     if (xbox_va == 0x0018FBF0u)                 /* the tune menu's Exit: Online garage/profile, peers (online_tune.c) */
         return online_tune_exit;
+    if (xbox_va == 0x0018F9D0u)                 /* mcMenuIGTune slot 7: the tune screen is open (online_tune.c) */
+        return online_tune_tick;
+    if (xbox_va == 0x0018F810u)                 /* mcMenuIGTune destructor: it closed */
+        return online_tune_dtor;
 #endif
     return mods_net_lookup(xbox_va);            /* System Link car records (mods_net.c) */
 }

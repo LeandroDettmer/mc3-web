@@ -372,6 +372,16 @@
   #fb-dlg .fb-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
   /* Drift setup (the stage bar's Drift button): level buttons, one slider a row, saved setups */
   #drift-dlg { width: min(560px, calc(100% - 16px)); max-height: calc(100dvh - 16px); }
+  /* docked beside the game's Tuning menu (driftPanel.dock): non-modal, left of the picture, compact, pointer only */
+  #drift-dlg.docked { position: absolute; inset: 8px auto auto 8px; margin: 0; width: min(300px, 30vw); max-height: calc(100% - 16px); padding: 10px; z-index: 3; }
+  #drift-dlg.docked .dlg-head { margin: -10px -10px 8px; padding: 6px 10px; }
+  #drift-dlg.docked .dlg-head strong { font-size: 13px; }
+  #drift-dlg.docked .btn { min-height: 28px; padding: 0 8px; font-size: 12px; }
+  #drift-dlg.docked h3 { margin: 8px 0 0; font-size: 13px; }
+  #drift-dlg.docked .hint { display: none; }
+  #drift-dlg.docked .ds-row { padding: 3px 0; font-size: 12px; }
+  #drift-dlg.docked .ds-row input[type=range] { min-height: 22px; }
+  #drift-dlg.docked .ds-save select, #drift-dlg.docked .ds-save input { min-height: 28px; font-size: 12px; }
   #drift-dlg .ds-modes { display: flex; flex-wrap: wrap; gap: 6px; }
   #drift-dlg .ds-modes .btn { flex: 1 1 5rem; }
   #drift-dlg .ds-modes .btn[aria-pressed=true] { border-color: var(--gold); color: var(--gold); background: var(--gold-fill); }
@@ -1210,8 +1220,10 @@
     $('ds-reset').onclick = () => { for (const r of DS) setSetting(key(r[0]), ''); say('Custom is back to Controlled\'s values.'); };
     $('ds-cam').onclick = () => setSetting('MC3_DRIFT_CAM', settings.MC3_DRIFT_CAM === '1' ? '' : '1');
     $('drift-close').onclick = () => d.close();
-    d.onclick = e => { if (e.target === d) d.close(); };   // the backdrop is the dialog itself
-    d.addEventListener('close', () => { if (playing) $('canvas').focus(); });
+    d.onclick = e => { if (e.target === d && !d.classList.contains('docked')) d.close(); };   // the backdrop is the dialog itself
+    d.addEventListener('close', () => { d.classList.remove('docked'); $('drift-title').textContent = 'Drift setup'; if (playing) $('canvas').focus(); });
+    // docked: a slider or button must not keep the keys, they go on to the game's menu
+    d.addEventListener('pointerup', e => { if (d.classList.contains('docked') && !e.target.closest?.('input[type=text],select')) $('canvas').focus(); });
     // the panel's keys are the page's (arrows move a slider): they must not reach the game (SDL listens on window)
     for (const k of ['keydown', 'keyup', 'keypress']) d.addEventListener(k, e => e.stopPropagation());
     driftPanel = {
@@ -1221,6 +1233,12 @@
         $('ds-help').textContent = HELP[m] || HELP[1];
         for (const r of DS) { const [inp, out] = inputs[r[0]], v = val(r); inp.value = v; out.textContent = r[6](v); }
         $('ds-cam').setAttribute('aria-pressed', settings.MC3_DRIFT_CAM === '1');
+      },
+      dock(on) {   // the game's Tuning screen is open (pre.js): show beside its menu, not modal; closed with it
+        if (on && !d.open && playing) {
+          d.classList.add('docked'); $('drift-title').textContent = 'Drift setup (also on the Drift button)';
+          this.sync(); syncSlots(); say('Your car only, on this device. Changes apply at once.'); d.show(); $('canvas').focus();
+        } else if (!on && d.classList.contains('docked')) d.close();
       },
       open() {
         this.sync(); syncSlots(); say('Your car only, on this device. Changes apply at once, also while driving.');
@@ -3198,6 +3216,7 @@
   $('settings-btn').onclick = () => { renderIngame(); syncSave(); dlg.showModal(); dlg.querySelector('.ig-nav [aria-selected=true]').focus(); };
   syncDrift();
   $('drift-btn').onclick = () => driftPanel.open();
+  window.mc3TuneDock = on => driftPanel.dock(on);   // web/pre.js: the game's Tuning screen opened / closed
   $('map-btn').onclick = () => { touch?.tapMap(); $('canvas').focus(); };
   $('ig-restart').onclick = () => { if (confirm('Restart the game? Anything not saved in the game is lost.')) restartGame({ resume: true }); };
   $('settings-close').onclick = () => dlg.close();

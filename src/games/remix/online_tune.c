@@ -41,6 +41,34 @@
 
 void sub_0018D610(void);                /* lifted: the pause menu's items */
 void sub_0018FBF0(void);                /* lifted: the tune menu's Exit */
+void sub_0018F9D0(void);                /* lifted: mcMenuIGTune vtable slot 7 (reads the Flash TuningOptions sliderVals) */
+void sub_0018F810(void);                /* lifted: mcMenuIGTune vtable slot 0 (destructor) */
+
+/* Tuning screen open (2026-11-16, untested in game): word 0 = 1 from the screen's slot-7 call (this vtable 0x4638B8,
+ * active byte +0x44) until its destructor, its Exit or the pause menu's next build; word 1 counts the calls. The page
+ * (web/pre.js) docks its Drift setup panel beside the game's menu while word 0 is 1. Slot 7 is reached through the
+ * vtable only, so recomp_lookup_manual hooks it (no relift). */
+static int online_tune_here(void);
+static uint32_t s_tune_box[2];
+EMSCRIPTEN_KEEPALIVE uintptr_t roam_tune_box(void) { return (uintptr_t)s_tune_box; }
+
+static void online_tune_tick(void)
+{
+    uint32_t self = g_ecx;
+    if (online_ram(self) && MEM32(self) == 0x004638B8u && (MEM8(self + 0x44u) & 1u) && online_tune_here()) {
+        s_tune_box[0] = 1;
+        s_tune_box[1]++;
+    }
+    sub_0018F9D0();
+}
+
+static void online_tune_dtor(void)
+{
+    if (online_ram(g_ecx) && MEM32(g_ecx) == 0x004638B8u)
+        s_tune_box[0] = 0;
+    sub_0018F810();
+}
+
 
 static int online_tune_here(void)
 {
@@ -50,6 +78,7 @@ static int online_tune_here(void)
 
 static void online_tune_menu(void)
 {
+    s_tune_box[0] = 0;
     static uint32_t said[5] = { ~0u, ~0u, ~0u, ~0u, ~0u };
     uint32_t setup = MEM32(ROAM_SETUP_VA), flow = MEM32(ROAM_FLOW_VA), fe = MEM32(0x0050F148u), page = 0;
     uint32_t now[5], players, phase, from, e9;
@@ -83,6 +112,7 @@ static void online_tune_menu(void)
 
 static void online_tune_exit(void)
 {
+    s_tune_box[0] = 0;
     static uint8_t keep[TUNE_CFG_SIZE];
     uint32_t setup = MEM32(ROAM_SETUP_VA), cur, slot, from, idx;
     uint8_t dirty;
