@@ -296,6 +296,18 @@ void mc3_web_saves_backup(void) { career_walk(1); }
 /* At boot and after a write: bad files get their newest good copy back. */
 void mc3_web_saves_check(void) { career_walk(0); }
 
+/* Cloud saves (web/cloud.js, docs/cloud-saves-plan.md): a count bumped after
+ * each good career or Online profile write. The page polls it while a game
+ * runs and sends the saves at most once every 5 minutes. Signal only: nothing
+ * here reads or writes a save. */
+static volatile uint32_t s_saves_seq;
+EMSCRIPTEN_KEEPALIVE uintptr_t mc3_saves_box(void) { return (uintptr_t)&s_saves_seq; }
+void mc3_web_saves_changed(void)
+{
+    uint32_t n = __atomic_add_fetch(&s_saves_seq, 1, __ATOMIC_SEQ_CST);
+    fprintf(stderr, "[SAVE] saves changed (seq %u)\n", (unsigned)n);
+}
+
 /* ── Dated snapshots (2026-11-13): on top of the rotating copies above ──
  *
  * At boot, after the check above, when the newest snapshot is 2 days old or

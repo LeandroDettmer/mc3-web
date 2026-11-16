@@ -219,6 +219,15 @@ Module['mc3Activity'] = function () {
   return Atomics.load(new Int32Array(HEAPU8.buffer), _mc3_activity_box() >>> 2);
 };
 
+// Cloud saves (web/cloud.js, polled by web/index.html while a game runs): src/web_fs.c's mc3_saves_box, a count the
+// game bumps after each good career or Online profile write. undefined until the runtime is up.
+Module['mc3SavesSeq'] = function () {
+  try {
+    if (typeof runtimeInitialized == 'undefined' || !runtimeInitialized || typeof _mc3_saves_box != 'function') return;
+    return Atomics.load(new Uint32Array(HEAPU8.buffer), _mc3_saves_box() >>> 2);
+  } catch (e) { return; }
+};
+
 // Main menu "Online (N)": the players in Free Roam now (the switch's players push, Module.mc3Lan.players.freeRoam.total,
 // web/lan.js) into src/games/remix/recomp_manual.c's mc3_online_count_box once a second; -1 unknown (offline, or
 // web/server's switch without the push): the item reads plain "Online". The game reads it at each build of the menu.

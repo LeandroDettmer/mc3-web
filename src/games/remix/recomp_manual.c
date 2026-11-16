@@ -3827,6 +3827,7 @@ int mc3_file_write(const char *path, const void *d, size_t n);
 int mc3_backup_rotate(const char *base, const uint8_t *d, size_t n);
 void mc3_web_saves_backup(void);
 void mc3_web_saves_check(void);
+void mc3_web_saves_changed(void);           /* web/cloud.js: a save was written */
 /* The file on disk is from a later build (a version above ours) or holds
  * nothing this build can read, and no copy could replace it: it is kept as
  * it is and this session saves nothing over it (the owner's rule: never
@@ -3951,10 +3952,11 @@ static int online_profile_save(void)            /* written beside, then renamed 
     memcpy(s_on_file, h, sizeof h);
     mkdir(ONLINE_PROFILE_DIR, 0777);
     ok = mc3_file_write(ONLINE_PROFILE_PATH, s_on_file, sizeof s_on_file);
-    if (ok)
+    if (ok) {
         fprintf(stderr, "[ONLINE] profile saved: $%u, %u cars, %u races won, %u drift points\n", s_on_money, h[4],
                 (unsigned)s_on_wins, (unsigned)s_on_drift);
-    else
+        mc3_web_saves_changed();
+    } else
         fprintf(stderr, "[ONLINE] profile NOT saved (" ONLINE_PROFILE_PATH "): the last one stays\n");
     return ok;
 }
@@ -4523,6 +4525,8 @@ void sub_00022040(void)
     sub_00022040_gen();
 #ifdef __EMSCRIPTEN__
     mc3_web_saves_check();                      /* a write cut short (storage full): the copy goes back */
+    if (g_eax & 0xFFu)
+        mc3_web_saves_changed();
     if (s_msave_wait) {                         /* our op 100 (or the game's own, same save): its answer */
         s_msave_wait = 0;
         manual_save_done((g_eax & 0xFFu) ? 2 : 4, "career", (g_eax & 0xFFu) ? NULL : "the write failed");
