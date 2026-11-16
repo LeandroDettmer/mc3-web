@@ -971,6 +971,13 @@ generated files when the lift inputs did not change.
   change, 12 a session) and the same CarCfg fields on every '[ROAM] tyres:
   ... sized' line: numbers not above the rim, 0 or NaN = the game's sizing
   (CarCfg); sane numbers = the renderer (RECOMP_GPU=webgl splits it).
+  Again on prod c4752fa (owner, 2026-11-16 evening; cause not proven, that
+  diagnostic was not on prod): not the orbit camera -- the matrix it turns,
+  [cam+0x6C], is cam+0xBC, the camera's own copy (base ctor sub_002CF4B0),
+  never the car's; the tyre/rim tables are shared, loaded per level
+  (sub_00275EF0 'tires'/'biketires' from the level load sub_00029240 and the
+  garage's sub_00150DE0), not per car. Open suspects: a car cache reference
+  of ours released against the wrong cache, texture eviction.
   Nearest gets a car: while
   no car can be built (count or heap), the nearest driving peer without one
   takes the farthest holder's (away = farthest) once 50 m nearer for 3 s;
@@ -1013,7 +1020,28 @@ generated files when the lift inputs did not change.
   a line equal to one of the 4 before it ('[WEB] log: N repeated
   line(s) left out') and keeps the log's first 80 lines and 150 from each
   of the first 4 ICALL/GUEST/KeBugCheck/Heap overrun lines apart, put first
-  in Save log, sent logs and the crash tail once the ring dropped them.
+  in Save log, sent logs and the crash tail once the ring dropped them;
+  since 2026-11-16 (untested in a browser) also the 200 lines before the
+  first of them (index.html logPush).
+  Sound list crash (owner, Free Roam, prod c4752fa, 2026-11-16; fix untested
+  in game): ICALL 0 from 0x0021ABB8, then hundreds of wild calls from
+  0x0020ED6B/0x0020EDDA/0x0020EE64. 0x0020EE64 is the loop of sub_0020EE40,
+  a callback list's broadcast (array of 16-byte {obj, fn, arg, kind 1-4}
+  at [list], u16 count +4, capacity +6; add sub_0020EDE0, call one
+  sub_0020ED50); Present sub_002D2990 broadcasts the end-of-frame list
+  0x534E20 (static array 0x534D10, 16 entries; sub_00378470), whose
+  sub_002177B0 runs the audio manager [0x5364B4] (vtable 0x44C180) slot
+  +0x14 sub_00060B20 -> sub_002179F0 -> sub_0021ABA0: a walk of the
+  positional sounds (head [0x5366CC], prev +0x34, next +0x38, linked +0x1A;
+  add sub_0021A140 / unlink sub_0021A170 = vt+0x4C/+0x50; base dtor
+  sub_0021ADA0 unlinks; vtables 0x46E230 base, 0x46E168, 0x4A3EB0)
+  calling each node's vt+4. A node read vtable+4 = 0: freed without its dtor
+  or reused; the wild calls after it are a cascade. Which object and owner:
+  not proven (the ring had lost the lines before). Now (browser,
+  roam_pool.c roam_snd_check via recomp_lookup_manual on 0x00060B20, no
+  relift) the list is checked before each walk; a node that is no sound is
+  cut out ('[ROAM] sound list: node ... is no sound ...' + its first 16
+  words + our last 16 car builds/deletes).
   Car radius (2026-11-12, untested in game): a peer gets a car only
   within 250 m of ours (2026-11-12: was 300; the game fades its traffic at 250 m, 0x4AFD18) (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
   a group race) and gives it back (parked, reused) after 3 s beyond 350 m;
