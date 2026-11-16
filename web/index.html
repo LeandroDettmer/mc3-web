@@ -355,14 +355,21 @@
   .stage-bar:hover, .stage-bar:focus-within { opacity: 1; }
   .stage-bar .btn { min-height: 32px; padding: 0 10px; font-size: 13px; }
   .pad-sel { max-width: 220px; min-height: 32px; font-size: 14px; }
-  #settings-dlg, #players-dlg, #changelog-dlg { width: min(520px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 16px; margin: auto;
+  #settings-dlg, #players-dlg, #changelog-dlg, #fb-dlg { width: min(520px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow: auto; padding: 16px; margin: auto;
                   background: var(--frame); color: inherit; border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--r); touch-action: pan-y; }
-  #settings-dlg::backdrop, #players-dlg::backdrop, #changelog-dlg::backdrop { background: rgba(0, 0, 0, .6); }
-  #settings-dlg .dlg-head, #players-dlg .dlg-head, #changelog-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -16px -16px 12px;
+  #settings-dlg::backdrop, #players-dlg::backdrop, #changelog-dlg::backdrop, #fb-dlg::backdrop { background: rgba(0, 0, 0, .6); }
+  #settings-dlg .dlg-head, #players-dlg .dlg-head, #changelog-dlg .dlg-head, #fb-dlg .dlg-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -16px -16px 12px;
                             padding: 8px 16px; background: linear-gradient(90deg, var(--red-lo) 40%, transparent), var(--grid);
                             border-bottom: 2px solid var(--silver); }
-  #settings-dlg .dlg-head strong, #players-dlg .dlg-head strong, #changelog-dlg .dlg-head strong { font-size: 18px; }
-  #settings-dlg .btn, #players-dlg .btn, #changelog-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
+  #settings-dlg .dlg-head strong, #players-dlg .dlg-head strong, #changelog-dlg .dlg-head strong, #fb-dlg .dlg-head strong { font-size: 18px; }
+  #settings-dlg .btn, #players-dlg .btn, #changelog-dlg .btn, #fb-dlg .btn { min-height: 40px; padding: 0 14px; font-size: 14px; }
+  #fb-dlg form { display: grid; gap: 10px; }
+  #fb-dlg textarea { min-height: 140px; font-size: 16px; }   /* 16px: iOS does not zoom the page on focus */
+  #fb-dlg select { min-height: 40px; font-size: 16px; }
+  #fb-dlg .fb-row { display: flex; gap: 12px; align-items: center; }
+  #fb-dlg .fb-row .btn { flex: none; }
+  #fb-dlg .fb-count { margin-left: auto; }
+  #fb-dlg .fb-hp { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
   /* in-game Settings (2026-11-12): title bar, the sections' nav (left; on top when narrow), one pane that scrolls,
      a footer with Restart and Close. The dialog has a fixed height so it does not jump between sections. */
   #settings-dlg { width: min(760px, calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)));
@@ -738,6 +745,7 @@
     <span class="bar-keys" aria-hidden="true"><kbd>↑</kbd><kbd>↓</kbd> Menu <kbd>Tab</kbd> Options</span>
     <span class="bar-links">
       <button type="button" class="btn" id="changelog-btn" aria-haspopup="dialog" aria-controls="changelog-dlg">Changelog</button>
+      <button type="button" class="btn fb-open" aria-haspopup="dialog" aria-controls="fb-dlg">Suggest</button>
       <a class="btn" id="bug-btn" href="https://github.com/LeandroDettmer/mc3-web/issues/new" target="_blank" rel="noopener">Report a bug</a>
       <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
       <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
@@ -745,6 +753,17 @@
   </footer>
 </div>
 
+<dialog id="fb-dlg" aria-labelledby="fb-title">
+    <form method="dialog" id="fb-form" autocomplete="off">
+      <div class="dlg-head"><strong id="fb-title">Suggest an improvement</strong></div>
+      <p class="hint">What would make the game better? Goes straight to the developer. No reply is sent: use Report a bug for that.</p>
+      <select id="fb-cat" aria-label="Category"><option>Gameplay</option><option>Bug</option><option>Online</option><option>Performance</option><option>Other</option></select>
+      <textarea id="fb-text" maxlength="1000" rows="6" aria-label="Your suggestion" aria-describedby="fb-msg" placeholder="10 to 1000 characters"></textarea>
+      <input class="fb-hp" id="fb-hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <p id="fb-msg" class="hint" role="status"></p>
+      <div class="fb-row"><button type="submit" class="btn" id="fb-send">Send</button><button type="button" class="btn" id="fb-cancel">Cancel</button><span class="hint fb-count" id="fb-count">0 / 1000</span></div>
+    </form>
+  </dialog>
 <dialog id="players-dlg" aria-labelledby="players-title">   <!-- outside .app and the stage: over the start page and the game -->
   <div class="dlg-head"><strong id="players-title">Players online</strong><button type="button" class="btn" id="players-close">Close</button></div>
   <p class="hint" id="players-sum"></p>
@@ -804,6 +823,8 @@
           <button type="button" class="btn" id="keys-btn" aria-expanded="false" aria-controls="keys-panel">Keys</button></div>
         <div class="set"><div><span class="set-label">Players online</span><p class="hint one">Who is online, by city and mode.</p></div>
           <button type="button" class="btn" id="players-btn" aria-haspopup="dialog" aria-controls="players-dlg">Players</button></div>
+        <div class="set"><div><span class="set-label">Suggest an improvement</span><p class="hint one">Tell the developer what to improve.</p></div>
+          <button type="button" class="btn fb-open" aria-haspopup="dialog" aria-controls="fb-dlg">Suggest</button></div>
         <div class="set"><div><span class="set-label">Log</span><p class="hint one">The game's log over the picture, or saved as a file for a bug report.</p></div>
           <span class="set-btns"><button type="button" class="btn" id="log-btn" aria-expanded="false" aria-controls="log">Log</button>
           <button type="button" class="btn" id="log-save">Save log</button></span></div>
@@ -2216,6 +2237,55 @@
     if ((sentN[tag] = (sentN[tag] || 0) + 1) > 3) return;
     logSend(tag, why).catch(e => console.warn('[WEB] log not sent:', e));
   }
+  // Suggest an improvement (2026-11-16): a short text (10-1000 characters, never the log) to the same log store,
+  // tag feedback (logs/<day>-feedback-<code>.txt; the Worker's 10 an hour per address is shared with crash logs).
+  // Anti-spam here too: 3 an hour, 10 a day, 60 s apart per browser (localStorage mc3.fbSent), the same text twice
+  // refused, a hidden field bots fill. A native <dialog> (top layer): the in-game Settings is a modal <dialog> itself
+  // and the stage may be fullscreen, so a plain div (modal()) would sit under it.
+  {
+    const d = $('fb-dlg'), t = $('fb-text'), msg = $('fb-msg'), send = $('fb-send');
+    const say = (s, bad) => { msg.textContent = s; msg.classList.toggle('bad-text', !!bad); };
+    const count = () => { $('fb-count').textContent = t.value.length + ' / 1000'; };
+    const mins = ms => { const m = Math.ceil(ms / 6e4); return m + (m === 1 ? ' minute' : ' minutes'); };
+    const fbOpen = () => {
+      t.value = store.get('fbDraft', ''); count();
+      say(cfg?.logUrl ? '' : 'Sending is not available on this server.', !cfg?.logUrl);
+      send.disabled = !cfg?.logUrl;
+      d.showModal(); t.focus();
+    };
+    for (const b of document.querySelectorAll('.fb-open')) b.onclick = fbOpen;
+    $('fb-cancel').onclick = () => d.close();
+    d.addEventListener('close', () => { if (playing) $('canvas').focus(); });
+    // typing is the page's: keys must not reach the game (SDL listens on window)
+    for (const k of ['keydown', 'keyup', 'keypress']) d.addEventListener(k, e => e.stopPropagation());
+    t.addEventListener('input', () => { count(); store.set('fbDraft', t.value); });
+    $('fb-form').onsubmit = async e => {
+      e.preventDefault();
+      const text = t.value.trim(), now = Date.now();
+      if ($('fb-hp').value) { say('Sent, thanks!'); return; }   // a bot: looks sent, goes nowhere
+      if (!cfg?.logUrl) return say('Sending is not available on this server.', true);
+      if (text.length < 10) return say('Write at least 10 characters.', true);
+      if (text === store.get('fbLast', '')) return say('You already sent this one.', true);
+      const sent = store.get('fbSent', []).filter(x => now - x < 864e5);   // oldest first
+      const wait = Math.max(sent.length ? sent[sent.length - 1] + 6e4 - now : 0,
+        sent.filter(x => now - x < 36e5).length >= 3 ? sent[sent.length - 3] + 36e5 - now : 0,
+        sent.length >= 10 ? sent[sent.length - 10] + 864e5 - now : 0);
+      if (wait > 0) return say('Too many, try again in ' + mins(wait) + '.', true);
+      send.disabled = true; say('Sending…');
+      const body = ['=== mc3 feedback: ' + $('fb-cat').value,
+        'nick: ' + ($('name').value.trim() || '?'), 'flag: ' + (flagCode() || 'none'),
+        'build: ' + (cfg.version || 'unknown'), 'where: ' + whereNow(),
+        'browser: ' + navigator.userAgent, 'sent: ' + new Date().toISOString(), '===', text, ''].join('\n');
+      try {
+        const code = await logPost('feedback', body);
+        sent.push(now); store.set('fbSent', sent); store.set('fbLast', text); store.set('fbDraft', '');
+        t.value = ''; count(); say('Sent, thanks! (code ' + code + ')');
+      } catch (err) {
+        say(err === 429 ? 'Too many sends from your network. Try again in a while.' : 'Could not send (' + err + '). Try again later.', true);
+      }
+      send.disabled = false;
+    };
+  }
   // Errors outside the game's log while it starts or runs (web/pre.js's memory refusal, a failed compile): before the
   // runtime is up they stop the start (the box); after it, they are logged and sent without a box.
   let booted = false;   // set when the runtime is up
@@ -3121,7 +3191,7 @@
   // focus to Quit, where Enter or Space then pressed it. Inside an open dialog they are the page's (focus order, selects).
   const GAME_KEYS = new Set(['Tab', 'Enter', 'Space', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
   for (const t of ['keydown', 'keyup'])
-    addEventListener(t, e => { if (playing && GAME_KEYS.has(e.code) && !e.target.closest?.('#races-panel, #players-dlg, #settings-dlg')) e.preventDefault(); }, true);
+    addEventListener(t, e => { if (playing && GAME_KEYS.has(e.code) && !e.target.closest?.('#races-panel, #players-dlg, #settings-dlg, #fb-dlg')) e.preventDefault(); }, true);
   document.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || playing || e.repeat) return;
     if (e.target.closest('input, select, textarea, button, a, summary')) return;
