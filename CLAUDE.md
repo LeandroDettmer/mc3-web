@@ -1237,6 +1237,17 @@ only with MC3_PERF, their only reader.
   edge stretched past it; now every vertex must sit on or beyond an edge
   (a full-screen quad: MC3's post passes are single 4-vertex quads,
   sub_00041480 via D3D Begin/End sub_00416390/sub_004163B0).
+  Faint copy of the car (owner, 2026-11-16; fix e5ffbe3 untested in
+  game): the motion blur draws the back buffer as fixed-function quads in
+  -1..1 (w = 1), corners moved toward/away from the blur centre
+  (0x00043A50); the shader's per-vertex edge rule squeezed the inner copy
+  (corners just inside) k times narrower over the middle. wide_2d now
+  judges fixed-function w = 1 draws too (CPU composite): full-screen (all
+  on/beyond an edge, or one quad with corners within pw/8 of the edges,
+  half the height) -> unsqueezed; other fixed-function draws keep the
+  per-vertex rule (sub_000415C0's quadrants meet at the centre). Yellow
+  arc from the minimap ring to the top: cause not found; Hor+ only moves
+  x, the arc reaches y 0, so likely not Hor+ (check at 16:9).
 - **Live settings** (2026-11-12, untested in a browser): the in-game
   Settings window's live rows (web/index.html LIVE, setSetting) go through
   web/pre.js Module.mc3SetLive(key, the value buildEnv would give) into
