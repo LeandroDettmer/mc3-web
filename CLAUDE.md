@@ -812,6 +812,9 @@ generated files when the lift inputs did not change.
   5 min, 8 max; Accept only on the one offered now). Messages: roam core GAME record
   (type 10, core 17, peer to peer, the hubs untouched; challenge v5 since
   2026-11-12: INVITE/JOIN/NO/GO/PROG, v4 and v5 drop each other's).
+  Race invites (2026-11-16, untested in game; browser): in-game Settings 'Race invites' On/Off (Online group, live word 6, env
+  MC3_RACE_INVITES=0) makes rch_recv answer every INVITE (street or group) NO busy at once, no prompt, inbox entry or green
+  Flash hint; '[CHALLENGE] invite from <name> refused: invites off' once per invite; our own offers and AI races unchanged.
   '[CHALLENGE]' lines; MC3_ROAM_CHALLENGE=0 off, =2 no HUD/audio calls,
   =3 no native checkpoints.
   Many cars (2026-11-09, untested in game; src/games/remix/roam_cars.c,

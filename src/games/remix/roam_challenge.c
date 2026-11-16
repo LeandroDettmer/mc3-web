@@ -906,6 +906,17 @@ static int rch_racer_of(uint32_t id)            /* the slot of the racer with ro
     return -1;
 }
 
+/* Race invites off (live word 1 off / 2 on, else MC3_RACE_INVITES; on by default; browser only) */
+static int rch_invites_off(void)
+{
+#ifdef __EMSCRIPTEN__
+    int32_t l = mc3_live(MC3_LIVE_RACE_INVITES);
+    const char *e = getenv("MC3_RACE_INVITES");
+    return l ? l == 1 : e && e[0] == '0';
+#else
+    return 0;
+#endif
+}
 static void ppl_rx(uint32_t from, const uint8_t *b, int n);    /* police_players.c */
 static void rch_recv(const float me[3], double now, uint32_t esp)
 {
@@ -923,6 +934,17 @@ static void rch_recv(const float me[3], double now, uint32_t esp)
         op = b[2];
         race = rch_get32(b + 4);
         if (op == RCH_OP_INVITE) {
+            if (rch_invites_off()) {            /* the Settings' Race invites row: refuse at once, no prompt or inbox entry */
+                static uint32_t last_from, last_race;
+                if (from != last_from || race != last_race) {
+                    last_from = from;
+                    last_race = race;
+                    pp = rch_peer(from);
+                    fprintf(stderr, "[CHALLENGE] invite from %s refused: invites off\n", pp ? pp->name : "?");
+                }
+                rch_send(from, race, RCH_OP_NO, RCH_NO_BUSY, now);
+                continue;
+            }
             if ((s_rch.st == RCH_INVITED || s_rch.st == RCH_JOINED) && s_rch.peer == from && s_rch.race == race) {
                 s_rch.heard = now;
                 k = b[3] == 0 || s_rch.ev_index != 0xFFFFu ? 24 : 24 + 12 * b[3];   /* past the checkpoints: joined */
