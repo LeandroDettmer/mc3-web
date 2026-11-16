@@ -1601,8 +1601,31 @@ only with MC3_PERF, their only reader.
   speedometer is assets_x.dat texture_x/hud_speed_1/2/3.tex (dial to 175/200/250) +
   garage_hud_speed.tex, 128x128 type 0x0E (BGRA palette 1024 B + u8 indices, linear),
   dial and needle in one atlas, stored transposed (layout in tune/hud/dynamic/
-  speedometer.huddamageshared); the PS2 texture has the same layout (packs at 3x, alpha
-  0x80 = opaque). Tachometer hud_tac_1..4 untouched. Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
+  speedometer.huddamageshared); the PS2 texture has the same layout (stock 128x128 as the
+  Xbox's, alpha 0x80 = opaque). Tachometer hud_tac_1..4 untouched. Hi-res HUD pack
+  (2026-11-16, untested in a browser; pack hud_hd, local, not in index.json): the game
+  computes UVs as tune pixel / texture size and sizes quads from it, so a bigger .tex breaks
+  the HUD; the WebGPU renderer swaps the texture on the GPU instead (xboxrecomp wgpu_tex.c
+  "Hi-res replacements"), keyed by content (wgpu_hires.h: DXT level-0 blocks, else the
+  decoded B G R A texels, + size and DXT colour; a palettised image keys by its looked-up
+  colours, so P8/P4, swizzled or not, the same; a new palette = a new key). tools/
+  hud_hd_pack.py pack <disc> <out> computes that key from assets_x.dat's texture_x/{hud,
+  navsys,msg,illustration,icon,background,bottom,barround,bar,layer}_*.tex (221 without
+  *_proxy, 199 distinct), upscales 4x (xbrz when installed, else Lanczos + unsharp on
+  premultiplied colour) into <out>/textures/<key>.png (39 MB); the host test
+  wgpu_hires_test.c (how to run: its header) checks the 244 stock files' tool keys against
+  the renderer's decode (stored as I8 or A8R8G8B8). .tex types: 0x16/0x18/0x1A DXT1/3/5;
+  0x01 P8, 0x0E PA8 (BGRA palette 1024 B, then u8 indices); 0x0F P4, 0x10 PA4 (palette 64 B,
+  then 4-bit indices, low nibble first); indices linear. mods.c hands a pack's textures/
+  folder to nv2a_wgpu_hires_dir (browser only; not overlay files); at upload a known key
+  goes to hd_pack.c's worker (read on use, PNG decode, mips, DXT1/5 with stb_dxt), the stock
+  texture draws until it is in, then trilinear. Off: no texture-compression-bc, MC3_LOWMEM=1
+  (the page now passes it in the low-memory profile), WebGL. VRAM at 4x: 16 B (DXT5) or 8 B
+  (DXT1) per stock texel + 1/3 for mips, only what is drawn: a race HUD ~5 MB, all 199
+  ~78 MB, inside RECOMP_GL_TEX_MB. '[WGPU] hi-res: N replacements in <dir>' at the first
+  upload, '[WGPU] hi-res: N replacements loaded, M used' ~2 min after the first one went on
+  the GPU. Shows above Resolution 1x only (the HUD is drawn small). Not covered: .xbck
+  (Flash) bitmaps. Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
   main's core 19 (country flag) and car-mod's core 19 (second car record)
   were separate bumps, then main took 20 for the near flag; RC_CORE_CFG2 = 21.
   Police pack (REMOVED 2026-11-15, owner: no AI police; police_pack() in
