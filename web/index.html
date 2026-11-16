@@ -1098,6 +1098,7 @@
     return TV_UA.test(navigator.userAgent) || mobile() || (navigator.deviceMemory > 0 && navigator.deviceMemory <= 2);
   }
   // What the game gets: rows, then Advanced, then the URL query; the disc last.
+  var orphanGpu;   // the WebGL renderer, asked once at a start (buildEnv)
   function buildEnv(disc) {
     const env = { ...settings, ...parseRaw($('raw').value).env };
     for (const [k, v] of new URLSearchParams(location.search))
@@ -1127,7 +1128,10 @@
     // WebGL on Apple (Safari and Chrome: ANGLE on Metal; Firefox: Apple's GL): each draw's vertices in new buffer
     // storage. An in-place update of the 64 MB vertex buffer copied all of it per draw: 7-30 s frames at the
     // profile screen, then context lost (Intel Mac Safari 27.2, 2026-11-14). The WebGPU renderer ignores it.
-    if (env.RECOMP_GL_ORPHAN === undefined && /Macintosh|iPhone|iPad|iPod/.test(navigator.userAgent)) env.RECOMP_GL_ORPHAN = '1';
+    // Android Mali (ANGLE on GLES) the same: ~20 s frames at the profile screen (logs 73FVCS 7W2ZDX F9WPRV QJHAEP,
+    // 2026-11-15). The renderer is asked at a start only (disc given), once: pageRenderer makes a WebGL context.
+    if (env.RECOMP_GL_ORPHAN === undefined && (/Macintosh|iPhone|iPad|iPod/.test(navigator.userAgent)
+        || disc && /Mali/i.test(orphanGpu ??= pageRenderer()))) env.RECOMP_GL_ORPHAN = '1';
     if (low) {   // TVs and small devices (lowMem): lighter on memory, 1x (above), unless the player picked otherwise
       // A 32-bit TV browser gives 256 MB and never grows it (2026-11-09): GL record queue 4 MB (48), GL ring copies
       // 4 + 1 MB (16 + 4), 256 program slots (1024), thread stacks 1 MB (4); vertex pool 8 MB (48, GPU memory); disc LRU
