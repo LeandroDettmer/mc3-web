@@ -15,7 +15,11 @@ picker (the first is /disc/).
   - /disc.list: the disc's files, one relative path per line (WASMFS has no
     directory listing over HTTP);
   - /disc.manifest: the same files with size and mtime, JSON (web/disc_cache.js:
-    a file changed here gets a new key in the browser's disc cache).
+    a file changed here gets a new key in the browser's disc cache);
+  - packed copies (tools/disc_pack.py), when <disc>.gzb/ is beside a disc
+    folder: the manifest gives each packed file still the same size and mtime
+    its "z", and /disc/<path>.gzb is served from there, so the page reads
+    those files packed, as from R2 (no packs, or a stale one: read raw).
 Standard library only. Binds to localhost unless --bind says otherwise: the
 disc is yours, not the network's.
 """
@@ -27,6 +31,9 @@ import re
 import sys
 import urllib.parse
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import disc_pack  # noqa: E402
 
 DISC_PREFIX = "/disc"
 LIST_PATH = DISC_PREFIX + ".list"
@@ -59,11 +66,14 @@ def disc_list(disc):
 
 
 def disc_manifest(disc):
-    files = []
+    files, packs = [], disc_pack.index(disc)
     for rel in disc_list(disc).decode("utf-8").split("\n"):
         if rel:
             st = os.stat(os.path.join(disc, *rel.split("/")))
             files.append({"p": rel, "s": st.st_size, "m": int(st.st_mtime)})
+            z = rel in packs and disc_pack.packed(disc, rel, st.st_size, int(st.st_mtime))
+            if z:
+                files[-1]["z"] = z
     return json.dumps({"files": files}).encode("utf-8")
 
 
@@ -98,11 +108,11 @@ class Handler(SimpleHTTPRequestHandler):
         p = urllib.parse.unquote(urllib.parse.urlsplit(path).path)
         bases = self.roots or [self.root]
         if self.disc and (p == DISC_PREFIX or p.startswith(DISC_PREFIX + "/")):
-            bases, p = [self.disc], p[len(DISC_PREFIX):]
+            bases, p = [self.disc, disc_pack.side(self.disc)], p[len(DISC_PREFIX):]
         elif p.startswith(DISCS_PREFIX):
             name, _, rest = p[len(DISCS_PREFIX):].partition("/")
             if name in self.discs:
-                bases, p = [self.discs[name]], rest
+                bases, p = [self.discs[name], disc_pack.side(self.discs[name])], rest
         # Never above the base: '..', '.' and empty parts (WASMFS asks for
         # /disc//file) are dropped.
         parts = [x for x in p.split("/") if x not in ("", ".", "..")]
