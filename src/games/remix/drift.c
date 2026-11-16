@@ -42,9 +42,20 @@
  * SSSValue +0x10 / SSSThreshold +0xC, FileIO sub_002C9840, vtable 0x47681C;
  * its owner not found): SteeringLimit scales the angle after it.
  *
- * Levels: MC3_DRIFT=1 normal, =2 strong; the page's live word: 1 off, 2 on
- * (the environment's level, normal if that is off), 3 strong. Off: every
- * value back (if still ours). '[DRIFT]' lines: on/off, the car's layout once
+ * Levels: MC3_DRIFT=1 normal, =2 strong, =3 controlled; the page's live word:
+ * 1 off, 2 on (the environment's level, normal if that is off), 3 strong,
+ * 4 controlled. Controlled (2026-11-15, untested in game) adds, while a slide
+ * runs: a yaw-rate cap (w_max) and an angle hold, a PD on the slip angle
+ * toward a target the throttle sets (beta_lo at none, beta_hi at full; it
+ * widens the angle only with throttle > 0.2, so lifting off lets the car
+ * out), both as a change of the yaw rate written like the yaw cut (w and L
+ * along up); the steer input is never written (peers get our inputs). Sign:
+ * with the rows' cross product r x u = h b (h = +-1, measured each frame), a
+ * yaw rate w about up turns the car's right row by w u x r = -h w b, so the
+ * slip toward the right row, atan2(v.r, -v.b), grows at +h w: the hold
+ * writes h x the slip's sign x its push. Off: every value back (if still
+ * ours). The drift camera (drift_cam, at the end) is its own switch, any
+ * level. '[DRIFT]' lines: on/off, the car's layout once
  * per car, one line per drift of 0.5 s or more. Drift scoring (drift_score.c)
  * gets this frame's slip angle, speed and hit test with the mode on or off.
  *
@@ -76,11 +87,15 @@ typedef struct {
     float front;        /* front SlidingFric x (1 + front) at 20 deg of slip and more */
     float yaw_cut;      /* share of the yaw rate cut per 1/30 s at 20 deg past beta_max */
     float keep;         /* share of the speed a slide scrubs off given back */
+    float w_max;        /* controlled: yaw rate cap in a slide, rad/s (0 = none) */
+    float beta_lo, beta_hi; /* controlled: the slip angle held at no throttle / full throttle, deg */
+    float kp, kd;       /* controlled: the hold's push, 1/s^2 x angle error (rad), and its damping, 1/s x angle rate */
 } drift_tune;
-static const drift_tune k_drift[2] = {
-    /* base   kick   slide  thr    catch  bmax   steer  front  yaw    keep */
-    { 0.92f, 0.50f, 0.62f, 0.10f, 1.05f, 40.0f, 0.60f, 0.15f, 0.25f, 0.50f },   /* 1 normal */
-    { 0.85f, 0.42f, 0.52f, 0.12f, 1.00f, 50.0f, 1.00f, 0.20f, 0.35f, 0.70f },   /* 2 strong */
+static const drift_tune k_drift[3] = {
+    /* base   kick   slide  thr    catch  bmax   steer  front  yaw    keep   w_max  b_lo   b_hi   kp    kd */
+    { 0.92f, 0.50f, 0.62f, 0.10f, 1.05f, 40.0f, 0.60f, 0.15f, 0.25f, 0.50f },                               /* 1 normal */
+    { 0.85f, 0.42f, 0.52f, 0.12f, 1.00f, 50.0f, 1.00f, 0.20f, 0.35f, 0.70f },                               /* 2 strong */
+    { 0.95f, 0.60f, 0.72f, 0.08f, 1.10f, 35.0f, 0.45f, 0.20f, 0.45f, 0.60f, 1.3f, 15.0f, 32.0f, 2.5f, 0.6f },/* 3 controlled */
 };
 
 /* one tune value we scale: the game's (orig) and ours (set) */
@@ -114,19 +129,21 @@ static void drift_step(void)
     static float v_last[3], dv_prev[3], dn_prev, dt_prev, wy_prev;
     static char why[200];
     static float fr = 1.0f, kick_t, lift_t, thr_prev, beta_prev, speed_prev, speed_prev2;
-    static struct { float t, max, v0, g, kept, frmin; int cuts; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
+    static struct { float t, max, v0, g, kept, frmin; int cuts, held; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
+    static float bs_prev;                       /* |signed slip| the frame before, rad (controlled's damping) */
+    static const char *const k_name[4] = { "off", "on", "strong", "controlled" };
     const drift_tune *t;
     int32_t l = mc3_live(MC3_LIVE_DRIFT);
     uint32_t pm = MEM32(0x00558814u), p, veh, sim, tf = 0, tb = 0, car, ph, ics = 0, c, in = 0;
     float v[3], w[3], rt[3], up[3], bk[3], s = 0, beta = 0, wy = 0, thr = 0, brk = 0, hb = 0, st = 0, dt, tgt,
-          amt;
+          amt, bs = 0, h = 1;   /* bs: signed slip toward the right row (rad, 0 = none or reversing); h: r x u = h b */
     int hit = 0, frozen = 0;   /* hit: why[] says what was measured */
     int lvl, k;
     if (env < 0) {
         const char *e = getenv("MC3_DRIFT");
-        env = e && (e[0] == '1' || e[0] == '2') ? e[0] - '0' : 0;
+        env = e && e[0] >= '1' && e[0] <= '3' ? e[0] - '0' : 0;
     }
-    lvl = l ? (l == 1 ? 0 : l == 3 ? 2 : env ? env : 1) : env;
+    lvl = l ? (l == 1 ? 0 : l == 3 ? 2 : l == 4 ? 3 : env ? env : 1) : env;
     if (online_ram(pm) && online_ram(p = MEM32(pm + 8u)) && online_ram(veh = MEM32(p + 0x14u)) &&
         online_ram(sim = MEM32(veh + 0x50u)) && MEM32(sim) == 0x00456550u &&
         online_ram(tf = MEM32(sim + 0x54u)) && MEM32(tf) == 0x0044D6C8u &&
@@ -141,8 +158,7 @@ static void drift_step(void)
         tf = tb = 0;
     if (lvl != said) {
         if (said >= 0 || lvl)
-            fprintf(stderr, "[DRIFT] drift mode %s (MC3_DRIFT%s)\n", lvl == 2 ? "strong" : lvl ? "on" : "off",
-                    l ? ", in-game Settings" : "");
+            fprintf(stderr, "[DRIFT] drift mode %s (MC3_DRIFT%s)\n", k_name[lvl], l ? ", in-game Settings" : "");
         said = lvl;
     }
     if (!lvl || !tb) {
@@ -188,6 +204,11 @@ static void drift_step(void)
         beta = s > 6.0f ? atan2f(fabsf(vl), fabsf(vf)) * 57.29578f : 0.0f;
         if (beta != beta || s != s)
             beta = s = 0;
+        bs = s > 6.0f && vf < -1.0f ? atan2f(vl, -vf) : 0.0f;   /* vf is along the back row: < 0 going forward */
+        if (bs != bs)
+            bs = 0;
+        h = (rt[1] * up[2] - rt[2] * up[1]) * bk[0] + (rt[2] * up[0] - rt[0] * up[2]) * bk[1] +
+            (rt[0] * up[1] - rt[1] * up[0]) * bk[2] < 0 ? -1.0f : 1.0f;
         frozen = ics == ics_last && v[0] == v_last[0] && v[1] == v_last[1] && v[2] == v_last[2];
         /* a hit (see the header): v_last is the velocity as the last frame left it, our own writes included */
         if (ics == ics_last && !frozen) {
@@ -228,7 +249,7 @@ static void drift_step(void)
                             "hb %.2f steer %+.2f); %s\n", (double)MEMF(ics + 4u), (double)MEMF(ics + 0x10u),
                     (double)MEMF(ics + 0x28u), (double)MEMF(tf + 0x24u), (double)MEMF(tb + 0x68u),
                     (double)MEMF(tb + 0x6Cu), (double)MEMF(tb + 0x38u), (unsigned)in, (double)thr, (double)brk,
-                    (double)hb, (double)st, lvl == 2 ? "strong" : "normal");
+                    (double)hb, (double)st, lvl == 3 ? "controlled" : lvl == 2 ? "strong" : "normal");
         }
     }
 
@@ -259,15 +280,30 @@ static void drift_step(void)
     df_set(&s_df[DF_FSTEER], tf + 0x24u, 1.0f + t->steer * amt * drift_clamp(beta / 30.0f, 0, 1));
 
     if (ics) {
+        float dw = 0, iy = MEMF(ics + 0x10u);
         /* no spin-outs: past beta_max and still growing, cut the yaw rate (angular velocity and momentum together) */
         if (beta > t->beta_max && beta > beta_prev) {
             float cut = drift_clamp(t->yaw_cut * drift_clamp((beta - t->beta_max) / 20.0f, 0, 1) * dt * 30.0f, 0, 0.6f);
-            float dw = -cut * wy, iy = MEMF(ics + 0x10u);
+            dw = -cut * wy;
+            dr.cuts++;
+        }
+        /* controlled (see the header): in a slide going forward, cap the yaw rate, then hold the slip angle at the
+         * throttle's target; both a change of the yaw rate, never an input */
+        if (t->w_max > 0 && dr.t > 0 && bs != 0 && s > 8.0f && !hit && !frozen) {
+            float wc = wy + dw, b = fabsf(bs), bt = (t->beta_lo + (t->beta_hi - t->beta_lo) * thr) / 57.29578f,
+                  a = t->kp * (bt - b) - t->kd * (b - bs_prev) / dt;
+            if (fabsf(wc) > t->w_max)
+                dw -= (fabsf(wc) - t->w_max) * (wc < 0 ? -1.0f : 1.0f) * drift_clamp(dt / 0.06f, 0, 1);
+            if (a > 0)                          /* wider only on the throttle: lifting off lets the car out */
+                a *= drift_clamp((thr - 0.2f) / 0.3f, 0, 1);
+            dw += h * (bs < 0 ? -1.0f : 1.0f) * drift_clamp(a, -1.5f, 1.5f) * dt;
+            dr.held++;
+        }
+        if (dw != 0) {
             for (k = 0; k < 3; k++) {
                 MEMF(ics + 0x50u + 4u * k) = w[k] + dw * up[k];
                 MEMF(ics + 0x38u + 4u * k) += iy * dw * up[k];
             }
-            dr.cuts++;
         }
         /* speed: give back part of what the slide scrubbed off since its start. Measured on the slide's net change
          * (g, the game's own frame deltas summed), not per frame: giving back each frame's drop and keeping each
@@ -298,7 +334,7 @@ static void drift_step(void)
             dr.g = 0;
             dr.max = 0;
             dr.kept = 0;
-            dr.cuts = 0;
+            dr.cuts = dr.held = 0;
             dr.frmin = fr;
         }
         dr.t += dt;
@@ -307,9 +343,10 @@ static void drift_step(void)
     } else if (dr.t > 0) {
         if (dr.t >= 0.5f)
             fprintf(stderr, "[DRIFT] slide: start %.0f km/h, end %.0f km/h, give-back %.1f km/h; %.1f s, max %.0f deg, "
-                            "rear grip min x%.2f, yaw cut %d frames, yaw rate %+.2f rad/s at the end\n",
+                            "rear grip min x%.2f, yaw cut %d frames, controlled %d frames, yaw rate %+.2f rad/s at "
+                            "the end (rows h %+.0f)\n",
                     (double)(dr.v0 * 3.6f), (double)(speed_prev * 3.6f), (double)(dr.kept * 3.6f), (double)dr.t,
-                    (double)dr.max, (double)dr.frmin, dr.cuts, (double)wy);
+                    (double)dr.max, (double)dr.frmin, dr.cuts, dr.held, (double)wy, (double)h);
         dr.t = 0;
     }
 score:
@@ -322,6 +359,93 @@ score:
         }
     }
     beta_prev = beta;
+    bs_prev = fabsf(bs);
     speed_prev2 = speed_prev;
     speed_prev = s;
+}
+
+/* Drift camera (MC3_DRIFT_CAM=1; live word MC3_LIVE_DRIFT_CAM 1 off / 2 on; any Drift mode level, off too;
+ * 2026-11-15, untested in game). Around the race chase camera's update (vtable 0x00476BEC, slot 10 sub_002CF760)
+ * for player 0's car. That update's pose (sub_00355650, 0x003557F3) puts the camera behind the body's velocity
+ * (ics +0x44, -normalize) when the car is on the ground above 10 m/s, else behind its heading: in a slide it looks
+ * along the slide, the car shown side on. Here, while the update runs, the velocity reads turned from the heading
+ * toward the real one by m x the slip (m 1 gripping -> 0.65 at 35 deg of slip and more; same speed and vertical
+ * part, so the update's speed tests do not change), FOV offset +0x144 + 5 deg x k and distance scale +0x148 x
+ * (1 + 0.15 k), k 0..1 from 10 to 35 deg of slip; m and k follow their targets over 0.25 s of the frame time
+ * (0x4B2D70: the step, 1/30, 1/60, 1/N s), so every frame rate moves alike. Every value is put back after the
+ * update (the camera runs after the frame's physics: the car never sees them). Not while paused or in state 3.
+ * Unproven: that the chase camera's FOV (+0x84) reaches the projection (MC3_CAM_TRACE=1 '[CAM] projection' lines:
+ * if fov does not move with k, the delta goes on sub_002D4AE0's fov argument instead). '[DRIFT] camera on|off'. */
+static void drift_cam(void)
+{
+    static int env = -1, said = -1;
+    static float m = 1.0f, kf;                  /* the smoothed share of the slip the camera turns, the slip factor */
+    uint32_t cam = g_ecx, pm, sm, p, veh, car, ph, ics = 0;
+    int32_t l = mc3_live(MC3_LIVE_DRIFT_CAM);
+    int on, k, swap = 0, fk = 0;
+    float v[3], bk[3], fx, fz, n, sh, beta, mt = 1.0f, kt = 0.0f, a, dt, fov = 0, dsc = 0;
+    if (env < 0) {
+        const char *e = getenv("MC3_DRIFT_CAM");
+        env = e && e[0] == '1';
+    }
+    on = l ? l == 2 : env;
+    if (on != said) {
+        if (said >= 0 || on)
+            fprintf(stderr, "[DRIFT] camera %s (MC3_DRIFT_CAM%s)\n", on ? "on" : "off", l ? ", in-game Settings" : "");
+        said = on;
+        m = 1.0f;
+        kf = 0.0f;
+    }
+    if (on && online_ram(cam) && MEM32(cam) == 0x00476BECu && online_ram(pm = MEM32(0x00558814u)) &&
+        online_ram(p = MEM32(pm + 8u)) && online_ram(veh = MEM32(p + 0x14u)) && MEM32(cam + 0x130u) == veh &&
+        online_ram(sm = MEM32(0x00557ED0u)) && MEM32(sm + 4u) != 3u && MEM8(sm + 9u) == 0 &&
+        online_ram(car = MEM32(veh + 8u)) && online_ram(ph = MEM32(car + 0x68u)) && online_ram(ics = MEM32(ph + 0x10u))) {
+        dt = drift_clamp(MEMF(0x004B2D70u), 0.005f, 0.07f);
+        for (k = 0; k < 3; k++) {
+            v[k] = MEMF(ics + 0x44u + 4u * k);
+            bk[k] = MEMF(ics + 0x74u + 4u * k);
+        }
+        fx = -bk[0];
+        fz = -bk[2];
+        n = sqrtf(fx * fx + fz * fz);
+        sh = sqrtf(v[0] * v[0] + v[2] * v[2]);
+        if (n > 0.1f && sh >= 10.5f && sh == sh) {
+            fx /= n;
+            fz /= n;
+            /* slip measured toward the side (-fz, fx) and the direction turned toward that same side: m = 1 gives
+             * the velocity back exactly, whatever the rows' handedness */
+            beta = atan2f(v[2] * fx - v[0] * fz, v[0] * fx + v[2] * fz);
+            if (fabsf(beta) <= 100.0f / 57.29578f) {   /* past it: reversing or spun, the game's own */
+                float bd = fabsf(beta) * 57.29578f;
+                swap = 1;
+                mt = 1.0f - 0.35f * drift_clamp((bd - 5.0f) / 30.0f, 0, 1);
+                kt = drift_clamp((bd - 10.0f) / 25.0f, 0, 1);
+            }
+        }
+        a = 1.0f - expf(-dt / 0.25f);
+        m += (mt - m) * a;
+        kf += (kt - kf) * a;
+        if (swap && fabsf(1.0f - m) > 1e-4f) {
+            float r = m * beta, c = cosf(r), s = sinf(r);
+            MEMF(ics + 0x44u) = (c * fx - s * fz) * sh;
+            MEMF(ics + 0x4Cu) = (c * fz + s * fx) * sh;
+        } else
+            swap = 0;
+        if (kf > 1e-3f) {
+            fk = 1;
+            fov = MEMF(cam + 0x144u);
+            dsc = MEMF(cam + 0x148u);
+            MEMF(cam + 0x144u) = fov + 5.0f * kf;
+            MEMF(cam + 0x148u) = dsc * (1.0f + 0.15f * kf);
+        }
+    }
+    cam_call(13, 0x002CF760u, sub_002CF760_gen);
+    if (swap) {
+        MEMF(ics + 0x44u) = v[0];
+        MEMF(ics + 0x4Cu) = v[2];
+    }
+    if (fk) {
+        MEMF(cam + 0x144u) = fov;
+        MEMF(cam + 0x148u) = dsc;
+    }
 }

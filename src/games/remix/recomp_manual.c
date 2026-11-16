@@ -1819,7 +1819,8 @@ void sub_002CF6C0(void) { cam_call(11, 0x002CF6C0u, sub_002CF6C0_gen); }
 extern void sub_002CF710_gen(void);
 void sub_002CF710(void) { cam_call(12, 0x002CF710u, sub_002CF710_gen); }
 extern void sub_002CF760_gen(void);
-void sub_002CF760(void) { cam_call(13, 0x002CF760u, sub_002CF760_gen); }
+static void drift_cam(void);                    /* drift.c: the drift camera around the chase camera's update */
+void sub_002CF760(void) { drift_cam(); }
 extern void sub_002CF970_gen(void);
 void sub_002CF970(void) { cam_call(14, 0x002CF970u, sub_002CF970_gen); }
 extern void sub_002CFED0_gen(void);
@@ -2776,11 +2777,13 @@ static void realtime_step(float real)
  * mc3SetLive -> mc3_live_box): word i, 0 = the environment's value as at
  * start. MC3_LIVE_60FPS 1 = 30 / 2 = 60 / else N fps (fps_step, at once);
  * MC3_LIVE_CARS MC3_ROAM_CARS, -1 auto (roam_cars_total, read live by
- * the remote cars pool); MC3_LIVE_DRIFT MC3_DRIFT 1 off / 2 on / 3 strong (drift.c);
+ * the remote cars pool); MC3_LIVE_DRIFT MC3_DRIFT 1 off / 2 on / 3 strong / 4 controlled (drift.c);
  * MC3_LIVE_CAREER MC3_CAREER_ONLINE 1 off / 2 on (roam_career_live, roam_pool.c).
  * MC3_LIVE_FPS_NOW is written here, read by the page (web/pre.js mc3FpsNow):
- * the rate a race or cruise steps at now, 0 outside them. */
-enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_FPS_NOW, MC3_LIVE_N };
+ * the rate a race or cruise steps at now, 0 outside them.
+ * MC3_LIVE_DRIFT_CAM MC3_DRIFT_CAM 1 off / 2 on (drift.c drift_cam). */
+enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_FPS_NOW, MC3_LIVE_DRIFT_CAM,
+       MC3_LIVE_N };
 #ifdef __EMSCRIPTEN__
 static int32_t s_mc3_live[MC3_LIVE_N];
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_live_box(void) { return (uintptr_t)s_mc3_live; }
@@ -3975,6 +3978,8 @@ static uint32_t roam_call(recomp_func_t fn, uint32_t ecx, uint32_t top, int n, c
 static void fr_cruise(uint32_t s);
 void sub_0013AB20(void);
 void sub_0013A590(void);
+void sub_00272010(void);                         /* CarCfg operator=, thiscall (const CarCfg *), ret 4 */
+static int32_t roam_car_index(const char *name); /* roam_game.c: the car list's index of a name, -1 none */
 void sub_0026B010(void);
 void sub_0026B8E0(void);
 void sub_00184FD0(void);
@@ -3996,7 +4001,37 @@ static void fr_direct_pass(uint32_t sm)
         return;
     }
     MEM32(0x0050F14Cu) = 0;                      /* not a System Link game */
-    roam_call(sub_0013AB20, 0, top, 0, NULL);
+    {
+        /* sub_0013AB20 copies the pick's CarCfg into the settings only when
+         * sub_002694A0 ([[0x53F2E0]+0x108], the last setup's network byte) is 0;
+         * else the settings keep [0x53F2E4]'s car. Log ZRER6N (2026-11-15):
+         * Online career -> menus -> Free Roam built and sent a 'blank' CarCfg,
+         * then the car build asserted, FindHeap failed, Heap overrun. The byte
+         * is cleared for the copy only and put back. */
+        uint32_t cur = MEM32(0x0053F2E0u), cfg;
+        uint8_t net = online_ram(cur) ? MEM8(cur + 0x108u) : 0;
+        if (net)
+            MEM8(cur + 0x108u) = 0;
+        roam_call(sub_0013AB20, 0, top, 0, NULL);
+        if (net)
+            MEM8(cur + 0x108u) = net;
+        /* And never a car the list does not know (a stale or 'blank' CarCfg):
+         * the profile's pick, else showroom car 0, through operator=. */
+        cfg = MEM32(s + 0x120u);                 /* player 0's CarCfg, as sub_0013AB20 writes it */
+        if (online_ram(cfg) && MEM32(cfg) == 0x004483DCu) {     /* ROAM_CFG_VT */
+            const char *nm = (const char *)XBOX_PTR(cfg + 0xE3u);
+            int bad = roam_car_index(memchr(nm, 0, 0x108u - 0xE3u) ? nm : NULL) < 0;
+            uint32_t src = online_car_cfg(s_on_car) ? online_car_cfg(s_on_car) : 0x00541700u;
+            if (net)
+                fprintf(stderr, "[ONLINE] Free Roam: the last setup's network byte was %u: cleared for the car"
+                        " copy (sub_0013AB20 skips it otherwise)\n", net);
+            if (bad && src != cfg) {
+                fprintf(stderr, "[ONLINE] Free Roam: player 0's car '%.24s' is no car: %.24s instead\n", nm,
+                        (const char *)XBOX_PTR(src + 0xE3u));
+                roam_call(sub_00272010, cfg, top, 1, &src);
+            }
+        }
+    }
     roam_call(sub_0013A590, 0, top, 0, NULL);
     MEM32(s) = 0;                                /* San Diego */
     fr_cruise(s);
