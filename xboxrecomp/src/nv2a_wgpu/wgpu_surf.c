@@ -95,6 +95,8 @@ typedef struct {
     uint32_t shown;                     /* wg_frame + 1 of its last present, 0: never */
     uint32_t hframe;                    /* wg_frame of its last switch to the twin */
     uint32_t n3, n3_prev, n3_frame;     /* scene draws this frame, in its previous one; frame */
+    uint32_t rid[4], rw[4], rh[4];      /* halved copies for coarser passes (ws_reduce) */
+    uint32_t rn, rseq, rsrc;            /* levels made, the pass, the texture they came from */
 } WsSurf;
 
 typedef struct {
@@ -409,6 +411,8 @@ static WsSurf *ws_surf_get(uint32_t va, uint32_t w, uint32_t h, uint32_t aa_sx, 
     ws_forget(s->hid);
     wg_tex_free(s->shadow);                     /* never an attachment */
     wg_tex_free(s->hshadow);
+    for (i = 0; i < 4; i++)
+        wg_tex_free(s->rid[i]);                 /* only BLIT targets, outside passes */
     memset(s, 0, sizeof *s);
     s->va = va; s->w = w; s->h = h; s->used = wg_frame;
     s->aa_sx = aa_sx; s->aa_sy = aa_sy;
@@ -851,6 +855,76 @@ void wsurf_blit(const Nv2aBlit *bl)
     dst->vw_frame = wg_frame;
 }
 
+/* A render target sampled in a pass whose target holds fewer pixels per
+ * title pixel gets one bilinear tap per target pixel. MC3's glow
+ * (sub_00042380 / sub_00042F00, through sub_00041480's quad) reads the back
+ * buffer into its half-size WorkArea1/2: 2:1 on the Xbox, every texel
+ * caught; 12:1 across at RECOMP_GL_SCALE 3 with Hor+ k 2 (back buffer 4320
+ * wide, the 360-wide work area at RECOMP_GL_SMALL_SCALE 1), so a street
+ * light was caught or missed as the camera moved and the glow lit scattered,
+ * jumping dots (owner, 2026-11-16). The source is halved (linear BLITs, a
+ * 2x2 box each, at most 4 times) while each axis stays at least as fine as
+ * the target's, once per pass; the stage reads the last level (same title
+ * coordinates). RECOMP_WGPU_RT_PREFILTER=0 off. */
+static uint32_t ws_reduce(WsSurf *s, uint32_t id, int hi)
+{
+    static int on = -1, told;
+    WsSurf *t = s_pass.s;
+    uint32_t w = hi ? s->hpw : s->pw, h = hi ? s->hph : s->ph, lw[4], lh[4], n = 0, i, src;
+    double tx, ty;
+
+    if (on < 0) {
+        const char *e = getenv("RECOMP_WGPU_RT_PREFILTER");
+        on = !(e && *e == '0');
+    }
+    if (!on || !t || t == s || !s_pass.color || !t->w || !t->h || !s->w || !s->h)
+        return id;
+    tx = (double)(s_pass.hi ? t->hpw : t->pw) / t->w;     /* target pixels per title pixel */
+    ty = (double)(s_pass.hi ? t->hph : t->ph) / t->h;
+    while (n < 4) {
+        uint32_t nw = (double)(w / 2) / s->w >= tx ? w / 2 : w;
+        uint32_t nh = (double)(h / 2) / s->h >= ty ? h / 2 : h;
+        if ((nw == w && nh == h) || !nw || !nh)
+            break;
+        lw[n] = w = nw;
+        lh[n++] = h = nh;
+    }
+    if (!n)
+        return id;
+    for (i = 0; i < n; i++)
+        if (s->rid[i] && (s->rw[i] != lw[i] || s->rh[i] != lh[i])) {
+            wg_tex_free(s->rid[i]);
+            s->rid[i] = 0;
+            s->rseq = 0;
+        }
+    if (!s_pass.open || s->rseq != s_pass_seq || s->rsrc != id || s->rn != n) {
+        if (!told++)
+            fprintf(stderr, "  [WGPU] surface %08X (%ux%u) sampled into a coarser pass: read from a "
+                    "%ux%u box-filtered copy (RECOMP_WGPU_RT_PREFILTER=0 off)\n",
+                    s->va, hi ? s->hpw : s->pw, hi ? s->hph : s->ph, lw[n - 1], lh[n - 1]);
+        wsurf_pass_suspend();
+        for (i = 0, src = id; i < n; src = s->rid[i++]) {
+            uint32_t sr[4], dr[4];
+            if (!s->rid[i]) {
+                s->rid[i] = wg_tex_create(WG_FMT_BGRA8UNORM, lw[i], lh[i],
+                                          WG_TU_RENDER_ATTACHMENT | WG_TU_TEXTURE_BINDING);
+                s->rw[i] = lw[i];
+                s->rh[i] = lh[i];
+            }
+            sr[0] = sr[1] = 0;
+            sr[2] = i ? lw[i - 1] : (hi ? s->hpw : s->pw);
+            sr[3] = i ? lh[i - 1] : (hi ? s->hph : s->ph);
+            dr[0] = dr[1] = 0; dr[2] = lw[i]; dr[3] = lh[i];
+            ws_blit_rect(src, sr, s->rid[i], dr);
+        }
+        wsurf_pass_begin();
+        s->rseq = s_pass_seq;
+        s->rsrc = id;
+        s->rn = n;
+    }
+    return s->rid[n - 1];
+}
+
 uint32_t wsurf_texture(uint32_t va, uint32_t *w, uint32_t *h)
 {
     static int told;
@@ -883,7 +957,8 @@ uint32_t wsurf_texture(uint32_t va, uint32_t *w, uint32_t *h)
             *seq = s_pass_seq;
         }
         id = hi ? s->hshadow : s->shadow;
-    }
+    } else
+        id = ws_reduce(s, id, hi);
     /* The title's logical pixels (nv2a_gl rt_scale's lw, lh): the stage's
      * coordinate scale is w / lw; the stored size does not matter. */
     if (w) *w = s->w / s->aa_sx;

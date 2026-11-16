@@ -324,28 +324,46 @@ static uint32_t k_rows(const float (*rows)[4], uint32_t n, float (*cache)[4],
  *     centre, sub_00043540's loop at 0x00043A50). Squeezed, those laid the
  *     whole widened scene k times narrower over the middle: a faint copy of
  *     the car beside it (2026-11-16).
- *   WD_SQUEEZE (pre-transformed only): any other draw, squeezed whole. The
+ *   WD_SQUEEZE: any other draw (see WD_KEEP), squeezed whole. The
  *     edge rule left every vertex beyond the 16:9 frame unsqueezed, so
  *     sprites the title projected into the side areas (light glows, flares)
  *     were thrown k times further out or smeared from the middle to the
  *     edge, and a batch of HUD pieces near both sides stretched each quad
  *     crossing an edge (white bands, shards by the speedometer).
- *   WD_KEEP: the shader's per-vertex rule: a fixed-function draw that is not
- *     full-screen (sub_000415C0's four quadrants meet at the centre: their
- *     edge corners must stay on the edges), a vertex program, w != 1,
- *     another position format, or a big draw. */
+ *   WD_KEEP: the shader's per-vertex rule, only where it is exact: a
+ *     fixed-function w = 1 draw whose every vertex is on/beyond an edge or
+ *     at the middle column (sub_000415C0's four quadrants in -1..1 meet at
+ *     the centre, which squeezing leaves in place), and vertex programs (no
+ *     CPU positions; RECOMP_WGPU_VP_EDGE=0 squeezes them whole too).
+ *     Any other fixed-function draw -- 3D (w != 1), 2D sprites, a big draw
+ *     or another position format -- is squeezed whole (WD_SQUEEZE). The
+ *     per-vertex rule on a draw that is not full-screen made a vertex
+ *     crossing an edge jump: at k = 2 a vertex at title x 1 sits at 25% of
+ *     the canvas, at x -1 at 0%, so a light's sprite or cone straddling the
+ *     16:9 edge became a wedge that leapt with the camera (owner, 32:9,
+ *     2026-11-16). */
 enum { WD_KEEP, WD_SQUEEZE, WD_FULL };
 static int wide_2d(const Nv2aRawBatch *b, float pw, float ph)
 {
+    static int vp_edge = -1;
     const uint8_t *p = b->direct[0].ptr;
     uint32_t i, j, n = b->vertex_count, sz = b->direct[0].size;
     float x0 = INFINITY, x1 = -INFINITY, y0 = INFINITY, y1 = -INFINITY;
     float m8 = pw * 0.125f, sx = b->aa_sx > 0 ? b->aa_sx : 1.0f, sy = b->aa_sy > 0 ? b->aa_sy : 1.0f;
-    int on_edges = 1, near_edges = 1, other = b->xform == 0 ? WD_SQUEEZE : WD_KEEP;
+    int on_edges = 1, near_edges = 1, edge_or_mid = 1;
 
-    if (b->xform > 1 || !(b->attr_present & b->attr_direct & 1u) || !p
+    if (b->xform > 1) {
+        if (vp_edge < 0) {
+            const char *e = getenv("RECOMP_WGPU_VP_EDGE");
+            vp_edge = !(e && *e == '0');
+            if (!vp_edge)
+                fprintf(stderr, "  [WGPU] Hor+: vertex-program draws squeezed whole (RECOMP_WGPU_VP_EDGE=0)\n");
+        }
+        return vp_edge ? WD_KEEP : WD_SQUEEZE;
+    }
+    if (!(b->attr_present & b->attr_direct & 1u) || !p
         || b->direct[0].type != 2 || sz < 2 || sz > 4 || n > 4096)
-        return WD_KEEP;
+        return WD_SQUEEZE;
     for (i = 0; i < n; i++, p += b->direct[0].stride) {
         float v[4] = { 0.0f, 0.0f, 0.0f, 1.0f }, x, y;
         memcpy(v, p, (size_t)sz * 4);
@@ -355,7 +373,7 @@ static int wide_2d(const Nv2aRawBatch *b, float pw, float ph)
             for (j = 0; j < 4; j++)
                 c[j] = m[4 * j] * v[0] + m[4 * j + 1] * v[1] + m[4 * j + 2] * v[2] + m[4 * j + 3] * v[3];
             if (fabsf(c[3] - 1.0f) > 1e-5f)
-                return WD_KEEP;             /* 3D */
+                return WD_SQUEEZE;          /* 3D: no vertex may stay (w == 1 by chance) */
             x = (c[0] + b->vp_offset[0]) * sx;
             y = (c[1] + b->vp_offset[1]) * sy;
         } else {
@@ -366,6 +384,8 @@ static int wide_2d(const Nv2aRawBatch *b, float pw, float ph)
             on_edges = 0;                   /* a vertex inside the frame */
         if (x > m8 && x < pw - m8)
             near_edges = 0;
+        if (x > 1.0f && x < pw - 1.0f && fabsf(x - pw * 0.5f) > 1.0f)
+            edge_or_mid = 0;
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
         if (y < y0) y0 = y;
@@ -375,7 +395,7 @@ static int wide_2d(const Nv2aRawBatch *b, float pw, float ph)
         return WD_FULL;
     if (near_edges && n == 4 && x0 <= m8 && x1 >= pw - m8 && y1 - y0 >= ph * 0.5f)
         return WD_FULL;
-    return other;
+    return b->xform == 1 && edge_or_mid ? WD_KEEP : WD_SQUEEZE;
 }
 
 /* HUD twin (wgpu_surf.c): is b a 2D draw that needs nothing of the scene --
