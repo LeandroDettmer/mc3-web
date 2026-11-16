@@ -1635,10 +1635,22 @@ only with MC3_PERF, their only reader.
   colours, so P8/P4, swizzled or not, the same; a new palette = a new key). tools/
   hud_hd_pack.py pack <disc> <out> computes that key from assets_x.dat's texture_x/{hud,
   navsys,msg,illustration,icon,background,bottom,barround,bar,layer}_*.tex (221 without
-  *_proxy, 199 distinct), upscales 4x (xbrz when installed, else Lanczos + unsharp on
-  premultiplied colour) into <out>/textures/<key>.png (39 MB); the host test
+  *_proxy, 199 distinct), upscales 4x (since 2026-11-16 xbrz for every image of <= 4096
+  colours, 187 of 221; Lanczos + unsharp on premultiplied colour for the 34 photographic
+  ones; xbrz.py from git, the PyPI sdist lacks its header: WSL venv .scratch/hud-hd/venv)
+  into <out>/textures/<key>.png (31 MB, 220 files); the host test
   wgpu_hires_test.c (how to run: its header) checks the 244 stock files' tool keys against
-  the renderer's decode (stored as I8 or A8R8G8B8). .tex types: 0x16/0x18/0x1A DXT1/3/5;
+  the renderer's decode (stored as I8 or A8R8G8B8), and with the pack dir every index map.
+  Tinted palettes (2026-11-16, untested in a browser): the speedometer/tachometer missed
+  because the game tints their palette at run time (sub_000DA300 copies it to obj+0x40,
+  sub_000D9FD0 -> sub_000DC040 turns each G-dominant entry into tune colour x G), so the
+  colour key changes. A palettised image now also has an index key (its unswizzled u8
+  indices, kind 0x10B, wgpu_hires.h) and the pack a second file under it: an 8-bit grey
+  index map (the xbrz image in stock colours snapped to the nearest used entry); the
+  renderer tries it when the colour key is missing, keeps the map in memory (hd_pack.c
+  hands a grey PNG over undecoded) and looks it up in the bound palette at each upload
+  (BGRA8 + levels; last 16 (key, palette) results kept on the GPU). Sharp edges, no blend
+  between entries. Self-test: 244 files, 23 index maps, 0 failed. .tex types: 0x16/0x18/0x1A DXT1/3/5;
   0x01 P8, 0x0E PA8 (BGRA palette 1024 B, then u8 indices); 0x0F P4, 0x10 PA4 (palette 64 B,
   then 4-bit indices, low nibble first); indices linear. mods.c hands a pack's textures/
   folder to nv2a_wgpu_hires_dir (browser only; not overlay files); at upload a known key
@@ -1648,8 +1660,19 @@ only with MC3_PERF, their only reader.
   (DXT1) per stock texel + 1/3 for mips, only what is drawn: a race HUD ~5 MB, all 199
   ~78 MB, inside RECOMP_GL_TEX_MB. '[WGPU] hi-res: N replacements in <dir>' at the first
   upload, '[WGPU] hi-res: N replacements loaded, M used' ~2 min after the first one went on
-  the GPU. Shows above Resolution 1x only (the HUD is drawn small). Not covered: .xbck
-  (Flash) bitmaps. Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
+  the GPU. Not covered: .xbck (Flash) bitmaps.
+  HUD at the canvas' size (2026-11-16, untested in a browser; WebGPU, RECOMP_WGPU_HUD_NATIVE=0
+  off; the pack mattered only above Resolution 1x before, the HUD was drawn at 720x480 x
+  RECOMP_GL_SCALE): wgpu_surf.c gives a shown back buffer a twin at the canvas' height in
+  device pixels (web/pre.js writes it, word 1 of nv2a_wgpu_aspect_box) once that is >= 1.2x
+  the stored height; pre-transformed draws testing neither depth nor stencil (HUD, menus,
+  Flash, the post passes) go there after half the surface's previous-frame scene draws
+  (menus at once): the first upscales the frame into it (BLIT linear), a scene draw, clear or
+  blit of that surface first scales the touched rectangle back (vertex box within the clip).
+  Sampling it reads the twin; the present shows it and the canvas takes the shown height
+  (independent of Resolution, which keeps sizing the 3D scene). Logs '[WGPU] HUD at canvas
+  size WxH (scene WxH; ...)' at each new size, '[WGPU] HUD: a scene draw after HUD draws in
+  one frame ...' once if a frame mixes them (that HUD part is then drawn small again). Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
   main's core 19 (country flag) and car-mod's core 19 (second car record)
   were separate bumps, then main took 20 for the near flag; RC_CORE_CFG2 = 21.
   Police pack (REMOVED 2026-11-15, owner: no AI police; police_pack() in
