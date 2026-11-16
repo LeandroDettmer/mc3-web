@@ -486,6 +486,11 @@ generated files when the lift inputs did not change.
   ..., JS heap U MB of L MB (Chrome), workers N (R running), wasm M MB'
   line, put under the previous-crash header: the tail's own header is up to
   15 s older)
+  Fewer logs (2026-11-16, owner; untested in a browser): hitch logs are no longer
+  sent (the line stays in the log), a previous-crash only when its heartbeat says the
+  tab was visible and the game ran 60 s or more, and fatal/error/freeze go once a
+  day per browser per reason (tag + why without numbers, localStorage mc3.logSigs;
+  a repeat answers with the first code).
   goes to config.json logUrl as POST ?tag=fatal|error|freeze|
   previous-crash, headed by build, UA, GPU, memory, online state, times
   (previous-crash also lists the last memory/failure/watchdog/roam lines

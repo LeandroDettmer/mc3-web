@@ -2538,10 +2538,16 @@
       .then(r => r.ok ? r.json() : Promise.reject(r.status)).then(j => j.code);
   };
   // the whole log (at most ~2 MB: the store's limit), headed; resolves to the log's code
+  // Fewer logs (owner, 2026-11-16): the same failure (tag + reason, numbers left out) is sent once a day per browser;
+  // a repeat resolves to the first one's code (localStorage mc3.logSigs, the day's list only).
   function logSend(tag, why) {
     if (!cfg?.logUrl) return Promise.reject('no log store on this server');
+    const day = new Date().toISOString().slice(0, 10), sig = tag + ':' + String(why).replace(/[0-9.]+/g, '#').slice(0, 160);
+    let seen = store.get('logSigs', {});
+    if (seen?.day !== day || !seen.s) seen = { day, s: {} };
+    if (seen.s[sig]) { out(`[WEB] log not sent: ${tag}, the same one went today, code ${seen.s[sig]}`); return Promise.resolve(seen.s[sig]); }
     return logPost(tag, logHeader(tag, why) + logDump(logText, 1.8e6))
-      .then(code => (out(`[WEB] log sent: ${tag}, code ${code}`), code));
+      .then(code => { seen.s[sig] = code; store.set('logSigs', seen); out(`[WEB] log sent: ${tag}, code ${code}`); return code; });
   }
   // non-fatal ones: no box, at most 3 of each tag a session
   function logQuiet(tag, why) {
@@ -2660,7 +2666,7 @@
             + `${lastLine(/\[ROAM\] (slot \d+: (building|.*swapped)|cars: car \d+ built)/) || 'none'}; `
             + `last disc wait: ${lastLine(/^\s*\[WEB\] disc (wait|read)/) || 'none'}`;
           out('[WEB] hitch: ' + why);
-          if (gap >= 1000 && !hsent && lastLine(/\[roam\] status/) && now - gap - roamT > 5000) { hsent = true; logQuiet('hitch', why); }
+          // hitch logs are no longer sent (owner, 2026-11-16: ~25% of all logs); the line stays for fatal/freeze logs
         }
         ht = now;
       }
@@ -2721,6 +2727,10 @@
     catch { return; }
     if (!tail || (tab !== tabId && Date.now() - beat < 15000)) return;
     if (!cfg?.logUrl) { tailClear(); return; }
+    // only a game that ran over 60 s with the tab visible at its end (owner, 2026-11-16): a phone killing a hidden tab
+    // or a tab closed in the first minute tells us nothing we can fix
+    const hb = /heartbeat: (\d+) s since Play, tab (\w+)/.exec(info || '');
+    if (hb && (hb[2] !== 'visible' || +hb[1] < 60)) { tailClear(); console.warn(`[WEB] the last game here ended without a clean exit (${hb[1]} s, tab ${hb[2]}); not sent`); return; }
     logPost('previous-crash', info ? tail.replace('\n===\n', '\n' + info + '\n===\n') : tail).then(code => { try { if (localStorage.getItem('mc3.crashTail') === tail) tailClear(); } catch {} console.warn('[WEB] the last game here ended without a clean exit; its log was sent, code ' + code); },
       e => console.warn('[WEB] previous crash log not sent (kept for the next visit):', e));
   }
