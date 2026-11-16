@@ -172,3 +172,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Free Roam:** Fixed a crash when a player joined with a car the game did not know.
 - **Phones:** Fewer very slow frames on Android phones with Mali graphics and on devices whose graphics card gives no name.
 - **Loading:** Faster first download of the game's files.
+- **Online:** New Ghost mode option: other players' cars pass through yours, so you never crash into them.

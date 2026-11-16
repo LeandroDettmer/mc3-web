@@ -1206,6 +1206,17 @@ generated files when the lift inputs did not change.
   city (hash) clear 4/8, cloudy 2/8, rainy 2/8; a slot change shows at the
   next load. '[ONLINE] world: slot N, time X, weather Y (shared by clock;
   ...)'. MC3_FR_WEATHER=0 off, =fixed:<time>,<weather> (0-2 or the names).
+  Ghost mode (2026-11-16, untested in game; browser, roam_pool.c
+  roam_ghost_on): in-game Settings 'Ghost mode' (Online group, default Off,
+  live word 26 1 off / 2 on, env MC3_ROAM_GHOST=1) keeps every remote car out
+  of the physics level: standalone cars at any distance (roam_pool_frame, the
+  20/30 m rule again when off), slots each frame in roam_pool_slot (back in
+  when off); the removal paths (roam_rc_make's slot delete, roam_pool_pass)
+  still put a car in first; race ghosts were out already. One-sided: a peer
+  with it off still collides with our car. Unproven: that a slot car out of
+  the level still follows its pose (moved by sub_002C0540's blend, not the
+  step: may trail or stutter; the standalone vel x dt advance is not applied
+  to slots). '[ROAM] ghost mode on|off'.
   Open: names over cars, ghost mode for
   traffic, the hub's O(n^2) link pick
   (nfsu2-web uses a grid), KIND_BUNDLE.
