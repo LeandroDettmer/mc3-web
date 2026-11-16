@@ -168,6 +168,7 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Page:** Hide the buttons over the picture you do not want (Settings, Graphics, Buttons on screen).
 - **Graphics:** Widescreen fixes: no more light beams stretched across the screen or flickering dots with Glow on.
 - **Free Roam:** Fixed a crash in busy Free Roam sessions (a car sound left behind when another player's car was removed).
+- **Saves:** Cloud saves: keep your career and Online garage under a secret passphrase and continue in any browser (Saves tab).
 - **Page:** New Suggest button (start page and in-game Settings) to send us ideas and improvements.
 - **Free Roam:** Fixed a crash when a player joined with a car the game did not know.
 - **Phones:** Fewer very slow frames on Android phones with Mali graphics and on devices whose graphics card gives no name.
