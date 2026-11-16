@@ -218,7 +218,10 @@ generated files when the lift inputs did not change.
   (logs 2WAAGQ, FWGBQJ; M2 Chrome, Intel Firefox froze there 2026-11-13).
   RECOMP_GL_ORPHAN=1 (page: Mac/iPhone/iPad UA): pool off, each draw's data
   from 0, every flush a glBufferData of [0, dhi) ('[GL] each draw's data in
-  new buffer storage').
+  new buffer storage'). Android Mali too (2026-11-15, untested in a
+  browser; logs 73FVCS 7W2ZDX F9WPRV QJHAEP: Mali-G52/G57 on WebGL, ~20 s
+  frames at the profile screen): the page asks the WebGL renderer once at
+  Play (pageRenderer, 'Mali' in it -> RECOMP_GL_ORPHAN=1).
 - **Audio:** SPSC float ring (48 kHz stereo) in wasm memory read by an
   AudioWorklet (web/audio.js, apu_web.c); the AudioContext starts on the
   Play click. SDL audio is not used on the web (it crashed from a worker).
@@ -1117,6 +1120,22 @@ only with MC3_PERF, their only reader.
   the next are consumed without drawing (game runs on, picture holds, input
   still read) until a frame completes ('[WGPU] GPU answered after ...'); at
   30 s '[WGPU] GPU stopped responding' -> box, restart on WebGL.
+  An adapter whose info is all empty ('WebGPU adapter (no info)', log
+  6CQWU4, 2026-11-15) counts as weak: WebGL (index.html gpuChoice; untested
+  in a browser). Watchdog thread (2026-11-15, untested in a browser; Apple
+  WebGPU freezes 4KCN74 F3N7A4 XSHRHE T9QVHS XRT2UV had no watchdog line,
+  the check ran in the render thread's own turn): wq_watch_thread (one
+  more pthread) runs it every 0.5 s, and the no-frame line adds 'render
+  thread in one turn for N s, at <where>' / 'between turns for N s (last
+  at <where>)' (s_where markers: wgpu.js frame, draw, surfaces, pipeline
+  list, input, waiting for records, ...).
+  CRT runtime error (2026-11-15, untested in a browser; R6025 pure virtual
+  call then wild calls: KJVRM2 6K8ZYU K237RW): the CRT prints it, then its
+  exit (doexit sub_002DAF7D) runs the atexit list (global destructors) and
+  KeBugCheck returns, so the game goes on. recomp_trace.c logs at the print
+  '[GUEST] runtime error R6025: guest esp ...; esi/edi/ebx (vtable ...);
+  calls A B([r+0xN]) ...' (return addresses, the virtual call's vtable
+  offset), 4 a session. No doexit override (it would need a relift).
   Pipeline bursts (2026-11-14, untested in a browser; ~604 of 1061 player
   logs had 'slow frame N ms, N pipelines made', iPhone 9.5 s a log, iPad
   28 s): web/wgpu.js keeps at most 3 createRenderPipelineAsync unresolved
@@ -1832,7 +1851,17 @@ only with MC3_PERF, their only reader.
   sub_00184FD0 (stand-in screen, +0x1E0 = 0; 0x4B36C4 put back): copy
   into [0x53F2E4] and Request(6), as the main menu's Request(0x12) item
   does; '[ONLINE] Free Roam: straight into ...'; MC3_FR_DIRECT=0 brings
-  the screens back. No Arcade item in the browser (2026-11-11, untested in
+  the screens back. Blank car (2026-11-15, fix untested in a browser; log
+  ZRER6N: Online career -> menus -> Free Roam, '[roam] cfg sent: blank',
+  the car build asserted, FindHeap failed, Heap overrun): sub_0013AB20
+  copies the pick only when sub_002694A0 ([[0x53F2E0]+0x108], the last
+  setup's network byte) is 0, else the settings keep [0x53F2E4]'s CarCfg.
+  fr_direct_pass clears that byte for the call and puts it back ('[ONLINE]
+  Free Roam: the last setup's network byte was N: cleared ...'), and a
+  player-0 CarCfg whose name the car list (sub_0026A6A0) does not know is
+  replaced by the profile's pick or showroom car 0 ('... is no car: X
+  instead'); roam_send_cfg sends no unknown car ('[roam] cfg not sent:
+  ...'). No Arcade item in the browser (2026-11-11, untested in
   game): main_menu_online_first drops the slot whose callback is
   0x0018C530 and lowers the count (every list routine reads it live);
   MC3_ARCADE=1 keeps it; Free Roam still runs Arcade's path. The Online session: money ([[0x557F0C]+0xC]+0xACC) 2,000,000, also at each
