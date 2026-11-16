@@ -570,6 +570,8 @@ score:
     speed_prev = s;
 }
 
+#include "orbit_cam.c"                          /* orbit_pre / orbit_post, called by drift_cam */
+
 /* Drift camera (MC3_DRIFT_CAM=1; live word MC3_LIVE_DRIFT_CAM 1 off / 2 on; any Drift mode level, off too;
  * 2026-11-15, untested in game). Around the race chase camera's update (vtable 0x00476BEC, slot 10 sub_002CF760)
  * for player 0's car. That update's pose (sub_00355650, 0x003557F3) puts the camera behind the body's velocity
@@ -645,7 +647,9 @@ static void drift_cam(void)
             MEMF(cam + 0x148u) = dsc * (1.0f + 0.05f * ck * kf);   /* FOV +5 deg and x1.15 until 2026-11-16 (owner: too much speed feel) */
         }
     }
+    orbit_pre(cam);                             /* the mouse orbit camera (orbit_cam.c, browser only), on top of ours */
     cam_call(13, 0x002CF760u, sub_002CF760_gen);
+    orbit_post();                               /* before ours: the velocity it puts back is our turned one */
     if (swap) {
         MEMF(ics + 0x44u) = v[0];
         MEMF(ics + 0x4Cu) = v[2];

@@ -1988,6 +1988,23 @@ only with MC3_PERF, their only reader.
   projection (MC3_CAM_TRACE=1 '[CAM] projection' fov should move with k;
   else the delta goes on sub_002D4AE0's fov). '[DRIFT] camera on|off'. 2026-11-16 (owner: too
   much feel of speed): no FOV change, distance x1.05 at most.
+  Orbit camera (2026-11-16, untested in a browser and in game; browser only, src/games/remix/
+  orbit_cam.c, called by drift_cam around the same update): a left-button drag on the picture (or
+  a finger landing on the canvas itself, not a touch control) turns the chase camera around our car,
+  the wheel zooms 0.7-1.6x; page 'Orbit camera' On/Off (in-game Controls, default On,
+  MC3_ORBIT_CAM=0 off, live word 20 1 off / 2 on). web/pre.js keeps running totals x1000 in words
+  21 yaw, 22 pitch (rad), 23 zoom, 24 held; the game applies the change between reads, eases yaw
+  and pitch back 1.5 s after the last move (0.35 s), not while the car is under 1 m/s, and drops
+  them after 0.5 s without a chase frame. Read from the lifted sub_00355650 (pose step, via
+  sub_00357960): back dir d = -norm(ics+0x44) (ground, > 10 m/s) else row +0x18 of the 3x4
+  matrix at [cam+0x6C] (rows +0/+0xC/+0x18, pos +0x24; also places the look-at target); position
+  = target + R [cam+0x150] - C [cam+0x158] + (0, [cam+0x154], 0), R = norm(U x d), C = U x R, U =
+  world up 0x4B00E4: +0x158 distance behind along the ground, +0x154 height (ctor sub_002CF500).
+  Yaw turns the velocity's horizontal part and the matrix's three rows about y (both paths, the
+  slow one included); pitch/zoom rewrite (+0x158, +0x154) at elevation + pitch (-3..69 deg) and
+  distance x zoom; all put back after the update. Unproven: the yaw's screen direction (flip YAW
+  in pre.js), whether camera collision (sub_00356210) pulls a low camera back. '[ORBIT] camera
+  on|off'.
   Drift setup panel (2026-11-16, untested in a browser and in game; owner:
   his own drift setup): the stage bar's Drift button opens a <dialog> in the
   stage (index.html #drift-dlg, keys stopped like #fb-dlg) instead of

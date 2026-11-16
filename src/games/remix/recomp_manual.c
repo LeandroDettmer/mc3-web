@@ -2796,9 +2796,12 @@ static void realtime_step(float real)
  * MC3_LIVE_DRIFT_CAM MC3_DRIFT_CAM 1 off / 2 on (drift.c drift_cam).
  * MC3_LIVE_RACE_INVITES MC3_RACE_INVITES 1 off / 2 on (roam_challenge.c rch_recv).
  * MC3_LIVE_DRIFT_SETUP + 0..10: the Drift setup panel's values, v x 1000 + 1, -1 default (drift.c k_ds).
- * MC3_LIVE_FX_BLUR MC3_FX_BLUR, MC3_LIVE_FX_GLOW MC3_FX_GLOW 1 off / 2 on (fx_step). */
+ * MC3_LIVE_FX_BLUR MC3_FX_BLUR, MC3_LIVE_FX_GLOW MC3_FX_GLOW 1 off / 2 on (fx_step).
+ * MC3_LIVE_ORBIT MC3_ORBIT_CAM 1 off / 2 on; MC3_LIVE_ORBIT_YAW/_PITCH/_ZOOM the page's running drag/wheel totals
+ * x 1000, MC3_LIVE_ORBIT_HELD 1 while dragging (orbit_cam.c, web/pre.js). */
 enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_FPS_NOW, MC3_LIVE_DRIFT_CAM,
        MC3_LIVE_RACE_INVITES, MC3_LIVE_DRIFT_SETUP, MC3_LIVE_FX_BLUR = MC3_LIVE_DRIFT_SETUP + 11, MC3_LIVE_FX_GLOW,
+       MC3_LIVE_ORBIT, MC3_LIVE_ORBIT_YAW, MC3_LIVE_ORBIT_PITCH, MC3_LIVE_ORBIT_ZOOM, MC3_LIVE_ORBIT_HELD,
        MC3_LIVE_N };
 #ifdef __EMSCRIPTEN__
 static int32_t s_mc3_live[MC3_LIVE_N];

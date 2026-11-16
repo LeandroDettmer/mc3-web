@@ -298,6 +298,7 @@ Module['mc3TouchPad'] = function (words) {
     MC3_RACE_INVITES: [game, 6, onoff],
     MC3_FX_BLUR: [game, 18, onoff],   // recomp_manual.c fx_step: the game's motion blur, 1 off / 2 on
     MC3_FX_GLOW: [game, 19, onoff],   // and its glow (bloom)
+    MC3_ORBIT_CAM: [game, 20, onoff],   // orbit_cam.c: the mouse orbit camera (words 21-24: the Orbit camera block below)
     MC3_CAREER_ONLINE: [game, 3, function (v) { return v === '0' ? 1 : 2; }],
     RECOMP_KEYBOARD: [function () { return typeof _xbox_keyboard_box == 'function' ? _xbox_keyboard_box() : 0; }, 0, onoff],
   };
@@ -330,6 +331,54 @@ Module['mc3TouchPad'] = function (words) {
       return Atomics.load(new Int32Array(HEAPU8.buffer), (game() >>> 2) + 4);
     } catch (e) {}
   };
+})();
+
+// Orbit camera (2026-11-16, untested in a browser; src/games/remix/orbit_cam.c): a left-button drag on the picture,
+// or a finger that lands on the picture itself (not a touch control: those are other elements), turns the chase
+// camera around our car; the wheel zooms. Running totals in mc3_live_box words 21 yaw, 22 pitch (radians x 1000),
+// 23 zoom (x 1000), 24 = 1 while held; the game takes the change between reads, eases back behind the car itself and
+// ignores them outside the chase camera (menus) or with Settings 'Orbit camera' Off. Drag right/down: the camera
+// goes the other way round/up, as if the scene were grabbed (yaw's sign unproven: flip YAW if it feels inverted).
+// No preventDefault on pointerdown: the canvas still takes focus (keys). Main thread only.
+if (!ENVIRONMENT_IS_PTHREAD && typeof document == 'object') (function () {
+  var canvas = Module['canvas'], YAW = 5, PITCH = 3, yaw = 0, pitch = 0, zoom = 0, held = 0, pid = null, x = 0, y = 0;
+  if (!canvas) return;
+  function put() {
+    // HEAPU8 throws before the runtime is up: checked inside try
+    try {
+      if (!runtimeInitialized || typeof _mc3_live_box != 'function') return;
+      var a = new Int32Array(HEAPU8.buffer), w = _mc3_live_box() >>> 2;
+      Atomics.store(a, w + 21, yaw);
+      Atomics.store(a, w + 22, pitch);
+      Atomics.store(a, w + 23, zoom);
+      Atomics.store(a, w + 24, held);
+    } catch (e) {}
+  }
+  canvas.addEventListener('pointerdown', function (ev) {
+    if (pid !== null || ev.target !== canvas || (ev.pointerType == 'mouse' && ev.button !== 0)) return;
+    pid = ev.pointerId;
+    x = ev.clientX;
+    y = ev.clientY;
+    held = 1;
+    try { canvas.setPointerCapture(pid); } catch (e) {}
+    put();
+  });
+  canvas.addEventListener('pointermove', function (ev) {
+    if (ev.pointerId !== pid) return;
+    yaw = (yaw + Math.round((ev.clientX - x) * YAW)) | 0;
+    pitch = (pitch + Math.round((ev.clientY - y) * PITCH)) | 0;
+    x = ev.clientX;
+    y = ev.clientY;
+    put();
+  });
+  function up(ev) { if (ev.pointerId === pid) { pid = null; held = 0; put(); } }
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (t) { canvas.addEventListener(t, up); });
+  canvas.addEventListener('wheel', function (ev) {
+    if (!ev.deltaY) return;
+    ev.preventDefault();
+    zoom = (zoom + (ev.deltaY > 0 ? 80 : -80)) | 0;   // down: farther
+    put();
+  }, { passive: false });
 })();
 
 // A hidden tab (minimised, another tab, a locked phone) costs next to nothing: xbox_page_hidden_box
