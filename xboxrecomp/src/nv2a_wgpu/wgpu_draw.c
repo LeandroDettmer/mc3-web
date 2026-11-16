@@ -341,6 +341,51 @@ static int wide_full_2d(const Nv2aRawBatch *b, float pw)
     return x0 <= 1.0f && x1 >= pw - 1.0f;
 }
 
+/* HUD twin (wgpu_surf.c): is b a 2D draw that needs nothing of the scene --
+ * pre-transformed, neither depth nor stencil tested -- and which title
+ * pixels may it touch (its vertices' box within the surface clip; positions
+ * not floats: the whole clip)? */
+static int hud_box(const Nv2aRawBatch *b, float box[4])
+{
+    const uint32_t *r = b->regs;
+    const uint8_t *p = b->direct[0].ptr;
+    float ax = b->surface.aa_sx ? (float)b->surface.aa_sx : 1.0f;
+    float ay = b->surface.aa_sy ? (float)b->surface.aa_sy : 1.0f;
+    float cx0 = (float)(r[0x200 / 4] & 0xFFFF) * ax, cx1 = cx0 + (float)(r[0x200 / 4] >> 16) * ax;
+    float cy0 = (float)(r[0x204 / 4] & 0xFFFF) * ay, cy1 = cy0 + (float)(r[0x204 / 4] >> 16) * ay;
+    float v[2];
+    uint32_t i;
+
+    if (b->xform != 0 || (b->zeta_va && (r[0x30C / 4] || r[0x32C / 4])))
+        return 0;
+    if (cx1 <= cx0 || cy1 <= cy0) {             /* no clip set: no bound from it */
+        cx0 = cy0 = -INFINITY;
+        cx1 = cy1 = INFINITY;
+    }
+    box[0] = cx0; box[1] = cy0; box[2] = cx1; box[3] = cy1;
+    if (!(b->attr_present & b->attr_direct & 1u) || !p || b->direct[0].type != 2
+        || b->direct[0].size < 2 || b->vertex_count > 65536)
+        return 1;
+    box[0] = box[1] = INFINITY;
+    box[2] = box[3] = -INFINITY;
+    for (i = 0; i < b->vertex_count; i++, p += b->direct[0].stride) {
+        memcpy(v, p, 8);
+        if (!(v[0] == v[0] && v[1] == v[1])) {  /* NaN: the whole clip */
+            box[0] = cx0; box[1] = cy0; box[2] = cx1; box[3] = cy1;
+            return 1;
+        }
+        if (v[0] < box[0]) box[0] = v[0];
+        if (v[1] < box[1]) box[1] = v[1];
+        if (v[0] > box[2]) box[2] = v[0];
+        if (v[1] > box[3]) box[3] = v[1];
+    }
+    if (box[0] < cx0) box[0] = cx0;
+    if (box[1] < cy0) box[1] = cy0;
+    if (box[2] > cx1) box[2] = cx1;
+    if (box[3] > cy1) box[3] = cy1;
+    return 1;
+}
+
 static uint32_t elem_bytes(uint32_t type, uint32_t size)
 {
     switch (type) {
@@ -478,14 +523,14 @@ void wdraw_batch(const Nv2aRawBatch *b)
     WtStage st[4];
     WgPipeKey key;
     uint8_t dim[4], topo = 0;
-    float bconst[4] = { 0, 0, 0, 0 }, mv[16];
+    float bconst[4] = { 0, 0, 0, 0 }, mv[16], box[4];
     uint32_t vs, fs, pipe, rec_ix, first = 0, i, a, sc[4], zmax;
     const uint8_t *lo = NULL, *hi = NULL;
     int tries;
 
     if (!b->index_count || !b->vertex_count)
         return;
-    wsurf_draw(&b->surface, b->zeta_va);
+    wsurf_draw(&b->surface, b->zeta_va, hud_box(b, box) ? box : NULL);
     wsurf_pass_begin();
     if (!wsurf_target()) {
         once(&told_tgt, "a draw with no target pass: dropped");

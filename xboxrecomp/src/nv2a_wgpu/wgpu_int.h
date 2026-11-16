@@ -123,8 +123,11 @@ typedef struct {
 void wsurf_clear(const Nv2aSurface *sf, uint32_t zeta_va, uint32_t flags,
                  uint32_t argb, uint32_t zs, const WsClearRegs *r);
 /* Bind sf (+ zeta) as the target of the draws that follow; a different
- * target ends the open pass. Opens nothing by itself. */
-void wsurf_draw(const Nv2aSurface *sf, uint32_t zeta_va);
+ * target ends the open pass. Opens nothing by itself. hud: NULL for a draw
+ * that needs the scene (3D, depth or stencil tested); a 2D draw for the HUD
+ * twin (wgpu_surf.c "HUD at the canvas' size") gives the title pixels it
+ * may touch, x0 y0 x1 y1 (NaN or past the edges: the whole surface). */
+void wsurf_draw(const Nv2aSurface *sf, uint32_t zeta_va, const float *hud);
 /* Open the pass on the bound target if it is not open. */
 void wsurf_pass_begin(void);
 /* End the open pass but keep the target: the next wsurf_pass_begin opens
