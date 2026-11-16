@@ -1683,7 +1683,20 @@ only with MC3_PERF, their only reader.
   Sampling it reads the twin; the present shows it and the canvas takes the shown height
   (independent of Resolution, which keeps sizing the 3D scene). Logs '[WGPU] HUD at canvas
   size WxH (scene WxH; ...)' at each new size, '[WGPU] HUD: a scene draw after HUD draws in
-  one frame ...' once if a frame mixes them (that HUD part is then drawn small again). Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
+  one frame ...' once if a frame mixes them (that HUD part is then drawn small again). Minimap
+  (2026-11-16, untested in a browser): its streets stayed blurry and stair-stepped with the rest sharp.
+  They are not a texture: the minimap (sub_000C3660, minimap vtable 0x450850 +0x28) clears its box's
+  alpha (D3D Clear sub_004156A0, flags 0x80, one rect), then draws the map (sub_000B9760) as geometry
+  under its own camera inside a clip of its box (128 wide at x 47), so hud_box (pre-transformed only)
+  kept it at the scene's size, aliased, then stretched; and the colour-only clear sent the twin back
+  down mid-HUD. Now hud_box also takes transformed draws in a clip at most half the surface wide,
+  without stencil and with depth off or ALWAYS (box = the clip), and a colour-only rectangle clear
+  stays on the twin while it is in use (wsurf_clear). If the map tests depth (not ALWAYS) it stays at
+  the scene's size: check '[WGPU] HUD: a scene draw after HUD draws' in a log. resources/city/
+  hudmap.xbpf (pf05: u32 count at +4, then u16 offset in 2048 B + u16 size in 128 B per page; each
+  resource a 0x20-byte record, D3D header at +0x20, 0xCD fill, data at +0x80, several to a page) holds
+  160 textures: city and career route maps, crew/event logos (DXT5, all 63 distinct ones the same
+  content as texture_x/ files already in hud_hd), loading-screen photos (76 DXT1) -- no minimap tiles. Roam core 21 (merge 2026-11-15; was 20 at the 2026-11-14 merge):
   main's core 19 (country flag) and car-mod's core 19 (second car record)
   were separate bumps, then main took 20 for the near flag; RC_CORE_CFG2 = 21.
   Police pack (REMOVED 2026-11-15, owner: no AI police; police_pack() in
