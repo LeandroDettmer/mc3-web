@@ -286,7 +286,8 @@ Module['mc3TouchPad'] = function (words) {
     RECOMP_GL_MIPS: [gfx, 2, onoff],
     MC3_60FPS: [game, 0, function (v) { var n = parseInt(v, 10); return v === '1' || n === 60 ? 2 : n > 60 ? Math.min(n, 240) : 1; }],   // 1 = 30, 2 = 60, else N fps
     MC3_ROAM_CARS: [game, 1, function (v) { return parseInt(v, 10) || -1; }],   // -1 auto
-    MC3_DRIFT: [game, 2, function (v) { return v === '2' ? 3 : v === '1' ? 2 : 1; }],
+    MC3_DRIFT: [game, 2, function (v) { return v === '3' ? 4 : v === '2' ? 3 : v === '1' ? 2 : 1; }],
+    MC3_DRIFT_CAM: [game, 5, function (v) { return v === '1' ? 2 : 1; }],
     MC3_CAREER_ONLINE: [game, 3, function (v) { return v === '0' ? 1 : 2; }],
     RECOMP_KEYBOARD: [function () { return typeof _xbox_keyboard_box == 'function' ? _xbox_keyboard_box() : 0; }, 0, onoff],
   };
