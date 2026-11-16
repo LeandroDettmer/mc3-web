@@ -1816,29 +1816,30 @@ only with MC3_PERF, their only reader.
   0x47681C; also SteerRate/HandbrakeRate/DriftRate). Other tune binders
   seen: sub_00124B70 (bike Lean/Wheelie/Drift/Burnout), sub_0007C350
   (traffic TireGrip), sub_001CAEF0 (AI).
-  Controlled level (2026-11-15, untested in game): the normal row without
-  the speed give-back (keep 0) plus a drag in the slide, 0 at 6 deg of slip
-  -> 4 m/s^2 at 30 deg and more, not while braking or on a hit frame, never
-  below 40 km/h (DRAG_FLOOR); the drag stays out of the give-back's sum.
-  The same drift as On, slower (owner 2026-11-15: the first Controlled, a
-  1.3 rad/s yaw cap + a PD angle hold on w/L, neither drifted nor threw the
-  car). The steer input is never written. Slide line '... drag N km/h ...';
-  '[DRIFT] drift mode controlled'. v3 (2026-11-15, untested in game; after
-  NFSU2's drift events, whose handling is a yaw assist + rear grip every
-  step, 0x5AC260; ideas only). Owner on v2: the throttle threw the car
-  sideways (rear grip - 0.10 x throttle, front +15%), mid-drift it
-  straightened by itself (grip back to 0.92 in 0.08 s once slip < 6 deg),
-  the handbrake sometimes threw it (0.50 at once). Now (Controlled only, On
-  and Strong unchanged): rear grip follows its target with exp time
-  constants 0.25 s loosening / 0.5 s gripping (CTL_TAU_IN/OUT, frame time
-  0x4B2D70), kick 0.62 ramped in, throttle grips the rear a little (thr
-  -0.05), front +5%, catch 0.97; a slide > 12 deg or a kick is held (rear
-  loose at any slip, so a transition through 0 flows on) until 0.4 s
-  straight (< 5 deg) or lifted (< 10 deg) with the wheel within 0.35 of
-  centre, under 8 m/s, or braking; the slip angle grows at most 50 deg/s
-  (CTL_BRATE): the yaw rate is damped by the excess (smoothed 0.05 s,
-  <= 1/4 of it a frame). '[DRIFT] controlled: slide let go (<why>) after N
-  s ...', slide line '... slip-rate damp N frames ..., still held'.
+  Controlled level (v4 2026-11-15, untested in game; Controlled only, On
+  and Strong unchanged): NFSU2's drift-event routine (PC 0x5AC260, yaw
+  assist + rear grip; th0mk's drift-fidelity.md is private), read from its
+  successor's decompiled SuspensionRacer::DoDrifting (NFS Most Wanted:
+  github.com/dbalatoni13/nfsmw, Brawltendo/Most-Wanted-Vehicles-Decomp;
+  ideas only, no code; full algorithm and mapping in drift.c's header).
+  A drift value D 0..1 (+8/s ENTER/IN, -2/s OUT/EXIT; ENTER above 30 mph
+  on handbrake or slip > 12 deg; IN while rotating into a 12-90 deg slide
+  without counter-steer, or throttle x counter-steer x slip > 12 deg); a
+  yaw stabilizer -D x S(slip) x 4 x yaw rate only while rotating into the
+  slide (w and L along up; S 0 at 0, 0.45 at 30 deg, 0.85 at 45, 1.15 at
+  89); rear grip from NFSU2's table 1.1 .. 0.34 over D x (|slip rad|/2 +
+  4 counter-steer + |yaw rate|/2), mapped fr = 1 - (1 - R/1.1) x 0.7
+  (1 out of a drift, ~0.52 at most), smoothed 0.1 s; counter-steer assist:
+  front SteeringLimit raised so full lock reaches the slip angle (x1.6 at
+  most) x D; front SlidingFric +5%; give-back 0.30, no drag, no yaw cut
+  past beta_max, no held slide, no slip-rate limit (v1 yaw cap + PD hold:
+  no drift; v2 normal row + drag: throttle and handbrake threw it, snapped
+  straight mid-drift; v3 held slide + 50 deg/s limit: not judged). Which
+  way the steer input turns the car is learned from the yaw while
+  gripping ('[DRIFT] controlled: steer side learned ...'; until then no
+  counter-steer is seen). The steer input is never written. Slide line
+  '...; controlled: stabilizer N frames, steer side ..., drift value D
+  (state)'; '[DRIFT] drift mode controlled'.
   Drift camera (2026-11-15, untested in game; MC3_DRIFT_CAM=1, page
   'Drift camera' On/Off in the in-game Controls, live word 5 1 off / 2 on;
   any Drift level, off too; drift.c drift_cam from the sub_002CF760

@@ -44,28 +44,64 @@
  *
  * Levels: MC3_DRIFT=1 normal, =2 strong, =3 controlled; the page's live word:
  * 1 off, 2 on (the environment's level, normal if that is off), 3 strong,
- * 4 controlled. Controlled (2026-11-15, v3, untested in game) is modelled
- * on NFSU2's drift events (their handling runs a yaw assist + a rear grip
- * factor every physics step, nfsu2-web runtime/oracle.c 0x5AC260; ideas
- * only, no code): easy to start, the angle held and smooth, never thrown.
- * Owner on v2 (the normal row, no give-back, a drag): the throttle sent the
- * car sideways very fast (the rear grip fell 0.10 x throttle and the front
- * bit 15% harder), mid-drift it straightened by itself (the grip went back to
- * 0.92 within 0.08 s as soon as the slip fell under 6 deg, and 1.05 past
- * 40 deg), and the handbrake sometimes threw it (grip 0.50 at once). v3:
- * the rear grip follows its target over CTL_TAU_IN loosening / CTL_TAU_OUT
- * gripping (exp of the frame time: 30/60/144 fps alike); the handbrake kick
- * is 0.62 and ramps in; the throttle grips the rear a little (thr < 0), the
- * front's bite +5%; a slide wider than CTL_HOLD_IN or a kick is held: the
- * rear stays loose whatever the slip (so a transition through 0 deg flows
- * into the other side) until the car is straight with the wheel near centre,
- * or the throttle is lifted with the slip under 10 deg and the wheel near
- * centre, for CTL_CALM s; or under 8 m/s, or braking; the slip angle grows
- * at most CTL_BRATE deg/s: past it the yaw rate is damped by the excess
- * (a quarter of it at most a frame), so neither the throttle nor the
- * handbrake swings the car out fast; the speed as v2 (no give-back, the
- * drag: m/s^2 at 30 deg of slip and more, not under DRAG_FLOOR, not while
- * braking). The steer input is never written (peers get our inputs). Off: every value back (if still ours). The drift camera (drift_cam, at the end) is its own switch, any
+ * 4 controlled. Off: every value back (if still ours).
+ *
+ * Controlled (v4, 2026-11-15, untested in game): NFSU2's drift-event handling.
+ * NFSU2 runs a drift routine every physics step of a drift event (PC
+ * SPEED2.EXE 0x5AC260, "yaw assist + rear grip", nfsu2-web runtime/oracle.c;
+ * th0mk's write-up, docs/port/drift-fidelity.md 2.2, is in a private repo).
+ * The same routine survives in its successor's engine, NFS Most Wanted's
+ * SuspensionRacer::DoDrifting (decompiled: github.com/dbalatoni13/nfsmw and
+ * github.com/Brawltendo/Most-Wanted-Vehicles-Decomp, src/Speed/Indep/Src/
+ * Physics/Behaviors/SuspensionRacer.cpp; its steering tables are marked as
+ * HP2/UG1/UG2 leftovers). Read for the algorithm only, no code copied:
+ *  1. a drift value D (0..1) and a state OUT/ENTER/IN/EXIT. D rises 8/s in
+ *     ENTER and IN, falls 2/s in OUT and EXIT (in over 0.125 s, out over
+ *     0.5 s); at 1 the state is IN, at 0 OUT. From OUT (or ENTER): above
+ *     30 mph with the handbrake > 0.5 or the slip > 12 deg -> ENTER. From IN
+ *     or EXIT, each step: IN if above 30 mph, slip 12..90 deg, the car
+ *     rotating into the slide and the wheel not counter-steering; IN if
+ *     throttle x counter-steer x slip > 12 deg above 30 mph; ENTER if
+ *     throttle x slip > 12 deg; else EXIT.
+ *  2. yaw stabilizer: while D > 0 and the car rotates into the slide (2+
+ *     wheels down), a torque -D x S(slip) x 4 x yaw rate x inertia about up,
+ *     S over the slip in rad: 0 0, 0.26 0.1, 0.52 0.45, 0.79 0.85, 1.05 0.95,
+ *     1.55 1.15, 1.57 0. Rotating back toward straight is never damped: the
+ *     slide straightens freely and never spins.
+ *  3. rear grip: both rear tyres' maximum force x R(D x (|slip rad| x 0.5 +
+ *     counter-steer x 4 + |yaw rate| x 0.5)), R over 0..1 in 10 steps: 1.1
+ *     0.95 0.87 0.77 0.67 0.6 0.51 0.43 0.37 0.34 (counter-steer = |steer|
+ *     when it points toward the slide). The rear lets go as the angle and
+ *     the rotation grow and most when counter-steering: counter-steer holds
+ *     the angle instead of snapping the car straight.
+ *  4. counter-steer assist (its steering): while counter-steering the
+ *     steering's speed-limited maximum is raised to at least the rear's slip
+ *     angle. Also the stability boost of the rear grip is x (1 - D), and the
+ *     drift steering remap/speed tables (not written here: input shaping).
+ *  No speed keeping in that routine: the speed holds because the rear lets
+ *  go instead of scrubbing.
+ * Mapped on MC3 (our hooks, per frame of the real frame time 0x4B2D70):
+ *  1. as is (30 mph = 13.4 m/s; slip and counter-steer from the body: the
+ *     slip side is the velocity along the right row, the wheel's side is
+ *     learned from the yaw it gives while gripping, CTL_SIDE: no sign guess).
+ *  2. on w and L along up, as the yaw cut (dw = -D S 4 wy dt, at most half
+ *     of wy a frame); "rotating into the slide" = (w x forward) . v < 0.
+ *  3. the rear factor fr (Sliding x fr, Static x 0.6 + 0.4 fr) = 1 - (1 -
+ *     R/1.1) x CTL_REAR_K: 1 out of a drift (MC3's own grip; NFSU2's 1.1 is
+ *     its stability boost), ~0.5 at full R; smoothed over CTL_TAU.
+ *  4. front SteeringLimit x max(1, slip rad / SteeringLimit) x D while
+ *     counter-steering, at most x CTL_CS_MAX (the wheel angle is
+ *     SteeringLimit x the input after the game's speed-sensitive steering).
+ *  Kept from v3: smooth grip (now D's ramps + CTL_TAU), front SlidingFric
+ *  +5%. Dropped: the held slide, the 50 deg/s slip-rate damp, the yaw cut and
+ *  catch past beta_max, the drag (the stabilizer and D do those jobs). Speed:
+ *  the give-back keeps 0.30 of what a slide scrubs, never above its start.
+ *  The steer input is never written (peers get our inputs). '[DRIFT]
+ *  controlled: steer side learned ...' once; the slide line adds the
+ *  stabilizer's frames and the drift state at its end.
+ * Owner on v1 (yaw cap + PD hold: no drift), v2 (normal row, no give-back,
+ * a drag: throttle threw it, snapped straight mid-drift, handbrake threw it),
+ * v3 (held slide, slip-rate limit; not judged). The drift camera (drift_cam, at the end) is its own switch, any
  * level. '[DRIFT]' lines: on/off, the car's layout once
  * per car, one line per drift of 0.5 s or more. Drift scoring (drift_score.c)
  * gets this frame's slip angle, speed and hit test with the mode on or off.
@@ -98,33 +134,41 @@ typedef struct {
     float front;        /* front SlidingFric x (1 + front) at 20 deg of slip and more */
     float yaw_cut;      /* share of the yaw rate cut per 1/30 s at 20 deg past beta_max */
     float keep;         /* share of the speed a slide scrubs off given back */
-    float drag;         /* m/s^2 taken off in a slide at 30 deg of slip and more (controlled) */
 } drift_tune;
-#define DRAG_FLOOR 11.0f   /* m/s (40 km/h): the slide's drag stops here */
 static const drift_tune k_drift[3] = {
-    /* base   kick   slide  thr    catch  bmax   steer  front  yaw    keep   drag */
-    { 0.92f, 0.50f, 0.62f, 0.10f, 1.05f, 40.0f, 0.60f, 0.15f, 0.25f, 0.50f, 0.0f },   /* 1 normal */
-    { 0.85f, 0.42f, 0.52f, 0.12f, 1.00f, 50.0f, 1.00f, 0.20f, 0.35f, 0.70f, 0.0f },   /* 2 strong */
-    { 0.92f, 0.62f, 0.66f, -0.05f, 0.97f, 40.0f, 0.60f, 0.05f, 0.25f, 0.00f, 4.0f },  /* 3 controlled (below) */
+    /* base   kick   slide  thr    catch  bmax   steer  front  yaw    keep */
+    { 0.92f, 0.50f, 0.62f, 0.10f, 1.05f, 40.0f, 0.60f, 0.15f, 0.25f, 0.50f },   /* 1 normal */
+    { 0.85f, 0.42f, 0.52f, 0.12f, 1.00f, 50.0f, 1.00f, 0.20f, 0.35f, 0.70f },   /* 2 strong */
+    { 1.00f, 0.00f, 0.00f, 0.00f, 0.00f, 90.0f, 0.00f, 0.05f, 0.00f, 0.30f },   /* 3 controlled: front, keep only */
 };
-/* Controlled only (see the header): the rear grip's time constants, the held slide's entry and exit, the slip
- * angle's growth limit */
-#define CTL_TAU_IN   0.25f  /* s: the rear lets go this smoothly (a handbrake tap ramps, no throw) */
-#define CTL_TAU_OUT  0.50f  /* s: ... and grips back */
-#define CTL_HOLD_IN  12.0f  /* deg: a slide this wide (or a kick) is held */
-#define CTL_CALM     0.40f  /* s straight (or lifted and straightened) before a held slide lets go */
-#define CTL_BRATE    50.0f  /* deg/s: the slip angle grows no faster than this; the yaw rate is damped by the excess */
+/* Controlled only: NFSU2's drift routine (see the header) */
+#define CTL_SPEED    13.41f /* m/s (30 mph): the drift's entry and hold speed */
+#define CTL_SLIP     12.0f  /* deg */
+#define CTL_REAR_K   0.70f  /* share of NFSU2's rear grip range (R/1.1: 1 .. 0.31) used on MC3's tyres */
+#define CTL_TAU      0.10f  /* s: the rear factor follows its target (a keyboard's steer is all or nothing) */
+#define CTL_CS_MAX   1.60f  /* the counter-steer assist's front SteeringLimit factor at most */
+#define CTL_SIDE     1.0f   /* steer x yaw toward the right row (s) gripping before the steer side counts as learned */
+static const float k_ctl_stab[7][2] = {   /* NFSU2's yaw stabilizer S over the slip (rad) */
+    { 0.0f, 0.0f }, { 0.2618f, 0.10f }, { 0.5236f, 0.45f }, { 0.7854f, 0.85f }, { 1.0472f, 0.95f },
+    { 1.5533f, 1.15f }, { 1.5708f, 0.0f } };
+static const float k_ctl_rear[10] = { 1.1f, 0.95f, 0.87f, 0.77f, 0.67f, 0.6f, 0.51f, 0.43f, 0.37f, 0.34f };
+enum { CTL_OUT, CTL_ENTER, CTL_IN, CTL_EXIT };
 
 /* one tune value we scale: the game's (orig) and ours (set) */
 typedef struct { uint32_t va; float orig, set; } drift_field;
 enum { DF_RS, DF_RK, DF_FK, DF_FSTEER, DF_N };   /* rear Static/Sliding, front Sliding, front SteeringLimit */
 static drift_field s_df[DF_N];
 
-static void df_set(drift_field *f, uint32_t va, float k)
+/* the game's value: another car's tune, or one the game wrote (upgrade blend), is the new original */
+static float df_orig(const drift_field *f, uint32_t va)
 {
     float cur = MEMF(va);
-    if (f->va != va || cur != f->set)   /* another car's tune, or the game wrote it (upgrade blend): its value */
-        f->orig = cur;
+    return f->va == va && cur == f->set ? f->orig : cur;
+}
+
+static void df_set(drift_field *f, uint32_t va, float k)
+{
+    f->orig = df_orig(f, va);
     f->va = va;
     MEMF(va) = f->set = f->orig * k;
 }
@@ -146,14 +190,16 @@ static void drift_step(void)
     static float v_last[3], dv_prev[3], dn_prev, dt_prev, wy_prev;
     static char why[200];
     static float fr = 1.0f, kick_t, lift_t, thr_prev, beta_prev, speed_prev, speed_prev2;
-    static float brate, held_t, calm_t;         /* controlled: the slip angle's growth (deg/s, smoothed), the held slide */
-    static int held;
-    static struct { float t, max, v0, g, kept, frmin, drag; int cuts, damps; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
+    static float dval, side_acc;                /* controlled: NFSU2's drift value D, the learned steer side */
+    static int dstate, side_said;
+    static struct { float t, max, v0, g, kept, frmin; int cuts, damps; } dr;   /* one slide (beta > 6 deg, > 8 m/s) */
     static const char *const k_name[4] = { "off", "on", "strong", "controlled" };
+    static const char *const k_state[4] = { "out", "enter", "in", "exit" };
     const drift_tune *t;
     int32_t l = mc3_live(MC3_LIVE_DRIFT);
     uint32_t pm = MEM32(0x00558814u), p, veh, sim, tf = 0, tb = 0, car, ph, ics = 0, c, in = 0;
     float v[3], w[3], rt[3], up[3], bk[3], s = 0, beta = 0, wy = 0, thr = 0, brk = 0, hb = 0, st = 0, dt, tgt, amt;
+    float vl = 0, vf = 0, grow = 0, cs = 0, ksteer;   /* grow < 0: rotating into the slide; cs: counter-steer 0..1 */
     int hit = 0, frozen = 0;   /* hit: why[] says what was measured */
     int lvl, k;
     if (env < 0) {
@@ -189,7 +235,8 @@ static void drift_step(void)
         }
         fr = 1.0f;
         kick_t = lift_t = 0;
-        held = 0;
+        dval = 0;
+        dstate = CTL_OUT;
         dr.t = 0;
         if (!tb) {
             drift_score(0, 0, 0, 0, 0, NULL, 0);
@@ -205,7 +252,6 @@ static void drift_step(void)
         st = drift_clamp(MEMF(in + 0x6Cu), -1, 1);
     }
     if (ics) {
-        float vl = 0, vf = 0;
         for (k = 0; k < 3; k++) {
             v[k] = MEMF(ics + 0x44u + 4u * k);
             w[k] = MEMF(ics + 0x50u + 4u * k);
@@ -218,6 +264,24 @@ static void drift_step(void)
             wy += w[k] * up[k];
         }
         s = sqrtf(s);
+        {   /* forward = -back row; w x forward is how the heading turns: against v = rotating into the slide */
+            float cw[3] = { w[1] * bk[2] - w[2] * bk[1], w[2] * bk[0] - w[0] * bk[2], w[0] * bk[1] - w[1] * bk[0] };
+            float turn = -(cw[0] * rt[0] + cw[1] * rt[1] + cw[2] * rt[2]);   /* the heading turning toward the right row */
+            grow = -(cw[0] * v[0] + cw[1] * v[1] + cw[2] * v[2]);
+            /* which way the wheel turns the car, learned while gripping (no sign guessed for the steer input) */
+            if (lvl == 3 && vf < -10.0f && fabsf(vl) < 0.07f * -vf && fabsf(st) > 0.3f && hb < 0.5f && turn == turn) {
+                side_acc = drift_clamp(side_acc + st * turn * dt, -5.0f, 5.0f);
+                if (!side_said && fabsf(side_acc) >= CTL_SIDE) {
+                    side_said = 1;
+                    fprintf(stderr, "[DRIFT] controlled: steer side learned: steer %s turns the car toward the body's "
+                                    "right row\n", side_acc > 0 ? "+" : "-");
+                }
+            }
+            if (fabsf(side_acc) >= CTL_SIDE && vf < -1.0f) {
+                float c = (side_acc > 0 ? st : -st) * (vl > 0 ? 1.0f : -1.0f);   /* > 0: toward the slide */
+                cs = c > 0 ? c : 0.0f;
+            }
+        }
         /* sign-free: forward or back makes no difference to the angle (reversing straight is 0) */
         beta = s > 6.0f ? atan2f(fabsf(vl), fabsf(vf)) * 57.29578f : 0.0f;
         if (beta != beta || s != s)
@@ -278,34 +342,30 @@ static void drift_step(void)
 
     /* rear grip factor: gripping -> drift over 0..6 deg of slip, the throttle loosens it, past beta_max it grips back */
     if (lvl == 3) {
-        /* controlled: a held slide keeps the rear loose whatever the slip; smooth in and out (see the header) */
-        float slide = t->slide - t->thr * thr, a;
-        const char *go = NULL;
-        if (!held && s > 8.0f && (kick_t > 0 || beta > CTL_HOLD_IN)) {
-            held = 1;
-            held_t = calm_t = 0;
-        } else if (held) {
-            int calm = fabsf(st) < 0.35f && (beta < 5.0f || (thr < 0.2f && beta < 10.0f));
-            calm_t = calm && kick_t <= 0 ? calm_t + dt : 0.0f;
-            held_t += dt;
-            go = s < 8.0f ? "under 8 m/s" : brk > 0.5f ? "braking" : calm_t >= CTL_CALM ?
-                 (beta < 5.0f ? "straight" : "lifted and straightened") : NULL;
-            if (go) {
-                fprintf(stderr, "[DRIFT] controlled: slide let go (%s) after %.1f s, slip %.0f deg, %.0f km/h\n", go,
-                        (double)held_t, (double)beta, (double)(s * 3.6f));
-                held = 0;
-            }
+        /* controlled: NFSU2's drift value and rear grip (see the header, 1 and 3) */
+        int fwd = ics && vf < -1.0f, into = fwd && grow < 0;
+        float x;
+        dval += (dstate == CTL_ENTER || dstate == CTL_IN ? 8.0f : -2.0f) * dt;
+        if (dval <= 0) {
+            dval = 0;
+            dstate = CTL_OUT;
+        } else if (dval >= 1) {
+            dval = 1;
+            dstate = CTL_IN;
         }
-        tgt = held ? slide : t->base;
-        if (kick_t > 0 && tgt > t->kick)
-            tgt = t->kick;
-        if (held && beta > t->beta_max)
-            tgt = slide + (t->catch_hi - slide) * drift_clamp((beta - t->beta_max) / 25.0f, 0, 1);
-        a = 1.0f - expf(-dt / (tgt < fr ? CTL_TAU_IN : CTL_TAU_OUT));
-        fr += (tgt - fr) * a;
+        if (dstate == CTL_IN || dstate == CTL_EXIT)
+            dstate = (into && s > CTL_SPEED && beta > CTL_SLIP && cs <= 0) ||
+                     (fwd && s > CTL_SPEED && thr * cs * beta > CTL_SLIP) ? CTL_IN :
+                     fwd && thr * beta > CTL_SLIP ? CTL_ENTER : CTL_EXIT;
+        else if (fwd && s > CTL_SPEED && (hb > 0.5f || beta > CTL_SLIP))
+            dstate = CTL_ENTER;
+        x = drift_clamp(dval * (beta / 57.29578f * 0.5f + cs * 4.0f + fabsf(wy) * 0.5f), 0, 1) * 9.0f;
+        k = x < 8.0f ? (int)x : 8;
+        tgt = k_ctl_rear[k] + (k_ctl_rear[k + 1] - k_ctl_rear[k]) * (x - (float)k);
+        tgt = 1.0f - (1.0f - tgt / 1.1f) * CTL_REAR_K;
+        fr += (tgt - fr) * (1.0f - expf(-dt / CTL_TAU));
     } else {
         float slide = t->slide - t->thr * thr;
-        held = 0;
         tgt = t->base + (slide - t->base) * drift_clamp(beta / 6.0f, 0, 1);
         if (kick_t > 0 && tgt > t->kick)
             tgt = t->kick;
@@ -317,27 +377,35 @@ static void drift_step(void)
     df_set(&s_df[DF_RK], tb + 0x6Cu, fr);
     amt = s > 8.0f ? 1.0f : 0.0f;
     df_set(&s_df[DF_FK], tf + 0x6Cu, 1.0f + t->front * amt * drift_clamp(beta / 20.0f, 0, 1));
-    df_set(&s_df[DF_FSTEER], tf + 0x24u, 1.0f + t->steer * amt * drift_clamp(beta / 30.0f, 0, 1));
+    if (lvl == 3) {
+        /* controlled: counter-steer assist (header, 4): full lock reaches at least the slip angle */
+        float lim0 = df_orig(&s_df[DF_FSTEER], tf + 0x24u);
+        ksteer = cs > 0 && lim0 > 0.05f ?
+                 1.0f + (drift_clamp(beta / 57.29578f / lim0, 1.0f, CTL_CS_MAX) - 1.0f) * dval : 1.0f;
+    } else
+        ksteer = 1.0f + t->steer * amt * drift_clamp(beta / 30.0f, 0, 1);
+    df_set(&s_df[DF_FSTEER], tf + 0x24u, ksteer);
 
     if (ics) {
         float dw = 0, iy = MEMF(ics + 0x10u);
         /* no spin-outs: past beta_max and still growing, cut the yaw rate (angular velocity and momentum together) */
-        if (beta > t->beta_max && beta > beta_prev) {
+        if (lvl != 3 && beta > t->beta_max && beta > beta_prev) {
             float cut = drift_clamp(t->yaw_cut * drift_clamp((beta - t->beta_max) / 20.0f, 0, 1) * dt * 30.0f, 0, 0.6f);
             dw = -cut * wy;
             dr.cuts++;
         }
-        /* controlled: the slip angle grows no faster than CTL_BRATE; the yaw rate is damped by the excess, a quarter
-         * of it at most a frame (throttle and handbrake swing the car out at that pace, not faster) */
-        if (!frozen) {
-            float raw = (beta - beta_prev) / dt;
-            brate += (raw - brate) * (1.0f - expf(-dt / 0.05f));
-        }
-        if (lvl == 3 && s > 8.0f && beta > 6.0f && brate > CTL_BRATE && !hit) {
-            float mag = (brate - CTL_BRATE) / 57.29578f * (1.0f - expf(-dt / 0.1f)), cap = 0.25f * fabsf(wy + dw);
-            mag = mag > cap ? cap : mag;
-            dw += wy + dw > 0 ? -mag : mag;
-            dr.damps++;
+        /* controlled: NFSU2's yaw stabilizer (header, 2): damps only the rotation into the slide, harder the wider */
+        if (lvl == 3 && dval > 0 && vf < -1.0f && grow < 0 && s > 8.0f && !hit) {
+            float br = beta / 57.29578f, sv = 0;
+            for (k = 1; k < 7; k++)
+                if (br <= k_ctl_stab[k][0]) {
+                    sv = k_ctl_stab[k - 1][1] + (k_ctl_stab[k][1] - k_ctl_stab[k - 1][1]) *
+                         (br - k_ctl_stab[k - 1][0]) / (k_ctl_stab[k][0] - k_ctl_stab[k - 1][0]);
+                    break;
+                }
+            dw = -wy * drift_clamp(dval * sv * 4.0f * dt, 0, 0.5f);
+            if (dw != 0)
+                dr.damps++;
         }
         if (dw != 0) {
             for (k = 0; k < 3; k++) {
@@ -350,26 +418,19 @@ static void drift_step(void)
          * rise was a ratchet that turned the physics' frame-to-frame speed jitter into a steady gain. Braking,
          * handbrake and hits stay out of g; never above the speed at the slide's start. */
         if (beta > 6.0f && s > 8.0f && dr.t > 0) {
-            float d = s - speed_prev, ns, cut = 0;
+            float d = s - speed_prev, ns;
             if (brk < 0.3f && hb < 0.5f && !hit)
                 dr.g += d;
             ns = s + (dr.g < 0 ? -dr.g * t->keep : 0.0f) - dr.kept;
             if (ns > s && ns > dr.v0)
                 ns = s > dr.v0 ? s : dr.v0;
-            /* controlled: a drag on top, 0 at 6 deg -> t->drag at 30, never below DRAG_FLOOR */
-            if (t->drag > 0 && brk < 0.3f && !hit && ns > DRAG_FLOOR) {
-                cut = t->drag * drift_clamp((beta - 6.0f) / 24.0f, 0, 1) * dt;
-                cut = ns - cut < DRAG_FLOOR ? ns - DRAG_FLOOR : cut;
-                ns -= cut;
-                dr.drag += cut;
-            }
             if (ns != s && ns > 0.0f) {
                 float f = ns / s, m = MEMF(ics + 4u);
                 for (k = 0; k < 3; k++) {
                     MEMF(ics + 0x44u + 4u * k) = v[k] * f;
                     MEMF(ics + 0x2Cu + 4u * k) = v[k] * f * m;   /* SetVel sub_003432B0: P = v x mass */
                 }
-                dr.kept += ns - s + cut;   /* the drag is not given back */
+                dr.kept += ns - s;
                 s = ns;
             }
         }
@@ -383,20 +444,21 @@ static void drift_step(void)
             dr.kept = 0;
             dr.cuts = 0;
             dr.damps = 0;
-            dr.drag = 0;
             dr.frmin = fr;
         }
         dr.t += dt;
         dr.max = beta > dr.max ? beta : dr.max;
         dr.frmin = fr < dr.frmin ? fr : dr.frmin;
     } else if (dr.t > 0) {
+        char ext[96] = "";
+        if (lvl == 3)
+            snprintf(ext, sizeof ext, "; controlled: stabilizer %d frames, steer side %s, drift value %.2f (%s)",
+                     dr.damps, side_said ? "learned" : "not learned yet", (double)dval, k_state[dstate]);
         if (dr.t >= 0.5f)
             fprintf(stderr, "[DRIFT] slide: start %.0f km/h, end %.0f km/h, give-back %.1f km/h; %.1f s, max %.0f deg, "
-                            "rear grip min x%.2f, yaw cut %d frames, slip-rate damp %d frames, drag %.1f km/h, yaw "
-                            "rate %+.2f rad/s at the end%s\n",
+                            "rear grip min x%.2f, yaw cut %d frames, yaw rate %+.2f rad/s at the end%s\n",
                     (double)(dr.v0 * 3.6f), (double)(speed_prev * 3.6f), (double)(dr.kept * 3.6f), (double)dr.t,
-                    (double)dr.max, (double)dr.frmin, dr.cuts, dr.damps, (double)(dr.drag * 3.6f), (double)wy,
-                    held ? ", still held" : "");
+                    (double)dr.max, (double)dr.frmin, dr.cuts, (double)wy, ext);
         dr.t = 0;
     }
 score:
