@@ -1403,8 +1403,20 @@ typedef struct {
     double t0, t1;                              /* t1: last sizing */
 } roam_tyre;
 
+/* A car's tyre choices in its CarCfg (FileIO sub_00271000's names): RimSize0/1 +0x1A (code into the size table
+ * 0x4B3910: 12..28 = 15".."31"), TireProfile0/1 +0x1C (signed, 0..7 = tire_11..tire_18 and the ratio table
+ * 0x471958; -1 = picked from the rim geometry, sub_00270AF0), TireWidth0/1 +0x18 (code 2..10 = 195..355 mm),
+ * RimMdlIdx +0x20, TireMdlIdx +0x21. Tyre radius = size[RimSize] / ratio[TireProfile] / 2 (sub_00272FE0). */
+static void roam_tyre_cfg(uint32_t cfg, char *buf, size_t n)
+{
+    snprintf(buf, n, "CarCfg rim size %u/%u, profile %d/%d, width %u/%u, rim model %u, tyre model %u",
+             MEM8(cfg + 0x1Au), MEM8(cfg + 0x1Bu), (int)(int8_t)MEM8(cfg + 0x1Cu), (int)(int8_t)MEM8(cfg + 0x1Du),
+             MEM8(cfg + 0x18u), MEM8(cfg + 0x19u), MEM8(cfg + 0x20u), MEM8(cfg + 0x21u));
+}
+
 static void roam_tyres(roam_tyre *t, uint32_t veh, const char *who, int idx)
 {
+    char cs[160];
     uint32_t cfg = MEM32(veh + 0x64u), r = MEM32(veh + 0xCu), w = MEM32(veh + 0x50u), v = MEM32(veh + 8u), h, g = 0,
              a[2], wl;
     float was;
@@ -1447,9 +1459,53 @@ static void roam_tyres(roam_tyre *t, uint32_t veh, const char *who, int idx)
     t->t1 = roam_now();
     if (t->again)
         return;
+    roam_tyre_cfg(cfg, cs, sizeof cs);
     fprintf(stderr, "[ROAM] tyres: %s %d sized after %.1f s (radius front %.3f rear %.3f, rim %.3f; wheel was %.3f, "
-            "now %.3f)\n", who, idx, roam_now() - t->t0, MEMF(MEM32(w + 0x54u) + 4u), MEMF(MEM32(w + 0x58u) + 4u),
-            MEMF(MEM32(g + 0x3818u) + 0x14u), was, online_ram(wl) ? MEMF(wl + 0x100u) : -1.0f);
+            "now %.3f; %s)\n", who, idx, roam_now() - t->t0, MEMF(MEM32(w + 0x54u) + 4u), MEMF(MEM32(w + 0x58u) + 4u),
+            MEMF(MEM32(g + 0x3818u) + 0x14u), was, online_ram(wl) ? MEMF(wl + 0x100u) : -1.0f, cs);
+}
+
+/* Diagnostic (2026-11-16, owner: our own Skyline drawn with bare rims, no tyre rubber, in Free Roam; cause not
+ * proven): our car's tyres as the game sized them -- the tunes ([sim+0x54]/+0x58: +4 radius, +8 width), the drawn
+ * wheels ([veh+8]+0xD8 front left, +0xE0 rear left: +0x100 radius, +0x104 width), the rim geometry's radius and the
+ * CarCfg's tyre choices -- once per car and on each change (2 s apart, 12 lines a session). A tyre radius not above
+ * the rim's, 0, NaN or a profile/size outside the tables says the game's sizing (CarCfg); sane numbers with no
+ * rubber on screen say the renderer (RECOMP_GPU=webgl splits that). */
+static void roam_own_tyres_diag(uint32_t veh)
+{
+    static uint32_t last_veh, said;
+    static float last[6];
+    static double t_last;
+    uint32_t cfg = MEM32(veh + 0x64u), w = MEM32(veh + 0x50u), v = MEM32(veh + 8u), r = MEM32(veh + 0xCu), tf, tb,
+             fl, rl, h, g = 0;
+    float now[6], rim = -1.0f;
+    char cs[160];
+    if (said >= 12 || !online_ram(cfg) || !online_ram(w) || !online_ram(tf = MEM32(w + 0x54u)) ||
+        !online_ram(tb = MEM32(w + 0x58u)) || !online_ram(v) || !online_ram(fl = MEM32(v + 0xD8u)) ||
+        !online_ram(rl = MEM32(v + 0xE0u)))
+        return;
+    now[0] = MEMF(tf + 4u);
+    now[1] = MEMF(tb + 4u);
+    now[2] = MEMF(tf + 8u);
+    now[3] = MEMF(fl + 0x100u);
+    now[4] = MEMF(rl + 0x100u);
+    now[5] = MEMF(fl + 0x104u);
+    if (veh == last_veh && !memcmp(now, last, sizeof now))
+        return;
+    if (veh == last_veh && roam_now() - t_last < 2.0)
+        return;
+    last_veh = veh;
+    memcpy(last, now, sizeof now);
+    t_last = roam_now();
+    said++;
+    if (online_ram(r) && online_ram(h = MEM32(r + 0x2F0u)) && online_ram(MEM32(h + 0x1800u)))
+        g = MEM32(MEM32(h + 0x1800u) + 0x18u);
+    if (online_ram(g) && online_ram(MEM32(g + 0x3818u)))
+        rim = MEMF(MEM32(g + 0x3818u) + 0x14u);
+    roam_tyre_cfg(cfg, cs, sizeof cs);
+    fprintf(stderr, "[ROAM] own car tyres: tune radius front %.3f rear %.3f, width front %.3f; drawn wheels radius "
+            "front %.3f rear %.3f, width front %.3f; rim %.3f; %s; CarCfg dirty 0x%X\n", now[0], now[1], now[2], now[3],
+            now[4], now[5], rim, cs, (unsigned)MEM32(cfg + 8u));
 }
 
 /* Free Roam starts every player on the same spot: the city cruise's start
@@ -1540,6 +1596,8 @@ static void roam_player(uint32_t p)
     if (slot == 0) {
         roam_cheap_check();                     /* once a frame */
         roam_own_car_diag(veh);
+        if (online_ram(veh))
+            roam_own_tyres_diag(veh);
     }
     if (slot > (uint32_t)s_roam_slots || !online_ram(veh))
         return;

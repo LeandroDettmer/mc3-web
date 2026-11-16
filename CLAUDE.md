@@ -951,7 +951,22 @@ generated files when the lift inputs did not change.
   never reached by a remote car. roam_tyres now calls it after the sizing
   ('... wheel was R0, now R') and sizes a done car again when its front-left
   wheel's radius leaves the tune's (once a second at most, '... sized
-  again (N)'). Every host. Nearest gets a car: while
+  again (N)'). Every host. Our own car bare too (2026-11-16, owner's
+  screenshot: own Skyline in Free Roam, Apple Metal WebGPU, 32:9, scale 3,
+  mods m3_e30 + hud_hd; cause not proven, diagnostic untested in game):
+  not hud_hd -- tire.xbpf's 294 textures are all DXT5 (no index-key path)
+  and none has a pack key (hudmap.xbpf as a control: 76 hits); not the
+  m3_e30 pack (car-specific files only). Tyre radius = size[CarCfg RimSize
+  +0x1A] (0x4B3910: 12..28 = 15".."31") / ratio[TireProfile +0x1C] (0x471958,
+  0..7 = tire_11..tire_18; -1 picked from the rim geometry, sub_00270AF0)
+  / 2 (sub_00272FE0); remote cars in that log had radius minus rim geometry
+  radius 0..0.08 m (is300 -0.001). '[ROAM] own car tyres: tune radius ...,
+  drawn wheels radius ..., rim ...; CarCfg rim size/profile/width/rim
+  model/tyre model' (roam_game.c roam_own_tyres_diag, once per car and on
+  change, 12 a session) and the same CarCfg fields on every '[ROAM] tyres:
+  ... sized' line: numbers not above the rim, 0 or NaN = the game's sizing
+  (CarCfg); sane numbers = the renderer (RECOMP_GPU=webgl splits it).
+  Nearest gets a car: while
   no car can be built (count or heap), the nearest driving peer without one
   takes the farthest holder's (away = farthest) once 50 m nearer for 3 s;
   '[ROAM] nearest: ...'. Failures (2026-11-12, untested in game): a
