@@ -3484,7 +3484,8 @@
     };
     let was = {}, r3t = 0, dirKey = '', dirAt = 0;
     setInterval(() => {
-      const g = playing && !padRun && padActive && navigator.getGamepads?.()[padActive.index];
+      // padActive read once: getGamepads() can run the page's gamepad events, which may clear it (log, 2026-11-16)
+      const pa = padActive, g = playing && !padRun && pa && navigator.getGamepads?.()[pa.index];
       if (!g) { was = {}; r3t = 0; dirKey = ''; return; }
       const own = padMaps()[g.id] || '', is = {};
       for (const n in STD) { const m = own.match(new RegExp('(?:^|,)' + n + ':b(\\d+)')); is[n] = !!g.buttons[m ? +m[1] : STD[n]]?.pressed; }
