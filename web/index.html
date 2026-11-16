@@ -1422,7 +1422,7 @@
         out(`[WEB] module: ${app}.wasm answered (${(r.headers.get('content-length') >> 20) || '?'} MB), compiling (${ms()})`);
         // Progress for the loading overlay: bytes counted on the way into the compiler (Content-Length is the encoded
         // size: past it, the total is dropped)
-        const total = +r.headers.get('content-length') || 0; let got = 0;
+        const total = +r.headers.get('x-raw-length') || (r.headers.get('content-encoding') ? 0 : +r.headers.get('content-length')) || 0; let got = 0;
         if (r.body) r = new Response(r.body.pipeThrough(new TransformStream({ transform(ch, c) {
           got += ch.length; const mb = (got / 1048576).toFixed(0);
           bootWhat(total >= got ? `Downloading the game: ${mb} of ${(total / 1048576).toFixed(0)} MB` : `Downloading the game: ${mb} MB`, total >= got ? got * 100 / total : null);
