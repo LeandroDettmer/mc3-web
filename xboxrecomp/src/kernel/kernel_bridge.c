@@ -1376,6 +1376,13 @@ static void   bridge_write_handle(uint32_t handle_va, HANDLE h);
 static HANDLE bridge_take_handle(uint32_t token);
 
 void xbox_dir_forget(HANDLE h);   /* kernel_file.c */
+#ifdef __EMSCRIPTEN__
+/* kernel_async_read.c: overlapped reads of streamed wave banks in the background */
+int  xbox_async_read(HANDLE h, uint32_t token, void *buf, uint32_t len, int64_t off,
+                     uint32_t *ios, HANDLE ev);
+int  xbox_async_read_pending(uint32_t token);
+void xbox_async_read_drain(uint32_t token);
+#endif
 
 static void bridge_NtClose(void)
 {
@@ -1386,6 +1393,9 @@ static void bridge_NtClose(void)
         fflush(stderr);
     }
 
+#ifdef __EMSCRIPTEN__
+    xbox_async_read_drain(raw_handle);      /* its background reads first (kernel_async_read.c) */
+#endif
     bridge_forget_async_handle(raw_handle);
 
     /* Close real handles but skip fake/synthetic ones */
@@ -2509,6 +2519,24 @@ static void bridge_NtWaitForSingleObjectEx_wait(void);
  * way; anything else releases the lock and waits as before. */
 static void bridge_NtWaitForSingleObjectEx(void)
 {
+#ifdef __EMSCRIPTEN__
+    /* A file handle with background reads (kernel_async_read.c) is signalled
+     * when they are done: GetOverlappedResult(bWait = TRUE) without an event
+     * waits on it, then reads the status block. */
+    if (xbox_async_read_pending(STACK_ARG(0))) {
+        uint32_t tp = STACK_ARG(3);
+        int d;
+        if (tp && BRIDGE_MEM32(tp) == 0 && BRIDGE_MEM32(tp + 4) == 0) {
+            g_eax = STATUS_TIMEOUT;
+            return;
+        }
+        d = bridge_block_begin();
+        xbox_async_read_drain(STACK_ARG(0));
+        bridge_block_end(d);
+        g_eax = STATUS_SUCCESS;
+        return;
+    }
+#endif
     if (t_kernel_gil_kept) {
         uint32_t timeout_ptr = STACK_ARG(3);
         LARGE_INTEGER zero;
@@ -4693,6 +4721,19 @@ static void bridge_NtReadFile(void)
         off.HighPart = (LONG)BRIDGE_MEM32(offset_va + 4);
         poff = &off;
     }
+#ifdef __EMSCRIPTEN__
+    /* An overlapped read of a streamed wave bank (XACT polls for it) goes on
+     * in the background: kernel_async_read.c. Not with an APC routine, nor
+     * with the status block on the caller's stack (a synchronous ReadFile). */
+    if (poff && !STACK_ARG(2) && iostatus && iostatus - g_esp >= 0x10000u
+            && bridge_handle_is_async(STACK_ARG(0))
+            && xbox_async_read(handle, STACK_ARG(0), XBOX_TO_NATIVE(buffer_va), length,
+                               off.QuadPart, (uint32_t *)XBOX_TO_NATIVE(iostatus),
+                               STACK_ARG(1) ? bridge_resolve_handle(STACK_ARG(1)) : NULL)) {
+        g_eax = STATUS_PENDING;
+        return;
+    }
+#endif
     {
         static LARGE_INTEGER f;
         LARGE_INTEGER a, b;
