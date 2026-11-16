@@ -58,7 +58,10 @@
  *  1. a drift value D (0..1) and a state OUT/ENTER/IN/EXIT. D rises 8/s in
  *     ENTER and IN, falls 2/s in OUT and EXIT (in over 0.125 s, out over
  *     0.5 s); at 1 the state is IN, at 0 OUT. From OUT (or ENTER): above
- *     30 mph with the handbrake > 0.5 or the slip > 12 deg -> ENTER. From IN
+ *     30 mph with the handbrake > 0.5 or the slip > 12 deg -> ENTER (ours,
+ *     owner 2026-11-15: also |steer| > CTL_STEER or a lift-off kick, and while
+ *     ENTER under 12 deg the rear target is at most CTL_THROW, so steering
+ *     alone throws the car; the table adds |steer| x 0.5). From IN
  *     or EXIT, each step: IN if above 30 mph, slip 12..90 deg, the car
  *     rotating into the slide and the wheel not counter-steering; IN if
  *     throttle x counter-steer x slip > 12 deg above 30 mph; ENTER if
@@ -144,6 +147,8 @@ static const drift_tune k_drift[3] = {
 /* Controlled only: NFSU2's drift routine (see the header) */
 #define CTL_SPEED    13.41f /* m/s (30 mph): the drift's entry and hold speed */
 #define CTL_SLIP     12.0f  /* deg */
+#define CTL_STEER    0.70f  /* |steer| above which steering alone starts a drift (above CTL_SPEED) */
+#define CTL_THROW    0.55f  /* rear factor while a drift starts with the car still straight (On's kick: 0.50) */
 #define CTL_REAR_K   0.70f  /* share of NFSU2's rear grip range (R/1.1: 1 .. 0.31) used on MC3's tyres */
 #define CTL_TAU      0.10f  /* s: the rear factor follows its target (a keyboard's steer is all or nothing) */
 #define CTL_CS_MAX   1.60f  /* the counter-steer assist's front SteeringLimit factor at most */
@@ -357,12 +362,16 @@ static void drift_step(void)
             dstate = (into && s > CTL_SPEED && beta > CTL_SLIP && cs <= 0) ||
                      (fwd && s > CTL_SPEED && thr * cs * beta > CTL_SLIP) ? CTL_IN :
                      fwd && thr * beta > CTL_SLIP ? CTL_ENTER : CTL_EXIT;
-        else if (fwd && s > CTL_SPEED && (hb > 0.5f || beta > CTL_SLIP))
-            dstate = CTL_ENTER;
-        x = drift_clamp(dval * (beta / 57.29578f * 0.5f + cs * 4.0f + fabsf(wy) * 0.5f), 0, 1) * 9.0f;
+        else if (fwd && s > CTL_SPEED && (hb > 0.5f || beta > CTL_SLIP || fabsf(st) > CTL_STEER || kick_t > 0))
+            dstate = CTL_ENTER;   /* owner 2026-11-15: steering alone must throw the car (NFSU2's drift events do) */
+        x = drift_clamp(dval * (beta / 57.29578f * 0.5f + cs * 4.0f + fabsf(wy) * 0.5f + fabsf(st) * 0.5f), 0, 1) * 9.0f;
         k = x < 8.0f ? (int)x : 8;
         tgt = k_ctl_rear[k] + (k_ctl_rear[k + 1] - k_ctl_rear[k]) * (x - (float)k);
         tgt = 1.0f - (1.0f - tgt / 1.1f) * CTL_REAR_K;
+        /* the throw: entering with the car still straight (a steer, a lift-off or a handbrake), the rear lets go
+         * at once to CTL_THROW, as On's kick; the table takes over as the slip builds */
+        if (dstate == CTL_ENTER && beta < CTL_SLIP && tgt > CTL_THROW)
+            tgt = CTL_THROW;
         fr += (tgt - fr) * (1.0f - expf(-dt / CTL_TAU));
     } else {
         float slide = t->slide - t->thr * thr;

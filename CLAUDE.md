@@ -1839,7 +1839,9 @@ only with MC3_PERF, their only reader.
   gripping ('[DRIFT] controlled: steer side learned ...'; until then no
   counter-steer is seen). The steer input is never written. Slide line
   '...; controlled: stabilizer N frames, steer side ..., drift value D
-  (state)'; '[DRIFT] drift mode controlled'.
+  (state)'; '[DRIFT] drift mode controlled'. Steering throws the car (owner: v4 did not): a drift also starts on
+  |steer| > 0.7 or a lift-off kick above 30 mph, the rear at most 0.55
+  while it starts under 12 deg of slip (CTL_STEER, CTL_THROW).
   Drift camera (2026-11-15, untested in game; MC3_DRIFT_CAM=1, page
   'Drift camera' On/Off in the in-game Controls, live word 5 1 off / 2 on;
   any Drift level, off too; drift.c drift_cam from the sub_002CF760
