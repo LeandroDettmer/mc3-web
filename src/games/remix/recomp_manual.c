@@ -2026,6 +2026,7 @@ void sub_000EC910(void) { cam_call(53, 0x000EC910u, sub_000EC910_gen); }
  */
 #ifdef __EMSCRIPTEN__
 static void roam_shader_check(void);            /* roam_pool.c */
+static void roam_snd_check(void);               /* roam_pool.c: the sound update list checked first */
 static void online_tune_menu(void);             /* online_tune.c */
 static void online_tune_exit(void);
 static void online_tune_tick(void);
@@ -2053,6 +2054,8 @@ recomp_func_t recomp_lookup_manual(uint32_t xbox_va)
 #ifdef __EMSCRIPTEN__
     if (xbox_va == 0x000E9D00u)                 /* a model's shader group check (roam_pool.c roam_shader_check) */
         return roam_shader_check;
+    if (xbox_va == 0x00060B20u)                 /* the audio manager's frame (vt 0x44C180 +0x14): sound list check (roam_pool.c) */
+        return roam_snd_check;
     if (xbox_va == 0x0018D610u)                 /* the pause menu's items: Tune Your Vehicle in Free Roam (online_tune.c) */
         return online_tune_menu;
     if (xbox_va == 0x0018FBF0u)                 /* the tune menu's Exit: Online garage/profile, peers (online_tune.c) */

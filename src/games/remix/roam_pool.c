@@ -1872,4 +1872,94 @@ static void roam_shader_check(void)
     g_eax &= ~0xFFu;                            /* al 0: not ready */
     g_esp += 8u;                                /* ret 4 */
 }
+
+/* ── The sound update list: a freed node (2026-11-16, owner's crash in Free Roam) ──
+ *
+ * Every frame the audio manager ([0x5364B4], vtable 0x44C180; its slot +0x14
+ * sub_00060B20, reached through the end-of-frame callbacks [0x534E20] that
+ * Present sub_002D2990 calls, via sub_002177B0) runs sub_002179F0 ->
+ * sub_0021ABA0, which walks the positional sounds' list (head [0x5366CC];
+ * prev +0x34, next +0x38, linked flag +0x1A; add sub_0021A140, unlink
+ * sub_0021A170 = class vt+0x4C/+0x50; base dtor sub_0021ADA0 unlinks) and
+ * calls each node's vt+4. Class vtables 0x46E230 (base, 'Doppler', 'InRadius',
+ * 'OutRadius'), 0x46E168 (ctor sub_00219350), 0x4A3EB0. Prod c4752fa: a node
+ * whose vtable read 0 at +4 (ICALL 0 from 0x0021ABB8: memory freed without
+ * its dtor, or reused), then the skipped call left esp off and the callback
+ * loop sub_0020EE40 (0x0020EE64) walked garbage: hundreds of wild calls from
+ * 0x0020ED6B / 0x0020EDDA. The log's ring had lost what came before.
+ * Now (browser) sub_00060B20 is reached through here (recomp_lookup_manual,
+ * no relift): before the game's walk the list is checked; a node that is no
+ * sound (outside RAM, its vtable's add slot not 0x219140/0x21A140, flag not 1,
+ * prev field not the node before) is cut out (its next kept when that one
+ * points back to it, else the list ends there) and '[ROAM] sound list: ...'
+ * logs it, its first 16 words (whoever reused the memory) and our last car
+ * builds/deletes; 4 in full, then a count at powers of two. */
+void sub_00060B20(void);
+
+static int roam_snd_ok(uint32_t n, uint32_t prev)
+{
+    uint32_t vt, add;
+    if (!online_ram(n) || !online_ram(vt = MEM32(n)))
+        return 0;
+    add = MEM32(vt + 0x4Cu);
+    return (add == 0x00219140u || add == 0x0021A140u) && MEM8(n + 0x1Au) == 1 && MEM32(n + 0x34u) == prev;
+}
+
+static void roam_snd_said(uint32_t n, uint32_t prev, unsigned at, const char *fix)
+{
+    static unsigned reports;
+    static unsigned long long bad;
+    unsigned i;
+    double now;
+    bad++;
+    if (reports >= 4u) {
+        if (!(bad & (bad - 1u)))
+            fprintf(stderr, "[ROAM] sound list: %llu bad nodes cut so far (last %08X)\n", bad, (unsigned)n);
+        return;
+    }
+    reports++;
+    now = roam_now();
+    fprintf(stderr, "[ROAM] sound list: node %u (%08X, after %08X) is no sound: vtable %08X, flag %u, prev %08X, "
+                    "next %08X; %s. Its first words:", at, (unsigned)n, (unsigned)prev,
+            online_ram(n) ? (unsigned)MEM32(n) : 0u, online_ram(n) ? (unsigned)MEM8(n + 0x1Au) : 0u,
+            online_ram(n) ? (unsigned)MEM32(n + 0x34u) : 0u, online_ram(n) ? (unsigned)MEM32(n + 0x38u) : 0u, fix);
+    for (i = 0; online_ram(n) && i < 16u; i++)
+        fprintf(stderr, " %08X", (unsigned)MEM32(n + 4u * i));
+    fprintf(stderr, "\n[ROAM] sound list: free roam %s, %d remote cars; last car builds (B) and deletes (D), newest "
+                    "first:", s_roam_cruise ? "cruise" : "off", s_nrc - 1);
+    for (i = 0; i < 16u && i < s_ncev; i++) {
+        const roam_cev_t *e = &s_cev[(s_ncev - 1u - i) % 16u];
+        fprintf(stderr, " %c %.1fs veh %08X model %08X res %08X%s%s;", e->what, e->t - now, (unsigned)e->veh,
+                (unsigned)e->model, (unsigned)e->res, e->name[0] ? " " : "", e->name);
+    }
+    fprintf(stderr, "\n");
+}
+
+static void roam_snd_check(void)
+{
+    uint32_t prev = 0, n = MEM32(0x005366CCu), next;
+    unsigned at = 0;
+    while (n && at < 4096u) {
+        if (!roam_snd_ok(n, prev)) {
+            next = online_ram(n) ? MEM32(n + 0x38u) : 0;
+            if (next && roam_snd_ok(next, n)) {
+                MEM32(next + 0x34u) = prev;     /* the bad node skipped */
+                roam_snd_said(n, prev, at, "cut out");
+            } else {
+                next = 0;                       /* nothing to follow: the list ends here */
+                roam_snd_said(n, prev, at, "the list ends there");
+            }
+            if (prev)
+                MEM32(prev + 0x38u) = next;
+            else
+                MEM32(0x005366CCu) = next;
+            n = next;
+            continue;
+        }
+        prev = n;
+        n = MEM32(n + 0x38u);
+        at++;
+    }
+    sub_00060B20();
+}
 #endif /* __EMSCRIPTEN__ */
