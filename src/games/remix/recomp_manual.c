@@ -2781,9 +2781,10 @@ static void realtime_step(float real)
  * MC3_LIVE_CAREER MC3_CAREER_ONLINE 1 off / 2 on (roam_career_live, roam_pool.c).
  * MC3_LIVE_FPS_NOW is written here, read by the page (web/pre.js mc3FpsNow):
  * the rate a race or cruise steps at now, 0 outside them.
- * MC3_LIVE_DRIFT_CAM MC3_DRIFT_CAM 1 off / 2 on (drift.c drift_cam). */
+ * MC3_LIVE_DRIFT_CAM MC3_DRIFT_CAM 1 off / 2 on (drift.c drift_cam).
+ * MC3_LIVE_RACE_INVITES MC3_RACE_INVITES 1 off / 2 on (roam_challenge.c rch_recv). */
 enum { MC3_LIVE_60FPS, MC3_LIVE_CARS, MC3_LIVE_DRIFT, MC3_LIVE_CAREER, MC3_LIVE_FPS_NOW, MC3_LIVE_DRIFT_CAM,
-       MC3_LIVE_N };
+       MC3_LIVE_RACE_INVITES, MC3_LIVE_N };
 #ifdef __EMSCRIPTEN__
 static int32_t s_mc3_live[MC3_LIVE_N];
 EMSCRIPTEN_KEEPALIVE uintptr_t mc3_live_box(void) { return (uintptr_t)s_mc3_live; }
