@@ -1848,7 +1848,8 @@ only with MC3_PERF, their only reader.
   not (owner: pumping the throttle must keep it sliding). Counter-steer (owner:
   it flipped the car to the other side at once): the rotation out of the
   slide is damped too (CTL_OUT_DAMP 3/s x D, above 3 deg), counter-steer
-  loosens the rear x1.5 in the table index (NFSU2 4), assist lock x1.3 (1.6).
+  loosens the rear x1.5 in the table index (NFSU2 4), assist lock x1.45 (1.6);
+  damp 3/s then 1.2/s, lock x1.3 then x1.45 (owner: counter-steer too heavy).
   Drift camera (2026-11-15, untested in game; MC3_DRIFT_CAM=1, page
   'Drift camera' On/Off in the in-game Controls, live word 5 1 off / 2 on;
   any Drift level, off too; drift.c drift_cam from the sub_002CF760

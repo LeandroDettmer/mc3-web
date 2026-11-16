@@ -151,8 +151,8 @@ static const drift_tune k_drift[3] = {
 #define CTL_THROW    0.55f  /* rear factor while a drift starts with the car still straight (On's kick: 0.50) */
 #define CTL_REAR_K   0.85f  /* share of NFSU2's rear grip range (R/1.1: 1 .. 0.31) used on MC3's tyres (0.70 until 2026-11-16, owner: slide more easily) */
 #define CTL_TAU      0.10f  /* s: the rear factor follows its target (a keyboard's steer is all or nothing) */
-#define CTL_CS_MAX   1.30f  /* the counter-steer assist's front SteeringLimit factor at most (1.6 until 2026-11-16) */
-#define CTL_OUT_DAMP 3.0f   /* 1/s: the yaw rate out of the slide damped this much x D (ours) */
+#define CTL_CS_MAX   1.45f  /* the counter-steer assist's front SteeringLimit factor at most (1.6 until 2026-11-16) */
+#define CTL_OUT_DAMP 1.2f   /* 1/s (3 on 2026-11-16 morning, owner: too heavy): the yaw rate out of the slide damped this much x D (ours) */
 #define CTL_SIDE     1.0f   /* steer x yaw toward the right row (s) gripping before the steer side counts as learned */
 static const float k_ctl_stab[7][2] = {   /* NFSU2's yaw stabilizer S over the slip (rad) */
     { 0.0f, 0.0f }, { 0.2618f, 0.10f }, { 0.5236f, 0.45f }, { 0.7854f, 0.85f }, { 1.0472f, 0.95f },
