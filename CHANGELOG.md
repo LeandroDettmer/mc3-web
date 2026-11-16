@@ -154,6 +154,12 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Mods:** New HD HUD mod in the Mods tab: the HUD, race maps and menu art upscaled 4x (WebGPU only; best with a higher Resolution).
 - **Drift:** New Controlled drift mode, NFSU2 style: steering throws the car sideways, it keeps sliding when you pump the throttle, and counter-steer holds the drift.
 - **Drift:** Optional drift camera (Settings): the camera turns into the slide so you see the car sideways.
+- **Drift:** The Drift button opens a drift setup panel: pick a mode or tune your own Custom drift and save it.
+- **Free Roam:** Tune Your Vehicle is now in the pause menu; the tune stays on your Online car.
+- **Music:** No more freezes when a new song starts on a first visit.
+- **Graphics:** New Motion blur and Glow On/Off options in Settings.
+- **Graphics:** Widescreen fixes: no more stretched light flares, white bands or a faint copy of your car.
+- **Online:** New Settings option to turn off race invites from other players.
 - **Page:** New Suggest button (start page and in-game Settings) to send us ideas and improvements.
 - **Free Roam:** Fixed a crash when a player joined with a car the game did not know.
 - **Phones:** Fewer very slow frames on Android phones with Mali graphics and on devices whose graphics card gives no name.
