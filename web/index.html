@@ -3484,6 +3484,7 @@
       else if (!r3t) r3t = now;
       else if (r3t > 0 && now - r3t >= 600) { r3t = -1; toggleSettings(); if (dlg.open) padFocus(document.activeElement); return; }   // -1: once a hold
       const d = ['fb-dlg', 'players-dlg', 'drift-dlg', 'settings-dlg'].map($).find(e => e.open && !e.classList.contains('docked'));
+      window.Module?.mc3PadMute?.(!!d);                    // the game's pad reads neutral while a dialog uses it
       if (!d) { dirKey = ''; return; }
       const f = d.contains(document.activeElement) && document.activeElement !== d ? document.activeElement : null;
       if (hit('b')) { d.close(); return; }

@@ -445,6 +445,21 @@ Module['mc3SaveResult'] = function (n) {
   Module['mc3SetPadMap'] = function (m) { want = String(m || ''); if (!timer) put(); };
 })();
 
+// Real pads read as untouched while a page dialog uses them (xinput_device.c xbox_web_pad_mute_box, one int).
+(function () {
+  var want = 0, sent = 0, timer = 0;
+  function put() {
+    timer = 0;
+    try {
+      if (!runtimeInitialized || typeof _xbox_web_pad_mute_box != 'function') { timer = setTimeout(put, 1000); return; }
+      if (want === sent) return;
+      Atomics.store(new Int32Array(HEAPU8.buffer), _xbox_web_pad_mute_box() >>> 2, want);
+      sent = want;
+    } catch (e) { timer = setTimeout(put, 1000); }
+  }
+  Module['mc3PadMute'] = function (on) { want = on ? 1 : 0; if (!timer) put(); };
+})();
+
 // The player's keyboard keys (sdl_keyboard.c xbox_keymap_box { int seq, on; u16 map[512] }): pairs [scancode pressed,
 // default scancode it stands for], null = the default keys. Map and on first, then seq (the game lets every key go).
 (function () {

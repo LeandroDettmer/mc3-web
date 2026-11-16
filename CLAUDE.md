@@ -403,9 +403,12 @@ generated files when the lift inputs did not change.
   full screen hides the bar). With Settings, the Drift panel (not
   docked), Players or Suggest open, the pad drives the page: d-pad / left
   stick move focus spatially (left/right step a slider or list), A
-  presses, B closes, LB/RB change the Settings section. The game still
-  reads the pad meanwhile (SDL polls getGamepads; mc3SetPad(-1) would look
-  like a pulled pad): holding it back needs a runtime word.
+  presses, B closes, LB/RB change the Settings section. The game's pad is
+  muted meanwhile (2026-11-16, untested in a browser; pre.js mc3PadMute ->
+  xinput_device.c xbox_web_pad_mute_box, set by the pad-nav tick while a
+  dialog is open): real pads read neutral (no buttons, sticks centred,
+  triggers 0, port stays connected), keyboard and touch unaffected; the
+  pad's state is live again at the next read after close.
   Touch controls (2026-11-09, untested on a phone; web/touch.js, after
   nfsu2-web's): a virtual pad the page writes into xbox_touch_pad_box
   (input/touch_pad_web.c, 14 int32 words via Module.mc3TouchPad), merged
