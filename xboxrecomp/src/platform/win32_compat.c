@@ -1106,7 +1106,17 @@ HANDLE CreateThread(LPSECURITY_ATTRIBUTES sa, SIZE_T stackSize,
         return NULL;
     }
     pthread_attr_destroy(&attr);
+#if defined(__EMSCRIPTEN__)
+    /* Nothing joins these (waits go through o->cond). Emscripten gives an
+     * exited joinable thread's Web Worker back to the pool only at its join,
+     * so every guest thread ever made kept a worker: 23-40 workers, all
+     * "running", in the browser's killed-tab logs (2026-11-17), each its own
+     * JS heap and wasm instance. Detached, an exited thread frees its worker. */
+    pthread_detach(o->thread);
+    o->thread_joinable = 0;
+#else
     o->thread_joinable = 1;
+#endif
 
     if (threadId) *threadId = o->tid;
     return (HANDLE)o;
@@ -1166,6 +1176,9 @@ BOOL TerminateThread(HANDLE h, DWORD exitCode)
 {
     w32_object *o = obj_from(h);
     if (!o || o->kind != K_THREAD) return FALSE;
+#if defined(__EMSCRIPTEN__)
+    if (!o->exited)                  /* detached: an exited one's pthread_t is gone */
+#endif
     pthread_cancel(o->thread);
     pthread_mutex_lock(&o->lock);
     o->exit_code = exitCode;
