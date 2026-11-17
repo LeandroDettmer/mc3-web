@@ -1065,6 +1065,28 @@ generated files when the lift inputs did not change.
   relift) the list is checked before each walk; a node that is no sound is
   cut out ('[ROAM] sound list: node ... is no sound ...' + its first 16
   words + our last 16 car builds/deletes).
+  Dead sound owner (overnight logs 2026-11-17, build 2026-11-16T21:30Z; fix
+  untested in game): 3 Free Roam sessions R6025 pure virtual (HXU5NF/4HWU54,
+  5TD3A4, S3J77S; stack 21A96E([r+0x14]) 2196DC 21ABB8([r+0x4]) 2179F8 060B80)
+  and 1 ICALL 0 from 0x0021A96E (875B7K/932JS8/UV2E79; also via the vehicle
+  audio sub_0010C9A0 -> sub_0033C9C0 -> vt+8 sub_00219C90), each right after one
+  of our remote car rebuilds (slot or standalone). The node is a sound
+  (roam_snd_check passed it); its owner [node+4] (0 from the base ctor
+  sub_0021AE20, set later) was destroyed: sub_0021A960 calls owner vt+0x14 =
+  _purecall sub_002DBF1C (or 0). The R6025 then runs the CRT exit: the wild
+  calls from 0x002DAFD2 (ICALL 0x0044D6C8 x136 in HXU5NF, 0x00466F84, ...) are
+  the atexit cascade, not a wheel tune bug (0x0044D6C8 also shows in harmless
+  '[LISTEN] method 002689E0 ... vtable 0044D6C8 +28' lines). Now roam_snd_check
+  sets [node+4] = 0 (the ctor's state; sub_0021A960 answers 0) for a node whose
+  owner's vtable is not in the image or whose +0x14 is _purecall or no function
+  ('[ROAM] sound list: sound ... has a dead owner ... (vtable V, +0x14 F)' + our
+  last car events). Which object the owner is (and why our delete leaves it
+  linked) is not proven: V in that line tells. Same night, not game code:
+  'truncate' on FileSystemSyncAccessHandle 'Another I/O operation is in
+  progress' (18 logs, OPFS), 'divide by zero' in a worker at the profile screen
+  of new players (12 logs, 4 sessions, no guest stack; after UDATA\54540079\
+  listings and CACHE\LocalCache08.bin not found), Firefox captureStream (6),
+  WebGL shaderSource TypeError (3).
   Car radius (2026-11-12, untested in game): a peer gets a car only
   within 250 m of ours (2026-11-12: was 300; the game fades its traffic at 250 m, 0x4AFD18) (roam_peer.dist, 3D; MC3_ROAM_RADIUS m, 0 off; off in
   a group race) and gives it back (parked, reused) after 3 s beyond 350 m;

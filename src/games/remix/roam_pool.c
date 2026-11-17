@@ -1961,9 +1961,57 @@ static void roam_snd_said(uint32_t n, uint32_t prev, unsigned at, const char *fi
     fprintf(stderr, "\n");
 }
 
+/* A sound whose owner died (2026-11-17, overnight logs HXU5NF/4HWU54, 5TD3A4,
+ * S3J77S: R6025 pure virtual call; 875B7K/932JS8/UV2E79: ICALL 0): each right
+ * after one of our remote car rebuilds. The node itself is a sound (passes
+ * roam_snd_ok), but its owner [node+4] (0 from the base ctor sub_0021AE20, set
+ * later) was destroyed: sub_00219670 (vt+4) -> sub_0021A960 calls owner vt+0x14,
+ * which read _purecall sub_002DBF1C (dtor chain down to an abstract base) or 0
+ * (memory reused). The R6025 then ran the CRT's exit: the atexit list's wild
+ * calls from 0x002DAFD2 (ICALL 0x0044D6C8 x136, 0x00466F84 ...) are that
+ * cascade. The vehicle audio update (sub_0010C9A0 -> sub_0033C9C0 -> vt+8
+ * sub_00219C90) reaches sub_0021A960 too. Owner 0 is the ctor's own state
+ * (sub_0021A960 answers 0), so such a node gets owner 0. Which object the owner
+ * was is not proven: the log line gives its vtable and slot. */
+static int roam_snd_owner_dead(uint32_t o, uint32_t *vt_out, uint32_t *fn_out)
+{
+    uint32_t vt = 0, fn = 0;
+    if (online_ram(o) && (vt = MEM32(o)) >= 0x00010000u && vt < 0x00600000u)
+        fn = MEM32(vt + 0x14u);
+    *vt_out = vt;
+    *fn_out = fn;
+    return fn == 0x002DBF1Cu || !recomp_lookup(fn);
+}
+
+static void roam_snd_owner_said(uint32_t n, uint32_t o, uint32_t vt, uint32_t fn)
+{
+    static unsigned reports;
+    static unsigned long long bad;
+    unsigned i;
+    double now;
+    bad++;
+    if (reports >= 4u) {
+        if (!(bad & (bad - 1u)))
+            fprintf(stderr, "[ROAM] sound list: %llu dead sound owners let go so far (last %08X)\n", bad, (unsigned)o);
+        return;
+    }
+    reports++;
+    now = roam_now();
+    fprintf(stderr, "[ROAM] sound list: sound %08X (vtable %08X) has a dead owner %08X (vtable %08X, +0x14 %08X%s): "
+                    "owner set to 0; free roam %s; last car builds (B) and deletes (D), newest first:",
+            (unsigned)n, (unsigned)MEM32(n), (unsigned)o, (unsigned)vt, (unsigned)fn,
+            fn == 0x002DBF1Cu ? " = _purecall" : "", s_roam_cruise ? "cruise" : "off");
+    for (i = 0; i < 16u && i < s_ncev; i++) {
+        const roam_cev_t *e = &s_cev[(s_ncev - 1u - i) % 16u];
+        fprintf(stderr, " %c %.1fs veh %08X model %08X res %08X%s%s;", e->what, e->t - now, (unsigned)e->veh,
+                (unsigned)e->model, (unsigned)e->res, e->name[0] ? " " : "", e->name);
+    }
+    fprintf(stderr, "\n");
+}
+
 static void roam_snd_check(void)
 {
-    uint32_t prev = 0, n = MEM32(0x005366CCu), next;
+    uint32_t prev = 0, n = MEM32(0x005366CCu), next, o, vt, fn;
     unsigned at = 0;
     while (n && at < 4096u) {
         if (!roam_snd_ok(n, prev)) {
@@ -1981,6 +2029,10 @@ static void roam_snd_check(void)
                 MEM32(0x005366CCu) = next;
             n = next;
             continue;
+        }
+        if ((o = MEM32(n + 4u)) && roam_snd_owner_dead(o, &vt, &fn)) {
+            MEM32(n + 4u) = 0;
+            roam_snd_owner_said(n, o, vt, fn);
         }
         prev = n;
         n = MEM32(n + 0x38u);
