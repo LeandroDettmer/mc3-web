@@ -315,7 +315,7 @@
   .pl-names { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 2px 12px; }
   .pl-names li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; line-height: 22px; }
 
-  /* About: features, the donation box */
+  /* About: features */
   .feat-lede { color: var(--text); margin: 12px 0 4px; }
   .feat-grid { list-style: none; padding: 12px 0 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
   .feat { padding: 14px 16px 16px; background: var(--field); border-left: 3px solid var(--accent); border-radius: var(--r); }
@@ -323,11 +323,6 @@
   .feat h3 { margin: 6px 0 4px; font-size: 18px; color: var(--text); letter-spacing: .03em; }
   .feat p { color: var(--muted); font-size: 14px; line-height: 20px; }
   .feat b { color: var(--text); font-weight: 700; }
-  .donate-btn { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .donate-btn:hover:not(:disabled) { border-color: #fff; }
-  .donate-box { margin-top: 24px; padding: 16px; background: var(--field); border-left: 3px solid var(--accent); border-radius: var(--r); }
-  .donate-box p { margin: 0 0 10px; color: var(--muted); }
-  .donate-box p strong { color: var(--text); }
 
   /* narrow (tablet, phone): the menu becomes a bar of tabs on top, the section takes the width */
   @media (max-width: 899px) {
@@ -610,13 +605,6 @@
     <label class="field" id="edition-row" hidden><span>Disc</span><select id="edition"></select></label>
     <button type="button" class="play" id="play" disabled>Play <kbd>Enter</kbd></button>
     <button type="button" class="btn" id="resume-btn" hidden style="margin-top:8px">Back to Free Roam</button>
-    <div class="donate-box" style="margin-top:16px">
-      <p><strong>Keep the project alive.</strong> The online server costs money every month: a donation of any size keeps it running.</p>
-      <span class="row">
-        <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
-        <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
-      </span>
-    </div>
     <label class="opt" style="margin-top:16px"><input type="checkbox" id="skipintro" aria-describedby="skipintro-help"> <span>Skip intro</span></label>
     <p class="hint" id="skipintro-help" style="margin-top:4px">Boots past the Rockstar logos and the intro movie, none of them played. <code>MC3_SKIP_MOVIES=hard</code></p>
     <div class="play-cols">
@@ -877,7 +865,6 @@
     <div class="pane prose" role="tabpanel" data-pane="credits" hidden>
       <p style="margin-top:12px">mcdub3 web by Leandro Dettmer, a browser port of <a href="https://github.com/laureladastra/mcdub3-nx" target="_blank" rel="noopener noreferrer">mcdub3-nx</a> by Laure Ladastra (MIT).</p>
       <p>Based on <a href="https://github.com/LeandroDettmer/mc3-web" target="_blank" rel="noopener noreferrer">mc3-web</a> by Leandro Dettmer: AGPL-3.0. Copies must keep this credit and offer their source.</p>
-      <p><strong>Support the project:</strong> donations help pay for the online server and further development. <a href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">Donate (Stripe)</a></p>
       <p>Built on <a href="https://github.com/sp00nznet/xboxrecomp" target="_blank" rel="noopener noreferrer">xboxrecomp</a>, the Xbox static recompilation toolkit by Ned Heller (sp00nznet) and its contributors (xboxrecomp/CONTRIBUTORS.md; MIT).</p>
       <p>Modelled on antoxa2584x's <a href="https://github.com/antoxa2584x/nfsu2-sw" target="_blank" rel="noopener noreferrer">nfsu2-sw</a>.</p>
       <p>This start page follows th0mk's <a href="https://github.com/th0mk/nfsu2-web" target="_blank" rel="noopener noreferrer">nfsu2-web</a> (MIT), whose free-roam networking the online mode is ported from; itself based on Talha Müderrisoğlu's <a href="https://github.com/TalhaMudo/NFSU2Recomp" target="_blank" rel="noopener noreferrer">NFSU2Recomp</a>.</p>
@@ -885,13 +872,6 @@
     <div class="pane prose" role="tabpanel" data-pane="legal" hidden>
       <p style="margin-top:12px">Midnight Club is a trademark of Take-Two Interactive / Rockstar Games. This is an unofficial fan project, not affiliated with or endorsed by them or Microsoft.</p>
       <p>This page and its repository contain no game code or data. Play only with a disc you own.</p>
-    </div>
-    <div class="donate-box">
-      <p><strong>Keep the project alive.</strong> The online server costs money every month, and this is built in free time. A donation of any size keeps it running and growing.</p>
-      <span class="row">
-        <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
-        <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
-      </span>
     </div>
   </section>
 
@@ -902,8 +882,6 @@
       <button type="button" class="btn" id="changelog-btn" aria-haspopup="dialog" aria-controls="changelog-dlg">Changelog</button>
       <button type="button" class="btn fb-open" aria-haspopup="dialog" aria-controls="fb-dlg">Suggest</button>
       <a class="btn" id="bug-btn" href="https://github.com/LeandroDettmer/mc3-web/issues/new" target="_blank" rel="noopener">Report a bug</a>
-      <a class="btn donate-btn" href="https://buy.stripe.com/5kQbJ1cA4dVTc8naSL9oc00" target="_blank" rel="noopener noreferrer">♥ Donate</a>
-      <a class="btn donate-btn" href="https://ko-fi.com/leandrodettmer" target="_blank" rel="noopener noreferrer">☕ Ko-fi</a>
     </span>
   </footer>
 </div>
