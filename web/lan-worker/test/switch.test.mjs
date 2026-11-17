@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
-import { Switch, originOk, isVip, BROADCAST, HDR, MAX_DATA, CTL, GUARD, CLOSE } from '../src/switch.js';
+import { Switch, originOk, isVip, BROADCAST, HDR, MAX_DATA, CTL, GUARD, CLOSE, CHAT, fidOf } from '../src/switch.js';
 import { vipAt, vipStr, ADDRS, MASK, NET } from '../../races-worker/src/net.js';
 import { HUB, ROAM_PORT } from '../src/roam.js';
 import { hello, snap } from './wire.mjs';
@@ -537,4 +537,94 @@ test('guard: the upgrade of a refused IP gets 429 with Retry-After (fetch)', asy
   const res = await sw.fetch(new Request('https://lan.example/lan', { headers: { Upgrade: 'websocket', 'CF-Connecting-IP': '5.5.5.5' } }));
   assert.equal(res.status, 429);
   assert.equal(res.headers.get('Retry-After'), '60');
+});
+
+// ---- chat (docs/chat-plan.md) ----
+const tick = () => new Promise(r => setTimeout(r, 10));
+const cmsg = (ws, op) => ws.texts().filter(m => m.t === 'chat' && (!op || m.op === op));
+async function chatter(S, name, cid) {
+  const p = S.peer();
+  await p.say({ t: 'hello', name, lan: 1, ...(cid ? { cid } : {}) });
+  await tick();
+  p.ws.take();
+  return p;
+}
+
+test('chat: city scope from a city report, room scope, alone, hello, empty, clean + cut', async () => {
+  const S = setup(), { sw } = S, now = Date.now();
+  const a = await chatter(S, 'Ann'), b = await chatter(S, 'Bob'), c = await chatter(S, 'Cy'), d = await chatter(S, 'Di');
+  await a.say({ t: 'chat', op: 'say', ch: 'c', text: 'hi', id: 1 }, now);
+  assert.deepEqual(cmsg(a.ws), [{ t: 'chat', op: 'done', done: 'alone', id: 1 }]);
+  sw.cityReport({ city: 3, players: [[a.vip, 3, 0], [b.vip, 3, 0], [c.vip, 5, 0]] }, now);
+  await a.say({ t: 'chat', op: 'say', ch: 'c', text: `  he\u0007llo ‮  there ${'x'.repeat(200)}`, id: 2 }, now);
+  const got = cmsg(b.ws);
+  assert.equal(got.length, 1);
+  assert.equal(got[0].ch, 'c'); assert.equal(got[0].from, a.vip); assert.equal(got[0].name, 'Ann');
+  assert.ok(got[0].text.startsWith('hello there x') && got[0].text.length === CHAT.len && !/[\u0007‮]/.test(got[0].text));
+  assert.equal(cmsg(c.ws).length, 0, 'other city');
+  assert.equal(cmsg(a.ws)[0].n, 1);
+  await a.say({ t: 'chat', op: 'say', ch: 'c', text: '   ', id: 3 }, now);
+  assert.equal(cmsg(a.ws)[0].done, 'empty');
+  // race room: its members only
+  await c.say({ t: 'create', name: 'Night' }, now);
+  await d.say({ t: 'join', room: sw.rooms()[0].a.host.id }, now);
+  c.ws.take(); d.ws.take();
+  await c.say({ t: 'chat', op: 'say', ch: 'c', text: 'go', id: 4 }, now);
+  assert.equal(cmsg(d.ws)[0].ch, 'r');
+  assert.equal(cmsg(b.ws).length, 0);
+  // no hello yet
+  const e = S.peer();
+  await e.say({ t: 'chat', op: 'say', ch: 'c', text: 'x', id: 5 }, now);
+  assert.equal(cmsg(e.ws)[0].done, 'hello');
+});
+
+test('chat: whisper checks vip and nick; rate: the 6th say in a burst', async () => {
+  const S = setup(), now = Date.now();
+  const a = await chatter(S, 'Ann'), b = await chatter(S, 'Bob');
+  await a.say({ t: 'chat', op: 'say', ch: 'w', to: b.vip, name: 'Nope', text: 'psst', id: 1 }, now);
+  assert.equal(cmsg(a.ws)[0].done, 'away');
+  await a.say({ t: 'chat', op: 'say', ch: 'w', to: b.vip, name: 'bob', text: 'psst', id: 2 }, now);
+  assert.equal(cmsg(a.ws)[0].done, 'sent');
+  const w = cmsg(b.ws)[0];
+  assert.deepEqual([w.ch, w.from, w.name, w.text], ['w', a.vip, 'Ann', 'psst']);
+  for (let i = 0; i < 2; i++) await a.say({ t: 'chat', op: 'say', ch: 'w', to: b.vip, name: 'Bob', text: 'x' }, now);
+  a.ws.take();
+  await a.say({ t: 'chat', op: 'say', ch: 'w', to: b.vip, name: 'Bob', text: 'x' }, now);   // 4th... 5th
+  await a.say({ t: 'chat', op: 'say', ch: 'w', to: b.vip, name: 'Bob', text: 'x', id: 9 }, now);
+  assert.equal(cmsg(a.ws).at(-1).done, 'rate');
+  await a.say({ t: 'chat', op: 'say', ch: 'w', to: b.vip, name: 'Bob', text: 'x', id: 10 }, now + 2100);
+  assert.equal(cmsg(a.ws).at(-1).done, 'sent', 'refilled');
+});
+
+test('chat: ask, accept (both get the other fid), noask, nofid, seen', async () => {
+  const S = setup(), { sw } = S, now = Date.now();
+  const a = await chatter(S, 'Ann', 'cid-aaaaaaaa'), b = await chatter(S, 'Bob', 'cid-bbbbbbbb'), o = await chatter(S, 'Old');
+  const fa = await fidOf('cid-aaaaaaaa'), fb = await fidOf('cid-bbbbbbbb');
+  assert.match(fa, /^[0-9a-f]{16}$/);
+  assert.equal(sw.clients.get(a.vip).a.fid, fa);
+  await b.say({ t: 'chat', op: 'accept', to: a.vip, name: 'Ann', id: 1 }, now);
+  assert.equal(cmsg(b.ws)[0].done, 'noask');
+  await a.say({ t: 'chat', op: 'ask', to: o.vip, name: 'Old', id: 2 }, now);
+  assert.equal(cmsg(a.ws)[0].done, 'nofid', 'old page, no cid');
+  await a.say({ t: 'chat', op: 'ask', to: b.vip, name: 'Bob', id: 3 }, now + 7000);
+  assert.equal(cmsg(a.ws)[0].done, 'sent');
+  const ask = cmsg(b.ws)[0];
+  assert.deepEqual([ask.op, ask.from, ask.name], ['ask', a.vip, 'Ann']);
+  assert.equal(ask.fid, undefined);
+  await b.say({ t: 'chat', op: 'accept', to: a.vip, name: 'Ann', id: 4 }, now + 14000);
+  const fr = m => m.find(x => x.op === 'friend');
+  assert.deepEqual(fr(cmsg(a.ws)), { t: 'chat', op: 'friend', vip: b.vip, name: 'Bob', fid: fb });
+  assert.deepEqual(fr(cmsg(b.ws)), { t: 'chat', op: 'friend', vip: a.vip, name: 'Ann', fid: fa });
+  await b.say({ t: 'chat', op: 'accept', to: a.vip, name: 'Ann', id: 5 }, now + 21000);
+  assert.equal(cmsg(b.ws).at(-1).done, 'noask', 'used once');
+  // an ask expires
+  sw.asks.set(a.vip + '>' + b.vip, now + 28000 - CHAT.askMs - 1);
+  await b.say({ t: 'chat', op: 'accept', to: a.vip, name: 'Ann', id: 6 }, now + 28000);
+  assert.equal(cmsg(b.ws).at(-1).done, 'noask');
+  // seen: where friends are
+  sw.cityReport({ city: 2, players: [[b.vip, 2, 0]] }, now);
+  await a.say({ t: 'chat', op: 'seen', f: [fb, 'zz', '0'.repeat(16)], id: 7 }, now + 35000);
+  const s = cmsg(a.ws, 'seen')[0];
+  assert.equal(s.id, 7);
+  assert.deepEqual(s.on, [{ f: fb, vip: b.vip, name: 'Bob', w: 'roam', city: 2 }]);
 });

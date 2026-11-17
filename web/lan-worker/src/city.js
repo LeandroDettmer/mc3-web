@@ -3,6 +3,8 @@
 // and relays what its pages' games send each other on port 47210 (the pairs without a WebRTC channel, web/rtc.js) and
 // their {"t":"signal",...,"roam":1}, so no single object carries every Free Roam player: each city's load is its own.
 //
+// Chat (docs/chat-plan.md) goes to the Switch, never here: this object only relays frames and roam signals (load reasons).
+//
 // Why a second socket per page (web/lan.js opens it when the game's HELLO to the hub names a city) and not the Switch
 // forwarding to a city object: the Switch would still take every incoming message (billed 20:1, and its CPU), so the
 // per-object rate would not fall; here the Switch sees none of free roam's traffic.

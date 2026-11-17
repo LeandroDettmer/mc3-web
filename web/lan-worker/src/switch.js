@@ -54,6 +54,13 @@
 // and cut to NICK characters on hello, and unique among the live clients (any case; 'Player', the empty name's
 // fallback, excepted): a hello with a held nick gets {"t":"error","op":"hello","code":"nick-taken"} and keeps its old name.
 //
+// Chat (docs/chat-plan.md, page web/chat.js; JSON on this socket only, never the city sockets): {"t":"chat","op":"say"|"ask"|
+// "accept"|"seen"} -> say reaches the sender's race room, else its free-roam city (roamers()), whispers (ch "w") one vip
+// holding the named nick; ask/accept make friends by fid (first 16 hex of SHA-1("mc3-fid:" + cid), set after hello,
+// revealed only to both sides of an accepted ask); seen tells where friends' fids are. Answers {"op":"done","done":
+// "sent"|"away"|"alone"|"rate"|"empty"|"nofid"|"noask"|"hello"}. Limits: CHAT. Nothing stored; text and fids are never
+// logged. Cost: one incoming message = 1/20 DO request.
+//
 // Abuse guards (GUARD below; all in memory or in the sockets' attachments, nothing stored, no IP ever logged; no timer
 // and no alarm of their own: they run on the wakes the object has anyway, so a silent socket costs nothing):
 //  - per IP: at most GUARD.perIp live sockets from one CF-Connecting-IP (IPv6: its /64); one more upgrade -> HTTP 429.
@@ -82,6 +89,11 @@ export const CITIES = 14, cityOk = n => Number.isInteger(n) && n >= 0 && n < CIT
 export const TICKET_MS = 60e3, CITY = { reportMs: 10e3, keepMs: 60e3 }, CITY_TTL = 3 * CITY.keepMs;
 
 const enc = new TextEncoder();
+/** A browser's public id: first 16 hex of SHA-1("mc3-fid:" + cid). One-way: the cid stays secret. */
+export async function fidOf(cid) {
+  const d = await crypto.subtle.digest('SHA-1', enc.encode('mc3-fid:' + cid));
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+}
 async function hmac(secret, msg) {
   const k = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   return [...new Uint8Array(await crypto.subtle.sign('HMAC', k, enc.encode(msg)))].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -174,6 +186,8 @@ export const WHERE = ['career', 'arcade', 'menu', 'loading', 'page'];
 export const GUARD = { perCid: 2, perIp: 8, helloMs: 10e3, churnMax: 20, churnMs: 60e3, coolMs: 60e3 };
 export const CLOSE = { tabs: 4002, hello: 4003, churn: 4004 };
 const ipKey = ip => ip.includes(':') ? ip.split(':').slice(0, 4).join(':') : ip;   // IPv6: a /64 is one household
+// Chat (docs/chat-plan.md): text cut to len; bucket burst/perS (say 1, seen 1, ask/accept askCost); asks pending askMs, asksPer a sender.
+export const CHAT = { len: 140, perS: 0.5, burst: 5, askCost: 3, askMs: 300e3, asksPer: 8, seenMax: 60 };
 const SAVE_MS = 30e3;   // a frame-only client's `last` reaches its attachment this often (idle expiry after a wake)
 
 export const isVip = v => (v & MASK) >>> 0 === NET && (v & 255) >= 2 && (v & 255) < 252;
@@ -194,6 +208,7 @@ export class Switch extends Lobby {
     this.churn = new Map();   // 'ip' | 'c:<cid>' -> {n, at, until}
     this.helloAt = 0;
     this.cities = new Map();  // city -> {at, vips: Map vip -> room}: the city objects' reports (POST /lan/city)
+    this.asks = new Map();    // "from>to" -> at: pending friend requests (memory only; lost on hibernation: accept says noask)
   }
 
   /** Are the city objects there (the ROAM binding and its ticket secret)? */
@@ -410,7 +425,7 @@ export class Switch extends Lobby {
   /** The bucket of `c` (frames, bytes, JSON tokens). */
   bucket(vip, now) {
     let k = this.buckets.get(vip);
-    if (!k) this.buckets.set(vip, k = { frames: this.rate.burstFrames, bytes: this.rate.burstBytes, at: now, ctl: CTL.burst, ctlAt: now, over: 0 });
+    if (!k) this.buckets.set(vip, k = { frames: this.rate.burstFrames, bytes: this.rate.burstBytes, at: now, ctl: CTL.burst, ctlAt: now, over: 0, chat: CHAT.burst, chatAt: now });
     return k;
   }
 
@@ -439,9 +454,10 @@ export class Switch extends Lobby {
 
   /** The switch's own control messages (hello with lan, lan, roam, players, where); false: the Lobby's (rooms, ping, ...). */
   control(c, text, now) {
-    if (text.length > LIMITS.msg || !/"(hello|lan|roam|players|where)"/.test(text)) return false;
+    if (text.length > LIMITS.msg || !/"(hello|lan|roam|players|where|chat)"/.test(text)) return false;
     let m;
     try { m = JSON.parse(text); } catch { return false; }
+    if (m?.t === 'chat') { c.a.last = now; this.chat(c, m, now); return true; }   // no save() per message, as frames
     if (m?.t === 'hello') {
       const name = clean(m.name, NICK, 'Player');
       if (typeof m.cid === 'string' && /^[\w-]{8,40}$/.test(m.cid) && m.cid !== c.a.cid) {   // a new socket's first hello
@@ -452,6 +468,7 @@ export class Switch extends Lobby {
       if (this.nickTaken(c, name)) this.err(c, 'hello', 'nick-taken');   // the old name stays
       else c.a.name = name;   // the same browser (cid) may hold its nick on two sockets: a second tab, a ghost (the idle sweep drops it)
       c.a.hi = true; c.a.lan = on(m.lan);
+      if (c.a.cid && !c.a.fid) fidOf(c.a.cid).then(f => { if (this.wsc.get(c.ws) === c) { c.a.fid = f; this.save(c); } });
     } else if (m?.t === 'lan') c.a.lan = on(m.on);
     else if (m?.t === 'players') c.a.who = on(m.sub);
     else if (m?.t === 'where') { if (WHERE.includes(m.w)) { c.a.w = m.w; this.logActivity(now); } }   // anything else: ignored, the old one stays
@@ -535,6 +552,93 @@ export class Switch extends Lobby {
     for (const p of this.hub.players.values()) { if (p.vip === a) ra.add(p.room); else if (p.vip === b) rb.add(p.room); }
     for (const r of ra) if (rb.has(r)) return true;
     return false;
+  }
+
+  done(c, m, done, n) {
+    const o = { t: 'chat', op: 'done', done };
+    if (Number.isFinite(m.id)) o.id = m.id;
+    if (n !== undefined) o.n = n;
+    this.raw(c, JSON.stringify(o));
+  }
+
+  /** {"t":"chat",...} (head of this file, docs/chat-plan.md section 2). Text and fids are never logged. */
+  chat(c, m, now) {
+    const a = c.a, op = m.op;
+    if (!['say', 'ask', 'accept', 'seen'].includes(op)) return;
+    if (!a.hi) return this.done(c, m, 'hello');
+    const k = this.bucket(a.vip, now), cost = op === 'ask' || op === 'accept' ? CHAT.askCost : 1;
+    k.chat = Math.min(k.chat + Math.max(0, now - k.chatAt) / 1000 * CHAT.perS, CHAT.burst);
+    k.chatAt = now;
+    if (k.chat < cost) return this.done(c, m, 'rate');
+    k.chat -= cost;
+    // the page's idea of the target: that vip must still hold that nick (vips are reused)
+    const target = () => {
+      const q = this.clients.get(Number(m.to) >>> 0);
+      return q && q !== c && q.a.hi && String(q.a.name).toLowerCase() === String(m.name ?? '').toLowerCase() ? q : null;
+    };
+    const stamp = { at: now }, from = { from: a.vip, name: a.name };
+    if (op === 'say') {
+      const text = clean(clean(m.text, 4 * CHAT.len).replace(/\s+/g, ' '), CHAT.len);
+      if (!text) return this.done(c, m, 'empty');
+      if (m.ch === 'w') {
+        const q = target();
+        if (!q) return this.done(c, m, 'away');
+        this.raw(q, JSON.stringify({ t: 'chat', op: 'say', ch: 'w', ...from, text, ...stamp }));
+        return this.done(c, m, 'sent', 1);
+      }
+      let ch = 'r', rcpt;
+      if (a.room) rcpt = this.members(a.room);
+      else {
+        // shortcut: O(players) per line (one roamers() rebuild); fine to a few thousand
+        const roam = this.roamers(now), room = roam.get(a.vip);
+        if (room === undefined) return this.done(c, m, 'alone');
+        ch = 'c';
+        rcpt = [...this.clients.values()].filter(q => roam.get(q.a.vip) === room);
+      }
+      const raw = JSON.stringify({ t: 'chat', op: 'say', ch, ...from, text, ...stamp });
+      let n = 0;
+      for (const q of rcpt) if (q !== c) { this.raw(q, raw); n++; }
+      return this.done(c, m, 'sent', n);
+    }
+    if (op === 'ask') {
+      const q = target();
+      if (!q) return this.done(c, m, 'away');
+      if (!a.fid || !q.a.fid) return this.done(c, m, 'nofid');
+      let mine = 0;
+      for (const [key, at] of this.asks) {
+        if (now - at > CHAT.askMs) this.asks.delete(key);
+        else if (key.startsWith(a.vip + '>')) mine++;
+      }
+      const key = a.vip + '>' + q.a.vip;
+      if (!this.asks.has(key) && mine >= CHAT.asksPer) return this.done(c, m, 'rate');
+      this.asks.set(key, now);
+      this.raw(q, JSON.stringify({ t: 'chat', op: 'ask', ...from, ...stamp }));
+      return this.done(c, m, 'sent', 1);
+    }
+    if (op === 'accept') {
+      const q = target(), key = (Number(m.to) >>> 0) + '>' + a.vip, at = this.asks.get(key);
+      if (!q) return this.done(c, m, 'away');
+      if (at === undefined || now - at > CHAT.askMs) { this.asks.delete(key); return this.done(c, m, 'noask'); }
+      if (!a.fid || !q.a.fid) return this.done(c, m, 'nofid');
+      this.asks.delete(key);
+      this.raw(c, JSON.stringify({ t: 'chat', op: 'friend', vip: q.a.vip, name: q.a.name, fid: q.a.fid }));
+      this.raw(q, JSON.stringify({ t: 'chat', op: 'friend', vip: a.vip, name: a.name, fid: a.fid }));
+      return this.done(c, m, 'sent', 1);
+    }
+    // seen
+    const want = new Set((Array.isArray(m.f) ? m.f : []).slice(0, CHAT.seenMax).filter(f => typeof f === 'string' && /^[0-9a-f]{16}$/.test(f)));
+    const by = new Map(), roam = this.roamers(now);
+    for (const q of this.clients.values()) {
+      if (!q.a.fid || !want.has(q.a.fid) || !q.a.hi) continue;
+      const o = by.get(q.a.fid);
+      if (!o || (q.a.at || 0) >= (o.a.at || 0)) by.set(q.a.fid, q);
+    }
+    const on = [...by].map(([f, q]) => {
+      const e = { f, vip: q.a.vip, name: q.a.name, w: 'menu' };
+      if (roam.has(q.a.vip)) { e.w = 'roam'; e.city = roam.get(q.a.vip); } else if (q.a.room) e.w = 'race';
+      return e;
+    });
+    this.raw(c, JSON.stringify({ t: 'chat', op: 'seen', ...(Number.isFinite(m.id) ? { id: m.id } : {}), on }));
   }
 
   /** The hub's lists out, as frames from 10.77.0.253:47210 (crates/lan Switch::inject). */

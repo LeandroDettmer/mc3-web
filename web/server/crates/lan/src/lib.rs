@@ -46,6 +46,14 @@
 //! Free roam's port ([`ROAM_PORT`]) and the hub route whatever the rooms.  The host leaving closes the room.  Only a
 //! salted SHA-1 verifier of a room's password is kept.  [`RoomLimits`]: members, rooms, rooms hosted per address.
 //!
+//! # Chat
+//!
+//! docs/chat-plan.md section 2 (same wire as web/lan-worker/src/switch.js): {"t":"chat","op":"say"|"ask"|"accept"|"seen"}
+//! from a client; "say" (ch "c"/"r", or "w" to a vip holding the named nick), "ask", "friend", "seen" and {"op":"done"}
+//! back. Scope: the sender's room, else every client that said hello and is in no room (this server has no per-vip city:
+//! its open LAN is one "city"). Friends are fids, SHA-1("mc3-fid:" + the hello's cid), first 16 hex. Nothing is stored
+//! and no text or fid is ever logged. [`Chat`]: text length, token bucket, pending asks.
+//!
 //! # Limits
 //!
 //! [`Limits`]: frame size (header + 1472), a token bucket per sender on frames and bytes (over it, frames are
@@ -172,6 +180,24 @@ impl Default for Limits {
     }
 }
 
+/// Chat limits: text cut to LEN characters, a token bucket (say 1, seen 1, ask/accept ASK_COST), asks pending ASK_MS.
+pub struct Chat;
+impl Chat {
+    pub const LEN: usize = 140;
+    pub const PER_S: f64 = 0.5;
+    pub const BURST: f64 = 5.0;
+    pub const ASK_COST: f64 = 3.0;
+    pub const ASK_MS: u128 = 300_000;
+    pub const ASKS_PER: usize = 8;
+    pub const SEEN_MAX: usize = 60;
+}
+
+/// A browser's public id: first 16 hex of SHA-1("mc3-fid:" + cid).
+pub fn fid_of(cid: &str) -> String {
+    let d = Sha1::digest(format!("mc3-fid:{cid}").as_bytes());
+    d.iter().take(8).map(|b| format!("{b:02x}")).collect()
+}
+
 #[derive(Clone, Debug)]
 pub struct RoomLimits {
     /// members of a room (System Link races hold 8)
@@ -213,6 +239,10 @@ struct Peer {
     /// wants the room list ({"t":"rooms","sub":1})
     sub: bool,
     ip: Option<IpAddr>,
+    /// fid_of the hello's cid (None: no cid, no friends)
+    fid: Option<String>,
+    chat: f64,
+    chat_at: Instant,
 }
 
 struct Room {
@@ -234,9 +264,115 @@ struct Inner {
     /// keyed by creation order (the list's order); key 0 is never used
     rooms: HashMap<u64, Room>,
     seq: u64,
+    /// pending friend requests (from, to) -> when
+    asks: HashMap<(u32, u32), Instant>,
 }
 
 impl Inner {
+    fn chat(&mut self, vip: u32, m: &Value) {
+        let op = m.get("op").and_then(|v| v.as_str()).unwrap_or("");
+        if !matches!(op, "say" | "ask" | "accept" | "seen") {
+            return;
+        }
+        let id = m.get("id").filter(|v| v.is_number()).cloned();
+        let done = |g: &Inner, d: &str, n: Option<usize>| {
+            let mut o = json!({"t": "chat", "op": "done", "done": d});
+            if let Some(id) = &id {
+                o["id"] = id.clone();
+            }
+            if let Some(n) = n {
+                o["n"] = json!(n);
+            }
+            g.send(vip, o);
+        };
+        let now = Instant::now();
+        let Some(me) = self.peers.get_mut(&vip) else { return };
+        let Some(name) = me.name.clone() else { return done(self, "hello", None) };
+        let cost = if matches!(op, "ask" | "accept") { Chat::ASK_COST } else { 1.0 };
+        me.chat = (me.chat + now.saturating_duration_since(me.chat_at).as_secs_f64() * Chat::PER_S).min(Chat::BURST);
+        me.chat_at = now;
+        if me.chat < cost {
+            return done(self, "rate", None);
+        }
+        me.chat -= cost;
+        let (room, my_fid) = (me.room, me.fid.clone());
+        let to = m.get("to").and_then(|v| v.as_u64()).and_then(|v| u32::try_from(v).ok());
+        let want = m.get("name").and_then(|v| v.as_str()).unwrap_or("").to_lowercase();
+        // that vip must still hold that nick (vips are reused)
+        let target = |g: &Inner| to.filter(|t| *t != vip && g.peers.get(t).is_some_and(|q| q.name.as_deref().is_some_and(|n| n.to_lowercase() == want)));
+        let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64);
+        match op {
+            "say" => {
+                let one_line = clean_text(m.get("text").and_then(|v| v.as_str()).unwrap_or(""), Chat::LEN * 4).split_whitespace().collect::<Vec<_>>().join(" ");
+                let text = clean_text(&one_line, Chat::LEN);
+                if text.is_empty() {
+                    return done(self, "empty", None);
+                }
+                if m.get("ch").and_then(|v| v.as_str()) == Some("w") {
+                    let Some(t) = target(self) else { return done(self, "away", None) };
+                    self.send(t, json!({"t": "chat", "op": "say", "ch": "w", "from": vip, "name": name, "text": text, "at": at}));
+                    return done(self, "sent", Some(1));
+                }
+                let ch = if room != 0 { "r" } else { "c" };
+                let msg = json!({"t": "chat", "op": "say", "ch": ch, "from": vip, "name": name, "text": text, "at": at}).to_string();
+                let mut n = 0;
+                for (&v, q) in self.peers.iter() {
+                    if v != vip && q.name.is_some() && q.room == room && q.tx.try_send(Out::Text(msg.clone())).is_ok() {
+                        n += 1;
+                    }
+                }
+                done(self, "sent", Some(n));
+            }
+            "ask" => {
+                let Some(t) = target(self) else { return done(self, "away", None) };
+                if my_fid.is_none() || self.peers[&t].fid.is_none() {
+                    return done(self, "nofid", None);
+                }
+                self.asks.retain(|_, a| now.saturating_duration_since(*a).as_millis() <= Chat::ASK_MS);
+                if !self.asks.contains_key(&(vip, t)) && self.asks.keys().filter(|k| k.0 == vip).count() >= Chat::ASKS_PER {
+                    return done(self, "rate", None);
+                }
+                self.asks.insert((vip, t), now);
+                self.send(t, json!({"t": "chat", "op": "ask", "from": vip, "name": name, "at": at}));
+                done(self, "sent", Some(1));
+            }
+            "accept" => {
+                let Some(t) = target(self) else { return done(self, "away", None) };
+                let fresh = self.asks.get(&(t, vip)).is_some_and(|a| now.saturating_duration_since(*a).as_millis() <= Chat::ASK_MS);
+                if !fresh {
+                    self.asks.remove(&(t, vip));
+                    return done(self, "noask", None);
+                }
+                let (Some(mine), Some(theirs)) = (my_fid, self.peers[&t].fid.clone()) else { return done(self, "nofid", None) };
+                self.asks.remove(&(t, vip));
+                let tname = self.nick(t).to_string();
+                self.send(vip, json!({"t": "chat", "op": "friend", "vip": t, "name": tname, "fid": theirs}));
+                self.send(t, json!({"t": "chat", "op": "friend", "vip": vip, "name": name, "fid": mine}));
+                done(self, "sent", Some(1));
+            }
+            _ => {
+                let is_fid = |f: &&str| f.len() == 16 && f.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+                let fids: Vec<&str> = m
+                    .get("f")
+                    .and_then(|v| v.as_array())
+                    .map(|a| a.iter().take(Chat::SEEN_MAX).filter_map(|v| v.as_str()).filter(is_fid).collect())
+                    .unwrap_or_default();
+                let mut on: Vec<Value> = Vec::new();
+                for f in fids {
+                    // several sockets of one browser: the highest (newest) vip
+                    if let Some((&v, q)) = self.peers.iter().filter(|(_, q)| q.name.is_some() && q.fid.as_deref() == Some(f)).max_by_key(|(v, _)| **v) {
+                        on.push(json!({"f": f, "vip": v, "name": q.name, "w": if q.room != 0 { "race" } else { "menu" }}));
+                    }
+                }
+                let mut o = json!({"t": "chat", "op": "seen", "on": on});
+                if let Some(id) = id {
+                    o["id"] = id;
+                }
+                self.send(vip, o);
+            }
+        }
+    }
+
     fn send(&self, vip: u32, v: Value) {
         if let Some(p) = self.peers.get(&vip) {
             let _ = p.tx.try_send(Out::Text(v.to_string()));
@@ -338,7 +474,7 @@ impl Switch {
         Switch {
             limits,
             room_limits: RoomLimits::default(),
-            inner: Mutex::new(Inner { peers: HashMap::new(), next: 0, rooms: HashMap::new(), seq: 0 }),
+            inner: Mutex::new(Inner { peers: HashMap::new(), next: 0, rooms: HashMap::new(), seq: 0, asks: HashMap::new() }),
             hub: Mutex::new(None),
             roam: Mutex::new(r#"{"t":"roam","players":[]}"#.to_string()),
             roam_rooms: Mutex::new(Default::default()),
@@ -375,13 +511,14 @@ impl Switch {
         let welcome = serde_json::json!({"t": "welcome", "vip": vip, "vipStr": vip_str(vip), "mask": MASK, "mac": mac_str(vip)});
         let _ = tx.try_send(Out::Text(welcome.to_string()));
         let (frames, bytes) = (self.limits.burst_frames, self.limits.burst_bytes);
-        g.peers.insert(vip, Peer { tx, name: None, lan: false, frames, bytes, at: Instant::now(), room: 0, sub: false, ip });
+        g.peers.insert(vip, Peer { tx, name: None, lan: false, frames, bytes, at: Instant::now(), room: 0, sub: false, ip, fid: None, chat: Chat::BURST, chat_at: Instant::now() });
         Some(vip)
     }
 
     pub fn leave(&self, vip: u32) {
         let mut g = self.inner.lock().unwrap();
         let rooms = g.leave_room(vip, None);
+        g.asks.retain(|k, _| k.0 != vip && k.1 != vip);
         if g.peers.remove(&vip).is_some_and(|p| p.name.is_some()) {
             send_list(&g);
         }
@@ -450,6 +587,10 @@ impl Switch {
             Some("hello") => {
                 p.name = Some(clean_name(str_of("name")));
                 p.lan = on("lan");
+                let cid = str_of("cid");
+                if (8..=40).contains(&cid.len()) && cid.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-') {
+                    p.fid = Some(fid_of(cid));
+                }
                 let k = p.room;
                 send_list(g);
                 if k != 0 {
@@ -457,6 +598,7 @@ impl Switch {
                     g.send_rooms();
                 }
             }
+            Some("chat") => g.chat(vip, &m),
             Some("lan") => p.lan = on("on"),
             Some("ping") => {
                 let pong = serde_json::json!({"t": "pong", "id": m.get("id").cloned().unwrap_or_default()});
@@ -938,5 +1080,98 @@ mod tests {
         assert_eq!(clean_name("  \u{202E}Ann\n "), "Ann");
         assert_eq!(clean_name(""), "Player");
         assert_eq!(clean_name(&"x".repeat(40)).len(), NAME_MAX);
+    }
+
+    fn csay(sw: &Switch, vip: u32, v: Value) {
+        sw.control(vip, &v.to_string());
+    }
+
+    fn chats(rx: &mut mpsc::Receiver<Out>) -> Vec<Value> {
+        drain(rx)
+            .into_iter()
+            .filter_map(|o| if let Out::Text(t) = o { serde_json::from_str::<Value>(&t).ok() } else { None })
+            .filter(|v| v["t"] == "chat")
+            .collect()
+    }
+
+    fn cnamed(sw: &Switch, name: &str, cid: Option<&str>) -> (u32, mpsc::Receiver<Out>) {
+        let (v, mut rx) = peer(sw);
+        csay(sw, v, json!({"t": "hello", "name": name, "lan": 1, "cid": cid}));
+        drain(&mut rx);
+        (v, rx)
+    }
+
+    #[test]
+    fn chat_scope_room_clean_and_cut() {
+        let sw = Switch::new(Limits::default());
+        let ((a, mut ra), (b, mut rb), (c, mut rc)) = (cnamed(&sw, "Ann", None), cnamed(&sw, "Bob", None), cnamed(&sw, "Cy", None));
+        let (d, mut rd) = cnamed(&sw, "Di", None);
+        let raw = format!("  he{}llo {} there {}", char::from(7u8), char::from_u32(0x202E).unwrap(), "x".repeat(200));
+        csay(&sw, a, json!({"t": "chat", "op": "say", "ch": "c", "text": raw, "id": 1}));
+        let got = chats(&mut rb);
+        assert_eq!(got.len(), 1);
+        assert_eq!((got[0]["ch"].as_str(), got[0]["from"].as_u64(), got[0]["name"].as_str()), (Some("c"), Some(a as u64), Some("Ann")));
+        let text = got[0]["text"].as_str().unwrap();
+        assert!(text.starts_with("hello there x") && text.chars().count() == Chat::LEN, "{text}");
+        assert_eq!(chats(&mut ra), vec![json!({"t": "chat", "op": "done", "done": "sent", "id": 1, "n": 3})]);
+        drain(&mut rc);
+        drain(&mut rd);
+        // a room: its members only
+        csay(&sw, c, json!({"t": "create", "name": "Night"}));
+        let id = sw.inner.lock().unwrap().rooms.values().next().unwrap().id.clone();
+        csay(&sw, d, json!({"t": "join", "room": id}));
+        drain(&mut rc);
+        drain(&mut rd);
+        csay(&sw, c, json!({"t": "chat", "op": "say", "ch": "c", "text": "go"}));
+        assert_eq!(chats(&mut rd)[0]["ch"], "r");
+        assert!(chats(&mut rb).is_empty());
+        csay(&sw, a, json!({"t": "chat", "op": "say", "ch": "c", "text": "   ", "id": 2}));
+        assert_eq!(chats(&mut ra)[0]["done"], "empty");
+        let _ = b;
+    }
+
+    #[test]
+    fn chat_whisper_name_check_and_rate() {
+        let sw = Switch::new(Limits::default());
+        let ((a, mut ra), (b, mut rb)) = (cnamed(&sw, "Ann", None), cnamed(&sw, "Bob", None));
+        csay(&sw, a, json!({"t": "chat", "op": "say", "ch": "w", "to": b, "name": "Nope", "text": "psst", "id": 1}));
+        assert_eq!(chats(&mut ra)[0]["done"], "away");
+        csay(&sw, a, json!({"t": "chat", "op": "say", "ch": "w", "to": b, "name": "bob", "text": "psst", "id": 2}));
+        assert_eq!(chats(&mut ra)[0]["done"], "sent");
+        assert_eq!(chats(&mut rb)[0]["text"], "psst");
+        for _ in 0..3 {
+            csay(&sw, a, json!({"t": "chat", "op": "say", "ch": "w", "to": b, "name": "Bob", "text": "x"}));
+        }
+        drain(&mut ra);
+        csay(&sw, a, json!({"t": "chat", "op": "say", "ch": "w", "to": b, "name": "Bob", "text": "x", "id": 9}));
+        assert_eq!(chats(&mut ra)[0]["done"], "rate");
+    }
+
+    #[test]
+    fn chat_friends_by_fid() {
+        let sw = Switch::new(Limits::default());
+        let ((a, mut ra), (b, mut rb), (o, _ro)) =
+            (cnamed(&sw, "Ann", Some("cid-aaaaaaaa")), cnamed(&sw, "Bob", Some("cid-bbbbbbbb")), cnamed(&sw, "Old", None));
+        let (fa, fb) = (fid_of("cid-aaaaaaaa"), fid_of("cid-bbbbbbbb"));
+        assert_eq!(fa.len(), 16);
+        csay(&sw, b, json!({"t": "chat", "op": "accept", "to": a, "name": "Ann", "id": 1}));
+        assert_eq!(chats(&mut rb)[0]["done"], "noask");
+        csay(&sw, a, json!({"t": "chat", "op": "ask", "to": o, "name": "Old", "id": 2}));
+        assert_eq!(chats(&mut ra)[0]["done"], "nofid");
+        // the bucket holds one ask (3 of 5) at a time: wait it out
+        sw.inner.lock().unwrap().peers.get_mut(&a).unwrap().chat = Chat::BURST;
+        csay(&sw, a, json!({"t": "chat", "op": "ask", "to": b, "name": "Bob", "id": 3}));
+        assert_eq!(chats(&mut ra)[0]["done"], "sent");
+        let ask = chats(&mut rb);
+        assert_eq!((ask[0]["op"].as_str(), ask[0]["from"].as_u64()), (Some("ask"), Some(a as u64)));
+        assert!(ask[0].get("fid").is_none());
+        sw.inner.lock().unwrap().peers.get_mut(&b).unwrap().chat = Chat::BURST;
+        csay(&sw, b, json!({"t": "chat", "op": "accept", "to": a, "name": "Ann", "id": 4}));
+        let (ga, gb) = (chats(&mut ra), chats(&mut rb));
+        assert_eq!(ga[0], json!({"t": "chat", "op": "friend", "vip": b, "name": "Bob", "fid": fb}));
+        assert_eq!(gb[0], json!({"t": "chat", "op": "friend", "vip": a, "name": "Ann", "fid": fa}));
+        // seen
+        csay(&sw, a, json!({"t": "chat", "op": "seen", "f": [fb, "zz"], "id": 7}));
+        assert_eq!(chats(&mut ra)[0], json!({"t": "chat", "op": "seen", "id": 7, "on": [{"f": fb, "vip": b, "name": "Bob", "w": "menu"}]}));
     }
 }
