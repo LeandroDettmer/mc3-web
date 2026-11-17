@@ -174,3 +174,10 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Phones:** Fewer very slow frames on Android phones with Mali graphics and on devices whose graphics card gives no name.
 - **Loading:** Faster first download of the game's files.
 - **Online:** New Ghost mode option: other players' cars pass through yours, so you never crash into them.
+
+## 2026-11-17 (ca9ef1f)
+
+- **Phones:** Far fewer closed tabs on iPhone and Android: the game no longer piles up background helpers while you play.
+- **Mac, iPhone, iPad:** No more long freezes while the game prepares new graphics.
+- **Free Roam:** Fixed another crash when other players' cars were rebuilt.
+- **Graphics:** When the browser drops the graphics card, the game restarts on its own in compatibility mode.
