@@ -520,6 +520,15 @@ generated files when the lift inputs did not change.
   and '[WEB] tab hidden|visible' first; a hitch within 5 s of a Free Roam
   status change is not sent; Firefox's captureStream transfer refusal sets
   mc3.glProxy);
+  Overnight logs 2026-11-17 (585 logs; fixes untested in a browser): 'Script error.' 16, all iPhone Safari
+  WebGPU Apple, 5-230 s after Play, none with a '[WEB] worker N error|message' line before it (so not a pool worker's
+  error event nor its onmessage: page-thread callback or a non-Worker source; cause not found, pre.js unchanged).
+  'Graphics device lost' 14 fatals, 11 Apple ('device lost: destroyed': Safari tearing the device down, 2 s-2500 s in),
+  2 Chrome 'unknown A valid external Instance reference no longer exists': now the box restarts on WebGL by itself
+  after 4 s, tab visible, once per 2 min (sessionStorage mc3.autoRestart; not for 'GPU stopped responding', whose
+  picture may come back). 'No picture after N s' 15: the 90 s clock ran through a hidden tab (now hidden time does not
+  count); the rest are boot reads that never arrived (default.xbe 'no data for 4 s (direct)', 'Failed to fetch',
+  OPFS cache InvalidStateError on Android 10 Chrome): network, not fixed.
   'Script error.' (2026-11-12, untested in a browser): WebKit gives the
   page only that for any error without a script address (wasm trap, engine
   error), not just other origins' scripts (8 iPhone logs). web/pre.js wraps
@@ -1712,6 +1721,23 @@ only with MC3_PERF, their only reader.
   when a thread is in sub_004165A0, the event is clear and DMA_GET == PUT
   has held 500 ms ('[D3D] NOP trap wait: ...'); harmless when nobody waits
   (the event is cleared before each use). MC3_NOP_WAIT_FIX=0 off.
+  That fix works where it fires (2026-11-17 logs: 5 times, the game went on
+  each time). The main thread still sat at 0x4166FF in 38 of 585 logs, but
+  another class: 31 of 35 with a watchdog line (Apple WebGPU: iPhone, iPad,
+  Mac) read 'executor waiting for ring space; GPU 1 of 2; render thread
+  between turns (last at turn end)'. The renderer stopped, the executor
+  filled the ring, and the fence wait had nothing to wait for, so GET == PUT
+  never held. Each one follows a burst of new pipelines ('slow frame N ms,
+  51 pipelines made (30 asynchronously), 380 skipped'). Stalls lasted
+  5-10 s, some ended at 30.0-33 s ('slow frame 30047 ms, 1 pipelines
+  made'). Cause (likely, not proven; fix untested in a browser): WebKit
+  compiles a pipeline inside the createRenderPipelineAsync call and resolves
+  at once, and web/wgpu.js started the next queued one from the .then. That
+  chained the whole queue in microtasks with no turn in between. The 30 s
+  matches what is believed to be WebKit's GPU IPC send timeout. Now no start
+  comes from a resolution; frame ends pump, at most A_FRAME = 1 start a
+  frame (live misses too, their own queue aNow first). Pop-in lasts longer
+  in bursts on every browser.
 
 - Career loading-screen hang (found 2026-10-21, fix under test): the main
   thread spun in D3D's fence wait (sub_003DF4D0, loop at 0x003DF607) while
