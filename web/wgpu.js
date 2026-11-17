@@ -169,7 +169,7 @@ addToLibrary({
     shaders: null, pipes: null, pipeByKey: null, bgl1: null, pl: null, bg1: null,
     smps: null, fbgl: null, fmods: null, fpipes: null, fillState: null, ps: null,
     pend: [], lastT: 0, fPipes: 0, fAsync: 0,
-    aQ: [], aRun: 0, A_MAX: 3, SYNC_MAX: 2, syncLeft: 2, fSkip: 0,
+    aQ: [], aNow: [], aRun: 0, A_MAX: 3, A_FRAME: 1, aLeft: 1, SYNC_MAX: 2, syncLeft: 2, fSkip: 0,
 
     log(s) { err('[WGPU] ' + s); },
     once(key, s) { if (!WGPU.said.has(key)) { WGPU.said.add(key); WGPU.log(s); } },
@@ -598,15 +598,26 @@ addToLibrary({
       e.desc = null;
       W.statPipe();
     },
-    // started now (now: a live miss, ahead of the queue) or queued while
-    // A_MAX are unresolved; pumpAsync starts the queue's next as one resolves
+    // started now, or queued (now: a live miss, aNow, taken before the
+    // prewarm's aQ) while A_MAX are unresolved or this frame started its
+    // A_FRAME; pumpAsync, at each frame's end, starts the queues' next.
+    // Never from the promise's resolution (2026-11-17, Apple WebGPU freezes,
+    // 'render thread between turns'): WebKit compiles inside the
+    // createRenderPipelineAsync call and resolves at once, so a pump in .then
+    // chained the whole queue in microtasks without a turn (5-30 s; the
+    // executor then waited for ring space, the game's D3D in its NOP-trap
+    // wait); each start there blocks the thread, so at most A_FRAME a frame.
     pipeAsync(e, now) {
       var W = WGPU, d = e.desc;
-      if (!W.dev || (e.queued && !now)) return;
-      if (!now && W.aRun >= W.A_MAX) { e.queued = true; W.aQ.push(e); return; }
+      if (!W.dev || !d) return;
+      if (W.aRun >= W.A_MAX || W.aLeft <= 0) {
+        if (now && !e.qNow) { e.qNow = true; W.aNow.push(e); }
+        else if (!now && !e.queued) { e.queued = true; W.aQ.push(e); }
+        return;
+      }
       e.desc = null; e.async = d;      // kept for a render-to-texture SET_PIPE before it resolves (made sync then)
-      W.aRun++;
-      var fin = () => { e.async = null; W.aRun--; W.pumpAsync(); };
+      W.aRun++; W.aLeft--;
+      var fin = () => { e.async = null; W.aRun--; };
       W.dev.createRenderPipelineAsync(d).then((p) => {
         if (!e.gpu && !e.bad) e.gpu = p;
         fin();
@@ -619,9 +630,9 @@ addToLibrary({
     },
     pumpAsync() {
       var W = WGPU;
-      while (W.dev && W.aRun < W.A_MAX && W.aQ.length) {
-        var e = W.aQ.shift();
-        e.queued = false;
+      while (W.dev && W.aRun < W.A_MAX && W.aLeft > 0 && (W.aNow.length || W.aQ.length)) {
+        var e = W.aNow.length ? W.aNow.shift() : W.aQ.shift();
+        e.queued = e.qNow = false;     // one in both queues: its second entry finds no desc
         if (!e.gpu && !e.bad && e.desc) W.pipeAsync(e);   // made meanwhile (a SET_PIPE): nothing to do
       }
     },
@@ -1080,8 +1091,10 @@ addToLibrary({
           W.log('slow frame ' + Math.round(tEnd - W.lastT) + ' ms, ' + W.fPipes + ' pipelines made'
                 + (W.fAsync ? ' (' + W.fAsync + ' asynchronously)' : '')
                 + (W.fSkip ? ', ' + W.fSkip + ' pipelines skipped' : '')
-                + (W.aQ.length ? ', ' + W.aQ.length + ' queued' : ''));
+                + (W.aQ.length + W.aNow.length ? ', ' + (W.aQ.length + W.aNow.length) + ' queued' : ''));
         W.lastT = tEnd; W.fPipes = 0; W.fAsync = 0; W.fSkip = 0; W.syncLeft = W.SYNC_MAX;
+        W.aLeft = W.A_FRAME;
+        W.pumpAsync();
       }
       U[W.ci('frames_presented')] += presented;
       U[W.ci('st_cmds')] += n;
