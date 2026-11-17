@@ -41,6 +41,7 @@
 <script src="rtc.js"></script>
 <script src="touch.js"></script>
 <script src="cloud.js"></script>   <!-- cloud saves (keyphrase): window.MC3Cloud; missing = no Cloud saves block -->
+<script src="chat.js"></script>    <!-- in-game chat, whispers, friends: window.MC3Chat; missing = no chat -->
 <title>mcdub3.xyz</title>
 <style>
   /* the start page (2026-11-14): a dark full-bleed page, a big italic condensed menu on the left (the picked item on a
@@ -406,6 +407,76 @@
   #drift-dlg h3 { margin: 14px 0 2px; font-size: 15px; }
   #drift-dlg .ds-save { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   #drift-dlg .ds-save select, #drift-dlg .ds-save input { flex: 1 1 8rem; min-height: 40px; font-size: 16px; min-width: 0; }
+  /* Chat (web/chat.js builds both, places them from the picture's rect): #chat-log, a few faded lines and the chip at the
+     picture's top left, only the chip takes the pointer; #chat-dlg, the panel, non-modal in the same spot, see-through */
+  #chat-log { position: absolute; left: 0; top: 0; z-index: 1; pointer-events: none; display: flex; flex-direction: column; align-items: flex-start;
+              gap: .2em; overflow: hidden; font: 600 1em/1.3 var(--display); color: #fff; }
+  #chat-chip { pointer-events: auto; cursor: pointer; touch-action: manipulation; display: inline-flex; align-items: center; gap: .3em;
+               padding: .15em .55em; border-radius: 1em; background: rgba(0, 0, 0, .5); border: 1px solid rgba(255, 255, 255, .22);
+               color: #fff; opacity: .55; transition: opacity .2s; }
+  #chat-chip:hover, #chat-chip:has(.cl-badge) { opacity: 1; }
+  .cl-lines { display: flex; flex-direction: column; align-items: flex-start; gap: .15em; max-width: 100%; min-height: 0; }
+  .cl-line { max-width: 100%; padding: .05em .45em; border-radius: 3px; background: rgba(0, 0, 0, .38); text-shadow: 0 1px 2px #000;
+             overflow-wrap: anywhere; transition: opacity 1.2s; }
+  .cl-line.fade { opacity: 0; }
+  .cl-line .cn { font-weight: 700; color: #fff; }
+  .cl-line.k-r .cn { color: #6fe3ff; }
+  .cl-line.k-w, .cl-line.k-w .cn { color: #d2b4ff; }
+  .cl-line.own .cn { color: #b9bcc4; }
+  .cl-line.k-n { color: #ffd27a; font-style: italic; }
+  .cl-line.st-wait { opacity: .6; }
+  .cl-line.st-failed { opacity: .75; }
+  .cl-line.st-failed .cl-why { color: var(--bad); }
+  .cl-tag { margin-right: .3em; opacity: .85; }
+  .cl-badge { display: inline-block; min-width: 1.3em; padding: 0 .35em; border-radius: 1em; background: var(--accent); color: #fff;
+              font: 700 .8em/1.4 var(--font); text-align: center; text-shadow: none; }
+  #chat-dlg { position: absolute; inset: auto; left: 0; top: 0; margin: 0; padding: 0; z-index: 3; width: 340px; max-height: 50%;
+              flex-direction: column; overflow: hidden; color: var(--text); font: 14px/1.35 var(--font);
+              background: rgba(12, 12, 16, .8); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+              border: 1px solid rgba(255, 255, 255, .14); border-top: 2px solid var(--accent); border-radius: 6px; box-shadow: 0 8px 28px rgba(0, 0, 0, .55); }
+  #chat-dlg[open] { display: flex; }
+  .ch-head { flex: none; display: flex; align-items: center; gap: 2px; padding: 2px 4px 0; border-bottom: 1px solid var(--line); }
+  .ch-tab { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--muted); cursor: pointer; white-space: nowrap;
+            font: 700 14px/1 var(--display); letter-spacing: .05em; text-transform: uppercase; padding: 8px 9px 6px; }
+  .ch-tab:hover { color: var(--text); }
+  .ch-tab[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
+  .ch-tab .cl-badge { margin-left: 5px; }
+  .ch-acts { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 8px; background: var(--raise); border-bottom: 1px solid var(--line); }
+  .ch-body { flex: 1 1 auto; min-height: 80px; overflow-y: auto; overscroll-behavior: contain; padding: 6px 8px; touch-action: pan-y;
+             scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .3) transparent; }
+  .ch-body .cl-line { padding: 1px 0; background: none; text-shadow: none; font: 14px/1.35 var(--font); }
+  .ch-body [data-name] { cursor: pointer; }
+  .ch-body [data-name]:hover { text-decoration: underline; }
+  .ch-hint { margin: 6px 0; color: var(--muted); font-size: 13px; }
+  .ch-h { margin: 10px 0 2px; font: 700 12px/1.2 var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .ch-h:first-child { margin-top: 2px; }
+  .ch-row { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--line); }
+  .ch-row > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ch-row small { color: var(--muted); }
+  .ch-row.ch-pick { cursor: pointer; }
+  .ch-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--edge); }
+  .ch-dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+  .ch-btn { flex: none; min-height: 28px; padding: 0 9px; border: 1px solid var(--edge); border-radius: 3px; background: var(--raise); color: var(--text);
+            font: 600 12px/1 var(--font); cursor: pointer; }
+  .ch-btn:hover, .ch-btn:focus-visible { border-color: var(--accent-hi); }
+  .ch-btn:disabled { opacity: .45; cursor: default; }
+  .ch-x { margin-left: auto; background: none; border-color: transparent; font-size: 18px; color: var(--muted); }
+  .ch-foot { flex: none; display: grid; gap: 6px; padding: 6px 8px 8px; border-top: 1px solid var(--line); }
+  .ch-send { display: flex; align-items: center; gap: 6px; }
+  .ch-pill { flex: none; display: inline-flex; align-items: center; gap: 2px; max-width: 45%; padding: 1px 2px 1px 9px; border-radius: 1em;
+             background: rgba(150, 100, 255, .22); color: #d2b4ff; font-size: 12px; white-space: nowrap; overflow: hidden; }
+  .ch-pill .ch-btn { min-height: 22px; padding: 0 6px; background: none; border: 0; color: inherit; }
+  .ch-in { flex: 1 1 auto; min-width: 0; min-height: 34px; padding: 0 9px; font-size: 16px; color: var(--text); background: var(--field);
+           border: 1px solid var(--edge); border-radius: 3px; }   /* 16px: iOS does not zoom the page on focus */
+  .ch-in:focus { outline: none; border-color: var(--accent-hi); }
+  .ch-go { min-height: 34px; background: var(--red); border-color: var(--red); }
+  .ch-quick { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  .ch-quick .ch-btn { border-radius: 1em; background: rgba(255, 255, 255, .06); }
+  .ch-info { display: flex; gap: 8px; align-items: baseline; min-height: 1.1em; font-size: 12px; color: var(--muted); }
+  .ch-info .ch-msg { flex: 1 1 auto; }
+  .ch-msg.bad { color: var(--bad); }
+  .ch-count { font-variant-numeric: tabular-nums; }
+  @media (pointer: coarse) { #chat-chip { min-height: 32px; min-width: 44px; justify-content: center; } .ch-btn { min-height: 36px; } .ch-tab { padding: 11px 10px 8px; } }
   /* in-game Settings (2026-11-12): title bar, the sections' nav (left; on top when narrow), one pane that scrolls,
      a footer with Restart and Close. The dialog has a fixed height so it does not jump between sections. */
   #settings-dlg { width: min(760px, calc(100% - 16px - env(safe-area-inset-left) - env(safe-area-inset-right)));
@@ -439,7 +510,7 @@
   .btn.sw[aria-pressed=true]::before { content: "On"; }
   /* Buttons on screen (hudSync): pre.js's players chip and invites inbox set display inline, so !important; the ring of a
      control the controller moved to (padFocus): script focus shows no :focus-visible after a mouse click */
-  .stage.no-players > div[title="Players online"], .stage.no-invites > div[title="Race invites"] { display: none !important; }
+  .stage.no-players > div[title="Players online"], .stage.no-invites > div[title="Race invites"], .stage.no-chat > #chat-log { display: none !important; }
   .pad-focus { outline: 3px solid var(--gold) !important; outline-offset: 2px; }
   #settings-dlg .ig-sub { margin: 16px 0 0; font-size: 14px; color: var(--muted); }
   .ig-tag { margin-left: 8px; font: 700 10px/16px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
@@ -912,6 +983,8 @@
       </div>
       <div role="tabpanel" data-pane="ig-fr">
         <div id="ig-roam"></div>
+        <div class="set"><div><span class="set-label">Chat</span><p class="hint one">Opens the chat (U on the keyboard): city chat, whispers, friends, quick phrases for a controller.</p></div>
+          <button type="button" class="btn" id="chat-btn" aria-haspopup="dialog" aria-controls="chat-dlg">Chat</button></div>
       </div>
       <div role="tabpanel" data-pane="ig-input">
         <div class="set"><div><label class="set-label" for="pad-sel-bar">Controller</label><p class="hint one">Which controller this tab plays with.</p></div>
@@ -1058,6 +1131,9 @@
     { key: 'MC3_CAREER_ONLINE', label: 'Online career', help: 'Show and meet online players in your career\'s city. Changes live.', opts: ONOFF('On') },
     { key: 'MC3_RACE_INVITES', label: 'Race invites', help: 'Off: other players\' street and group race invites never reach you (they are told you are busy at once). Your own invites and races from start points are unchanged. Changes live.', opts: ONOFF('On') },
     { key: 'MC3_ROAM_GHOST', label: 'Ghost mode', help: 'On: other players’ cars in Free Roam and Online career pass through yours, you never hit them. Only on your side: a player who has it off still bumps into your car. Changes live.', opts: ONOFF('Off') },
+    // page-only (web/chat.js; buildEnv leaves MC3_CHAT* out of the game's environment)
+    { key: 'MC3_CHAT', label: 'Chat', help: 'Chat with the players of your city or race room in Free Roam and Online career: U opens it (Enter sends, Esc closes), with whispers, friends and Block in its panel. Not moderated. Off: no chat at all. Changes live.', opts: ONOFF() },
+    { key: 'MC3_CHAT_CITY', label: 'City chat', help: 'Off hides the open chat of your city or race room; whispers and friend requests still come. Changes live.', opts: ONOFF() },
     { key: 'MC3_NAMETAGS', label: 'Name tags', help: 'Each other player\'s name over their car in free roam (not hidden behind buildings). Changes live.', opts: ONOFF() },
     // page-only (web/pre.js name tags; the game ignores it): a slider with a sample tag (settingRow's range branch)
     { key: 'MC3_NAMETAG_SIZE', label: 'Name tag size', help: 'How big the names over other players\' cars are. Changes live.',
@@ -1191,13 +1267,13 @@
   // mipmaps on WebGPU only); touch rows are the page's own. Restart: the renderer, the memory layout (RAM, low-memory
   // profile) are chosen at start, and the texture detail bias is in every shader's text (live would recompile them all).
   const LIVE = new Set(['RECOMP_ASPECT', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_GL_SCALE', 'RECOMP_GL_ANISO',
-    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_ORBIT_CAM', 'MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_ROAM_GHOST', 'MC3_FX_BLUR', 'MC3_FX_GLOW', 'MC3_AI_DIFF', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD',
+    'RECOMP_GL_MIPS', 'MC3_60FPS', 'MC3_ROAM_CARS', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_ORBIT_CAM', 'MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_ROAM_GHOST', 'MC3_FX_BLUR', 'MC3_FX_GLOW', 'MC3_AI_DIFF', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD', 'MC3_CHAT', 'MC3_CHAT_CITY',
     ...['STEER', 'RESP', 'FGRIP', 'RGRIP', 'SPEED', 'REAR', 'COUNTER', 'STAB', 'HOLD', 'KEEP', 'CAM_K'].map(n => 'MC3_DRIFT_' + n)]);   // the Drift setup panel
   const LIVE_WGPU = new Set(['RECOMP_GL_SCALE', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS']);
   const live = k => LIVE.has(k) && !(LIVE_WGPU.has(k) && window.Module?.mc3Env?.RECOMP_GPU === 'webgl');
   const INGAME = [
     ['ig-graphics', ['RECOMP_ASPECT', 'RECOMP_GPU', 'RECOMP_GL_SCALE', 'MC3_60FPS', 'RECOMP_GL_ANISO', 'RECOMP_GL_MIPS', 'MC3_FX_BLUR', 'MC3_FX_GLOW', 'RECOMP_GL_LOD_BIAS', 'MC3_LOWMEM']],
-    ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_ROAM_GHOST', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'RECOMP_RAM_MB']],
+    ['ig-roam', ['MC3_CAREER_ONLINE', 'MC3_RACE_INVITES', 'MC3_ROAM_GHOST', 'MC3_ROAM_CARS', 'MC3_NAMETAGS', 'MC3_NAMETAG_SIZE', 'MC3_CHAT', 'MC3_CHAT_CITY', 'RECOMP_RAM_MB']],
     ['ig-controls', ['MC3_AI_DIFF', 'MC3_DRIFT', 'MC3_DRIFT_CAM', 'MC3_ORBIT_CAM', 'MC3_TOUCH', 'MC3_TOUCH_OPACITY', 'RECOMP_KEYBOARD']],
   ];
   function renderIngame() {
@@ -1218,6 +1294,7 @@
     if (key === 'RECOMP_ASPECT') window.Module?.mc3SetAspect?.(value || 'auto');   // web/pre.js -> nv2a_wgpu_aspect_box, live
     if (key.startsWith('MC3_DRIFT')) syncDrift();
     if (key === 'MC3_ORBIT_CAM') syncOrbit();
+    if (key.startsWith('MC3_CHAT')) window.MC3Chat?.sync();   // web/chat.js, live
     if (live(key) && window.Module?.mc3SetLive) Module.mc3SetLive(key, buildEnv(null)[key]);   // the value a start would get
     if (key.startsWith('MC3_TOUCH') && touch) {   // web/touch.js, live
       const { mode, opacity } = touchOpts();
@@ -1411,7 +1488,7 @@
         MC3_THREAD_STACK_KB: '1024', MC3_LOWMEM: '1' };   // MC3_LOWMEM: the renderer leaves hi-res texture packs off
       for (const k in d) if (env[k] === undefined) env[k] = d[k];
     }
-    for (const k of Object.keys(env)) if (k.startsWith('MC3_TOUCH') && k !== 'MC3_TOUCH_TRACE') delete env[k];   // the page's own (web/touch.js)
+    for (const k of Object.keys(env)) if ((k.startsWith('MC3_TOUCH') && k !== 'MC3_TOUCH_TRACE') || k.startsWith('MC3_CHAT')) delete env[k];   // the page's own (web/touch.js, web/chat.js)
     if (disc && !env.MC3_DISC_URL) env.MC3_DISC_URL = new URL(disc.path, location.href).href;
     const packs = mods[(disc || currentDisc())?.name];
     if (packs?.length && env.MC3_MODS === undefined) env.MC3_MODS = packs.filter(modOn).map(m => m.id).join(',');   // '' = none (src/games/remix/mods.c)
@@ -1440,6 +1517,7 @@
     l3: ['Left stick click', ['KeyZ']], r3: ['Right stick click', ['KeyC']],
     rup: ['Right stick up', ['KeyT', 'Numpad8']], rdown: ['Right stick down', ['KeyG', 'Numpad2']],
     rleft: ['Right stick left', ['KeyF', 'Numpad4']], rright: ['Right stick right', ['KeyH', 'Numpad6']],
+    chat: ['Open chat', ['KeyU']],   // the page's (web/chat.js), never the game's: keymapSync leaves it out
   };
   // KeyboardEvent.code -> SDL scancode (USB HID usage, as SDL's Emscripten_MapScanCode). Not offered: Escape (cancels),
   // F11/F12 (full screen, developer tools), Meta/OS keys, Num Lock.
@@ -1475,7 +1553,7 @@
   function keymapSync() {
     const saved = keymapSaved(), own = Object.keys(saved).some(id => BINDS[id]), pairs = [];
     keyExtra.clear();
-    if (own) for (const id in BINDS) for (const c of bindKeys(id, saved)) {
+    if (own) for (const id in BINDS) if (id !== 'chat') for (const c of bindKeys(id, saved)) {
       pairs.push([SCAN[c], SCAN[BINDS[id][1][0]]]);
       if (!/^(Key|Digit)/.test(c)) keyExtra.add(c);
     }
@@ -1535,6 +1613,7 @@
     ['Select (A)', ['a']], ['Right stick click (no known use)', ['r3']],
     ['#Page', []],
     ['Settings window, also with its button hidden (controller: hold the right stick click)', ['F2']],
+    ['Open chat (Enter sends, Esc closes; controller: Settings, Free Roam, Chat)', ['chat']],
     ['Settings with a controller: move, press, close, section', ['D-pad', 'Pad A', 'Pad B', 'LB / RB']],
   ];
   function renderKeys(ul, edit) {
@@ -3383,6 +3462,9 @@
     if (!lan || lan.state === 'offline') {
       lan?.rtc?.close?.();
       lan?.close(); lan = mc3Lan($('name').value.trim(), cfg?.lanUrl); lan.where?.(whereNow()); lan.on(lanShow);
+      window.MC3Chat?.attach({ lan, stage: $('stage'), canvas: $('canvas'), playing: () => playing, log: out,
+        keys: () => bindKeys('chat'), keyUsed: c => Object.keys(BINDS).some(id => id !== 'chat' && bindKeys(id).includes(c)),
+        settings: () => ({ on: settings.MC3_CHAT !== '0', city: settings.MC3_CHAT_CITY !== '0' }) });
       const rtc = window.mc3Rtc?.(lan, cfg?.iceServers), e = buildEnv(null);
       // low-memory profile: hidden 60 s = AFK (city socket and P2P channels closed; iOS/Android kill hidden game tabs)
       if (lowMem(e)) lan.afkHiddenMs = 60000;
@@ -3672,6 +3754,8 @@
   $('map-btn').onclick = () => { touch?.tapMap(); $('canvas').focus(); };
   $('ig-restart').onclick = () => { if (confirm('Restart the game? Anything not saved in the game is lost.')) restartGame({ resume: true }); };
   $('settings-close').onclick = () => dlg.close();
+  $('chat-btn').hidden = !window.MC3Chat;                 // no chat.js: no row (CSS :has)
+  $('chat-btn').onclick = () => { dlg.close(); window.MC3Chat?.open(); };
   dlg.onclick = e => { if (e.target === dlg || e.target.closest('#keys-btn, #races-btn, #players-btn, #log-btn, #full')) dlg.close(); };   // the backdrop is the dialog itself
   dlg.onclose = () => $('canvas').focus();                // the game keeps the keys
   $('quit').onclick = () => { if (confirm('Quit the game? Anything not saved in the game is lost.')) location.reload(); };
@@ -3685,6 +3769,7 @@
     ['map-btn', 'Map button', 'The map stays on d-pad up (I).'],
     ['no-players', 'Players chip', 'The players count on the picture\'s right edge (Free Roam map).'],
     ['no-invites', 'Race invites inbox', 'The envelope by the minimap; invites still show while offered.'],
+    ['no-chat', 'Chat', 'The chat lines and their button on the picture\'s top left; U still opens the chat.'],
   ];
   function hudSync() {
     const h = store.get('hud', {});
@@ -3771,7 +3856,7 @@
       if (!is.rightstick) r3t = 0;
       else if (!r3t) r3t = now;
       else if (r3t > 0 && now - r3t >= 600) { r3t = -1; toggleSettings(); if (dlg.open) padFocus(document.activeElement); return; }   // -1: once a hold
-      const d = ['fb-dlg', 'players-dlg', 'drift-dlg', 'settings-dlg'].map($).find(e => e.open && !e.classList.contains('docked'));
+      const d = ['fb-dlg', 'players-dlg', 'drift-dlg', 'settings-dlg', 'chat-dlg'].map($).find(e => e?.open && !e.classList.contains('docked'));
       window.Module?.mc3PadMute?.(!!d);                    // the game's pad reads neutral while a dialog uses it
       if (!d) { dirKey = ''; return; }
       const f = d.contains(document.activeElement) && document.activeElement !== d ? document.activeElement : null;
@@ -3915,7 +4000,7 @@
   // focus to Quit, where Enter or Space then pressed it. Inside an open dialog they are the page's (focus order, selects).
   const GAME_KEYS = new Set(['Tab', 'Enter', 'Space', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
   for (const t of ['keydown', 'keyup'])
-    addEventListener(t, e => { if (playing && (GAME_KEYS.has(e.code) || keyExtra.has(e.code)) && !e.target.closest?.('#races-panel, #players-dlg, #settings-dlg, #fb-dlg, #drift-dlg')) e.preventDefault(); }, true);
+    addEventListener(t, e => { if (playing && (GAME_KEYS.has(e.code) || keyExtra.has(e.code)) && !e.target.closest?.('#races-panel, #players-dlg, #settings-dlg, #fb-dlg, #drift-dlg, #chat-dlg')) e.preventDefault(); }, true);
   document.addEventListener('keydown', e => {
     if (e.key !== 'Enter' || playing || e.repeat) return;
     if (e.target.closest('input, select, textarea, button, a, summary')) return;

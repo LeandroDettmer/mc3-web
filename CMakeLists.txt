@@ -288,6 +288,7 @@ if(EMSCRIPTEN)
         configure_file(web/touch.js "${CMAKE_BINARY_DIR}/touch.js" COPYONLY)   # touch controls, phone page
         configure_file(web/disc_cache.js "${CMAKE_BINARY_DIR}/disc_cache.js" COPYONLY)
         configure_file(web/cloud.js "${CMAKE_BINARY_DIR}/cloud.js" COPYONLY)   # cloud saves (keyphrase)
+        configure_file(web/chat.js "${CMAKE_BINARY_DIR}/chat.js" COPYONLY)     # in-game chat, whispers, friends
     endif()
     set_property(TARGET ${PROJECT_NAME} APPEND PROPERTY LINK_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/web/pre.js;${CMAKE_CURRENT_SOURCE_DIR}/web/audio.js;${CMAKE_CURRENT_SOURCE_DIR}/web/net.js;${CMAKE_CURRENT_SOURCE_DIR}/web/disc_cache.js;${CMAKE_CURRENT_SOURCE_DIR}/web/wasmfs_fetch.js")

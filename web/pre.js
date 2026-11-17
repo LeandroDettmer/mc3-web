@@ -489,6 +489,10 @@ Module['mc3SaveResult'] = function (n) {
     } catch (e) { timer = setTimeout(put, 1000); }
   }
   Module['mc3SetKeyMap'] = function (pairs) { want = pairs || null; if (!timer) put(); };
+  // Lets every key go (a new seq): the chat panel (web/chat.js) takes the keys, and a key held as it opened must not stay down
+  Module['mc3ReleaseKeys'] = function () {
+    try { if (runtimeInitialized && typeof _xbox_keymap_box == 'function') Atomics.add(new Int32Array(HEAPU8.buffer), _xbox_keymap_box() >>> 2, 1); } catch (e) {}
+  };
 })();
 
 // A player's country flag as a small picture (flags.png from tools/flags_sheet.mjs: 48x36 flags, 16 a row, in the

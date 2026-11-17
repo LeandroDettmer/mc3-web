@@ -1446,6 +1446,14 @@ only with MC3_PERF, their only reader.
   RECOMP_GPU, RECOMP_RAM_MB, MC3_LOWMEM (renderer and memory layout are
   set at boot) and RECOMP_GL_LOD_BIAS (in every fragment shader's text and
   the OPFS pipeline list's keys: live would recompile every pipeline).
+- **Chat** (2026-11-17, untested in a browser; page only, web/chat.js after nfsu2-web's messages.ts,
+  docs/chat-plan.md, tools/test_chat.mjs): city/room chat, whispers, friends, block as JSON {"t":"chat"} on the
+  Switch socket (lan.js link.chat; the server relay is the plan's Task A); a Switch without it answers no done in
+  5 s -> 'Chat is not available on this server', input greyed. Nothing on the server: lines in memory, whispers
+  localStorage mc3.chat.w, friends mc3.friends, blocks mc3.chat.block. U (BINDS.chat, page-only, never in the game's
+  keymap) opens the non-modal #chat-dlg; its keys stopped, pre.js mc3ReleaseKeys bumps the keymap seq. Log at the
+  picture's top left inside the middle 16:9, 8-25% height (drift payout at 27%). Settings MC3_CHAT / MC3_CHAT_CITY
+  (page-only), HUD no-chat. '[chat] ...' lines never carry text.
 - **Hidden tab** (2026-11-12, untested in a browser): browsers throttle a
   hidden page's timers and rAF, never its workers, so a minimised game ran
   on at 30 fps (slow PCs, hot iPhones). web/pre.js writes document.hidden

@@ -112,6 +112,24 @@ Free roam for everyone on one server is planned, without a player limit.
 To play with friends from other PCs, the page has to be served over `https://`: the browser runs the game only on a
 secure page or on `localhost`.
 
+### Chat
+
+In Free Roam, an Online career or a race room, **U** opens the chat (change the key under Controls, Keys; with a
+controller: Settings, Free Roam, **Chat**). Type and press **Enter** to send, **Esc** closes it; while it is open the
+game does not see your keys. New lines show for a few seconds at the top left of the picture, under a small chat
+button with the unread count (a tap or click opens the panel too).
+
+- **Chat**: what the players of your city (or of your race room) say.
+- **Whispers**: private messages. Click a name, use **Whisper**, or type `/w name text`; `/r text` answers the last
+  whisper. They reach only a player who is online now (none are kept for later).
+- **Friends**: send **Add friend** on a player; when they accept, they stay your friend after renames and show online
+  with their city. Requests you get show here with **Accept**. **Block** hides a player's lines, whispers and requests.
+- The quick phrases under the input send at a tap (for a controller or a phone).
+
+Friends, whispers and blocks are kept in this browser only (a new browser starts empty). The chat is not moderated:
+use Block, or Settings, Free Roam, **City chat** Off (whispers stay) or **Chat** Off (none at all). Settings,
+Graphics, Buttons on screen, **Chat** hides the lines and their button.
+
 ## 6. Leaving
 
 The page's **Quit** button asks "Quit the game? Anything not saved in the game is lost." and, on confirmation, reloads the

@@ -84,7 +84,9 @@ These terms apply to Leandro Dettmer's code in this repository.
   `runtime/flags.dat`. Cloud saves (`web/cloud.js`, `tools/test_cloud_saves.mjs`) are ported from its passphrase
   saves (`vault.ts`, `vault-words.ts`, `test/vault.test.mjs`): the keyphrase, its PBKDF2 key and token, the AES-GCM
   box and the sync rules; its word list is EFF's short wordlist 1 by Joseph Bonneau and the EFF (CC BY 3.0 US,
-  <https://www.eff.org/dice>). nfsu2-web is itself
+  <https://www.eff.org/dice>). The in-game chat (`web/chat.js`, `tools/test_chat.mjs`) follows its friends'
+  messages (`messages.ts`): the store's shape (threads, caps, unread counts), the card that takes the keys while open
+  (Enter sends, Esc closes) and the server's sent/rate answers. nfsu2-web is itself
   based on NFSU2Recomp by Talha Müderrisoğlu (MIT).
 
 - **flag-icons** by Panayiotis Lipiridis (lipis/flag-icons 7.6.0), MIT ([LICENSES/flag-icons.txt](LICENSES/flag-icons.txt)).

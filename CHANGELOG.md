@@ -181,3 +181,4 @@ internals. The page header shows the first release (9 November 2026); each later
 - **Mac, iPhone, iPad:** No more long freezes while the game prepares new graphics.
 - **Free Roam:** Fixed another crash when other players' cars were rebuilt.
 - **Graphics:** When the browser drops the graphics card, the game restarts on its own in compatibility mode.
+- **Online:** Chat in game: press U to talk to the players of your city or race room, whisper anyone, add friends and block players.

@@ -21,6 +21,8 @@
 //   link.create({name, pass, city, mode, max}) / link.join(id, pass) / link.leave()
 //   link.signal(to, kind, data) / link.onsignal = m => ...   // step 2 (WebRTC), relayed inside the race only
 //   link.onMsg(m => ...) / link.sendMsg(m) // every JSON control message in / one out (docs/races-protocol.md)
+//   link.chat(m)                     // a chat message (web/chat.js, docs/chat-plan.md) on this switch socket, never the city's;
+//                                    // false while offline. The switch's {"t":"chat"} answers come through onMsg.
 //   link.rtc                         // set by mc3Rtc (web/rtc.js): net.js sends System Link's frames through it
 // Free roam per city (web/lan-worker/src/city.js): when the switch's welcome says roamCity, free roam's frames and
 // signals go over a second socket, straight to the city's own object:
@@ -325,6 +327,7 @@ window.mc3Lan = function (name, lanUrl) {
   link.askRoam = function () { if (up()) ws.send(JSON.stringify({ t: 'roam' })); };
   link.onMsg = function (f) { msgFns.push(f); };   // every control message (rooms, signal: web/rtc.js)
   link.sendMsg = function (m) { if (m && m.t == 'rooms') sub = m.sub ? 1 : 0; if (up()) ws.send(JSON.stringify(m)); };
+  link.chat = function (m) { if (!up()) return false; ws.send(JSON.stringify(m)); return true; };
   function ctl(m) { if (!up()) return false; link.error = null; ws.send(JSON.stringify(m)); return true; }
   link.create = function (o) { o = o || {}; pass = o.pass || ''; return ctl({ t: 'create', name: o.name || '', pass: o.pass || '', city: o.city || '', mode: o.mode || '', max: o.max || 8 }); };
   link.join = function (id, p) { pass = p || ''; auto = false; return ctl({ t: 'join', room: id, pass: pass }); };
