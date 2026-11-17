@@ -2768,6 +2768,21 @@
     }
     m.onclick = () => m.remove();
     ($('stage').hidden ? document.body : $('stage')).append(m);
+    // A lost WebGPU device (Safari 'destroyed': 10 of 14 logs, 2026-11-17) leaves nothing to look at: restart on WebGL by
+    // itself 4 s after the box (the log is on its way), once the tab is visible, at most once in 2 minutes (no loop).
+    if (/\[WGPU\] device lost/.test(why)) {
+      let last = 0;
+      try { last = +sessionStorage.getItem('mc3.autoRestart') || 0; } catch {}
+      if (Date.now() - last > 120000) {
+        p.textContent = 'Restarting on WebGL in a moment. ' + p.textContent;
+        const go = () => {
+          if (document.hidden) return setTimeout(go, 1000);
+          try { sessionStorage.setItem('mc3.autoRestart', String(Date.now())); } catch {}
+          restartGame({ webgl: true, resume: !!resumeFresh() });
+        };
+        setTimeout(go, 4000);
+      }
+    }
   }
   // Crash tracing (2026-11-10): every failure, page error after boot, freeze and killed tab sends the log by itself
   // to the log store (config.json logUrl; .deploy/worker.js POST /logs?tag=, at most 10 an hour per address), with a
@@ -3124,9 +3139,14 @@
         // Progress-aware (issue #4, Galaxy S23 Ultra, cold cache on a slow link: disc reads of 1-8 s each were still
         // advancing at 90 s): from 90 s, keep waiting while a disc line came in the last 60 s (overlay says slow
         // connection); fail with no disc line for 60 s, or at the 10 min cap. The game runs on behind the box.
+        // Time with the tab hidden does not count (2026-11-17: FVYNHA hid at 52 s and got the box at 91): the clock and
+        // the disc-idle mark both move on by the hidden stretch.
+        let tick = performance.now(), hid = 0;
         const pw = setInterval(() => {
           if (window.Module?.mc3Frames?.() > 0 || failBox) { clearInterval(pw); bootSlow = false; return; }
-          const el = performance.now() - tRuntime;
+          const now = performance.now(), dt = now - tick; tick = now;
+          if (document.hidden) { hid += dt; discAt += dt; return; }
+          const el = now - tRuntime - hid;
           if (el < 90000) return;
           const idle = performance.now() - discAt;
           if (el < 600000 && idle < 60000) { bootSlow = true; return; }
