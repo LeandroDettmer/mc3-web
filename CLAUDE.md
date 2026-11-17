@@ -459,14 +459,26 @@ generated files when the lift inputs did not change.
   2026-11-12, every iPhone ran 40 before, each a JS heap; '[WEB] workers: N'
   logs each new peak; since 2026-11-14 a worker whose thread ended is
   terminated while more than 16 exist, pre.js, not a hard cap: a refused
-  pthread_create breaks the game), RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
+  pthread_create breaks the game; it never fired: see the leak below),
+  RECOMP_GL_SCALE 1, RECOMP_RAM_MB 64, MC3_ROAM_CARS 7,
   MC3_DISC_MEM_MB 8 (disc LRU, default 48; 16 until 2026-11-14), hidden 60 s
   = AFK (lan.afkHiddenMs, below; city socket and P2P channels closed), WebGL
   without asking for a WebGPU adapter where deviceMemory <= 2 (desktops too),
   background fill and learned fill from 60 s after the first frame (2026-11-14,
   untested in a browser: 146 previous-crash logs, wasm 202-286 MB of 1 GB, so
   process kills: Android 15-165 s after Play, 'workers: 22' in 27, iOS hidden
-  or in a busy Free Roam), MC3_PREFETCH=cars (since 2026-11-14 the background fill takes assets_x.dat_2, 233 MiB once, and the music track starts, ~206 MiB, nothing else; on every profile a file whose reads kept the game waiting 2 s in all is then fetched whole in the background, learned fill, not movies, <= 400 MiB a file, 1 GiB a session, "[WEB] prefetch: <file> kept the game waiting ..."): phones read each new car model on demand, ~1.4 s a block from R2 under the guest lock, 3.6-6.9 s frozen per new car; was 0), no 60 fps, light
+  or in a busy Free Roam). Worker leak (2026-11-17, fix untested in a
+  browser): 318 previous-crash logs of one night (iOS 171, Android 61, Win
+  15, Mac 13; 194 'no Free Roam yet'; iOS/Android wasm 1024 MB, Win 2048;
+  wasm in use <= 256 MB low profile, 410 PC) had 17-40+ workers, 231 of
+  265 heartbeats with every worker 'running', growing with each load
+  screen: win32_compat.c CreateThread made joinable pthreads nobody joins,
+  and Emscripten returns an exited joinable thread's Worker to the pool
+  only at pthread_join, so every guest thread ever made (loading screen
+  0x1BBF0, XACT streams 0x3ADCE0, ~14 by 3-4 min, PsTerminateSystemThread
+  or not) kept its Worker (own JS heap + wasm instance). Now detached on
+  the web (TerminateThread skips pthread_cancel once exited); the
+  '[WEB] workers: N (R running)' peak should stop climbing with each load. MC3_PREFETCH=cars (since 2026-11-14 the background fill takes assets_x.dat_2, 233 MiB once, and the music track starts, ~206 MiB, nothing else; on every profile a file whose reads kept the game waiting 2 s in all is then fetched whole in the background, learned fill, not movies, <= 400 MiB a file, 1 GiB a session, "[WEB] prefetch: <file> kept the game waiting ..."): phones read each new car model on demand, ~1.4 s a block from R2 under the guest lock, 3.6-6.9 s frozen per new car; was 0), no 60 fps, light
   filtering. Loading overlay (2026-11-13, untested in a browser; index.html bootStart/bootWhat, #boot-load,
   page-only, no wasm access): from Play to the first frame (mc3Frames > 0, polled 250 ms) a box over the
   picture: the .wasm download MB (bytes counted through a TransformStream into compileStreaming;
